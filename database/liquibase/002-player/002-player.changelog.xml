@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Player domain: player_profiles — see /docs/14-PLAYER-PROFILE-SPECIFICATION.md and
+     /docs/05-DATABASE-BLUEPRINT.md. Scoped to fields with no unmet prerequisite:
+     province/city are free text here (not the normalized provinces/cities lookup
+     tables from the blueprint's Supporting Tables — no real Philippine geographic
+     reference data is loaded yet, so normalizing now would just be an empty FK).
+     avatar_media_id is deliberately omitted — no media/storage feature exists yet. -->
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+    <changeSet id="0001-create-player-profiles-table" author="player-profiles">
+        <createTable tableName="player_profiles">
+            <column name="id" type="uuid" defaultValueComputed="gen_random_uuid()">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="user_id" type="uuid">
+                <constraints
+                    nullable="false"
+                    unique="true"
+                    uniqueConstraintName="uq_player_profiles_user_id"
+                    foreignKeyName="fk_player_profiles_user"
+                    references="users(id)"/>
+            </column>
+            <column name="display_name" type="text">
+                <constraints nullable="false"/>
+            </column>
+            <column name="first_name" type="text"/>
+            <column name="last_name" type="text"/>
+            <column name="bio" type="text"/>
+            <column name="province" type="text"/>
+            <column name="city" type="text"/>
+            <column name="dominant_hand" type="text"/>
+            <column name="preferred_position" type="text"/>
+            <column name="profile_visibility" type="text" defaultValue="public">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_at" type="timestamptz" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+            <column name="updated_at" type="timestamptz" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+            <column name="deleted_at" type="timestamptz"/>
+        </createTable>
+    </changeSet>
+
+    <changeSet id="0002-player-profiles-visibility-check" author="player-profiles">
+        <sql>
+            ALTER TABLE player_profiles
+                ADD CONSTRAINT ck_player_profiles_visibility
+                CHECK (profile_visibility IN ('public', 'private'));
+        </sql>
+        <rollback>
+            ALTER TABLE player_profiles DROP CONSTRAINT ck_player_profiles_visibility;
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

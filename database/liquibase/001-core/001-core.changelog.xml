@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Core domain: users, oauth_accounts, user_devices — see /docs/05-DATABASE-BLUEPRINT.md.
+     Authentication credentials stay with the auth provider; these tables are the
+     application-level identity reference only. -->
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+    <changeSet id="0001-create-users-table" author="core-foundation">
+        <createTable tableName="users">
+            <column name="id" type="uuid" defaultValueComputed="gen_random_uuid()">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="email" type="text">
+                <constraints nullable="false" unique="true" uniqueConstraintName="uq_users_email"/>
+            </column>
+            <column name="phone_number" type="text"/>
+            <column name="status" type="text" defaultValue="active">
+                <constraints nullable="false"/>
+            </column>
+            <column name="email_verified_at" type="timestamptz"/>
+            <column name="last_login_at" type="timestamptz"/>
+            <column name="created_at" type="timestamptz" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+            <column name="updated_at" type="timestamptz" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
+
+    <changeSet id="0002-create-oauth-accounts-table" author="core-foundation">
+        <createTable tableName="oauth_accounts">
+            <column name="id" type="uuid" defaultValueComputed="gen_random_uuid()">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="user_id" type="uuid">
+                <constraints nullable="false" foreignKeyName="fk_oauth_accounts_user" references="users(id)"/>
+            </column>
+            <column name="provider" type="text">
+                <constraints nullable="false"/>
+            </column>
+            <column name="provider_user_id" type="text">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_at" type="timestamptz" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+            <column name="updated_at" type="timestamptz" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
+
+    <changeSet id="0003-oauth-accounts-unique-provider-identity" author="core-foundation">
+        <addUniqueConstraint
+            tableName="oauth_accounts"
+            columnNames="provider, provider_user_id"
+            constraintName="uq_oauth_accounts_provider_identity"/>
+    </changeSet>
+
+    <changeSet id="0004-oauth-accounts-index-user" author="core-foundation">
+        <createIndex tableName="oauth_accounts" indexName="idx_oauth_accounts_user_id">
+            <column name="user_id"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="0005-create-user-devices-table" author="core-foundation">
+        <createTable tableName="user_devices">
+            <column name="id" type="uuid" defaultValueComputed="gen_random_uuid()">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="user_id" type="uuid">
+                <constraints nullable="false" foreignKeyName="fk_user_devices_user" references="users(id)"/>
+            </column>
+            <column name="platform" type="text">
+                <constraints nullable="false"/>
+            </column>
+            <column name="push_token" type="text"/>
+            <column name="app_version" type="text"/>
+            <column name="last_seen_at" type="timestamptz"/>
+            <column name="created_at" type="timestamptz" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+            <column name="updated_at" type="timestamptz" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
+
+    <changeSet id="0006-user-devices-index-user" author="core-foundation">
+        <createIndex tableName="user_devices" indexName="idx_user_devices_user_id">
+            <column name="user_id"/>
+        </createIndex>
+    </changeSet>
+
+</databaseChangeLog>

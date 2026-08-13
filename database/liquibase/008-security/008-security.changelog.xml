@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Cross-cutting security: RLS policies, audit_logs. Per /docs/07-SECURITY-ARCHITECTURE.md,
+     exact RLS policies are created with each feature rather than one generic policy;
+     this changelog collects those policy changesets as features land. -->
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+    <!-- Core domain (users, oauth_accounts, user_devices): every row is owned by exactly
+         one authenticated user, so RLS is a straightforward owner check against auth.uid(). -->
+
+    <changeSet id="0001-core-enable-rls" author="core-foundation">
+        <sql>
+            ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+            ALTER TABLE oauth_accounts ENABLE ROW LEVEL SECURITY;
+            ALTER TABLE user_devices ENABLE ROW LEVEL SECURITY;
+        </sql>
+        <rollback>
+            ALTER TABLE users DISABLE ROW LEVEL SECURITY;
+            ALTER TABLE oauth_accounts DISABLE ROW LEVEL SECURITY;
+            ALTER TABLE user_devices DISABLE ROW LEVEL SECURITY;
+        </rollback>
+    </changeSet>
+
+    <changeSet id="0002-core-users-policies" author="core-foundation">
+        <sql>
+            CREATE POLICY users_select_own ON users
+                FOR SELECT
+                USING (id = auth.uid());
+
+            CREATE POLICY users_update_own ON users
+                FOR UPDATE
+                USING (id = auth.uid())
+                WITH CHECK (id = auth.uid());
+        </sql>
+        <rollback>
+            DROP POLICY IF EXISTS users_select_own ON users;
+            DROP POLICY IF EXISTS users_update_own ON users;
+        </rollback>
+    </changeSet>
+
+    <changeSet id="0003-core-oauth-accounts-policies" author="core-foundation">
+        <sql>
+            CREATE POLICY oauth_accounts_manage_own ON oauth_accounts
+                FOR ALL
+                USING (user_id = auth.uid())
+                WITH CHECK (user_id = auth.uid());
+        </sql>
+        <rollback>
+            DROP POLICY IF EXISTS oauth_accounts_manage_own ON oauth_accounts;
+        </rollback>
+    </changeSet>
+
+    <changeSet id="0004-core-user-devices-policies" author="core-foundation">
+        <sql>
+            CREATE POLICY user_devices_manage_own ON user_devices
+                FOR ALL
+                USING (user_id = auth.uid())
+                WITH CHECK (user_id = auth.uid());
+        </sql>
+        <rollback>
+            DROP POLICY IF EXISTS user_devices_manage_own ON user_devices;
+        </rollback>
+    </changeSet>
+
+    <!-- Player domain (player_profiles): unlike core's owner-only tables, this one is
+         genuinely visible to others when marked public — a player's whole point is to be
+         discoverable. Two permissive policies combine with OR: the owner can always do
+         anything to their own row, and anyone (including anonymous) can SELECT rows the
+         owner has marked public. -->
+
+    <changeSet id="0005-player-profiles-enable-rls" author="player-profiles">
+        <sql>ALTER TABLE player_profiles ENABLE ROW LEVEL SECURITY;</sql>
+        <rollback>ALTER TABLE player_profiles DISABLE ROW LEVEL SECURITY;</rollback>
+    </changeSet>
+
+    <changeSet id="0006-player-profiles-policies" author="player-profiles">
+        <sql>
+            CREATE POLICY player_profiles_manage_own ON player_profiles
+                FOR ALL
+                USING (user_id = auth.uid())
+                WITH CHECK (user_id = auth.uid());
+
+            CREATE POLICY player_profiles_select_public ON player_profiles
+                FOR SELECT
+                USING (profile_visibility = 'public');
+        </sql>
+        <rollback>
+            DROP POLICY IF EXISTS player_profiles_manage_own ON player_profiles;
+            DROP POLICY IF EXISTS player_profiles_select_public ON player_profiles;
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

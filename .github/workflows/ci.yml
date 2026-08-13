@@ -1,0 +1,110 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    name: Web (lint, typecheck, unit, e2e, build)
+    runs-on: ubuntu-latest
+    env:
+      # Placeholder Supabase config — no real project exists yet, and none of the
+      # web/e2e checks below exercise a live auth flow. Without *some* value here
+      # the Supabase client throws on missing URL and the app fails to boot.
+      NUXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+      NUXT_PUBLIC_SUPABASE_KEY: placeholder-anon-key
+      NUXT_SUPABASE_SECRET_KEY: placeholder-service-key
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint --workspace apps/web
+
+      - name: Typecheck
+        run: npm run typecheck --workspace apps/web
+
+      - name: Unit tests
+        run: npm run test:unit --workspace apps/web
+
+      - name: Install Playwright browsers
+        working-directory: apps/web
+        run: npx playwright install --with-deps chromium
+
+      - name: Build
+        run: npm run build --workspace apps/web
+
+      - name: E2E tests
+        env:
+          CI: true
+        run: npm run test:e2e --workspace apps/web
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: apps/web/playwright-report/
+          retention-days: 7
+
+  database:
+    name: Database (Liquibase changelog validate)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: liquibase
+          POSTGRES_PASSWORD: liquibase
+          POSTGRES_DB: dinkandladder
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Stub Supabase's auth schema for plain Postgres
+        # This CI Postgres instance is vanilla postgres:16, not a real Supabase project, so it
+        # has no `auth` schema or `auth.uid()` function. Our RLS policies (008-security) reference
+        # auth.uid() because that's what runs in production. This stub exists ONLY to let the
+        # changelog apply cleanly here — it is never part of the versioned Liquibase changesets
+        # and must never be run against a real Supabase database (which already has the real one).
+        env:
+          PGPASSWORD: liquibase
+        run: |
+          psql -h localhost -U liquibase -d dinkandladder -v ON_ERROR_STOP=1 -c "
+            CREATE SCHEMA IF NOT EXISTS auth;
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid AS \$\$
+              SELECT NULL::uuid;
+            \$\$ LANGUAGE sql STABLE;
+          "
+
+      - uses: liquibase/setup-liquibase@v3
+        with:
+          version: '4.32.0'
+          edition: 'community'
+
+      - name: Liquibase update against ephemeral Postgres
+        working-directory: database/liquibase
+        env:
+          LIQUIBASE_COMMAND_URL: jdbc:postgresql://localhost:5432/dinkandladder
+          LIQUIBASE_COMMAND_USERNAME: liquibase
+          LIQUIBASE_COMMAND_PASSWORD: liquibase
+        run: liquibase update

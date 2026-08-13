@@ -1,0 +1,8 @@
+{
+  "name": "dinkandladder",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/web"
+  ]
+}
