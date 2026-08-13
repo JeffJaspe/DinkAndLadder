@@ -46,7 +46,7 @@ export function createPlayerProfileRepository(client: SupabaseClient): PlayerPro
         .single()
 
       if (error) throw error
-      return data as PlayerProfileRecord
+      return data as unknown as PlayerProfileRecord
     }
   }
 }

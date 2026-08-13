@@ -8,7 +8,9 @@ import type {
 
 let idCounter = 0
 
-function createFakePlayerProfileRepository(seed: PlayerProfileRecord[] = []): PlayerProfileRepository {
+function createFakePlayerProfileRepository(
+  seed: PlayerProfileRecord[] = []
+): PlayerProfileRepository {
   const rowsByUserId = new Map(seed.map((row) => [row.user_id, row]))
   const rowsById = new Map(seed.map((row) => [row.id, row]))
 

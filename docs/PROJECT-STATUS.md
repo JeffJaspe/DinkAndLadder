@@ -38,8 +38,8 @@ Prepare the project and then implement MVP in strict order.
 - CI skeleton (P0-004): COMPLETE (authored and locally validated; not yet run on GitHub Actions — needs a push)
 - Core database (users, oauth_accounts, user_devices): COMPLETE (schema authored; not yet applied to a live database)
 - MVP-001 Authentication: IN PROGRESS (code complete and locally verified; blocked on a real Supabase project for genuine end-to-end sign-up/login verification)
-- MVP-002 Player Profiles: NOT STARTED
-- MVP-003 Club Management: NOT STARTED
+- MVP-002 Player Profiles: IN PROGRESS (code complete and locally verified for the in-scope fields; several bullets from the spec are explicitly deferred — see below)
+- MVP-003 Club Management: IN PROGRESS (code complete and locally verified; the explicit OWNER/ADMIN/MODERATOR/MEMBER permission matrix is unit-tested but not yet exercised live)
 - MVP-004 Match Submission: NOT STARTED
 - MVP-005 Match Verification: NOT STARTED
 - MVP-006 Rating Engine: NOT STARTED
@@ -93,13 +93,53 @@ Per `/docs/15-AUTHENTICATION-SPECIFICATION.md`: Supabase Auth is the provider, "
 - **Validated locally**: `typecheck`, `lint`, `format:check`, `test:unit` (9/9 passing including the pre-existing smoke tests), `build`, `test:e2e` (9/9 passing) — all green.
 - **What's genuinely NOT verified — no live Supabase project exists**: actual `signUp`/`signInWithPassword` against Supabase Auth, the email-confirmation flow reaching `/confirm`, `session.post.ts`'s upsert actually hitting a real `users` table, and `me.get.ts`'s RLS-scoped read. All of the *code* for these paths is written and reviewed, but "reads correctly" is not the same claim as "runs correctly against a real backend." Creating a Supabase project (or running its local dev stack) and exercising signup → confirm → dashboard → logout by hand is the real acceptance test for this feature, and hasn't happened yet.
 
+### MVP-002 Player Profiles
+Per `/docs/14-PLAYER-PROFILE-SPECIFICATION.md` and `/docs/03-MVP-SCOPE.md`. This pass deliberately covers a real, coherent subset rather than every bullet — each omission below is blocked on something concrete, not just skipped:
+
+- **Delivered**: `player_profiles` table (`display_name` required, `first_name`/`last_name`/`bio`/`dominant_hand`/`preferred_position` optional, `province`/`city`, `profile_visibility` — `public`/`private`, defaults to `public`), one profile per user (`user_id` unique FK to `users`). Repository/service/controllers/UI for viewing (`GET /api/v1/players/{playerId}`, `GET /api/v1/players/me`) and editing (`PATCH /api/v1/players/me`, upserts on first save). Pages: `pages/profile/edit.vue` (protected) and `pages/players/[playerId].vue` (public).
+- **Deferred — Location as normalized lookup tables**: the blueprint's `province_id`/`city_id` reference the `provinces`/`cities` supporting tables, which don't exist and have no seed data (real Philippine geographic reference data, not something to fabricate here). Used plain `province`/`city` text columns instead. Revisit if/when location-based search or filtering becomes a real requirement — that's what would actually need normalization.
+- **Deferred — Profile photo**: needs Supabase Storage (buckets, upload flow) and, per the blueprint, a shared `media_files` table (also referenced by the *club logo* field in MVP-003's `clubs` table — worth building once, when the first of those two features actually needs it, not speculatively now).
+- **Deferred — Notification preferences**: the spec's Profile Management section lists this, but the Notification domain itself is Phase 2 (`/docs/10-IMPLEMENTATION-BACKLOG.md`) — no tables, no domain exist yet. Building preferences for a domain that doesn't exist would be exactly the kind of half-finished implementation to avoid.
+- **Deferred — Club membership visibility**: depends on MVP-003 Club Management, which hasn't started.
+- **Privacy**: `profile_visibility` is real row-level enforcement (RLS: owner can always manage their own row; `FOR SELECT USING (profile_visibility = 'public')` covers everyone else), not just a cosmetic field. Nothing sensitive (email, phone, auth status) ever entered `player_profiles` in the first place — that stays in `users` — so there was no need for field-level DTO splitting between "public" and "private" views, only a row-visibility check.
+- **Note on client scoping**: unlike Identity's `session.post.ts`, nothing here needed the service-role client — every write is the caller managing their own row, and the `player_profiles_manage_own` self-service RLS policy (mirroring `oauth_accounts`/`user_devices`'s pattern) covers it. Least-privilege by construction, not by extra application code.
+- **Tests**: `tests/unit/player-profile.service.spec.ts` — 5 tests (not-yet-created lookup, create-on-first-save, update-in-place on second save, lookup-by-profile-id, unknown-id lookup). `tests/e2e/player-profile.spec.ts` — 2 Playwright tests: the editor redirects to `/login` when signed out, and the public profile route is reachable without signing in (route-exclusion check, not a real render — see below).
+- **Validated locally**: `typecheck`, `lint`, `format:check`, `test:unit` (10/10), `build`, `test:e2e` (7/7) — all green.
+- **Still not verified against a live backend** — same limitation as MVP-001: no real Supabase project exists, so no `player_profiles` row has ever actually been read or written for real. The e2e public-profile test only confirms the route isn't gated by the login redirect, not that a real profile renders.
+
+### MVP-003 Club Management
+Per `/docs/13-CLUB-MANAGEMENT-SPECIFICATION.md` and `/docs/03-MVP-SCOPE.md`.
+
+- **Delivered**: `clubs` (name/slug-unique/description/province/city text/visibility/status, creator FK) and `club_memberships` (role: `OWNER`/`ADMIN`/`MODERATOR`/`MEMBER`; status: `pending`/`active`/`rejected`/`left`; a partial unique index enforces at most one *live* — pending or active — membership per club/player pair, while still allowing historical rows from past stints). Create club (creator becomes `OWNER`/`active` immediately), view club, request to join (self-service, always starts `pending`), leave (self-service, blocked for the `OWNER`), list roster (active members only), and the full admin action set (approve/reject/role-change/remove) behind an **explicit, written-out permission matrix** (spec: "Exact permission matrix must be implemented explicitly") — see the doc comment at the top of `club.service.ts`. `MODERATOR` is recognized as a role but granted no additional permissions; the spec never defines what one can do, so nothing here invented it. "My Clubs" listing added (`GET /api/v1/clubs/mine`) to power that UI screen, distinct from Phase-2 club discovery/search (not built).
+- **Deferred, same rationale as MVP-002**: normalized location (free-text `province`/`city` again, no geo reference tables), club logo (needs the same Storage + shared `media_files` work as profile photos — worth doing once for both), club deletion (spec explicitly wants "a safe lifecycle rather than destructive cascading" and doesn't define what that lifecycle is — inventing one wasn't in scope).
+- **RLS design choice, worth flagging**: unlike Identity/Player, this domain's authorization is genuinely relational (does *this* caller have authority over *that other* row?), not just row ownership. Rather than write correlated-subquery RLS policies for the approve/reject/role-change/remove/list-roster paths — high risk of a subtle bug with no live database in this environment to catch it against — those all go through the **service-role** client from the server, with `ClubService` checking the caller's own membership role first. RLS still fully covers the safe self-service paths (create-as-owner, request-to-join-as-pending, self-leave, see-your-own-row). See the comment block above the club policies in `008-security`.
+- **Cross-domain dependency, by design**: creating a club or requesting to join requires an existing `player_profiles` row — the controllers resolve `auth user → player profile id` via the Player domain's own repository (a defined interface, not a raw reach into `player_profiles`), and return a clear `PLAYER_PROFILE_REQUIRED` error if none exists yet. This is the Club→Player domain boundary the architecture doc asks for, not a shortcut around it.
+- **UI**: `pages/create-club.vue`, `pages/clubs/[clubId].vue` (view, join, roster, inline admin actions), `pages/my-clubs.vue`. Same route-exclusion pattern as `/players/[playerId]`: the dynamic club page needed a different top-level prefix than the protected create/mine pages so a single wildcard `exclude` pattern wouldn't have to choose between protecting or exposing both.
+- **Tests**: `tests/unit/club.service.spec.ts` — 19 tests covering the full permission matrix (owner approves/rejects/promotes, admin can't touch other admins or grant admin, plain members can't manage anyone, owner can't be targeted or leave, self-targeting rejected, roster visibility, club-edit authorization, "my clubs" listing). `tests/e2e/club.spec.ts` — 3 tests (create/my-clubs redirect-when-signed-out, club detail page reachable signed-out).
+- **Validated locally**: `typecheck`, `lint`, `format:check`, `test:unit` (29/29 across all domains), `build`, `test:e2e` (10/10) — all green. Also manually confirmed against the built server that `POST /api/v1/clubs` returns the expected `401 AUTH_REQUIRED` with the documented `{code, message, details, trace_id}` shape.
+- **Not yet verified live**: the entire permission matrix is only proven against fake in-memory repositories. No real club, membership, approval, or removal has ever happened against a real database.
+
+## Real Supabase project now exists
+
+A live Supabase project's URL and publishable/anon key were provided and wired into `apps/web/.env` under the existing `@nuxtjs/supabase` convention (`NUXT_PUBLIC_SUPABASE_URL`/`NUXT_PUBLIC_SUPABASE_KEY`) — confirmed reachable (`/auth/v1/health` responded with GoTrue v2.195.0). This is a different setup than Supabase's own generic "connect" snippet suggests (raw `@supabase/supabase-js` + manual `runtimeConfig` + an `app.vue` todo-list demo) — that snippet was adapted to fit what's already built here, not pasted verbatim; no `todos` table or demo code was added.
+
+Update: the service-role key has since been added (`NUXT_SUPABASE_SECRET_KEY`), both keys confirmed valid with a read-only REST introspection call, and **migrations have now been applied for real**.
+
+### Migrations applied to the live database
+
+Ran via the actual Liquibase CLI (4.32.0, downloaded fresh — not installed in this environment beforehand) against the real Postgres instance, not the earlier SQL-Editor fallback that was drafted but not used. Two connection details were needed beyond what Supabase's dashboard shows by default:
+- **Direct connection** (`db.<ref>.supabase.co:5432`) resolves to an **IPv6-only** address; this environment has no IPv6 route, so that connection failed outright (`UnknownHostException`).
+- The fix was Supabase's **session-mode pooler** connection string instead (`aws-0-ap-northeast-1.pooler.supabase.com:5432`, username `postgres.<project-ref>`) — IPv4, and explicitly the one Supabase's own dashboard labels "used for migrations." The transaction-mode pooler (port 6543, `pgbouncer=true`) was deliberately avoided — that mode can misbehave with DDL/prepared statements.
+- The DB password contained `&`, which breaks Windows batch-script argument parsing if passed as a `--password=` CLI flag (cmd.exe treats `&` as a command separator). Passed purely via the `LIQUIBASE_COMMAND_PASSWORD` environment variable instead — Liquibase reads it directly, no shell parsing involved.
+
+`liquibase status` first confirmed it saw exactly the 23 expected changesets across `001-core`/`002-player`/`003-club`/`008-security`, then `liquibase update` ran all 23 with zero errors. Confirmed independently via REST schema introspection: `users`, `oauth_accounts`, `user_devices`, `player_profiles`, `clubs`, `club_memberships` all exist, alongside Liquibase's own `databasechangelog`/`databasechangeloglock` tracking tables. This is the first time any of this session's schema has run against a real Postgres with real `auth.uid()` — no CI stub, no assumptions.
+
 ## Next Up
 
-Before marking **MVP-001 Authentication** COMPLETE (not just IN PROGRESS):
-1. Stand up a real Supabase project (or its local CLI/dev stack), apply the Core database foundation changesets to it, and set real values in `apps/web/.env`.
-2. Manually walk the register → confirm-email → dashboard → logout path and fix whatever that first live run surfaces — nothing this environment could exercise end-to-end has actually been run end-to-end.
-3. Push/commit so the CI workflow runs for real on GitHub Actions at least once — still only validated locally (YAML parse + structural check), never executed.
+The schema is live, but **no application-level flow has been exercised yet** — no real signup, no real club created, nothing through the actual UI/API. That walk (register → confirm-email → dashboard → edit profile → create a club → second account requests to join → approve → role-change → leave) is the real acceptance test for MVP-001 through MVP-003, and still hasn't happened.
 
-After that: **MVP-002 Player Profiles** is next (`player_profiles` maps from `users`, per `/docs/15-AUTHENTICATION-SPECIFICATION.md`'s "Application User" section).
+Also still open: push/commit so the CI workflow runs for real on GitHub Actions at least once (still only validated locally). A commit exists on `main` made outside this session — worth checking whether Actions already ran.
+
+After MVP-001 through MVP-003 are confirmed live: **MVP-004 Match Submission** is next.
 
 Claude should update this file after completing a backlog item.

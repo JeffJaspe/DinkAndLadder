@@ -8,7 +8,9 @@ export interface PlayerProfileService {
   saveOwnProfile(userId: string, input: UpdatePlayerProfileInput): Promise<PlayerProfileDto>
 }
 
-export function createPlayerProfileService(repository: PlayerProfileRepository): PlayerProfileService {
+export function createPlayerProfileService(
+  repository: PlayerProfileRepository
+): PlayerProfileService {
   return {
     async getById(profileId) {
       const profile = await repository.findById(profileId)

@@ -2,16 +2,22 @@
 import type { PlayerProfileDto } from '~/server/domains/player/dto/player-profile.dto'
 
 const route = useRoute()
-const { data: profile, pending, error } = await useFetch<PlayerProfileDto>(
-  () => `/api/v1/players/${route.params.playerId}`
-)
+const {
+  data: profile,
+  pending,
+  error
+} = await useFetch<PlayerProfileDto>(() => `/api/v1/players/${route.params.playerId}`)
 </script>
 
 <template>
   <main class="mx-auto max-w-xl px-4 py-10">
     <p v-if="pending">Loading…</p>
     <p v-else-if="error" role="alert" class="text-red-600">
-      {{ error.statusCode === 404 ? 'This profile is private or does not exist.' : 'Could not load this profile.' }}
+      {{
+        error.statusCode === 404
+          ? 'This profile is private or does not exist.'
+          : 'Could not load this profile.'
+      }}
     </p>
     <div v-else-if="profile">
       <h1 class="text-2xl font-semibold">{{ profile.display_name }}</h1>

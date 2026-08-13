@@ -1,9 +1,132 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Club domain: clubs, club_memberships. Changesets are added when MVP-003 Club Management begins. -->
+<!-- Club domain: clubs, club_memberships — see /docs/13-CLUB-MANAGEMENT-SPECIFICATION.md and
+     /docs/05-DATABASE-BLUEPRINT.md. province/city are free text, same rationale as
+     player_profiles (002-player): no normalized geographic reference data exists yet.
+     logo_media_id is omitted for the same reason avatar_media_id was in 002-player —
+     no media/storage feature exists; add both together when that need is real. -->
 <databaseChangeLog
     xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
     xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
         http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+    <changeSet id="0001-create-clubs-table" author="club-management">
+        <createTable tableName="clubs">
+            <column name="id" type="uuid" defaultValueComputed="gen_random_uuid()">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="name" type="text">
+                <constraints nullable="false"/>
+            </column>
+            <column name="slug" type="text">
+                <constraints nullable="false" unique="true" uniqueConstraintName="uq_clubs_slug"/>
+            </column>
+            <column name="description" type="text"/>
+            <column name="province" type="text"/>
+            <column name="city" type="text"/>
+            <column name="visibility" type="text" defaultValue="public">
+                <constraints nullable="false"/>
+            </column>
+            <column name="status" type="text" defaultValue="active">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_by_user_id" type="uuid">
+                <constraints nullable="false" foreignKeyName="fk_clubs_created_by" references="users(id)"/>
+            </column>
+            <column name="created_at" type="timestamptz" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+            <column name="updated_at" type="timestamptz" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+            <column name="deleted_at" type="timestamptz"/>
+        </createTable>
+    </changeSet>
+
+    <changeSet id="0002-clubs-checks" author="club-management">
+        <sql>
+            ALTER TABLE clubs
+                ADD CONSTRAINT ck_clubs_visibility CHECK (visibility IN ('public', 'private'));
+            ALTER TABLE clubs
+                ADD CONSTRAINT ck_clubs_status CHECK (status IN ('active', 'archived'));
+        </sql>
+        <rollback>
+            ALTER TABLE clubs DROP CONSTRAINT ck_clubs_visibility;
+            ALTER TABLE clubs DROP CONSTRAINT ck_clubs_status;
+        </rollback>
+    </changeSet>
+
+    <!-- Roles/statuses are exactly the vocabulary in the spec: OWNER/ADMIN/MODERATOR/MEMBER,
+         and pending/active/rejected/left for the request→approval→membership→departure lifecycle. -->
+    <changeSet id="0003-create-club-memberships-table" author="club-management">
+        <createTable tableName="club_memberships">
+            <column name="id" type="uuid" defaultValueComputed="gen_random_uuid()">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="club_id" type="uuid">
+                <constraints nullable="false" foreignKeyName="fk_club_memberships_club" references="clubs(id)"/>
+            </column>
+            <column name="player_id" type="uuid">
+                <constraints
+                    nullable="false"
+                    foreignKeyName="fk_club_memberships_player"
+                    references="player_profiles(id)"/>
+            </column>
+            <column name="role" type="text">
+                <constraints nullable="false"/>
+            </column>
+            <column name="status" type="text">
+                <constraints nullable="false"/>
+            </column>
+            <column name="joined_at" type="timestamptz"/>
+            <column name="left_at" type="timestamptz"/>
+            <column name="created_at" type="timestamptz" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+            <column name="updated_at" type="timestamptz" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
+
+    <changeSet id="0004-club-memberships-checks" author="club-management">
+        <sql>
+            ALTER TABLE club_memberships
+                ADD CONSTRAINT ck_club_memberships_role
+                CHECK (role IN ('OWNER', 'ADMIN', 'MODERATOR', 'MEMBER'));
+            ALTER TABLE club_memberships
+                ADD CONSTRAINT ck_club_memberships_status
+                CHECK (status IN ('pending', 'active', 'rejected', 'left'));
+        </sql>
+        <rollback>
+            ALTER TABLE club_memberships DROP CONSTRAINT ck_club_memberships_role;
+            ALTER TABLE club_memberships DROP CONSTRAINT ck_club_memberships_status;
+        </rollback>
+    </changeSet>
+
+    <!-- "Unique active-membership rule should prevent duplicate active membership" (blueprint) —
+         a player can have at most one live (pending or active) row per club at a time, but can
+         have multiple historical rows over time (left and rejoined later, etc). -->
+    <changeSet id="0005-club-memberships-unique-live-membership" author="club-management">
+        <sql>
+            CREATE UNIQUE INDEX uq_club_memberships_live_membership
+                ON club_memberships (club_id, player_id)
+                WHERE status IN ('pending', 'active');
+        </sql>
+        <rollback>
+            DROP INDEX uq_club_memberships_live_membership;
+        </rollback>
+    </changeSet>
+
+    <changeSet id="0006-club-memberships-indexes" author="club-management">
+        <createIndex tableName="club_memberships" indexName="idx_club_memberships_club_status">
+            <column name="club_id"/>
+            <column name="status"/>
+        </createIndex>
+        <createIndex tableName="club_memberships" indexName="idx_club_memberships_player_status">
+            <column name="player_id"/>
+            <column name="status"/>
+        </createIndex>
+    </changeSet>
 
 </databaseChangeLog>

@@ -93,4 +93,200 @@
         </rollback>
     </changeSet>
 
+    <!-- Club domain: deliberately narrower RLS than the club_memberships approval/role-change
+         workflow could technically support. Self-service (create a club as its owner, request
+         to join, leave) gets real RLS policies here. Everything relational — approving a
+         request, changing someone else's role, removing a member, listing a full roster —
+         goes through the service-role client from a trusted server route that checks the
+         caller's own membership role first (see AuthZ notes in the club service). That keeps
+         the one genuinely complex cross-row authorization matrix in one reviewable place
+         instead of spread across several correlated-subquery RLS policies this environment
+         has no live database to test against. -->
+
+    <changeSet id="0007-club-enable-rls" author="club-management">
+        <sql>
+            ALTER TABLE clubs ENABLE ROW LEVEL SECURITY;
+            ALTER TABLE club_memberships ENABLE ROW LEVEL SECURITY;
+        </sql>
+        <rollback>
+            ALTER TABLE clubs DISABLE ROW LEVEL SECURITY;
+            ALTER TABLE club_memberships DISABLE ROW LEVEL SECURITY;
+        </rollback>
+    </changeSet>
+
+    <changeSet id="0008-clubs-policies" author="club-management">
+        <sql>
+            CREATE POLICY clubs_select_visible ON clubs
+                FOR SELECT
+                USING (
+                    visibility = 'public'
+                    OR created_by_user_id = auth.uid()
+                    OR id IN (
+                        SELECT club_id FROM club_memberships
+                        WHERE status = 'active'
+                          AND player_id IN (
+                              SELECT id FROM player_profiles WHERE user_id = auth.uid()
+                          )
+                    )
+                );
+
+            CREATE POLICY clubs_insert_own ON clubs
+                FOR INSERT
+                WITH CHECK (created_by_user_id = auth.uid());
+        </sql>
+        <rollback>
+            DROP POLICY IF EXISTS clubs_select_visible ON clubs;
+            DROP POLICY IF EXISTS clubs_insert_own ON clubs;
+        </rollback>
+    </changeSet>
+
+    <!-- No general club_memberships SELECT-the-roster or admin-UPDATE policy: a player can only
+         ever see/insert/update their OWN membership row directly. Roster listing and admin
+         actions are performed by the server via the service-role client after it verifies the
+         caller's role by querying this same table server-side — the row-level policy here only
+         has to cover honest self-service, not the whole permission matrix. -->
+    <changeSet id="0009-club-memberships-policies" author="club-management">
+        <sql>
+            CREATE POLICY club_memberships_select_own ON club_memberships
+                FOR SELECT
+                USING (
+                    player_id IN (SELECT id FROM player_profiles WHERE user_id = auth.uid())
+                );
+
+            CREATE POLICY club_memberships_insert_own ON club_memberships
+                FOR INSERT
+                WITH CHECK (
+                    player_id IN (SELECT id FROM player_profiles WHERE user_id = auth.uid())
+                    AND (
+                        -- Creating your own club: you become OWNER, active, immediately.
+                        (role = 'OWNER' AND status = 'active'
+                            AND club_id IN (SELECT id FROM clubs WHERE created_by_user_id = auth.uid()))
+                        -- Requesting to join someone else's club: always starts pending.
+                        OR (role = 'MEMBER' AND status = 'pending')
+                    )
+                );
+
+            CREATE POLICY club_memberships_update_own_leave ON club_memberships
+                FOR UPDATE
+                USING (
+                    player_id IN (SELECT id FROM player_profiles WHERE user_id = auth.uid())
+                )
+                WITH CHECK (
+                    player_id IN (SELECT id FROM player_profiles WHERE user_id = auth.uid())
+                    AND status = 'left'
+                );
+        </sql>
+        <rollback>
+            DROP POLICY IF EXISTS club_memberships_select_own ON club_memberships;
+            DROP POLICY IF EXISTS club_memberships_insert_own ON club_memberships;
+            DROP POLICY IF EXISTS club_memberships_update_own_leave ON club_memberships;
+        </rollback>
+    </changeSet>
+
+    <!-- clubs_select_visible (0008) and club_memberships_insert_own (0009) each contain a
+         subquery against the OTHER table. Postgres error 42P17 "infinite recursion detected
+         in policy for relation club_memberships" — confirmed against a real database the
+         first time a real club was created; a plain subquery re-triggers the target table's
+         own RLS, and here that forms a cycle: club_memberships policy queries clubs, whose
+         policy queries club_memberships back. SECURITY DEFINER helper functions run their
+         internal query outside the caller's row-security context (as the function's owner,
+         which — like the tables — is this migration's connecting role, so it bypasses RLS the
+         same way a table owner does), which breaks the cycle without changing the actual
+         authorization logic. This does not touch the already-applied 0008/0009 changesets —
+         editing an applied changeset breaks Liquibase's checksum validation; this is a
+         forward-only fix. -->
+    <!-- Each CREATE FUNCTION is its own changeset with splitStatements="false": Liquibase's
+         default semicolon-splitter isn't dollar-quote-aware and cuts a $$...$$ function body
+         off at the first internal ";", producing "Unterminated dollar quote" — confirmed
+         against the real database. Isolating each one avoids the splitter entirely. -->
+    <changeSet id="0010-fn-is-club-creator" author="club-management" splitStatements="false">
+        <sql>
+            CREATE OR REPLACE FUNCTION fn_is_club_creator(target_club_id uuid)
+            RETURNS boolean
+            LANGUAGE sql SECURITY DEFINER STABLE
+            SET search_path = public
+            AS $$
+                SELECT EXISTS (
+                    SELECT 1 FROM clubs WHERE id = target_club_id AND created_by_user_id = auth.uid()
+                );
+            $$;
+        </sql>
+        <rollback>DROP FUNCTION IF EXISTS fn_is_club_creator(uuid);</rollback>
+    </changeSet>
+
+    <changeSet id="0011-fn-is-active-club-member" author="club-management" splitStatements="false">
+        <sql>
+            CREATE OR REPLACE FUNCTION fn_is_active_club_member(target_club_id uuid)
+            RETURNS boolean
+            LANGUAGE sql SECURITY DEFINER STABLE
+            SET search_path = public
+            AS $$
+                SELECT EXISTS (
+                    SELECT 1 FROM club_memberships
+                    WHERE club_id = target_club_id
+                      AND status = 'active'
+                      AND player_id IN (SELECT id FROM player_profiles WHERE user_id = auth.uid())
+                );
+            $$;
+        </sql>
+        <rollback>DROP FUNCTION IF EXISTS fn_is_active_club_member(uuid);</rollback>
+    </changeSet>
+
+    <changeSet id="0012-clubs-select-visible-use-fn" author="club-management">
+        <sql>
+            DROP POLICY IF EXISTS clubs_select_visible ON clubs;
+            CREATE POLICY clubs_select_visible ON clubs
+                FOR SELECT
+                USING (
+                    visibility = 'public'
+                    OR created_by_user_id = auth.uid()
+                    OR fn_is_active_club_member(id)
+                );
+        </sql>
+        <rollback>
+            DROP POLICY IF EXISTS clubs_select_visible ON clubs;
+            CREATE POLICY clubs_select_visible ON clubs
+                FOR SELECT
+                USING (
+                    visibility = 'public'
+                    OR created_by_user_id = auth.uid()
+                    OR id IN (
+                        SELECT club_id FROM club_memberships
+                        WHERE status = 'active'
+                          AND player_id IN (
+                              SELECT id FROM player_profiles WHERE user_id = auth.uid()
+                          )
+                    )
+                );
+        </rollback>
+    </changeSet>
+
+    <changeSet id="0013-club-memberships-insert-own-use-fn" author="club-management">
+        <sql>
+            DROP POLICY IF EXISTS club_memberships_insert_own ON club_memberships;
+            CREATE POLICY club_memberships_insert_own ON club_memberships
+                FOR INSERT
+                WITH CHECK (
+                    player_id IN (SELECT id FROM player_profiles WHERE user_id = auth.uid())
+                    AND (
+                        (role = 'OWNER' AND status = 'active' AND fn_is_club_creator(club_id))
+                        OR (role = 'MEMBER' AND status = 'pending')
+                    )
+                );
+        </sql>
+        <rollback>
+            DROP POLICY IF EXISTS club_memberships_insert_own ON club_memberships;
+            CREATE POLICY club_memberships_insert_own ON club_memberships
+                FOR INSERT
+                WITH CHECK (
+                    player_id IN (SELECT id FROM player_profiles WHERE user_id = auth.uid())
+                    AND (
+                        (role = 'OWNER' AND status = 'active'
+                            AND club_id IN (SELECT id FROM clubs WHERE created_by_user_id = auth.uid()))
+                        OR (role = 'MEMBER' AND status = 'pending')
+                    )
+                );
+        </rollback>
+    </changeSet>
+
 </databaseChangeLog>

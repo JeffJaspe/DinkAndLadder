@@ -1,7 +1,14 @@
 <script setup lang="ts">
-import type { PlayerProfileDto, ProfileVisibility } from '~/server/domains/player/dto/player-profile.dto'
+import type {
+  PlayerProfileDto,
+  ProfileVisibility
+} from '~/server/domains/player/dto/player-profile.dto'
 
-const { data: existingProfile, pending, error } = await useFetch<PlayerProfileDto>('/api/v1/players/me')
+const {
+  data: existingProfile,
+  pending,
+  error
+} = await useFetch<PlayerProfileDto>('/api/v1/players/me')
 
 const form = reactive({
   display_name: '',
@@ -122,6 +129,8 @@ async function handleSave() {
         {{ saving ? 'Saving…' : 'Save' }}
       </button>
     </form>
-    <NuxtLink to="/dashboard" class="mt-4 inline-block text-sm underline">Back to dashboard</NuxtLink>
+    <NuxtLink to="/dashboard" class="mt-4 inline-block text-sm underline"
+      >Back to dashboard</NuxtLink
+    >
   </main>
 </template>
