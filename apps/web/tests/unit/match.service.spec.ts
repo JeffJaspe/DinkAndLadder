@@ -1,0 +1,403 @@
+import { beforeEach, describe, expect, it } from 'vitest'
+import { createMatchService } from '../../server/domains/match/services/match.service'
+import type { MatchRepository } from '../../server/domains/match/repositories/match.repository'
+import type { MatchRecord, SubmitMatchInput } from '../../server/domains/match/dto/match.dto'
+
+let matchCounter = 0
+let verificationCounter = 0
+
+function createFakeMatchRepository(): MatchRepository {
+  const rows = new Map<string, MatchRecord>()
+
+  return {
+    async findById(matchId) {
+      const row = rows.get(matchId)
+      return row ? { ...row, match_verifications: [...row.match_verifications] } : null
+    },
+    async create(input: SubmitMatchInput, submittedByPlayerId: string) {
+      const now = new Date().toISOString()
+      const id = `match-${++matchCounter}`
+      const record: MatchRecord = {
+        id,
+        match_type: input.match_type,
+        status: 'submitted',
+        submitted_by_player_id: submittedByPlayerId,
+        venue: input.venue ?? null,
+        played_at: input.played_at,
+        submitted_at: now,
+        verified_at: null,
+        created_at: now,
+        match_participants: input.participants.map((p, i) => ({
+          id: `participant-${id}-${i}`,
+          match_id: id,
+          player_id: p.player_id,
+          team_number: p.team_number,
+          result_status: 'pending'
+        })),
+        match_scores: input.scores.map((s, i) => ({
+          id: `score-${id}-${i}`,
+          match_id: id,
+          set_number: s.set_number,
+          team1_score: s.team1_score,
+          team2_score: s.team2_score
+        })),
+        match_verifications: []
+      }
+      rows.set(id, record)
+      return record
+    },
+    async createPendingVerifications(matchId, verifierPlayerIds) {
+      const row = rows.get(matchId)
+      if (!row) throw new Error('not found')
+      const created = verifierPlayerIds.map((verifierPlayerId) => ({
+        id: `verification-${++verificationCounter}`,
+        match_id: matchId,
+        verifier_player_id: verifierPlayerId,
+        status: 'pending' as const,
+        response_note: null,
+        responded_at: null,
+        created_at: new Date().toISOString()
+      }))
+      row.match_verifications = [...row.match_verifications, ...created]
+      return created
+    },
+    async updateVerificationDecision(matchId, verifierPlayerId, status, responseNote) {
+      const row = rows.get(matchId)
+      if (!row) throw new Error('not found')
+      const target = row.match_verifications.find((v) => v.verifier_player_id === verifierPlayerId)
+      if (!target) throw new Error('not found')
+      target.status = status
+      target.response_note = responseNote
+      target.responded_at = new Date().toISOString()
+      return target
+    },
+    async updateMatchStatus(matchId, status, verifiedAt) {
+      const row = rows.get(matchId)
+      if (!row) throw new Error('not found')
+      row.status = status
+      row.verified_at = verifiedAt
+    }
+  }
+}
+
+const baseSinglesInput: SubmitMatchInput = {
+  match_type: 'singles',
+  played_at: new Date().toISOString(),
+  participants: [
+    { player_id: 'player-me', team_number: 1 },
+    { player_id: 'player-opponent', team_number: 2 }
+  ],
+  scores: [{ set_number: 1, team1_score: 11, team2_score: 9 }]
+}
+
+describe('MatchService', () => {
+  let repository: MatchRepository
+
+  beforeEach(() => {
+    repository = createFakeMatchRepository()
+  })
+
+  it('submits a valid singles match', async () => {
+    const service = createMatchService(repository)
+
+    const match = await service.submitMatch('player-me', baseSinglesInput)
+
+    expect(match.match_type).toBe('singles')
+    expect(match.status).toBe('submitted')
+    expect(match.participants).toHaveLength(2)
+    expect(match.scores).toHaveLength(1)
+  })
+
+  it('submits a valid doubles match', async () => {
+    const service = createMatchService(repository)
+    const input: SubmitMatchInput = {
+      match_type: 'doubles',
+      played_at: new Date().toISOString(),
+      participants: [
+        { player_id: 'player-me', team_number: 1 },
+        { player_id: 'player-partner', team_number: 1 },
+        { player_id: 'player-opp1', team_number: 2 },
+        { player_id: 'player-opp2', team_number: 2 }
+      ],
+      scores: [{ set_number: 1, team1_score: 11, team2_score: 7 }]
+    }
+
+    const match = await service.submitMatch('player-me', input)
+
+    expect(match.match_type).toBe('doubles')
+    expect(match.participants).toHaveLength(4)
+  })
+
+  it('rejects singles with the wrong participant count', async () => {
+    const service = createMatchService(repository)
+    const input: SubmitMatchInput = {
+      ...baseSinglesInput,
+      participants: [{ player_id: 'player-me', team_number: 1 }]
+    }
+
+    await expect(service.submitMatch('player-me', input)).rejects.toMatchObject({
+      code: 'VALIDATION_ERROR'
+    })
+  })
+
+  it('rejects doubles with only 2 participants', async () => {
+    const service = createMatchService(repository)
+    const input: SubmitMatchInput = {
+      match_type: 'doubles',
+      played_at: new Date().toISOString(),
+      participants: baseSinglesInput.participants,
+      scores: baseSinglesInput.scores
+    }
+
+    await expect(service.submitMatch('player-me', input)).rejects.toMatchObject({
+      code: 'VALIDATION_ERROR'
+    })
+  })
+
+  it('rejects a lopsided team split (3-1 in doubles)', async () => {
+    const service = createMatchService(repository)
+    const input: SubmitMatchInput = {
+      match_type: 'doubles',
+      played_at: new Date().toISOString(),
+      participants: [
+        { player_id: 'player-me', team_number: 1 },
+        { player_id: 'player-partner', team_number: 1 },
+        { player_id: 'player-opp1', team_number: 1 },
+        { player_id: 'player-opp2', team_number: 2 }
+      ],
+      scores: baseSinglesInput.scores
+    }
+
+    await expect(service.submitMatch('player-me', input)).rejects.toMatchObject({
+      code: 'VALIDATION_ERROR'
+    })
+  })
+
+  it('rejects a duplicate player appearing twice', async () => {
+    const service = createMatchService(repository)
+    const input: SubmitMatchInput = {
+      ...baseSinglesInput,
+      participants: [
+        { player_id: 'player-me', team_number: 1 },
+        { player_id: 'player-me', team_number: 2 }
+      ]
+    }
+
+    await expect(service.submitMatch('player-me', input)).rejects.toMatchObject({
+      code: 'VALIDATION_ERROR'
+    })
+  })
+
+  it('rejects submission by someone who is not listed as a participant', async () => {
+    const service = createMatchService(repository)
+
+    await expect(service.submitMatch('player-stranger', baseSinglesInput)).rejects.toMatchObject({
+      code: 'VALIDATION_ERROR'
+    })
+  })
+
+  it('rejects a submission with no scores', async () => {
+    const service = createMatchService(repository)
+    const input: SubmitMatchInput = { ...baseSinglesInput, scores: [] }
+
+    await expect(service.submitMatch('player-me', input)).rejects.toMatchObject({
+      code: 'VALIDATION_ERROR'
+    })
+  })
+
+  it('rejects duplicate set numbers', async () => {
+    const service = createMatchService(repository)
+    const input: SubmitMatchInput = {
+      ...baseSinglesInput,
+      scores: [
+        { set_number: 1, team1_score: 11, team2_score: 9 },
+        { set_number: 1, team1_score: 11, team2_score: 3 }
+      ]
+    }
+
+    await expect(service.submitMatch('player-me', input)).rejects.toMatchObject({
+      code: 'VALIDATION_ERROR'
+    })
+  })
+
+  it('returns null from getById for an unknown match', async () => {
+    const service = createMatchService(repository)
+
+    expect(await service.getById('does-not-exist')).toBeNull()
+  })
+
+  it('getById returns the mapped DTO for a match that exists', async () => {
+    const service = createMatchService(repository)
+    const created = await service.submitMatch('player-me', baseSinglesInput)
+
+    const found = await service.getById(created.id)
+
+    expect(found?.id).toBe(created.id)
+    expect(found?.participants).toHaveLength(2)
+  })
+})
+
+describe('MatchService verification', () => {
+  let repository: MatchRepository
+
+  beforeEach(() => {
+    repository = createFakeMatchRepository()
+  })
+
+  const doublesInput: SubmitMatchInput = {
+    match_type: 'doubles',
+    played_at: new Date().toISOString(),
+    participants: [
+      { player_id: 'player-me', team_number: 1 },
+      { player_id: 'player-partner', team_number: 1 },
+      { player_id: 'player-opp1', team_number: 2 },
+      { player_id: 'player-opp2', team_number: 2 }
+    ],
+    scores: [{ set_number: 1, team1_score: 11, team2_score: 7 }]
+  }
+
+  it('initiating verification creates a pending row for every participant but the submitter', async () => {
+    const service = createMatchService(repository)
+    const match = await service.submitMatch('player-me', doublesInput)
+
+    const updated = await service.initiateVerification('player-me', match.id)
+
+    expect(updated.status).toBe('pending_verification')
+    expect(updated.verifications).toHaveLength(3)
+    expect(updated.verifications.map((v) => v.verifier_player_id).sort()).toEqual(
+      ['player-opp1', 'player-opp2', 'player-partner'].sort()
+    )
+    expect(updated.verifications.every((v) => v.status === 'pending')).toBe(true)
+  })
+
+  it('rejects initiating verification twice', async () => {
+    const service = createMatchService(repository)
+    const match = await service.submitMatch('player-me', baseSinglesInput)
+    await service.initiateVerification('player-me', match.id)
+
+    await expect(service.initiateVerification('player-opponent', match.id)).rejects.toMatchObject({
+      code: 'INVALID_MATCH_STATE'
+    })
+  })
+
+  it('rejects a non-participant starting verification', async () => {
+    const service = createMatchService(repository)
+    const match = await service.submitMatch('player-me', baseSinglesInput)
+
+    await expect(service.initiateVerification('player-stranger', match.id)).rejects.toMatchObject({
+      code: 'FORBIDDEN'
+    })
+  })
+
+  it('rejects a decision before verification has started', async () => {
+    const service = createMatchService(repository)
+    const match = await service.submitMatch('player-me', baseSinglesInput)
+
+    await expect(
+      service.recordVerificationDecision('player-opponent', match.id, { status: 'confirmed' })
+    ).rejects.toMatchObject({ code: 'VERIFICATION_REQUIRED' })
+  })
+
+  it('rejects a decision from the submitter (not a designated verifier)', async () => {
+    const service = createMatchService(repository)
+    const match = await service.submitMatch('player-me', baseSinglesInput)
+    await service.initiateVerification('player-me', match.id)
+
+    await expect(
+      service.recordVerificationDecision('player-me', match.id, { status: 'confirmed' })
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+  })
+
+  it('rejects a decision from someone who is not a participant', async () => {
+    const service = createMatchService(repository)
+    const match = await service.submitMatch('player-me', baseSinglesInput)
+    await service.initiateVerification('player-me', match.id)
+
+    await expect(
+      service.recordVerificationDecision('player-stranger', match.id, { status: 'confirmed' })
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+  })
+
+  it('a singles match becomes verified once the sole opponent confirms', async () => {
+    const service = createMatchService(repository)
+    const match = await service.submitMatch('player-me', baseSinglesInput)
+    await service.initiateVerification('player-me', match.id)
+
+    const updated = await service.recordVerificationDecision('player-opponent', match.id, {
+      status: 'confirmed'
+    })
+
+    expect(updated.status).toBe('verified')
+    expect(updated.verified_at).not.toBeNull()
+  })
+
+  it('a doubles match stays pending_verification until every other participant confirms', async () => {
+    const service = createMatchService(repository)
+    const match = await service.submitMatch('player-me', doublesInput)
+    await service.initiateVerification('player-me', match.id)
+
+    const afterOne = await service.recordVerificationDecision('player-partner', match.id, {
+      status: 'confirmed'
+    })
+    expect(afterOne.status).toBe('pending_verification')
+
+    const afterTwo = await service.recordVerificationDecision('player-opp1', match.id, {
+      status: 'confirmed'
+    })
+    expect(afterTwo.status).toBe('pending_verification')
+
+    const afterThree = await service.recordVerificationDecision('player-opp2', match.id, {
+      status: 'confirmed'
+    })
+    expect(afterThree.status).toBe('verified')
+  })
+
+  it('any single rejection rejects the whole match, even with other confirmations', async () => {
+    const service = createMatchService(repository)
+    const match = await service.submitMatch('player-me', doublesInput)
+    await service.initiateVerification('player-me', match.id)
+
+    await service.recordVerificationDecision('player-partner', match.id, { status: 'confirmed' })
+    const afterReject = await service.recordVerificationDecision('player-opp1', match.id, {
+      status: 'rejected',
+      response_note: 'Score was wrong'
+    })
+
+    expect(afterReject.status).toBe('rejected')
+  })
+
+  it('a dispute immediately finalizes the match, even with other confirmations still pending', async () => {
+    const service = createMatchService(repository)
+    const match = await service.submitMatch('player-me', doublesInput)
+    await service.initiateVerification('player-me', match.id)
+
+    await service.recordVerificationDecision('player-partner', match.id, { status: 'confirmed' })
+    const afterDispute = await service.recordVerificationDecision('player-opp1', match.id, {
+      status: 'disputed'
+    })
+
+    expect(afterDispute.status).toBe('disputed')
+  })
+
+  it('rejects a second decision from the same verifier while the match is still pending', async () => {
+    const service = createMatchService(repository)
+    const match = await service.submitMatch('player-me', doublesInput)
+    await service.initiateVerification('player-me', match.id)
+    await service.recordVerificationDecision('player-partner', match.id, { status: 'confirmed' })
+
+    await expect(
+      service.recordVerificationDecision('player-partner', match.id, { status: 'confirmed' })
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+  })
+
+  it('rejects a decision once the match has already reached a terminal state', async () => {
+    const service = createMatchService(repository)
+    const match = await service.submitMatch('player-me', baseSinglesInput)
+    await service.initiateVerification('player-me', match.id)
+    await service.recordVerificationDecision('player-opponent', match.id, { status: 'confirmed' })
+
+    await expect(
+      service.recordVerificationDecision('player-opponent', match.id, { status: 'disputed' })
+    ).rejects.toMatchObject({ code: 'INVALID_MATCH_STATE' })
+  })
+})

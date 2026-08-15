@@ -10,6 +10,13 @@ Status: OPEN
 ADR-002 — Match Verification Authority
 Status: OPEN
 
+Interim implementation (MVP-005, not a final decision — revisit here first if it changes):
+required verifiers are every match participant except the one who submitted the match, no
+distinction between teammate and opponent. A match becomes `verified` only once every required
+verifier has independently `confirmed`; a single `rejected` or `disputed` decision immediately
+finalizes the match into that state instead (fail-fast, does not wait for remaining responses).
+See `resolveMatchStatus` in `apps/web/server/domains/match/services/match.service.ts`.
+
 ADR-003 — Ranking Eligibility Rules
 Status: OPEN
 

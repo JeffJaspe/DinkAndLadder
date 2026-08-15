@@ -23,6 +23,7 @@ async function handleLogout() {
       <NuxtLink to="/profile/edit" class="rounded border px-3 py-2">Edit profile</NuxtLink>
       <NuxtLink to="/my-clubs" class="rounded border px-3 py-2">My clubs</NuxtLink>
       <NuxtLink to="/create-club" class="rounded border px-3 py-2">Create club</NuxtLink>
+      <NuxtLink to="/matches/submit" class="rounded border px-3 py-2">Submit match</NuxtLink>
       <button class="rounded border px-3 py-2" @click="handleLogout">Log out</button>
     </div>
   </main>

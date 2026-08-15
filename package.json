@@ -2,7 +2,5 @@
   "name": "dinkandladder",
   "private": true,
   "type": "module",
-  "workspaces": [
-    "apps/web"
-  ]
+  "packageManager": "pnpm@11.7.0"
 }

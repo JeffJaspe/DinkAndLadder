@@ -199,8 +199,8 @@
          default semicolon-splitter isn't dollar-quote-aware and cuts a $$...$$ function body
          off at the first internal ";", producing "Unterminated dollar quote" — confirmed
          against the real database. Isolating each one avoids the splitter entirely. -->
-    <changeSet id="0010-fn-is-club-creator" author="club-management" splitStatements="false">
-        <sql>
+    <changeSet id="0010-fn-is-club-creator" author="club-management">
+        <sql splitStatements="false">
             CREATE OR REPLACE FUNCTION fn_is_club_creator(target_club_id uuid)
             RETURNS boolean
             LANGUAGE sql SECURITY DEFINER STABLE
@@ -214,8 +214,8 @@
         <rollback>DROP FUNCTION IF EXISTS fn_is_club_creator(uuid);</rollback>
     </changeSet>
 
-    <changeSet id="0011-fn-is-active-club-member" author="club-management" splitStatements="false">
-        <sql>
+    <changeSet id="0011-fn-is-active-club-member" author="club-management">
+        <sql splitStatements="false">
             CREATE OR REPLACE FUNCTION fn_is_active_club_member(target_club_id uuid)
             RETURNS boolean
             LANGUAGE sql SECURITY DEFINER STABLE
@@ -286,6 +286,93 @@
                         OR (role = 'MEMBER' AND status = 'pending')
                     )
                 );
+        </rollback>
+    </changeSet>
+
+    <!-- Match domain: writes (submitting a match) are inherently multi-party — the submitter
+         creates match_participants rows for OTHER players too, which no simple "manage your
+         own row" RLS policy can express. So, same as club admin actions: all writes go through
+         the service-role client, with ClubService-style authorization (submitted_by_player_id
+         must equal the caller's own resolved player id) checked in the service layer, not RLS.
+         Reads use ONE shared SECURITY DEFINER helper across all three tables so none of their
+         policies contain a raw cross-table subquery — learned from the clubs/club_memberships
+         recursion bug above; better to avoid the whole class of bug here from the start. -->
+
+    <changeSet id="0014-fn-is-match-participant" author="match-submission">
+        <sql splitStatements="false">
+            CREATE OR REPLACE FUNCTION fn_is_match_participant(target_match_id uuid)
+            RETURNS boolean
+            LANGUAGE sql SECURITY DEFINER STABLE
+            SET search_path = public
+            AS $$
+                SELECT EXISTS (
+                    SELECT 1 FROM match_participants
+                    WHERE match_id = target_match_id
+                      AND player_id IN (SELECT id FROM player_profiles WHERE user_id = auth.uid())
+                ) OR EXISTS (
+                    SELECT 1 FROM matches
+                    WHERE id = target_match_id
+                      AND submitted_by_player_id IN (
+                          SELECT id FROM player_profiles WHERE user_id = auth.uid()
+                      )
+                );
+            $$;
+        </sql>
+        <rollback>DROP FUNCTION IF EXISTS fn_is_match_participant(uuid);</rollback>
+    </changeSet>
+
+    <changeSet id="0015-match-enable-rls" author="match-submission">
+        <sql>
+            ALTER TABLE matches ENABLE ROW LEVEL SECURITY;
+            ALTER TABLE match_participants ENABLE ROW LEVEL SECURITY;
+            ALTER TABLE match_scores ENABLE ROW LEVEL SECURITY;
+        </sql>
+        <rollback>
+            ALTER TABLE matches DISABLE ROW LEVEL SECURITY;
+            ALTER TABLE match_participants DISABLE ROW LEVEL SECURITY;
+            ALTER TABLE match_scores DISABLE ROW LEVEL SECURITY;
+        </rollback>
+    </changeSet>
+
+    <changeSet id="0016-match-select-policies" author="match-submission">
+        <sql>
+            CREATE POLICY matches_select_participant ON matches
+                FOR SELECT
+                USING (fn_is_match_participant(id));
+
+            CREATE POLICY match_participants_select_participant ON match_participants
+                FOR SELECT
+                USING (fn_is_match_participant(match_id));
+
+            CREATE POLICY match_scores_select_participant ON match_scores
+                FOR SELECT
+                USING (fn_is_match_participant(match_id));
+        </sql>
+        <rollback>
+            DROP POLICY IF EXISTS matches_select_participant ON matches;
+            DROP POLICY IF EXISTS match_participants_select_participant ON match_participants;
+            DROP POLICY IF EXISTS match_scores_select_participant ON match_scores;
+        </rollback>
+    </changeSet>
+
+    <!-- match_verifications: same rationale as the rest of the match domain above — initiating
+         verification and recording a decision both require checks a self-service RLS policy can't
+         express cleanly (is the match still in a verifiable lifecycle state; is the caller a
+         required, not-yet-responded verifier), so writes go through the service-role client with
+         MatchService doing the authorization. Reads reuse fn_is_match_participant. -->
+    <changeSet id="0017-match-verifications-enable-rls" author="match-verification">
+        <sql>ALTER TABLE match_verifications ENABLE ROW LEVEL SECURITY;</sql>
+        <rollback>ALTER TABLE match_verifications DISABLE ROW LEVEL SECURITY;</rollback>
+    </changeSet>
+
+    <changeSet id="0018-match-verifications-select-policy" author="match-verification">
+        <sql>
+            CREATE POLICY match_verifications_select_participant ON match_verifications
+                FOR SELECT
+                USING (fn_is_match_participant(match_id));
+        </sql>
+        <rollback>
+            DROP POLICY IF EXISTS match_verifications_select_participant ON match_verifications;
         </rollback>
     </changeSet>
 

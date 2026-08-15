@@ -1,10 +1,222 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Match domain: matches, match_participants, match_scores, match_verifications.
-     Changesets are added when MVP-004 Match Submission begins. -->
+<!-- Match domain: matches, match_participants, match_scores — see
+     /docs/12-MATCH-VERIFICATION-SPECIFICATION.md and /docs/05-DATABASE-BLUEPRINT.md.
+     match_verifications is deliberately deferred to MVP-005 — nothing in this pass reads
+     or writes it, so it doesn't belong in this pass's schema yet.
+     venue is free text (no venues lookup table yet, same rationale as province/city
+     elsewhere). event_id is omitted — Events are Phase 2. -->
 <databaseChangeLog
     xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
     xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
         http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+    <!-- Status covers the full suggested lifecycle from the spec (draft/submitted/
+         pending_verification/verified/rejected/disputed) even though this pass's
+         application logic only ever produces 'submitted' — MVP-005 owns the transitions
+         out of it. The column/constraint is foundational schema either way. -->
+    <changeSet id="0001-create-matches-table" author="match-submission">
+        <createTable tableName="matches">
+            <column name="id" type="uuid" defaultValueComputed="gen_random_uuid()">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="match_type" type="text">
+                <constraints nullable="false"/>
+            </column>
+            <column name="status" type="text" defaultValue="submitted">
+                <constraints nullable="false"/>
+            </column>
+            <column name="submitted_by_player_id" type="uuid">
+                <constraints
+                    nullable="false"
+                    foreignKeyName="fk_matches_submitted_by"
+                    references="player_profiles(id)"/>
+            </column>
+            <column name="venue" type="text"/>
+            <column name="played_at" type="timestamptz">
+                <constraints nullable="false"/>
+            </column>
+            <column name="submitted_at" type="timestamptz" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+            <column name="verified_at" type="timestamptz"/>
+            <column name="created_at" type="timestamptz" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+            <column name="updated_at" type="timestamptz" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
+
+    <changeSet id="0002-matches-checks" author="match-submission">
+        <sql>
+            ALTER TABLE matches ADD CONSTRAINT ck_matches_type CHECK (match_type IN ('singles', 'doubles'));
+            ALTER TABLE matches ADD CONSTRAINT ck_matches_status
+                CHECK (status IN ('draft', 'submitted', 'pending_verification', 'verified', 'rejected', 'disputed'));
+        </sql>
+        <rollback>
+            ALTER TABLE matches DROP CONSTRAINT ck_matches_type;
+            ALTER TABLE matches DROP CONSTRAINT ck_matches_status;
+        </rollback>
+    </changeSet>
+
+    <changeSet id="0003-matches-index-submitted-by" author="match-submission">
+        <createIndex tableName="matches" indexName="idx_matches_submitted_by">
+            <column name="submitted_by_player_id"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="0004-create-match-participants-table" author="match-submission">
+        <createTable tableName="match_participants">
+            <column name="id" type="uuid" defaultValueComputed="gen_random_uuid()">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="match_id" type="uuid">
+                <constraints
+                    nullable="false"
+                    foreignKeyName="fk_match_participants_match"
+                    references="matches(id)"/>
+            </column>
+            <column name="player_id" type="uuid">
+                <constraints
+                    nullable="false"
+                    foreignKeyName="fk_match_participants_player"
+                    references="player_profiles(id)"/>
+            </column>
+            <column name="team_number" type="int">
+                <constraints nullable="false"/>
+            </column>
+            <column name="result_status" type="text" defaultValue="pending">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_at" type="timestamptz" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
+
+    <changeSet id="0005-match-participants-checks" author="match-submission">
+        <sql>
+            ALTER TABLE match_participants ADD CONSTRAINT ck_match_participants_team
+                CHECK (team_number IN (1, 2));
+            ALTER TABLE match_participants ADD CONSTRAINT ck_match_participants_result_status
+                CHECK (result_status IN ('pending', 'won', 'lost'));
+            ALTER TABLE match_participants ADD CONSTRAINT uq_match_participants_match_player
+                UNIQUE (match_id, player_id);
+        </sql>
+        <rollback>
+            ALTER TABLE match_participants DROP CONSTRAINT ck_match_participants_team;
+            ALTER TABLE match_participants DROP CONSTRAINT ck_match_participants_result_status;
+            ALTER TABLE match_participants DROP CONSTRAINT uq_match_participants_match_player;
+        </rollback>
+    </changeSet>
+
+    <changeSet id="0006-match-participants-indexes" author="match-submission">
+        <createIndex tableName="match_participants" indexName="idx_match_participants_match_id">
+            <column name="match_id"/>
+        </createIndex>
+        <createIndex tableName="match_participants" indexName="idx_match_participants_player_id">
+            <column name="player_id"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="0007-create-match-scores-table" author="match-submission">
+        <createTable tableName="match_scores">
+            <column name="id" type="uuid" defaultValueComputed="gen_random_uuid()">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="match_id" type="uuid">
+                <constraints
+                    nullable="false"
+                    foreignKeyName="fk_match_scores_match"
+                    references="matches(id)"/>
+            </column>
+            <column name="set_number" type="int">
+                <constraints nullable="false"/>
+            </column>
+            <column name="team1_score" type="int">
+                <constraints nullable="false"/>
+            </column>
+            <column name="team2_score" type="int">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_at" type="timestamptz" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
+
+    <changeSet id="0008-match-scores-checks" author="match-submission">
+        <sql>
+            ALTER TABLE match_scores ADD CONSTRAINT ck_match_scores_team1_nonnegative CHECK (team1_score >= 0);
+            ALTER TABLE match_scores ADD CONSTRAINT ck_match_scores_team2_nonnegative CHECK (team2_score >= 0);
+            ALTER TABLE match_scores ADD CONSTRAINT uq_match_scores_match_set UNIQUE (match_id, set_number);
+        </sql>
+        <rollback>
+            ALTER TABLE match_scores DROP CONSTRAINT ck_match_scores_team1_nonnegative;
+            ALTER TABLE match_scores DROP CONSTRAINT ck_match_scores_team2_nonnegative;
+            ALTER TABLE match_scores DROP CONSTRAINT uq_match_scores_match_set;
+        </rollback>
+    </changeSet>
+
+    <!-- Match verification: /docs/12-MATCH-VERIFICATION-SPECIFICATION.md + /docs/05-DATABASE-BLUEPRINT.md's
+         match_verifications columns (id, match_id, verifier_player_id, status, response_note,
+         responded_at, created_at, updated_at). One row per (match, required verifier), created
+         'pending' when verification is initiated, then updated in place once that verifier responds
+         — not an append-only log, matching the blueprint's updated_at column. Who counts as a
+         "required verifier" and how individual decisions roll up into the match's own status is
+         ADR-002 (Match Verification Authority, still OPEN in /docs/18-ADR-INDEX.md) — see the
+         resolveMatchStatus policy function in match.service.ts for the interim rule implemented. -->
+    <changeSet id="0009-create-match-verifications-table" author="match-verification">
+        <createTable tableName="match_verifications">
+            <column name="id" type="uuid" defaultValueComputed="gen_random_uuid()">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="match_id" type="uuid">
+                <constraints
+                    nullable="false"
+                    foreignKeyName="fk_match_verifications_match"
+                    references="matches(id)"/>
+            </column>
+            <column name="verifier_player_id" type="uuid">
+                <constraints
+                    nullable="false"
+                    foreignKeyName="fk_match_verifications_verifier"
+                    references="player_profiles(id)"/>
+            </column>
+            <column name="status" type="text" defaultValue="pending">
+                <constraints nullable="false"/>
+            </column>
+            <column name="response_note" type="text"/>
+            <column name="responded_at" type="timestamptz"/>
+            <column name="created_at" type="timestamptz" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+            <column name="updated_at" type="timestamptz" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
+
+    <changeSet id="0010-match-verifications-checks" author="match-verification">
+        <sql>
+            ALTER TABLE match_verifications ADD CONSTRAINT ck_match_verifications_status
+                CHECK (status IN ('pending', 'confirmed', 'rejected', 'disputed'));
+            ALTER TABLE match_verifications ADD CONSTRAINT uq_match_verifications_match_verifier
+                UNIQUE (match_id, verifier_player_id);
+        </sql>
+        <rollback>
+            ALTER TABLE match_verifications DROP CONSTRAINT ck_match_verifications_status;
+            ALTER TABLE match_verifications DROP CONSTRAINT uq_match_verifications_match_verifier;
+        </rollback>
+    </changeSet>
+
+    <changeSet id="0011-match-verifications-indexes" author="match-verification">
+        <createIndex tableName="match_verifications" indexName="idx_match_verifications_match_status">
+            <column name="match_id"/>
+            <column name="status"/>
+        </createIndex>
+    </changeSet>
 
 </databaseChangeLog>
