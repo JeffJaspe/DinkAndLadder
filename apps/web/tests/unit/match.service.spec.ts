@@ -81,6 +81,7 @@ function createFakeMatchRepository(): MatchRepository {
 }
 
 const baseSinglesInput: SubmitMatchInput = {
+  club_id: 'club-1',
   match_type: 'singles',
   played_at: new Date().toISOString(),
   participants: [
@@ -111,6 +112,7 @@ describe('MatchService', () => {
   it('submits a valid doubles match', async () => {
     const service = createMatchService(repository)
     const input: SubmitMatchInput = {
+      club_id: 'club-1',
       match_type: 'doubles',
       played_at: new Date().toISOString(),
       participants: [
@@ -143,6 +145,7 @@ describe('MatchService', () => {
   it('rejects doubles with only 2 participants', async () => {
     const service = createMatchService(repository)
     const input: SubmitMatchInput = {
+      club_id: 'club-1',
       match_type: 'doubles',
       played_at: new Date().toISOString(),
       participants: baseSinglesInput.participants,
@@ -157,6 +160,7 @@ describe('MatchService', () => {
   it('rejects a lopsided team split (3-1 in doubles)', async () => {
     const service = createMatchService(repository)
     const input: SubmitMatchInput = {
+      club_id: 'club-1',
       match_type: 'doubles',
       played_at: new Date().toISOString(),
       participants: [
@@ -245,6 +249,7 @@ describe('MatchService verification', () => {
   })
 
   const doublesInput: SubmitMatchInput = {
+    club_id: 'club-1',
     match_type: 'doubles',
     played_at: new Date().toISOString(),
     participants: [
@@ -399,5 +404,39 @@ describe('MatchService verification', () => {
     await expect(
       service.recordVerificationDecision('player-opponent', match.id, { status: 'disputed' })
     ).rejects.toMatchObject({ code: 'INVALID_MATCH_STATE' })
+  })
+
+  it('rejects a decision on a non-existent match', async () => {
+    const service = createMatchService(repository)
+
+    await expect(
+      service.recordVerificationDecision('player-me', 'non-existent-match-id', {
+        status: 'confirmed'
+      })
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+  })
+
+  it('rejects initiating verification on a non-existent match', async () => {
+    const service = createMatchService(repository)
+
+    await expect(
+      service.initiateVerification('player-me', 'non-existent-match-id')
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+  })
+
+  it('stores the response_note when provided with a decision', async () => {
+    const service = createMatchService(repository)
+    const match = await service.submitMatch('player-me', baseSinglesInput)
+    await service.initiateVerification('player-me', match.id)
+
+    const updated = await service.recordVerificationDecision('player-opponent', match.id, {
+      status: 'rejected',
+      response_note: 'The score was 11-7, not 11-9'
+    })
+
+    const verification = updated.verifications.find(
+      (v) => v.verifier_player_id === 'player-opponent'
+    )
+    expect(verification?.response_note).toBe('The score was 11-7, not 11-9')
   })
 })

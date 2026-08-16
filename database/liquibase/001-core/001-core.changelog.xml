@@ -96,4 +96,59 @@
         </createIndex>
     </changeSet>
 
+    <!-- Audit logging: per /docs/05-DATABASE-BLUEPRINT.md, sensitive business actions should
+         generate audit events (role changes, membership approval/removal, match verification
+         decisions, administrative profile changes, rating corrections). This is infrastructure
+         for security/compliance — write-only from application, no user-facing reads. -->
+    <changeSet id="0007-create-audit-logs-table" author="audit-logging">
+        <createTable tableName="audit_logs">
+            <column name="id" type="uuid" defaultValueComputed="gen_random_uuid()">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="event_type" type="text">
+                <constraints nullable="false"/>
+            </column>
+            <column name="actor_user_id" type="uuid">
+                <constraints nullable="true"/>
+            </column>
+            <column name="actor_player_id" type="uuid">
+                <constraints nullable="true"/>
+            </column>
+            <column name="target_type" type="text">
+                <constraints nullable="false"/>
+            </column>
+            <column name="target_id" type="uuid">
+                <constraints nullable="false"/>
+            </column>
+            <column name="payload" type="jsonb">
+                <constraints nullable="true"/>
+            </column>
+            <column name="ip_address" type="text">
+                <constraints nullable="true"/>
+            </column>
+            <column name="user_agent" type="text">
+                <constraints nullable="true"/>
+            </column>
+            <column name="created_at" type="timestamptz" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
+
+    <changeSet id="0008-audit-logs-indexes" author="audit-logging">
+        <createIndex tableName="audit_logs" indexName="idx_audit_logs_event_type">
+            <column name="event_type"/>
+        </createIndex>
+        <createIndex tableName="audit_logs" indexName="idx_audit_logs_target">
+            <column name="target_type"/>
+            <column name="target_id"/>
+        </createIndex>
+        <createIndex tableName="audit_logs" indexName="idx_audit_logs_created_at">
+            <column name="created_at"/>
+        </createIndex>
+        <createIndex tableName="audit_logs" indexName="idx_audit_logs_actor_user">
+            <column name="actor_user_id"/>
+        </createIndex>
+    </changeSet>
+
 </databaseChangeLog>

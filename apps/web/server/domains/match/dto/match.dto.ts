@@ -87,6 +87,7 @@ export interface SubmitMatchScoreInput {
 }
 
 export interface SubmitMatchInput {
+  club_id: string
   match_type: MatchType
   venue?: string | null
   played_at: string

@@ -6,11 +6,21 @@ export default defineNuxtConfig({
   typescript: {
     strict: true
   },
+  runtimeConfig: {
+    stripeSecretKey: process.env.STRIPE_SECRET_KEY,
+    stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET,
+    paymongoSecretKey: process.env.PAYMONGO_SECRET_KEY,
+    paymongoWebhookSecret: process.env.PAYMONGO_WEBHOOK_SECRET,
+    public: {
+      stripePublishableKey: process.env.STRIPE_PUBLISHABLE_KEY,
+      paymongoPublicKey: process.env.PAYMONGO_PUBLIC_KEY
+    }
+  },
   supabase: {
     redirectOptions: {
       login: '/login',
       callback: '/confirm',
-      exclude: ['/', '/register', '/players/*', '/clubs/*']
+      exclude: ['/', '/register', '/players/*', '/clubs/*', '/rankings', '/events/*', '/api/webhooks/*']
     }
   }
 })

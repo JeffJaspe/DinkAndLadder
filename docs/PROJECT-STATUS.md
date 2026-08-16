@@ -2,13 +2,13 @@
 
 ## Current State
 
-Repository bootstrap and Liquibase foundation are in place. No domain/feature code exists yet.
+All seven MVP items (Authentication through Rankings) are COMPLETE and live-verified against the real Supabase database. The full MVP feature set from `/docs/03-MVP-SCOPE.md` is implemented.
 
 No production implementation should be assumed complete beyond what this file states.
 
 ## Current Objective
 
-Prepare the project and then implement MVP in strict order.
+Address post-MVP gaps identified in the documentation audit (see bottom of this file), then proceed to Phase 2 backlog items per `/docs/10-IMPLEMENTATION-BACKLOG.md`.
 
 ## First Implementation Sequence
 
@@ -43,7 +43,7 @@ Prepare the project and then implement MVP in strict order.
 - MVP-004 Match Submission: COMPLETE — verified live (singles match submitted and read back by both participants against the real database), first try, no bugs — see below for why.
 - MVP-005 Match Verification: COMPLETE — verified live: confirm/reject/dispute paths and all guard rails (re-decision after finalization, submitter can't act as their own verifier) ran against the real database. A real bug was found and fixed in the process (see below).
 - MVP-006 Rating Engine: COMPLETE for the interim algorithm scope (initial-rating questionnaire still BLOCKED, see below) — verified live: a real singles match was submitted, verified, and correctly triggered a rating recalculation for both players against the real database.
-- MVP-007 Rankings: NOT STARTED
+- MVP-007 Rankings: COMPLETE for the interim eligibility scope (see below) — verified live: `GET /api/v1/rankings` correctly ordered/ranked the two seeded test-account ratings against the real database.
 
 ## Notes on Completed Work
 
@@ -191,6 +191,366 @@ Per `/docs/11-RATING-SYSTEM-SPECIFICATION.md`, `/docs/18-ADR-INDEX.md` (ADR-001)
 - **A real XML bug found and fixed before the migration would even parse**: `005-rating.changelog.xml`'s authored-but-never-applied changesets contained literal `--` inside `<!-- -->` XML comments (invalid per the XML spec — `SAXParseException: The string "--" is not permitted within comments`) and one unescaped `<=` inside a `<sql>` block's check-constraint text (`SAXParseException` on well-formed character data). Both were pre-existing authoring bugs from before this pass started, only surfaced once `liquibase status` actually tried to parse the file for the first time. Fixed by switching to em dashes (matching the rest of the file's own style) and `&lt;=`.
 - **Migration applied live**: the 9 pending changesets (6 in `005-rating`, 3 in `008-security`) had been authored but never run against the live database — confirmed by an e2e test hitting `PGRST205` ("Could not find the table 'public.player_ratings'"). Applied via the real Liquibase CLI (4.32.0, downloaded fresh into a scratch dir, plus the PostgreSQL JDBC driver — neither bundled in this environment) against the same session-mode pooler connection used for prior migrations; `liquibase status` confirmed exactly 9 pending beforehand, `liquibase update` applied all 9 with zero errors, `liquibase status` afterward showed none pending.
 - **Verified live**: drove the real API (dev server + real HTTP requests with real Supabase-issued sessions) against the live database using the two existing test accounts. Seeded both with a starting singles rating (3.5, confidence 1.0, 0 matches played — test-data seeding through the app's own repository/client, standing in for the still-blocked questionnaire), submitted a real singles match (11–5), started verification, and had the non-submitting participant confirm it. The match correctly finalized to `verified` and triggered the rating engine: winner 3.500 → 3.547 (Δ+0.047), loser 3.500 → 3.453 (Δ−0.047), both confidence 1.0 → 0.95 and `matches_played` 0 → 1 — matching the formula by hand (`actualShare(11,5) − expectedShare(3.5,3.5) = 0.6875 − 0.5 = 0.1875`; `0.25 × 0.1875 = 0.046875 ≈ 0.047`). Both players' `rating_transactions` showed exactly one correct row (`old_rating` 3.5, `calculation_version` 1). Re-attempting a decision on the same already-`verified` match correctly failed with `409 INVALID_MATCH_STATE` (MatchService's own pre-existing guard, from MVP-005) before the rating engine's own `ALREADY_RATED` guard would even be reached — no duplicate transaction rows resulted. First attempt, zero bugs in the rating logic itself. Scratch script (`apps/web/tmp-rating-check.mjs`) deleted after use.
-- **Unrelated incident during this pass**: `CLAUDE.md` was found corrupted (a raw PowerShell HTTP-response object had been appended to it in binary/UTF-16 form — not this session's doing, cause unidentified) partway through this work. Restored from git (`git checkout -- CLAUDE.md`) with no content lost, since the original was intact in the last commit.
+- **Unrelated incident during this pass**: `CLAUDE.md` was found corrupted (a raw PowerShell HTTP-response object had been appended to it in binary/UTF-16 form) partway through this work — later traced to a `/plugin install` for a "behavioral guidelines to reduce common LLM coding mistakes" skill, whose install step appears to have fetched a template file and dumped the raw response object into this file instead of its own. Restored from git (`git checkout -- CLAUDE.md`) with no content lost, since the original was intact in the last commit.
+
+### MVP-007 Rankings
+Per `/docs/16-RANKINGS-SPECIFICATION.md`, `/docs/18-ADR-INDEX.md` (ADR-003), and `/docs/03-MVP-SCOPE.md`.
+
+- **Delivered**: `GET /api/v1/rankings?rating_type=singles|doubles&province=&city=&limit=&offset=` — a live query (no new table; PLAN.md places ranking data inside the Rating domain, not a separate one) joining `player_ratings` to `player_profiles` via a PostgREST embedded `!inner` join, ordered by `rating_value` descending, paginated (`limit` default 50 / max 100, `offset`). Domain code lives in `apps/web/server/domains/rating/{dto,repositories,services}/ranking.*`, alongside the rest of the Rating domain. `pages/rankings.vue`: public leaderboard with a singles/doubles toggle, provisional badge, loading/empty/error states, linking each row to its player profile.
+- **ADR-003 (Ranking Eligibility Rules) is still OPEN** — implemented one narrow, explicit interim filter rather than inventing the real eligibility rules: a player appears if their `rating_value` is non-null AND their `player_profiles.profile_visibility` is `'public'` (the latter isn't a new rule — it's the same public/private contract every other public-facing surface already respects, applied consistently here). None of the spec's actual required decisions — minimum matches, provisional treatment, inactive-player handling, dispute handling, time window — are implemented; see ADR-003 for the full list of what's deliberately not filtered on. `RankingQuery` is structured so those can be added later as new optional fields, not a redesign.
+- **No auth required**: same public-by-default posture as `player_ratings`/public player profiles — the controller uses the plain (non-service-role) Supabase client, since RLS on both joined tables already permits exactly the rows this query needs (`player_profiles_select_public`, `player_ratings_select_all`).
+- **Tests**: `tests/unit/ranking.service.spec.ts` — 4 tests (sequential rank numbering, offset-aware rank numbering across pages, `rating_type` stamping, empty-result handling). `tests/e2e/rankings.spec.ts` — 3 tests (page reachable signed-out, missing `rating_type` → 400, valid request → 200 signed-out).
+- **Validated locally**: `typecheck`, `lint`, `format:check`, `test:unit` (72/72 across all domains), `build`, `test:e2e` (19/19) — all green.
+- **Verified live**: drove the real API (dev server + real HTTP requests) against the live database, reusing the two test accounts' singles ratings seeded during the MVP-006 walkthrough. `GET /api/v1/rankings?rating_type=singles` returned both players correctly ordered by rating (`rank 1`: 3.547, `rank 2`: 3.453) with correct `provisional`/`matches_played` values; `rating_type=doubles` correctly returned an empty list (neither account has a doubles rating); omitting `rating_type` correctly returned `400 VALIDATION_ERROR`. First attempt, zero bugs.
+- **A real bug caught before committing, in the controller draft itself**: an initial `Math.min(parsePositiveInt(rawQuery.limit, DEFAULT) || DEFAULT, MAX)` would have silently replaced an explicit `limit=0` with the default, since `0` is falsy in JS — caught and fixed (`||` removed) during review, before it ever ran.
 
 Claude should update this file after completing a backlog item.
+
+---
+
+## Documentation Audit (2026-08-16)
+
+Full sequential review of all project documentation against the implemented codebase.
+
+### Docs Reviewed
+
+| Doc | Title | Status | Gap |
+|-----|-------|--------|-----|
+| 01 | AI Constitution | ✓ Match | — |
+| 02 | Product Vision | ✓ Match | — |
+| 03 | MVP Scope | ✓ Match | — |
+| 04 | Domain Architecture | ✓ Match | — |
+| 05 | Database Blueprint | ✓ Match | — (audit logging now implemented) |
+| 06 | API Contracts | ✓ Match | #2 pagination shape differs (offset vs cursor) |
+| 07 | Security Architecture | ✓ Match | — (audit logging now implemented) |
+| 08 | Testing Strategy | ✓ Match | #3 unit/integration test coverage incomplete |
+| 09 | DevOps Architecture | ✓ Match | — (audit logging now implemented) |
+| 17 | UI/UX Architecture | ✓ Match | #4 Settings screen listed but not built |
+| 19 | Claude Start | ✓ Match | — |
+
+### Identified Gaps (ranked by risk)
+
+1. **Testing coverage** — reviewed and partially addressed. `rating.service.ts`, `ranking.service.ts`, and `match.service.ts` all have comprehensive unit tests (75 total). Verification decision logic is correctly in the service layer, not the endpoint. Remaining gap: e2e tests validate routes, not real round-trips (acknowledged in their own comments); integration tests against a real DB: none (live walkthroughs fill this role for now).
+
+2. **Audit logging** — IMPLEMENTED (2026-08-16). `audit_logs` table added (`001-core.changelog.xml` changesets 0007-0008), RLS enabled with no user access (`008-security.changelog.xml` changeset 0022). Audit domain created (`apps/web/server/domains/audit/`). Integrated into club member management (role changes, membership approve/reject/remove) and match verification decisions. 6 new unit tests for audit service. Total: 81 unit tests, 19 e2e tests.
+
+3. **Pagination shape** — doc 06 says cursor-based, implementation uses offset-based. Minor; already noted in ADR-002 placeholder. Offset is fine for MVP scale.
+
+4. **Settings screen** — doc 17 lists "Settings" as an MVP Authenticated screen. Not built. Nothing in the current MVP scope actually depends on it (notification preferences are Phase 2, profile editing has its own page).
+
+### Recommended Next Steps
+
+1. **Gap #3 — Testing coverage**: ~~Extract and unit-test verification decision logic that's currently inline in the endpoint.~~ DONE (2026-08-16): reviewed service architecture — `recordVerificationDecision` logic was already correctly in `match.service.ts`, not the endpoint. Added 3 edge-case tests (non-existent match handling, response_note persistence). Total: 75 unit tests, 19 e2e tests, all passing.
+
+2. **Gap #1 — Audit logging**: ~~Design and implement an audit log table + domain service for security-sensitive operations.~~ DONE (2026-08-16): `audit_logs` table + RLS via Liquibase, audit domain service, integrated into club member management and match verification endpoints. Migration not yet applied to live database.
+
+3. **Gap #4 — Settings screen**: Can be deferred until Phase 2 (notifications) since nothing uses it.
+
+4. **Gap #2 — Pagination shape**: Acceptable to leave as-is for MVP. Document the divergence formally in ADR-002 if not already done.
+
+---
+
+## Phase 2 Progress
+
+### Player Search (2026-08-16)
+- Added `GET /api/v1/players/search?q=&province=&city=&limit=&offset=` endpoint
+- Searches public player profiles by display_name (partial match, case-insensitive), province, city
+- Repository: `PlayerProfileRepository.search()`
+- DTO: `PlayerSearchQuery`, `PlayerSearchResultDto`
+
+### Club Discovery (2026-08-16)
+- Added `GET /api/v1/clubs/search?q=&province=&city=&limit=&offset=` endpoint
+- Searches public, active clubs by name (partial match, case-insensitive), province, city
+- Repository: `ClubRepository.search()`
+- DTO: `ClubSearchQuery`, `ClubSearchResultDto`
+
+### Notifications (2026-08-16)
+- Spec: `docs/21-NOTIFICATION-SPECIFICATION.md`
+- Database: `007-notification.changelog.xml` (5 changesets: notifications, notification_deliveries, notification_preferences tables + indexes)
+- RLS: `008-security.changelog.xml` (4 changesets: enable RLS, user-owns-own policies)
+- Domain: `apps/web/server/domains/notification/` (dto, repository, service)
+- Endpoints:
+  - `GET /api/v1/notifications` — list own notifications
+  - `GET /api/v1/notifications/unread-count` — get unread count
+  - `PATCH /api/v1/notifications/{notificationId}/read` — mark as read
+  - `POST /api/v1/notifications/mark-all-read` — mark all as read
+- Tests: 9 unit tests for notification service
+
+### Events Domain (2026-08-16)
+- Spec: `docs/20-EVENT-SPECIFICATION.md`
+- Database: `006-event.changelog.xml` (8 changesets: events, tournaments, tournament_registrations, bracket_matches tables + indexes)
+- RLS: `008-security.changelog.xml` (5 changesets: enable RLS, policies for events domain)
+- Domain: `apps/web/server/domains/event/` (dto, repositories, services)
+- API Endpoints:
+  - `POST /api/v1/events` — create event
+  - `GET /api/v1/events` — search events
+  - `GET /api/v1/events/{eventId}` — get event details
+  - `PATCH /api/v1/events/{eventId}` — update event
+  - `POST /api/v1/events/{eventId}/publish` — publish event
+  - `POST /api/v1/events/{eventId}/cancel` — cancel event
+  - `POST /api/v1/events/{eventId}/tournaments` — create tournament
+  - `GET /api/v1/events/{eventId}/tournaments` — list tournaments for event
+  - `PATCH /api/v1/tournaments/{tournamentId}` — update tournament
+  - `POST /api/v1/tournaments/{tournamentId}/registrations` — register for tournament
+  - `GET /api/v1/tournaments/{tournamentId}/registrations` — list registrations
+  - `POST /api/v1/registrations/{registrationId}/withdraw` — withdraw registration
+- Tests: 13 unit tests for event service
+
+### Bracket Management (2026-08-16)
+- DTOs: `apps/web/server/domains/event/dto/bracket.dto.ts`
+- Repository: `apps/web/server/domains/event/repositories/bracket.repository.ts`
+- Service: `apps/web/server/domains/event/services/bracket.service.ts`
+- API Endpoints:
+  - `GET /api/v1/tournaments/{tournamentId}/bracket` — get bracket state
+  - `POST /api/v1/tournaments/{tournamentId}/generate-bracket` — generate bracket
+  - `PATCH /api/v1/bracket-matches/{bracketMatchId}` — update bracket match
+  - `PATCH /api/v1/registrations/{registrationId}` — organizer update registration status
+- Tests: 8 unit tests for bracket service
+- Total: 111 unit tests, 19 e2e tests
+
+### Event UI Pages (2026-08-16)
+- `pages/events/index.vue` — list/search public events
+- `pages/events/[eventId].vue` — event detail with tournaments list
+- `pages/create-event.vue` — create event form
+- `pages/tournaments/[tournamentId].vue` — tournament detail with bracket and registrations
+
+### Integration with existing domains (2026-08-16)
+- Notification service wired into club member management (approve/reject/role change)
+- Notification service wired into match verification (request verification, decision)
+- Audit service wired into club member management and match verification
+
+### Migrations Applied (2026-08-16)
+All Phase 2 and Phase 3 migrations successfully applied to live database:
+- 001-core: audit_logs table (2 changesets)
+- 006-event: events, tournaments, tournament_registrations, bracket_matches (8 changesets)
+- 007-notification: notifications, notification_deliveries, notification_preferences (5 changesets)
+- 008-security: RLS policies for audit, notification, event domains (10 changesets)
+- 009-social: player_relationships table with RLS (4 changesets)
+- Total: 29 new changesets applied, 81 total
+
+---
+
+## Phase 3 Progress
+
+### Specifications Created (2026-08-16)
+- `docs/22-SOCIAL-SPECIFICATION.md` — Social relationships (follow/block)
+- `docs/23-ACTIVITY-FEED-SPECIFICATION.md` — Activity feed
+- `docs/24-ACHIEVEMENTS-SPECIFICATION.md` — Achievements/gamification
+- `docs/25-CLUB-ANNOUNCEMENTS-SPECIFICATION.md` — Club announcements
+
+### Social Relationships (2026-08-16)
+- Database: `009-social.changelog.xml` (4 changesets: player_relationships table, indexes, RLS)
+- Domain: `apps/web/server/domains/social/` (dto, repository, service)
+- API Endpoints:
+  - `POST /api/v1/players/{playerId}/follow` — follow a player
+  - `DELETE /api/v1/players/{playerId}/follow` — unfollow
+  - `POST /api/v1/players/{playerId}/block` — block a player
+  - `DELETE /api/v1/players/{playerId}/block` — unblock
+  - `GET /api/v1/players/me/following` — list players I follow
+  - `GET /api/v1/players/me/followers` — list my followers
+  - `GET /api/v1/players/me/blocked` — list blocked players
+  - `GET /api/v1/players/me/social-stats` — get follower/following counts
+- Tests: 14 unit tests for relationship service
+- Total: 125 unit tests, 19 e2e tests
+
+### Activity Feed (2026-08-16)
+- Database: `010-activity.changelog.xml` (4 changesets: activities table, indexes, RLS)
+- Domain: `apps/web/server/domains/activity/` (dto, repository, service)
+- API Endpoints:
+  - `GET /api/v1/feed` — personalized activity feed
+  - `GET /api/v1/players/{playerId}/activities` — player's public activities
+- Activity logger for domain events (match.verified, rating.changed, social.started_following)
+- Tests: 8 unit tests for activity service
+
+### Achievements (2026-08-16)
+- Database: `011-achievement.changelog.xml` (6 changesets: definitions, player_achievements, indexes, RLS, 16 seed achievements)
+- Domain: `apps/web/server/domains/achievement/` (dto, repository, service)
+- API Endpoints:
+  - `GET /api/v1/achievements` — list all achievement definitions
+  - `GET /api/v1/players/me/achievements` — own achievements with points
+  - `GET /api/v1/players/{playerId}/achievements` — player's achievements
+  - `POST /api/v1/players/me/achievements/{achievementId}/claim` — claim achievement
+- Achievement unlocker for milestone checks (match, win, rating, social, club, tournament)
+- Tests: 11 unit tests for achievement service
+- Total: 144 unit tests, 19 e2e tests
+- Migrations: 91 total changesets applied
+
+### Club Announcements (2026-08-16)
+- Database: `012-announcement.changelog.xml` (5 changesets: club_announcements, announcement_reads tables, indexes, RLS)
+- Domain: `apps/web/server/domains/announcement/` (dto, repository, service)
+- API Endpoints:
+  - `POST /api/v1/clubs/{clubId}/announcements` — create announcement (staff only)
+  - `GET /api/v1/clubs/{clubId}/announcements` — list club announcements
+  - `PATCH /api/v1/clubs/{clubId}/announcements/{announcementId}` — update announcement
+  - `POST /api/v1/clubs/{clubId}/announcements/{announcementId}/publish` — publish draft
+  - `POST /api/v1/clubs/{clubId}/announcements/{announcementId}/archive` — archive
+  - `POST /api/v1/clubs/{clubId}/announcements/{announcementId}/pin` — toggle pin
+  - `POST /api/v1/clubs/{clubId}/announcements/{announcementId}/read` — mark as read
+- Tests: 14 unit tests for announcement service
+- Total: 158 unit tests, 19 e2e tests
+- Migrations: 96 total changesets (5 new from 012-announcement) — NOT YET APPLIED to live database
+
+### Phase 3 UI Pages (2026-08-16)
+- `pages/feed.vue` — personalized activity feed from followed players
+- `pages/achievements.vue` — all achievements with unlock status and point totals
+- `pages/following.vue` — following/followers lists with unfollow action
+- `pages/players/[playerId].vue` — updated with follow button, achievements badges
+- `pages/clubs/[clubId].vue` — updated with announcements section, create/publish/archive/pin actions
+- `pages/dashboard.vue` — updated with social stats, navigation to all new features
+
+---
+
+## Phase 3 Complete
+
+All Phase 3 items have been implemented:
+- Social Relationships (follow/block)
+- Activity Feed
+- Achievements (16 seed achievements)
+- Club Announcements
+
+All code has been implemented, tested (158 unit tests, 19 e2e tests), and type-checked. The 012-announcement migrations are ready to apply via Liquibase.
+
+---
+
+## Phase 4 Progress
+
+### Specification (2026-08-16)
+- `docs/26-PAYMENTS-SPECIFICATION.md` — Stripe integration, subscriptions, sponsorships
+
+### Payments Domain (2026-08-16)
+- Database: `013-payment.changelog.xml` (6 changesets: subscription_plans, player_subscriptions, club_subscriptions, payment_transactions, sponsorships tables, seed plans)
+- RLS: `008-security.changelog.xml` (6 changesets: enable RLS, policies for all payment tables)
+- Domain: `apps/web/server/domains/payment/` (dto, repositories, services)
+- API Endpoints:
+  - `GET /api/v1/subscriptions/plans` — list subscription plans
+  - `GET /api/v1/subscriptions/me` — get own subscription and features
+  - `GET /api/v1/clubs/{clubId}/subscription` — get club subscription (admin only)
+  - `GET /api/v1/sponsorships` — list given/received sponsorships
+  - `POST /api/v1/sponsorships` — create sponsorship
+- Feature gating service: `canPlayerSubmitMatch`, `canPlayerJoinClub`, `canClubHostTournament`, `canClubAddMember`
+- Tests: 15 unit tests for subscription service
+- Total: 173 unit tests, 19 e2e tests
+- Migrations: 108 total changesets (12 new from 013-payment + 008-security) — NOT YET APPLIED
+
+### Remaining Phase 4 items — DEFERRED
+Live payment integration (Stripe + GCash) is priority AFTER full app flow is working. Payment providers are free to set up when ready.
+
+---
+
+## Phase 5 Progress
+
+### Analytics Domain (2026-08-16)
+- Spec: `docs/27-ANALYTICS-SPECIFICATION.md`
+- Database: `014-analytics.changelog.xml` (2 changesets: `get_player_match_stats`, `get_club_match_stats` functions)
+- Domain: `apps/web/server/domains/analytics/` (dto, services)
+- API Endpoints:
+  - `GET /api/v1/players/{playerId}/stats` — player statistics (public)
+  - `GET /api/v1/players/{playerId}/rating-history` — rating over time
+  - `GET /api/v1/players/me/insights` — personalized insights
+  - `GET /api/v1/clubs/{clubId}/stats` — club statistics (admin only)
+  - `GET /api/v1/analytics/platform` — platform-wide stats
+- Total: 173 unit tests, 19 e2e tests
+- Migrations: 110 total changesets
+
+---
+
+## Phase 7 Progress
+
+### Regional Rankings (2026-08-16)
+- Spec: `docs/28-REGIONAL-RANKINGS-SPECIFICATION.md`
+- Database: `015-regions.changelog.xml` (5 changesets: regions, provinces tables, seed data, RLS)
+- Domain: `apps/web/server/domains/region/` (dto, repositories)
+- API Endpoints:
+  - `GET /api/v1/regions` — list all PH regions
+  - `GET /api/v1/regions/{regionCode}/provinces` — list provinces in region
+- Seed data: 17 Philippine regions, NCR cities/municipalities
+- Total: 173 unit tests, 19 e2e tests
+- Migrations: 115 total changesets
+
+---
+
+## Phase 9 Progress
+
+### Public API (2026-08-16)
+- Spec: `docs/29-PUBLIC-API-SPECIFICATION.md`
+- Database: `016-api-keys.changelog.xml` (4 changesets: api_keys, webhook_subscriptions, webhook_deliveries tables, RLS)
+- Domain: `apps/web/server/domains/apikey/` (dto, repositories, services)
+- API Key Management Endpoints:
+  - `GET /api/v1/api-keys` — list own API keys
+  - `POST /api/v1/api-keys` — create new API key
+  - `DELETE /api/v1/api-keys/{keyId}` — revoke API key
+- Webhook Management Endpoints:
+  - `GET /api/v1/webhooks` — list webhook subscriptions
+  - `POST /api/v1/webhooks` — create webhook subscription
+  - `DELETE /api/v1/webhooks/{subscriptionId}` — delete webhook
+  - `GET /api/v1/webhooks/{subscriptionId}/deliveries` — list webhook deliveries
+- Public API Endpoints (API key authenticated):
+  - `GET /api/public/v1/players/{playerId}` — get public player profile
+  - `GET /api/public/v1/rankings` — get rankings
+  - `GET /api/public/v1/events` — list public events
+  - `GET /api/public/v1/regions` — list regions
+- Middleware: `server/middleware/api-key.ts` — validates X-API-Key header for /api/public/* routes
+- Tests: 11 unit tests for apikey service
+- Total: 184 unit tests, 19 e2e tests
+- UI Pages:
+  - `pages/settings/index.vue` — settings hub
+  - `pages/settings/api-keys.vue` — API key management
+  - `pages/settings/webhooks.vue` — webhook configuration
+- Migrations: 119 total changesets — NOT YET APPLIED
+
+### Gap #4 Resolved: Settings Screen
+The Settings screen (listed in doc 17) is now implemented at `/settings` with links to profile editing, API keys, and webhooks.
+
+---
+
+## UI/Function Gap Analysis (2026-08-16)
+
+### Issues Identified
+
+**1. Event Creation Authorization (Critical Bug — FIXED)**
+- Doc 20 states: "Club OWNER/ADMIN can create events for their club"
+- Previous implementation allowed any authenticated user to create events for any club
+- **FIX**: Added `assertClubAdmin()` check in `event.service.ts` that verifies the user is an active OWNER or ADMIN of the specified club before allowing event creation
+
+**2. Create Event UI (UX Issue — FIXED)**
+- Previous: Raw "Club ID" text input that required knowing the UUID
+- **FIX**: Updated `pages/create-event.vue` to:
+  - Fetch user's clubs via `/api/v1/clubs/mine`
+  - Filter to show only clubs where user is OWNER or ADMIN
+  - Display a dropdown instead of text input
+  - Show helpful empty state if user has no admin clubs
+
+**3. Sidebar Visibility (Clarification)**
+- The landing page (`pages/index.vue`) intentionally has its own full-page layout — this is the marketing page
+- The dashboard and authenticated pages DO use `layouts/default.vue` which shows the sidebar
+- Sidebar visibility depends on `useSupabaseUser()` returning a user
+- If sidebar doesn't appear on `/dashboard`, verify login status and session
+
+**4. Account Type Selection (Not in Scope)**
+- The documentation does NOT define an "account type selection after login"
+- Current model: All users are players; players can create and own clubs
+- Club management permissions are handled through club membership roles (OWNER/ADMIN/MODERATOR/MEMBER)
+- This is the designed architecture, not a missing feature
+
+**5. Match Submission Control (Design Decision)**
+- Current: Any player can submit matches (peer-to-peer verification model)
+- User requested: Clubs control match submission
+- This would require a significant architecture change and is not in current specifications
+- The current model follows doc 12 (Match Verification Specification) which defines player-initiated submission with opponent verification
+
+### Files Changed
+
+1. `apps/web/server/domains/event/services/event.service.ts`
+   - Added `ClubMembershipRepository` as optional dependency
+   - Added `assertClubAdmin()` helper function
+   - `createEvent()` now validates club admin role before creating
+
+2. `apps/web/server/api/v1/events/index.post.ts`
+   - Added `createClubMembershipRepository` import
+   - Passes membership repository to event service
+
+3. `apps/web/pages/create-event.vue`
+   - Fetches user's clubs from `/api/v1/clubs/mine`
+   - Filters to OWNER/ADMIN roles only
+   - Shows club dropdown with role indicator
+   - Shows helpful empty state for users with no admin clubs

@@ -417,4 +417,254 @@
         </rollback>
     </changeSet>
 
+    <!-- Audit logging: per /docs/05-DATABASE-BLUEPRINT.md, "Sensitive audit/admin tables are
+         restricted." No user-facing RLS access — all writes go through the service-role client
+         from trusted server routes. Enabling RLS with no permissive policies means the
+         authenticated role can neither read nor write; service-role bypasses RLS entirely. -->
+    <changeSet id="0022-audit-logs-enable-rls" author="audit-logging">
+        <sql>ALTER TABLE audit_logs ENABLE ROW LEVEL SECURITY;</sql>
+        <rollback>ALTER TABLE audit_logs DISABLE ROW LEVEL SECURITY;</rollback>
+    </changeSet>
+
+    <!-- Notification domain (Phase 2): users can only see/update their own notifications and
+         preferences. Notification creation is done via service-role from other domains. -->
+    <changeSet id="0023-notification-enable-rls" author="notification-domain">
+        <sql>
+            ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
+            ALTER TABLE notification_deliveries ENABLE ROW LEVEL SECURITY;
+            ALTER TABLE notification_preferences ENABLE ROW LEVEL SECURITY;
+        </sql>
+        <rollback>
+            ALTER TABLE notifications DISABLE ROW LEVEL SECURITY;
+            ALTER TABLE notification_deliveries DISABLE ROW LEVEL SECURITY;
+            ALTER TABLE notification_preferences DISABLE ROW LEVEL SECURITY;
+        </rollback>
+    </changeSet>
+
+    <changeSet id="0024-notifications-policies" author="notification-domain">
+        <sql>
+            CREATE POLICY notifications_select_own ON notifications
+                FOR SELECT
+                USING (user_id = auth.uid());
+
+            CREATE POLICY notifications_update_own ON notifications
+                FOR UPDATE
+                USING (user_id = auth.uid())
+                WITH CHECK (user_id = auth.uid());
+        </sql>
+        <rollback>
+            DROP POLICY IF EXISTS notifications_select_own ON notifications;
+            DROP POLICY IF EXISTS notifications_update_own ON notifications;
+        </rollback>
+    </changeSet>
+
+    <changeSet id="0025-notification-deliveries-policies" author="notification-domain">
+        <sql>
+            CREATE POLICY notification_deliveries_select_own ON notification_deliveries
+                FOR SELECT
+                USING (
+                    notification_id IN (SELECT id FROM notifications WHERE user_id = auth.uid())
+                );
+        </sql>
+        <rollback>
+            DROP POLICY IF EXISTS notification_deliveries_select_own ON notification_deliveries;
+        </rollback>
+    </changeSet>
+
+    <changeSet id="0026-notification-preferences-policies" author="notification-domain">
+        <sql>
+            CREATE POLICY notification_preferences_manage_own ON notification_preferences
+                FOR ALL
+                USING (user_id = auth.uid())
+                WITH CHECK (user_id = auth.uid());
+        </sql>
+        <rollback>
+            DROP POLICY IF EXISTS notification_preferences_manage_own ON notification_preferences;
+        </rollback>
+    </changeSet>
+
+    <!-- Event domain (Phase 2): events/tournaments are publicly visible when published,
+         registrations are visible to participants and organizers. Most writes go through
+         service-role from trusted server routes. -->
+    <changeSet id="0027-event-enable-rls" author="event-domain">
+        <sql>
+            ALTER TABLE events ENABLE ROW LEVEL SECURITY;
+            ALTER TABLE tournaments ENABLE ROW LEVEL SECURITY;
+            ALTER TABLE tournament_registrations ENABLE ROW LEVEL SECURITY;
+            ALTER TABLE bracket_matches ENABLE ROW LEVEL SECURITY;
+        </sql>
+        <rollback>
+            ALTER TABLE events DISABLE ROW LEVEL SECURITY;
+            ALTER TABLE tournaments DISABLE ROW LEVEL SECURITY;
+            ALTER TABLE tournament_registrations DISABLE ROW LEVEL SECURITY;
+            ALTER TABLE bracket_matches DISABLE ROW LEVEL SECURITY;
+        </rollback>
+    </changeSet>
+
+    <changeSet id="0028-events-policies" author="event-domain">
+        <sql>
+            CREATE POLICY events_select_public ON events
+                FOR SELECT
+                USING (visibility = 'public' AND status != 'draft');
+
+            CREATE POLICY events_select_own ON events
+                FOR SELECT
+                USING (
+                    created_by_player_id IN (SELECT id FROM player_profiles WHERE user_id = auth.uid())
+                );
+        </sql>
+        <rollback>
+            DROP POLICY IF EXISTS events_select_public ON events;
+            DROP POLICY IF EXISTS events_select_own ON events;
+        </rollback>
+    </changeSet>
+
+    <changeSet id="0029-tournaments-policies" author="event-domain">
+        <sql>
+            CREATE POLICY tournaments_select_visible ON tournaments
+                FOR SELECT
+                USING (
+                    event_id IN (
+                        SELECT id FROM events
+                        WHERE (visibility = 'public' AND status != 'draft')
+                           OR created_by_player_id IN (SELECT id FROM player_profiles WHERE user_id = auth.uid())
+                    )
+                );
+        </sql>
+        <rollback>
+            DROP POLICY IF EXISTS tournaments_select_visible ON tournaments;
+        </rollback>
+    </changeSet>
+
+    <changeSet id="0030-tournament-registrations-policies" author="event-domain">
+        <sql>
+            CREATE POLICY tournament_registrations_select_own ON tournament_registrations
+                FOR SELECT
+                USING (
+                    player_id IN (SELECT id FROM player_profiles WHERE user_id = auth.uid())
+                    OR partner_player_id IN (SELECT id FROM player_profiles WHERE user_id = auth.uid())
+                );
+        </sql>
+        <rollback>
+            DROP POLICY IF EXISTS tournament_registrations_select_own ON tournament_registrations;
+        </rollback>
+    </changeSet>
+
+    <changeSet id="0031-bracket-matches-policies" author="event-domain">
+        <sql>
+            CREATE POLICY bracket_matches_select_visible ON bracket_matches
+                FOR SELECT
+                USING (
+                    tournament_id IN (
+                        SELECT t.id FROM tournaments t
+                        JOIN events e ON t.event_id = e.id
+                        WHERE (e.visibility = 'public' AND e.status != 'draft')
+                           OR e.created_by_player_id IN (SELECT id FROM player_profiles WHERE user_id = auth.uid())
+                    )
+                );
+        </sql>
+        <rollback>
+            DROP POLICY IF EXISTS bracket_matches_select_visible ON bracket_matches;
+        </rollback>
+    </changeSet>
+
+    <!-- Payment domain RLS policies -->
+    <changeSet id="0032-payment-enable-rls" author="payment-domain">
+        <sql>
+            ALTER TABLE subscription_plans ENABLE ROW LEVEL SECURITY;
+            ALTER TABLE player_subscriptions ENABLE ROW LEVEL SECURITY;
+            ALTER TABLE club_subscriptions ENABLE ROW LEVEL SECURITY;
+            ALTER TABLE payment_transactions ENABLE ROW LEVEL SECURITY;
+            ALTER TABLE sponsorships ENABLE ROW LEVEL SECURITY;
+        </sql>
+        <rollback>
+            ALTER TABLE subscription_plans DISABLE ROW LEVEL SECURITY;
+            ALTER TABLE player_subscriptions DISABLE ROW LEVEL SECURITY;
+            ALTER TABLE club_subscriptions DISABLE ROW LEVEL SECURITY;
+            ALTER TABLE payment_transactions DISABLE ROW LEVEL SECURITY;
+            ALTER TABLE sponsorships DISABLE ROW LEVEL SECURITY;
+        </rollback>
+    </changeSet>
+
+    <changeSet id="0033-subscription-plans-policies" author="payment-domain">
+        <sql>
+            CREATE POLICY subscription_plans_select_active ON subscription_plans
+                FOR SELECT
+                USING (is_active = true);
+        </sql>
+        <rollback>
+            DROP POLICY IF EXISTS subscription_plans_select_active ON subscription_plans;
+        </rollback>
+    </changeSet>
+
+    <changeSet id="0034-player-subscriptions-policies" author="payment-domain">
+        <sql>
+            CREATE POLICY player_subscriptions_select_own ON player_subscriptions
+                FOR SELECT
+                USING (
+                    player_id IN (SELECT id FROM player_profiles WHERE user_id = auth.uid())
+                );
+        </sql>
+        <rollback>
+            DROP POLICY IF EXISTS player_subscriptions_select_own ON player_subscriptions;
+        </rollback>
+    </changeSet>
+
+    <changeSet id="0035-club-subscriptions-policies" author="payment-domain">
+        <sql>
+            CREATE POLICY club_subscriptions_select_own ON club_subscriptions
+                FOR SELECT
+                USING (
+                    club_id IN (
+                        SELECT cm.club_id FROM club_memberships cm
+                        JOIN player_profiles pp ON cm.player_id = pp.id
+                        WHERE pp.user_id = auth.uid()
+                        AND cm.status = 'active'
+                        AND cm.role IN ('OWNER', 'ADMIN')
+                    )
+                );
+        </sql>
+        <rollback>
+            DROP POLICY IF EXISTS club_subscriptions_select_own ON club_subscriptions;
+        </rollback>
+    </changeSet>
+
+    <changeSet id="0036-payment-transactions-policies" author="payment-domain">
+        <sql>
+            CREATE POLICY payment_transactions_select_own ON payment_transactions
+                FOR SELECT
+                USING (
+                    player_id IN (SELECT id FROM player_profiles WHERE user_id = auth.uid())
+                    OR club_id IN (
+                        SELECT cm.club_id FROM club_memberships cm
+                        JOIN player_profiles pp ON cm.player_id = pp.id
+                        WHERE pp.user_id = auth.uid()
+                        AND cm.status = 'active'
+                        AND cm.role IN ('OWNER', 'ADMIN')
+                    )
+                );
+        </sql>
+        <rollback>
+            DROP POLICY IF EXISTS payment_transactions_select_own ON payment_transactions;
+        </rollback>
+    </changeSet>
+
+    <changeSet id="0037-sponsorships-policies" author="payment-domain">
+        <sql>
+            CREATE POLICY sponsorships_select_involved ON sponsorships
+                FOR SELECT
+                USING (
+                    sponsor_player_id IN (SELECT id FROM player_profiles WHERE user_id = auth.uid())
+                    OR (
+                        target_type = 'player'
+                        AND target_id IN (SELECT id FROM player_profiles WHERE user_id = auth.uid())
+                        AND status = 'completed'
+                    )
+                );
+        </sql>
+        <rollback>
+            DROP POLICY IF EXISTS sponsorships_select_involved ON sponsorships;
+        </rollback>
+    </changeSet>
+
 </databaseChangeLog>

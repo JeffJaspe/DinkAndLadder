@@ -32,6 +32,14 @@ const canDecide = computed(
   () => match.value?.status === 'pending_verification' && myVerification.value?.status === 'pending'
 )
 
+const statusConfig: Record<string, { bg: string; text: string }> = {
+  submitted: { bg: 'bg-yellow-500/20', text: 'text-yellow-400' },
+  pending_verification: { bg: 'bg-[#B5B9F0]/20', text: 'text-[#B5B9F0]' },
+  verified: { bg: 'bg-[#4DB175]/20', text: 'text-[#4DB175]' },
+  disputed: { bg: 'bg-red-500/20', text: 'text-red-400' },
+  cancelled: { bg: 'bg-[#3A5750]', text: 'text-[#6B7B75]' }
+}
+
 async function startVerification() {
   actionError.value = ''
   actionMessage.value = ''
@@ -67,115 +75,226 @@ async function recordDecision(status: 'confirmed' | 'rejected' | 'disputed') {
     acting.value = false
   }
 }
+
+function getTeamPlayers(teamNumber: number) {
+  return match.value?.participants.filter(p => p.team_number === teamNumber) ?? []
+}
+
+function getTeamScore(setNumber: number, teamNumber: number) {
+  const score = match.value?.scores.find(s => s.set_number === setNumber)
+  return teamNumber === 1 ? score?.team1_score : score?.team2_score
+}
+
+function didTeamWinSet(setNumber: number, teamNumber: number): boolean {
+  const score = match.value?.scores.find(s => s.set_number === setNumber)
+  if (!score) return false
+  if (teamNumber === 1) return score.team1_score > score.team2_score
+  return score.team2_score > score.team1_score
+}
 </script>
 
 <template>
-  <main class="mx-auto max-w-xl px-4 py-10">
-    <p v-if="pending">Loading…</p>
-    <p v-else-if="error" role="alert" class="text-red-600">
-      {{
-        error.statusCode === 404
-          ? 'This match does not exist, or you were not a participant.'
-          : 'Could not load this match.'
-      }}
-    </p>
-    <div v-else-if="match">
-      <h1 class="text-2xl font-semibold">
-        {{ match.match_type === 'singles' ? 'Singles' : 'Doubles' }} match
-      </h1>
-      <p class="text-sm text-gray-500">Status: {{ match.status }}</p>
-      <p class="text-sm text-gray-500">Played: {{ new Date(match.played_at).toLocaleString() }}</p>
-      <p v-if="match.venue" class="text-sm text-gray-500">Venue: {{ match.venue }}</p>
+  <div class="min-h-screen bg-[#0B0D09] p-4 lg:p-6">
+    <div class="mx-auto max-w-2xl">
+      <!-- Loading -->
+      <div v-if="pending" class="space-y-4">
+        <div class="h-32 animate-pulse rounded-xl bg-[#1E2E2A]" />
+        <div class="h-48 animate-pulse rounded-xl bg-[#1E2E2A]" />
+      </div>
 
-      <h2 class="mt-4 text-lg font-medium">Participants</h2>
-      <ul class="mt-2 divide-y">
-        <li v-for="p in match.participants" :key="p.player_id" class="py-2 text-sm">
-          Team {{ p.team_number }} —
-          <NuxtLink :to="`/players/${p.player_id}`" class="underline">{{ p.player_id }}</NuxtLink>
-          <span class="text-xs text-gray-500">({{ p.result_status }})</span>
-        </li>
-      </ul>
-
-      <h2 class="mt-4 text-lg font-medium">Scores</h2>
-      <table class="mt-2 w-full text-sm">
-        <thead>
-          <tr class="text-left text-gray-500">
-            <th>Set</th>
-            <th>Team 1</th>
-            <th>Team 2</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="s in match.scores" :key="s.set_number">
-            <td>{{ s.set_number }}</td>
-            <td>{{ s.team1_score }}</td>
-            <td>{{ s.team2_score }}</td>
-          </tr>
-        </tbody>
-      </table>
-
-      <h2 class="mt-4 text-lg font-medium">Verification</h2>
-      <p v-if="match.verifications.length === 0" class="text-sm text-gray-500">
-        Verification has not started yet.
-      </p>
-      <ul v-else class="mt-2 divide-y">
-        <li v-for="v in match.verifications" :key="v.verifier_player_id" class="py-2 text-sm">
-          <NuxtLink :to="`/players/${v.verifier_player_id}`" class="underline">{{
-            v.verifier_player_id
-          }}</NuxtLink>
-          <span class="text-xs text-gray-500">({{ v.status }})</span>
-          <span v-if="v.response_note" class="block text-xs text-gray-500">{{
-            v.response_note
-          }}</span>
-        </li>
-      </ul>
-
-      <p v-if="actionMessage" class="mt-3 text-sm text-green-700">{{ actionMessage }}</p>
-      <p v-if="actionError" role="alert" class="mt-3 text-sm text-red-600">{{ actionError }}</p>
-
-      <button
-        v-if="canInitiate"
-        :disabled="acting"
-        class="mt-3 rounded bg-black px-3 py-2 text-white disabled:opacity-50"
-        @click="startVerification"
+      <!-- Error -->
+      <div
+        v-else-if="error"
+        class="rounded-xl bg-red-500/10 p-6 text-center"
       >
-        {{ acting ? 'Starting…' : 'Start verification' }}
-      </button>
+        <p class="text-red-400">
+          {{
+            error.statusCode === 404
+              ? 'This match does not exist, or you were not a participant.'
+              : 'Could not load this match.'
+          }}
+        </p>
+        <NuxtLink to="/dashboard" class="mt-4 inline-block text-sm text-[#4DB175] hover:underline">
+          Back to dashboard
+        </NuxtLink>
+      </div>
 
-      <div v-if="canDecide" class="mt-3 space-y-2">
-        <textarea
-          v-model="note"
-          placeholder="Optional note"
-          class="w-full rounded border px-2 py-1 text-sm"
-          rows="2"
-        />
-        <div class="flex gap-2">
-          <button
-            :disabled="acting"
-            class="rounded bg-black px-3 py-2 text-sm text-white disabled:opacity-50"
-            @click="recordDecision('confirmed')"
+      <!-- Match Details -->
+      <div v-else-if="match">
+        <!-- Header -->
+        <div class="mb-6 flex items-start justify-between">
+          <div>
+            <h1 class="text-2xl font-bold text-white">
+              {{ match.match_type === 'singles' ? 'Singles' : 'Doubles' }} Match
+            </h1>
+            <p class="mt-1 text-[#6B7B75]">
+              {{ new Date(match.played_at).toLocaleDateString() }} at {{ new Date(match.played_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }}
+            </p>
+            <p v-if="match.venue" class="text-sm text-[#6B7B75]">{{ match.venue }}</p>
+          </div>
+          <span
+            class="rounded-md px-3 py-1 text-sm font-medium capitalize"
+            :class="statusConfig[match.status]?.bg + ' ' + statusConfig[match.status]?.text"
           >
-            Confirm
-          </button>
-          <button
-            :disabled="acting"
-            class="rounded border px-3 py-2 text-sm disabled:opacity-50"
-            @click="recordDecision('rejected')"
-          >
-            Reject
-          </button>
-          <button
-            :disabled="acting"
-            class="rounded border px-3 py-2 text-sm disabled:opacity-50"
-            @click="recordDecision('disputed')"
-          >
-            Dispute
-          </button>
+            {{ match.status.replace('_', ' ') }}
+          </span>
+        </div>
+
+        <!-- Score Card -->
+        <div class="mb-6 rounded-xl bg-[#1E2E2A] p-5">
+          <div class="flex items-center justify-between gap-4">
+            <!-- Team 1 -->
+            <div class="flex-1 text-center">
+              <div class="space-y-1">
+                <NuxtLink
+                  v-for="p in getTeamPlayers(1)"
+                  :key="p.player_id"
+                  :to="`/players/${p.player_id}`"
+                  class="block text-sm font-medium text-[#4DB175] hover:underline"
+                >
+                  {{ p.player_id === myProfile?.id ? 'You' : p.player_id.slice(0, 8) }}
+                </NuxtLink>
+              </div>
+            </div>
+
+            <!-- Sets -->
+            <div class="flex items-center gap-2">
+              <div
+                v-for="s in match.scores"
+                :key="s.set_number"
+                class="flex flex-col items-center rounded-lg bg-[#0B0D09] px-3 py-2"
+              >
+                <span class="text-xs text-[#6B7B75]">Set {{ s.set_number }}</span>
+                <div class="flex items-center gap-1 text-lg font-bold">
+                  <span :class="didTeamWinSet(s.set_number, 1) ? 'text-[#4DB175]' : 'text-[#A6ABA7]'">
+                    {{ s.team1_score }}
+                  </span>
+                  <span class="text-[#6B7B75]">-</span>
+                  <span :class="didTeamWinSet(s.set_number, 2) ? 'text-[#4DB175]' : 'text-[#A6ABA7]'">
+                    {{ s.team2_score }}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Team 2 -->
+            <div class="flex-1 text-center">
+              <div class="space-y-1">
+                <NuxtLink
+                  v-for="p in getTeamPlayers(2)"
+                  :key="p.player_id"
+                  :to="`/players/${p.player_id}`"
+                  class="block text-sm font-medium text-[#4DB175] hover:underline"
+                >
+                  {{ p.player_id === myProfile?.id ? 'You' : p.player_id.slice(0, 8) }}
+                </NuxtLink>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Verification Status -->
+        <div class="mb-6 rounded-xl bg-[#1E2E2A] p-5">
+          <h2 class="mb-4 font-semibold text-white">Verification</h2>
+
+          <div v-if="match.verifications.length === 0" class="text-center">
+            <p class="text-[#6B7B75]">Verification has not started yet.</p>
+            <button
+              v-if="canInitiate"
+              :disabled="acting"
+              class="mt-4 rounded-lg bg-[#4DB175] px-6 py-2 font-medium text-white hover:bg-[#5FC287] disabled:opacity-50"
+              @click="startVerification"
+            >
+              {{ acting ? 'Starting...' : 'Start Verification' }}
+            </button>
+          </div>
+
+          <div v-else class="space-y-3">
+            <div
+              v-for="v in match.verifications"
+              :key="v.verifier_player_id"
+              class="flex items-center justify-between rounded-lg bg-[#0B0D09] p-3"
+            >
+              <div class="flex items-center gap-3">
+                <div class="flex h-8 w-8 items-center justify-center rounded-full bg-[#2E4540] text-sm font-bold text-[#A6ABA7]">
+                  {{ v.verifier_player_id.charAt(0).toUpperCase() }}
+                </div>
+                <NuxtLink
+                  :to="`/players/${v.verifier_player_id}`"
+                  class="text-sm font-medium text-[#4DB175] hover:underline"
+                >
+                  {{ v.verifier_player_id === myProfile?.id ? 'You' : v.verifier_player_id.slice(0, 8) }}
+                </NuxtLink>
+              </div>
+              <span
+                class="rounded-md px-2 py-0.5 text-xs font-medium capitalize"
+                :class="{
+                  'bg-yellow-500/20 text-yellow-400': v.status === 'pending',
+                  'bg-[#4DB175]/20 text-[#4DB175]': v.status === 'confirmed',
+                  'bg-red-500/20 text-red-400': v.status === 'rejected' || v.status === 'disputed'
+                }"
+              >
+                {{ v.status }}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Decision Form -->
+        <div v-if="canDecide" class="mb-6 rounded-xl bg-[#1E2E2A] p-5">
+          <h2 class="mb-4 font-semibold text-white">Your Decision</h2>
+          <p class="mb-4 text-sm text-[#6B7B75]">
+            Please verify the match details above and confirm or dispute.
+          </p>
+          <textarea
+            v-model="note"
+            placeholder="Add an optional note..."
+            class="mb-4 w-full rounded-lg border border-[#3A5750] bg-[#0B0D09] px-4 py-2.5 text-white placeholder-[#6B7B75] focus:border-[#4DB175] focus:outline-none"
+            rows="2"
+          />
+          <div class="flex gap-2">
+            <button
+              :disabled="acting"
+              class="flex-1 rounded-lg bg-[#4DB175] py-2.5 font-medium text-white hover:bg-[#5FC287] disabled:opacity-50"
+              @click="recordDecision('confirmed')"
+            >
+              Confirm
+            </button>
+            <button
+              :disabled="acting"
+              class="flex-1 rounded-lg border border-red-400 py-2.5 font-medium text-red-400 hover:bg-red-400/10 disabled:opacity-50"
+              @click="recordDecision('rejected')"
+            >
+              Reject
+            </button>
+            <button
+              :disabled="acting"
+              class="flex-1 rounded-lg border border-yellow-400 py-2.5 font-medium text-yellow-400 hover:bg-yellow-400/10 disabled:opacity-50"
+              @click="recordDecision('disputed')"
+            >
+              Dispute
+            </button>
+          </div>
+        </div>
+
+        <!-- Messages -->
+        <div
+          v-if="actionMessage"
+          class="mb-6 rounded-xl bg-[#4DB175]/10 p-4 text-center text-[#4DB175] ring-1 ring-[#4DB175]/30"
+        >
+          {{ actionMessage }}
+        </div>
+        <div v-if="actionError" class="mb-6 rounded-xl bg-red-500/10 p-4 text-red-400">
+          {{ actionError }}
+        </div>
+
+        <!-- Back Link -->
+        <div class="text-center">
+          <NuxtLink to="/dashboard" class="text-sm text-[#4DB175] hover:underline">
+            Back to dashboard
+          </NuxtLink>
         </div>
       </div>
     </div>
-    <NuxtLink to="/dashboard" class="mt-6 inline-block text-sm underline"
-      >Back to dashboard</NuxtLink
-    >
-  </main>
+  </div>
 </template>

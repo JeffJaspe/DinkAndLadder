@@ -48,3 +48,36 @@ export function toClubDto(club: ClubRecord): ClubDto {
     created_at: club.created_at
   }
 }
+
+export interface ClubSearchQuery {
+  q?: string
+  province?: string
+  city?: string
+  limit: number
+  offset: number
+}
+
+export interface ClubSearchResultDto {
+  id: string
+  name: string
+  slug: string
+  description: string | null
+  province: string | null
+  city: string | null
+  member_count?: number
+}
+
+export function toClubSearchResultDto(
+  club: ClubRecord,
+  memberCount?: number
+): ClubSearchResultDto {
+  return {
+    id: club.id,
+    name: club.name,
+    slug: club.slug,
+    description: club.description,
+    province: club.province,
+    city: club.city,
+    member_count: memberCount
+  }
+}

@@ -13,5 +13,13 @@
     <include file="006-event/006-event.changelog.xml" relativeToChangelogFile="true"/>
     <include file="007-notification/007-notification.changelog.xml" relativeToChangelogFile="true"/>
     <include file="008-security/008-security.changelog.xml" relativeToChangelogFile="true"/>
+    <include file="009-social/009-social.changelog.xml" relativeToChangelogFile="true"/>
+    <include file="010-activity/010-activity.changelog.xml" relativeToChangelogFile="true"/>
+    <include file="011-achievement/011-achievement.changelog.xml" relativeToChangelogFile="true"/>
+    <include file="012-announcement/012-announcement.changelog.xml" relativeToChangelogFile="true"/>
+    <include file="013-payment/013-payment.changelog.xml" relativeToChangelogFile="true"/>
+    <include file="014-analytics/014-analytics.changelog.xml" relativeToChangelogFile="true"/>
+    <include file="015-regions/015-regions.changelog.xml" relativeToChangelogFile="true"/>
+    <include file="016-api-keys/016-api-keys.changelog.xml" relativeToChangelogFile="true"/>
 
 </databaseChangeLog>

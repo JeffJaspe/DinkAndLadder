@@ -14,6 +14,11 @@ import {
   createRatingService,
   RatingServiceError
 } from '~/server/domains/rating/services/rating.service'
+import { createAuditRepository } from '~/server/domains/audit/repositories/audit.repository'
+import { createAuditService } from '~/server/domains/audit/services/audit.service'
+import { createNotificationRepository } from '~/server/domains/notification/repositories/notification.repository'
+import { createNotificationService } from '~/server/domains/notification/services/notification.service'
+import type { NotificationType } from '~/server/domains/notification/dto/notification.dto'
 import { apiError } from '~/server/utils/api-error'
 import type {
   MatchDto,
@@ -119,12 +124,65 @@ export default defineEventHandler(async (event) => {
   const input = parseDecisionInput(await readBody(event))
   const serviceClient = serverSupabaseServiceRole(event)
   const service = createMatchService(createMatchRepository(serviceClient))
+  const auditService = createAuditService(createAuditRepository(serviceClient))
+  const notificationService = createNotificationService(
+    createNotificationRepository(serviceClient)
+  )
+  const playerRepo = createPlayerProfileRepository(serviceClient)
 
   try {
     const match = await service.recordVerificationDecision(playerProfile.id, matchId, input)
+
+    await auditService.logMatchVerificationDecision(claims.sub, playerProfile.id, matchId, {
+      decision: input.status,
+      match_status: match.status
+    })
+
     if (match.status === 'verified') {
       await triggerRatingCalculation(match, serviceClient)
     }
+
+    const terminalStates = ['verified', 'rejected', 'disputed'] as const
+    if (terminalStates.includes(match.status as (typeof terminalStates)[number])) {
+      const notificationType: NotificationType =
+        match.status === 'verified'
+          ? 'match.verified'
+          : match.status === 'rejected'
+            ? 'match.rejected'
+            : 'match.disputed'
+      const title =
+        match.status === 'verified'
+          ? 'Match Verified'
+          : match.status === 'rejected'
+            ? 'Match Rejected'
+            : 'Match Disputed'
+      const body =
+        match.status === 'verified'
+          ? `Your ${match.match_type} match has been verified and ratings have been updated.`
+          : match.status === 'rejected'
+            ? `A ${match.match_type} match you participated in was rejected.`
+            : `A ${match.match_type} match you participated in has been disputed.`
+
+      const participantNotifications = await Promise.all(
+        match.participants.map(async (p) => {
+          const profile = await playerRepo.findById(p.player_id)
+          if (!profile) return null
+          return {
+            user_id: profile.user_id,
+            type: notificationType,
+            title,
+            body,
+            reference_type: 'match' as const,
+            reference_id: matchId
+          }
+        })
+      )
+
+      await notificationService.notifyMany(
+        participantNotifications.filter((n): n is NonNullable<typeof n> => n !== null)
+      )
+    }
+
     return {
       data: match,
       message: 'Verification decision recorded',

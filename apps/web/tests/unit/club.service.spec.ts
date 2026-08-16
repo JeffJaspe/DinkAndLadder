@@ -54,6 +54,9 @@ function createFakes() {
       const updated = { ...existing, ...patch }
       clubs.set(clubId, updated)
       return updated
+    },
+    async search() {
+      return []
     }
   }
 

@@ -9,7 +9,7 @@ test('login page has email/password fields and a link to register', async ({ pag
   await page.goto('/login')
   await expect(page.getByLabel('Email')).toBeVisible()
   await expect(page.getByLabel('Password')).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Log in' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible()
   await expect(page.getByRole('link', { name: /register/i })).toBeVisible()
 })
 
@@ -18,7 +18,7 @@ test('register page has email/password fields and a link to login', async ({ pag
   await expect(page.getByLabel('Email')).toBeVisible()
   await expect(page.getByLabel('Password')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Register' })).toBeVisible()
-  await expect(page.getByRole('link', { name: /log in/i })).toBeVisible()
+  await expect(page.getByRole('main').getByRole('link', { name: /log in/i })).toBeVisible()
 })
 
 test('visiting the dashboard while signed out redirects to login', async ({ page }) => {

@@ -1,10 +1,122 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Notification domain: notifications, notification_deliveries.
-     Out of MVP scope (Phase 2). Changesets are added only when the backlog promotes this domain. -->
+<!-- Notification domain: notifications, notification_deliveries, notification_preferences.
+     Phase 2 implementation per docs/21-NOTIFICATION-SPECIFICATION.md. -->
 <databaseChangeLog
     xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
     xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
         http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+    <changeSet id="0001-create-notifications-table" author="notification-domain">
+        <createTable tableName="notifications">
+            <column name="id" type="uuid" defaultValueComputed="gen_random_uuid()">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="user_id" type="uuid">
+                <constraints nullable="false" foreignKeyName="fk_notifications_user" references="users(id)"/>
+            </column>
+            <column name="type" type="text">
+                <constraints nullable="false"/>
+            </column>
+            <column name="title" type="text">
+                <constraints nullable="false"/>
+            </column>
+            <column name="body" type="text">
+                <constraints nullable="false"/>
+            </column>
+            <column name="reference_type" type="text">
+                <constraints nullable="true"/>
+            </column>
+            <column name="reference_id" type="uuid">
+                <constraints nullable="true"/>
+            </column>
+            <column name="read_at" type="timestamptz">
+                <constraints nullable="true"/>
+            </column>
+            <column name="created_at" type="timestamptz" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
+
+    <changeSet id="0002-notifications-indexes" author="notification-domain">
+        <createIndex tableName="notifications" indexName="idx_notifications_user_id">
+            <column name="user_id"/>
+        </createIndex>
+        <createIndex tableName="notifications" indexName="idx_notifications_user_unread">
+            <column name="user_id"/>
+            <column name="read_at"/>
+        </createIndex>
+        <createIndex tableName="notifications" indexName="idx_notifications_created_at">
+            <column name="created_at"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="0003-create-notification-deliveries-table" author="notification-domain">
+        <createTable tableName="notification_deliveries">
+            <column name="id" type="uuid" defaultValueComputed="gen_random_uuid()">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="notification_id" type="uuid">
+                <constraints nullable="false" foreignKeyName="fk_notification_deliveries_notification" references="notifications(id)"/>
+            </column>
+            <column name="channel" type="text">
+                <constraints nullable="false"/>
+            </column>
+            <column name="status" type="text" defaultValue="pending">
+                <constraints nullable="false"/>
+            </column>
+            <column name="sent_at" type="timestamptz">
+                <constraints nullable="true"/>
+            </column>
+            <column name="delivered_at" type="timestamptz">
+                <constraints nullable="true"/>
+            </column>
+            <column name="error_message" type="text">
+                <constraints nullable="true"/>
+            </column>
+            <column name="created_at" type="timestamptz" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
+
+    <changeSet id="0004-notification-deliveries-indexes" author="notification-domain">
+        <createIndex tableName="notification_deliveries" indexName="idx_notification_deliveries_notification_id">
+            <column name="notification_id"/>
+        </createIndex>
+        <createIndex tableName="notification_deliveries" indexName="idx_notification_deliveries_status">
+            <column name="status"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="0005-create-notification-preferences-table" author="notification-domain">
+        <createTable tableName="notification_preferences">
+            <column name="id" type="uuid" defaultValueComputed="gen_random_uuid()">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="user_id" type="uuid">
+                <constraints nullable="false" unique="true" uniqueConstraintName="uq_notification_preferences_user" foreignKeyName="fk_notification_preferences_user" references="users(id)"/>
+            </column>
+            <column name="preferences" type="jsonb">
+                <constraints nullable="true"/>
+            </column>
+            <column name="quiet_hours_start" type="time">
+                <constraints nullable="true"/>
+            </column>
+            <column name="quiet_hours_end" type="time">
+                <constraints nullable="true"/>
+            </column>
+            <column name="email_digest" type="text" defaultValue="immediate">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_at" type="timestamptz" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+            <column name="updated_at" type="timestamptz" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
 
 </databaseChangeLog>

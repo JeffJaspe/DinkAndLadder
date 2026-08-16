@@ -1,0 +1,168 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <!-- ═══════════════════════════════════════════════════════════════════════
+         011-achievement: Achievements Domain
+         ═══════════════════════════════════════════════════════════════════════ -->
+
+    <!-- 0001: achievement_definitions table -->
+    <changeSet id="0001-achievement-definitions-table" author="achievement-domain">
+        <createTable tableName="achievement_definitions">
+            <column name="id" type="uuid" defaultValueComputed="gen_random_uuid()">
+                <constraints primaryKey="true"/>
+            </column>
+            <column name="key" type="varchar(100)">
+                <constraints nullable="false" unique="true"/>
+            </column>
+            <column name="category" type="varchar(50)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="tier" type="varchar(20)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="name" type="varchar(100)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="description" type="text">
+                <constraints nullable="false"/>
+            </column>
+            <column name="icon" type="varchar(50)">
+                <constraints nullable="true"/>
+            </column>
+            <column name="criteria" type="jsonb">
+                <constraints nullable="false"/>
+            </column>
+            <column name="points" type="int" defaultValueNumeric="10">
+                <constraints nullable="false"/>
+            </column>
+            <column name="is_active" type="boolean" defaultValueBoolean="true">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_at" type="timestamptz" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <sql>
+            ALTER TABLE achievement_definitions
+            ADD CONSTRAINT chk_achievement_category CHECK (category IN ('milestone', 'skill', 'social', 'event', 'streak'));
+            ALTER TABLE achievement_definitions
+            ADD CONSTRAINT chk_achievement_tier CHECK (tier IN ('bronze', 'silver', 'gold', 'platinum'));
+        </sql>
+    </changeSet>
+
+    <!-- 0002: player_achievements table -->
+    <changeSet id="0002-player-achievements-table" author="achievement-domain">
+        <createTable tableName="player_achievements">
+            <column name="id" type="uuid" defaultValueComputed="gen_random_uuid()">
+                <constraints primaryKey="true"/>
+            </column>
+            <column name="player_id" type="uuid">
+                <constraints nullable="false"
+                             foreignKeyName="fk_player_achievement_player"
+                             references="player_profiles(id)"/>
+            </column>
+            <column name="achievement_id" type="uuid">
+                <constraints nullable="false"
+                             foreignKeyName="fk_player_achievement_definition"
+                             references="achievement_definitions(id)"/>
+            </column>
+            <column name="unlocked_at" type="timestamptz" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+            <column name="claimed_at" type="timestamptz">
+                <constraints nullable="true"/>
+            </column>
+            <column name="progress" type="jsonb">
+                <constraints nullable="true"/>
+            </column>
+            <column name="created_at" type="timestamptz" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <addUniqueConstraint
+            tableName="player_achievements"
+            columnNames="player_id,achievement_id"
+            constraintName="uq_player_achievement"/>
+    </changeSet>
+
+    <!-- 0003: indexes -->
+    <changeSet id="0003-achievement-indexes" author="achievement-domain">
+        <createIndex tableName="achievement_definitions" indexName="idx_achievement_defs_category">
+            <column name="category"/>
+        </createIndex>
+        <createIndex tableName="achievement_definitions" indexName="idx_achievement_defs_active">
+            <column name="is_active"/>
+        </createIndex>
+        <createIndex tableName="player_achievements" indexName="idx_player_achievements_player">
+            <column name="player_id"/>
+        </createIndex>
+        <createIndex tableName="player_achievements" indexName="idx_player_achievements_unlocked">
+            <column name="unlocked_at" descending="true"/>
+        </createIndex>
+    </changeSet>
+
+    <!-- 0004: RLS -->
+    <changeSet id="0004-achievement-enable-rls" author="achievement-domain">
+        <sql>
+            ALTER TABLE achievement_definitions ENABLE ROW LEVEL SECURITY;
+            ALTER TABLE player_achievements ENABLE ROW LEVEL SECURITY;
+        </sql>
+        <rollback>
+            ALTER TABLE achievement_definitions DISABLE ROW LEVEL SECURITY;
+            ALTER TABLE player_achievements DISABLE ROW LEVEL SECURITY;
+        </rollback>
+    </changeSet>
+
+    <changeSet id="0005-achievement-policies" author="achievement-domain">
+        <sql>
+            CREATE POLICY achievement_definitions_select_all ON achievement_definitions
+                FOR SELECT
+                USING (is_active = true);
+
+            CREATE POLICY player_achievements_select_public ON player_achievements
+                FOR SELECT
+                USING (true);
+        </sql>
+        <rollback>
+            DROP POLICY IF EXISTS achievement_definitions_select_all ON achievement_definitions;
+            DROP POLICY IF EXISTS player_achievements_select_public ON player_achievements;
+        </rollback>
+    </changeSet>
+
+    <!-- 0006: Seed initial achievements -->
+    <changeSet id="0006-seed-achievements" author="achievement-domain">
+        <sql>
+            INSERT INTO achievement_definitions (key, category, tier, name, description, icon, criteria, points) VALUES
+            ('first_match', 'milestone', 'bronze', 'First Match', 'Complete your first verified match', '🎾', '{"type":"count","entity":"matches","threshold":1}', 10),
+            ('regular_player', 'milestone', 'silver', 'Regular Player', 'Complete 10 verified matches', '🏅', '{"type":"count","entity":"matches","threshold":10}', 25),
+            ('dedicated_player', 'milestone', 'gold', 'Dedicated Player', 'Complete 50 verified matches', '🏆', '{"type":"count","entity":"matches","threshold":50}', 50),
+            ('match_master', 'milestone', 'platinum', 'Match Master', 'Complete 100 verified matches', '👑', '{"type":"count","entity":"matches","threshold":100}', 100),
+            ('first_victory', 'milestone', 'bronze', 'First Victory', 'Win your first match', '✨', '{"type":"count","entity":"wins","threshold":1}', 10),
+            ('winner', 'milestone', 'silver', 'Winner', 'Win 10 matches', '⭐', '{"type":"count","entity":"wins","threshold":10}', 25),
+            ('champion', 'milestone', 'gold', 'Champion', 'Win 50 matches', '🌟', '{"type":"count","entity":"wins","threshold":50}', 50),
+            ('rated_player', 'skill', 'bronze', 'Rated Player', 'Receive your first rating', '📊', '{"type":"exists","entity":"rating"}', 10),
+            ('rising_star', 'skill', 'silver', 'Rising Star', 'Reach a rating of 3.5', '📈', '{"type":"threshold","entity":"rating","threshold":3.5}', 25),
+            ('skilled_player', 'skill', 'gold', 'Skilled Player', 'Reach a rating of 4.0', '🎯', '{"type":"threshold","entity":"rating","threshold":4.0}', 50),
+            ('elite_player', 'skill', 'platinum', 'Elite Player', 'Reach a rating of 4.5', '💎', '{"type":"threshold","entity":"rating","threshold":4.5}', 100),
+            ('social_butterfly', 'social', 'silver', 'Social Butterfly', 'Have 5 followers', '🦋', '{"type":"count","entity":"followers","threshold":5}', 25),
+            ('community_member', 'social', 'bronze', 'Community Member', 'Join your first club', '🤝', '{"type":"count","entity":"clubs","threshold":1}', 10),
+            ('club_founder', 'social', 'gold', 'Club Founder', 'Create a club', '🏛️', '{"type":"exists","entity":"created_club"}', 50),
+            ('tournament_debut', 'event', 'bronze', 'Tournament Debut', 'Register for your first tournament', '🎪', '{"type":"count","entity":"tournament_registrations","threshold":1}', 10),
+            ('competitor', 'event', 'silver', 'Competitor', 'Participate in 5 tournaments', '🎖️', '{"type":"count","entity":"tournament_registrations","threshold":5}', 25);
+        </sql>
+        <rollback>
+            DELETE FROM achievement_definitions WHERE key IN (
+                'first_match', 'regular_player', 'dedicated_player', 'match_master',
+                'first_victory', 'winner', 'champion',
+                'rated_player', 'rising_star', 'skilled_player', 'elite_player',
+                'social_butterfly', 'community_member', 'club_founder',
+                'tournament_debut', 'competitor'
+            );
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

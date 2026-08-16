@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+  xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+    https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+  <!-- Function to get player match statistics -->
+  <changeSet id="0001" author="claude">
+    <sql splitStatements="false">
+      CREATE OR REPLACE FUNCTION get_player_match_stats(p_player_id uuid)
+      RETURNS TABLE (
+        total_matches bigint,
+        singles_matches bigint,
+        doubles_matches bigint,
+        wins bigint,
+        losses bigint,
+        matches_this_month bigint
+      )
+      LANGUAGE plpgsql
+      SECURITY DEFINER
+      AS $$
+      BEGIN
+        RETURN QUERY
+        SELECT
+          COUNT(DISTINCT mp.match_id) AS total_matches,
+          COUNT(DISTINCT CASE WHEN m.match_type = 'singles' THEN mp.match_id END) AS singles_matches,
+          COUNT(DISTINCT CASE WHEN m.match_type = 'doubles' THEN mp.match_id END) AS doubles_matches,
+          COUNT(DISTINCT CASE WHEN mp.result_status = 'won' THEN mp.match_id END) AS wins,
+          COUNT(DISTINCT CASE WHEN mp.result_status = 'lost' THEN mp.match_id END) AS losses,
+          COUNT(DISTINCT CASE WHEN m.created_at >= date_trunc('month', CURRENT_DATE) THEN mp.match_id END) AS matches_this_month
+        FROM match_participants mp
+        JOIN matches m ON mp.match_id = m.id
+        WHERE mp.player_id = p_player_id
+          AND m.status = 'verified';
+      END;
+      $$;
+    </sql>
+    <rollback>
+      DROP FUNCTION IF EXISTS get_player_match_stats(uuid);
+    </rollback>
+  </changeSet>
+
+  <!-- Function to get club activity stats -->
+  <changeSet id="0002" author="claude">
+    <sql splitStatements="false">
+      CREATE OR REPLACE FUNCTION get_club_match_stats(p_club_id uuid)
+      RETURNS TABLE (
+        matches_this_month bigint,
+        active_member_count bigint
+      )
+      LANGUAGE plpgsql
+      SECURITY DEFINER
+      AS $$
+      DECLARE
+        member_ids uuid[];
+      BEGIN
+        SELECT array_agg(player_id) INTO member_ids
+        FROM club_memberships
+        WHERE club_id = p_club_id AND status = 'active';
+
+        RETURN QUERY
+        SELECT
+          COUNT(DISTINCT m.id) AS matches_this_month,
+          COUNT(DISTINCT mp.player_id) AS active_member_count
+        FROM matches m
+        JOIN match_participants mp ON mp.match_id = m.id
+        WHERE mp.player_id = ANY(COALESCE(member_ids, ARRAY[]::uuid[]))
+          AND m.status = 'verified'
+          AND m.created_at >= date_trunc('month', CURRENT_DATE);
+      END;
+      $$;
+    </sql>
+    <rollback>
+      DROP FUNCTION IF EXISTS get_club_match_stats(uuid);
+    </rollback>
+  </changeSet>
+
+</databaseChangeLog>

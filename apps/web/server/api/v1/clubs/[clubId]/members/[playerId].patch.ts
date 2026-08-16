@@ -7,6 +7,10 @@ import { createClubMembershipRepository } from '~/server/domains/club/repositori
 import { createClubRepository } from '~/server/domains/club/repositories/club.repository'
 import { createClubService, ClubServiceError } from '~/server/domains/club/services/club.service'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
+import { createAuditRepository } from '~/server/domains/audit/repositories/audit.repository'
+import { createAuditService } from '~/server/domains/audit/services/audit.service'
+import { createNotificationRepository } from '~/server/domains/notification/repositories/notification.repository'
+import { createNotificationService } from '~/server/domains/notification/services/notification.service'
 import { apiError } from '~/server/utils/api-error'
 import type { UpdateMembershipInput } from '~/server/domains/club/dto/club-membership.dto'
 
@@ -62,13 +66,80 @@ export default defineEventHandler(async (event) => {
 
   const input = parseUpdateInput(await readBody(event))
   const serviceClient = serverSupabaseServiceRole(event)
-  const service = createClubService(
-    createClubRepository(serviceClient),
-    createClubMembershipRepository(serviceClient)
-  )
+  const membershipRepo = createClubMembershipRepository(serviceClient)
+  const clubRepo = createClubRepository(serviceClient)
+  const playerRepo = createPlayerProfileRepository(serviceClient)
+  const service = createClubService(clubRepo, membershipRepo)
+  const auditService = createAuditService(createAuditRepository(serviceClient))
+  const notificationService = createNotificationService(createNotificationRepository(serviceClient))
+
+  const oldMembership = await membershipRepo.findByClubAndPlayer(clubId, targetPlayerId)
 
   try {
     const membership = await service.updateMember(playerProfile.id, clubId, targetPlayerId, input)
+
+    const targetProfile = await playerRepo.findById(targetPlayerId)
+    const club = await clubRepo.findById(clubId)
+
+    if (oldMembership && targetProfile && club) {
+      if (input.role && input.role !== oldMembership.role) {
+        await auditService.logClubRoleChange(claims.sub, playerProfile.id, membership.id, {
+          old_role: oldMembership.role,
+          new_role: input.role,
+          target_player_id: targetPlayerId
+        })
+        await notificationService.notify({
+          user_id: targetProfile.user_id,
+          type: 'club.role_changed',
+          title: 'Role Changed',
+          body: `Your role in ${club.name} was changed to ${input.role}.`,
+          reference_type: 'club_membership',
+          reference_id: membership.id
+        })
+      }
+      if (input.status === 'active' && oldMembership.status === 'pending') {
+        await auditService.logClubMembershipAction(
+          claims.sub,
+          playerProfile.id,
+          membership.id,
+          'approve',
+          { target_player_id: targetPlayerId, club_id: clubId }
+        )
+        await notificationService.notify({
+          user_id: targetProfile.user_id,
+          type: 'club.membership_approved',
+          title: 'Membership Approved',
+          body: `Your request to join ${club.name} was approved.`,
+          reference_type: 'club_membership',
+          reference_id: membership.id
+        })
+      } else if (input.status === 'rejected') {
+        await auditService.logClubMembershipAction(
+          claims.sub,
+          playerProfile.id,
+          membership.id,
+          'reject',
+          { target_player_id: targetPlayerId, club_id: clubId }
+        )
+        await notificationService.notify({
+          user_id: targetProfile.user_id,
+          type: 'club.membership_rejected',
+          title: 'Membership Rejected',
+          body: `Your request to join ${club.name} was declined.`,
+          reference_type: 'club_membership',
+          reference_id: membership.id
+        })
+      } else if (input.status === 'left') {
+        await auditService.logClubMembershipAction(
+          claims.sub,
+          playerProfile.id,
+          membership.id,
+          'remove',
+          { target_player_id: targetPlayerId, club_id: clubId }
+        )
+      }
+    }
+
     return { data: membership, message: 'Member updated', request_id: crypto.randomUUID() }
   } catch (err) {
     if (err instanceof ClubServiceError) throw apiError(err.status, err.code, err.message)

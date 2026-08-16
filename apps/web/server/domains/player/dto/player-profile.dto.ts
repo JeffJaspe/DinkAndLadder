@@ -57,3 +57,36 @@ export function toPlayerProfileDto(profile: PlayerProfileRecord): PlayerProfileD
     created_at: profile.created_at
   }
 }
+
+export interface PlayerSearchQuery {
+  q?: string
+  province?: string
+  city?: string
+  limit: number
+  offset: number
+}
+
+export interface PlayerSearchResultRow extends PlayerProfileRecord {
+  singles_rating?: number | null
+  doubles_rating?: number | null
+}
+
+export interface PlayerSearchResultDto {
+  id: string
+  display_name: string
+  province: string | null
+  city: string | null
+  singles_rating: number | null
+  doubles_rating: number | null
+}
+
+export function toPlayerSearchResultDto(row: PlayerSearchResultRow): PlayerSearchResultDto {
+  return {
+    id: row.id,
+    display_name: row.display_name,
+    province: row.province,
+    city: row.city,
+    singles_rating: row.singles_rating ?? null,
+    doubles_rating: row.doubles_rating ?? null
+  }
+}

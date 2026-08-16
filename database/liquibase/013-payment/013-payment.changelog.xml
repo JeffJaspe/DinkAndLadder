@@ -1,0 +1,324 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+  xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+    https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+  <!-- Subscription Plans table -->
+  <changeSet id="0001" author="claude">
+    <createTable tableName="subscription_plans">
+      <column name="id" type="uuid" defaultValueComputed="gen_random_uuid()">
+        <constraints primaryKey="true" nullable="false"/>
+      </column>
+      <column name="name" type="varchar(100)">
+        <constraints nullable="false"/>
+      </column>
+      <column name="description" type="text"/>
+      <column name="stripe_price_id" type="varchar(255)"/>
+      <column name="billing_interval" type="varchar(20)">
+        <constraints nullable="false"/>
+      </column>
+      <column name="price_cents" type="integer">
+        <constraints nullable="false"/>
+      </column>
+      <column name="currency" type="varchar(3)" defaultValue="php">
+        <constraints nullable="false"/>
+      </column>
+      <column name="features" type="jsonb" defaultValue="{}"/>
+      <column name="plan_type" type="varchar(20)" defaultValue="player">
+        <constraints nullable="false"/>
+      </column>
+      <column name="is_active" type="boolean" defaultValueBoolean="true">
+        <constraints nullable="false"/>
+      </column>
+      <column name="sort_order" type="integer" defaultValue="0"/>
+      <column name="created_at" type="timestamptz" defaultValueComputed="now()">
+        <constraints nullable="false"/>
+      </column>
+      <column name="updated_at" type="timestamptz" defaultValueComputed="now()">
+        <constraints nullable="false"/>
+      </column>
+    </createTable>
+    <sql>
+      ALTER TABLE subscription_plans
+        ADD CONSTRAINT subscription_plans_billing_interval_check
+        CHECK (billing_interval IN ('month', 'year', 'one_time'));
+      ALTER TABLE subscription_plans
+        ADD CONSTRAINT subscription_plans_plan_type_check
+        CHECK (plan_type IN ('player', 'club'));
+    </sql>
+  </changeSet>
+
+  <!-- Player Subscriptions table -->
+  <changeSet id="0002" author="claude">
+    <createTable tableName="player_subscriptions">
+      <column name="id" type="uuid" defaultValueComputed="gen_random_uuid()">
+        <constraints primaryKey="true" nullable="false"/>
+      </column>
+      <column name="player_id" type="uuid">
+        <constraints nullable="false"/>
+      </column>
+      <column name="plan_id" type="uuid">
+        <constraints nullable="false"/>
+      </column>
+      <column name="stripe_subscription_id" type="varchar(255)"/>
+      <column name="stripe_customer_id" type="varchar(255)"/>
+      <column name="status" type="varchar(20)">
+        <constraints nullable="false"/>
+      </column>
+      <column name="current_period_start" type="timestamptz"/>
+      <column name="current_period_end" type="timestamptz"/>
+      <column name="cancel_at_period_end" type="boolean" defaultValueBoolean="false"/>
+      <column name="created_at" type="timestamptz" defaultValueComputed="now()">
+        <constraints nullable="false"/>
+      </column>
+      <column name="updated_at" type="timestamptz" defaultValueComputed="now()">
+        <constraints nullable="false"/>
+      </column>
+    </createTable>
+    <addForeignKeyConstraint
+      baseTableName="player_subscriptions"
+      baseColumnNames="player_id"
+      constraintName="fk_player_subscriptions_player"
+      referencedTableName="player_profiles"
+      referencedColumnNames="id"
+      onDelete="CASCADE"/>
+    <addForeignKeyConstraint
+      baseTableName="player_subscriptions"
+      baseColumnNames="plan_id"
+      constraintName="fk_player_subscriptions_plan"
+      referencedTableName="subscription_plans"
+      referencedColumnNames="id"/>
+    <sql>
+      ALTER TABLE player_subscriptions
+        ADD CONSTRAINT player_subscriptions_status_check
+        CHECK (status IN ('active', 'canceled', 'past_due', 'trialing', 'paused', 'incomplete'));
+    </sql>
+    <createIndex tableName="player_subscriptions" indexName="idx_player_subscriptions_player">
+      <column name="player_id"/>
+    </createIndex>
+    <createIndex tableName="player_subscriptions" indexName="idx_player_subscriptions_stripe_sub">
+      <column name="stripe_subscription_id"/>
+    </createIndex>
+  </changeSet>
+
+  <!-- Club Subscriptions table -->
+  <changeSet id="0003" author="claude">
+    <createTable tableName="club_subscriptions">
+      <column name="id" type="uuid" defaultValueComputed="gen_random_uuid()">
+        <constraints primaryKey="true" nullable="false"/>
+      </column>
+      <column name="club_id" type="uuid">
+        <constraints nullable="false"/>
+      </column>
+      <column name="plan_id" type="uuid">
+        <constraints nullable="false"/>
+      </column>
+      <column name="stripe_subscription_id" type="varchar(255)"/>
+      <column name="stripe_customer_id" type="varchar(255)"/>
+      <column name="status" type="varchar(20)">
+        <constraints nullable="false"/>
+      </column>
+      <column name="current_period_start" type="timestamptz"/>
+      <column name="current_period_end" type="timestamptz"/>
+      <column name="cancel_at_period_end" type="boolean" defaultValueBoolean="false"/>
+      <column name="created_at" type="timestamptz" defaultValueComputed="now()">
+        <constraints nullable="false"/>
+      </column>
+      <column name="updated_at" type="timestamptz" defaultValueComputed="now()">
+        <constraints nullable="false"/>
+      </column>
+    </createTable>
+    <addForeignKeyConstraint
+      baseTableName="club_subscriptions"
+      baseColumnNames="club_id"
+      constraintName="fk_club_subscriptions_club"
+      referencedTableName="clubs"
+      referencedColumnNames="id"
+      onDelete="CASCADE"/>
+    <addForeignKeyConstraint
+      baseTableName="club_subscriptions"
+      baseColumnNames="plan_id"
+      constraintName="fk_club_subscriptions_plan"
+      referencedTableName="subscription_plans"
+      referencedColumnNames="id"/>
+    <sql>
+      ALTER TABLE club_subscriptions
+        ADD CONSTRAINT club_subscriptions_status_check
+        CHECK (status IN ('active', 'canceled', 'past_due', 'trialing', 'incomplete'));
+    </sql>
+    <createIndex tableName="club_subscriptions" indexName="idx_club_subscriptions_club">
+      <column name="club_id"/>
+    </createIndex>
+  </changeSet>
+
+  <!-- Payment Transactions table -->
+  <changeSet id="0004" author="claude">
+    <createTable tableName="payment_transactions">
+      <column name="id" type="uuid" defaultValueComputed="gen_random_uuid()">
+        <constraints primaryKey="true" nullable="false"/>
+      </column>
+      <column name="player_id" type="uuid"/>
+      <column name="club_id" type="uuid"/>
+      <column name="stripe_payment_intent_id" type="varchar(255)"/>
+      <column name="stripe_invoice_id" type="varchar(255)"/>
+      <column name="amount_cents" type="integer">
+        <constraints nullable="false"/>
+      </column>
+      <column name="currency" type="varchar(3)" defaultValue="php">
+        <constraints nullable="false"/>
+      </column>
+      <column name="status" type="varchar(20)">
+        <constraints nullable="false"/>
+      </column>
+      <column name="transaction_type" type="varchar(30)">
+        <constraints nullable="false"/>
+      </column>
+      <column name="description" type="text"/>
+      <column name="metadata" type="jsonb" defaultValue="{}"/>
+      <column name="created_at" type="timestamptz" defaultValueComputed="now()">
+        <constraints nullable="false"/>
+      </column>
+      <column name="updated_at" type="timestamptz" defaultValueComputed="now()">
+        <constraints nullable="false"/>
+      </column>
+    </createTable>
+    <addForeignKeyConstraint
+      baseTableName="payment_transactions"
+      baseColumnNames="player_id"
+      constraintName="fk_payment_transactions_player"
+      referencedTableName="player_profiles"
+      referencedColumnNames="id"
+      onDelete="SET NULL"/>
+    <addForeignKeyConstraint
+      baseTableName="payment_transactions"
+      baseColumnNames="club_id"
+      constraintName="fk_payment_transactions_club"
+      referencedTableName="clubs"
+      referencedColumnNames="id"
+      onDelete="SET NULL"/>
+    <sql>
+      ALTER TABLE payment_transactions
+        ADD CONSTRAINT payment_transactions_status_check
+        CHECK (status IN ('pending', 'succeeded', 'failed', 'refunded', 'canceled'));
+      ALTER TABLE payment_transactions
+        ADD CONSTRAINT payment_transactions_type_check
+        CHECK (transaction_type IN ('subscription', 'tournament_entry', 'sponsorship', 'donation', 'refund'));
+    </sql>
+    <createIndex tableName="payment_transactions" indexName="idx_payment_transactions_player">
+      <column name="player_id"/>
+    </createIndex>
+    <createIndex tableName="payment_transactions" indexName="idx_payment_transactions_stripe_pi">
+      <column name="stripe_payment_intent_id"/>
+    </createIndex>
+  </changeSet>
+
+  <!-- Sponsorships table -->
+  <changeSet id="0005" author="claude">
+    <createTable tableName="sponsorships">
+      <column name="id" type="uuid" defaultValueComputed="gen_random_uuid()">
+        <constraints primaryKey="true" nullable="false"/>
+      </column>
+      <column name="sponsor_player_id" type="uuid">
+        <constraints nullable="false"/>
+      </column>
+      <column name="target_type" type="varchar(20)">
+        <constraints nullable="false"/>
+      </column>
+      <column name="target_id" type="uuid">
+        <constraints nullable="false"/>
+      </column>
+      <column name="amount_cents" type="integer">
+        <constraints nullable="false"/>
+      </column>
+      <column name="currency" type="varchar(3)" defaultValue="php">
+        <constraints nullable="false"/>
+      </column>
+      <column name="message" type="text"/>
+      <column name="is_anonymous" type="boolean" defaultValueBoolean="false"/>
+      <column name="stripe_payment_intent_id" type="varchar(255)"/>
+      <column name="status" type="varchar(20)">
+        <constraints nullable="false"/>
+      </column>
+      <column name="created_at" type="timestamptz" defaultValueComputed="now()">
+        <constraints nullable="false"/>
+      </column>
+      <column name="updated_at" type="timestamptz" defaultValueComputed="now()">
+        <constraints nullable="false"/>
+      </column>
+    </createTable>
+    <addForeignKeyConstraint
+      baseTableName="sponsorships"
+      baseColumnNames="sponsor_player_id"
+      constraintName="fk_sponsorships_sponsor"
+      referencedTableName="player_profiles"
+      referencedColumnNames="id"
+      onDelete="CASCADE"/>
+    <sql>
+      ALTER TABLE sponsorships
+        ADD CONSTRAINT sponsorships_target_type_check
+        CHECK (target_type IN ('player', 'club', 'tournament'));
+      ALTER TABLE sponsorships
+        ADD CONSTRAINT sponsorships_status_check
+        CHECK (status IN ('pending', 'completed', 'failed', 'refunded'));
+    </sql>
+    <createIndex tableName="sponsorships" indexName="idx_sponsorships_sponsor">
+      <column name="sponsor_player_id"/>
+    </createIndex>
+    <createIndex tableName="sponsorships" indexName="idx_sponsorships_target">
+      <column name="target_type"/>
+      <column name="target_id"/>
+    </createIndex>
+  </changeSet>
+
+  <!-- Seed subscription plans -->
+  <changeSet id="0006" author="claude">
+    <insert tableName="subscription_plans">
+      <column name="name" value="Free"/>
+      <column name="description" value="Basic access to DinkAndLadder"/>
+      <column name="billing_interval" value="month"/>
+      <column name="price_cents" value="0"/>
+      <column name="plan_type" value="player"/>
+      <column name="features" valueComputed="'{&quot;max_matches_per_month&quot;: 10, &quot;max_clubs&quot;: 2, &quot;analytics&quot;: false, &quot;ad_free&quot;: false}'::jsonb"/>
+      <column name="sort_order" value="0"/>
+    </insert>
+    <insert tableName="subscription_plans">
+      <column name="name" value="Pro"/>
+      <column name="description" value="Unlimited access for serious players"/>
+      <column name="billing_interval" value="month"/>
+      <column name="price_cents" value="29900"/>
+      <column name="plan_type" value="player"/>
+      <column name="features" valueComputed="'{&quot;max_matches_per_month&quot;: -1, &quot;max_clubs&quot;: -1, &quot;analytics&quot;: true, &quot;ad_free&quot;: true, &quot;priority_registration&quot;: true}'::jsonb"/>
+      <column name="sort_order" value="1"/>
+    </insert>
+    <insert tableName="subscription_plans">
+      <column name="name" value="Pro Annual"/>
+      <column name="description" value="Pro plan billed annually (2 months free)"/>
+      <column name="billing_interval" value="year"/>
+      <column name="price_cents" value="299000"/>
+      <column name="plan_type" value="player"/>
+      <column name="features" valueComputed="'{&quot;max_matches_per_month&quot;: -1, &quot;max_clubs&quot;: -1, &quot;analytics&quot;: true, &quot;ad_free&quot;: true, &quot;priority_registration&quot;: true}'::jsonb"/>
+      <column name="sort_order" value="2"/>
+    </insert>
+    <insert tableName="subscription_plans">
+      <column name="name" value="Club Basic"/>
+      <column name="description" value="Free club features"/>
+      <column name="billing_interval" value="month"/>
+      <column name="price_cents" value="0"/>
+      <column name="plan_type" value="club"/>
+      <column name="features" valueComputed="'{&quot;max_members&quot;: 50, &quot;announcements&quot;: true, &quot;tournaments&quot;: false, &quot;analytics&quot;: false}'::jsonb"/>
+      <column name="sort_order" value="10"/>
+    </insert>
+    <insert tableName="subscription_plans">
+      <column name="name" value="Club Premium"/>
+      <column name="description" value="Full club management features"/>
+      <column name="billing_interval" value="month"/>
+      <column name="price_cents" value="99900"/>
+      <column name="plan_type" value="club"/>
+      <column name="features" valueComputed="'{&quot;max_members&quot;: -1, &quot;announcements&quot;: true, &quot;tournaments&quot;: true, &quot;analytics&quot;: true, &quot;priority_support&quot;: true}'::jsonb"/>
+      <column name="sort_order" value="11"/>
+    </insert>
+  </changeSet>
+
+</databaseChangeLog>

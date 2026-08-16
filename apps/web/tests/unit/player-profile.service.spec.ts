@@ -42,6 +42,9 @@ function createFakePlayerProfileRepository(
       rowsByUserId.set(userId, row)
       rowsById.set(row.id, row)
       return row
+    },
+    async search() {
+      return []
     }
   }
 }

@@ -9,6 +9,7 @@ import {
   MatchServiceError
 } from '~/server/domains/match/services/match.service'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
+import { createClubMembershipRepository } from '~/server/domains/club/repositories/club-membership.repository'
 import { apiError } from '~/server/utils/api-error'
 import type {
   SubmitMatchInput,
@@ -22,6 +23,9 @@ function parseSubmitInput(body: unknown): SubmitMatchInput {
   }
   const record = body as Record<string, unknown>
 
+  if (typeof record.club_id !== 'string' || !record.club_id) {
+    throw apiError(400, 'VALIDATION_ERROR', 'club_id is required.')
+  }
   if (record.match_type !== 'singles' && record.match_type !== 'doubles') {
     throw apiError(400, 'VALIDATION_ERROR', "match_type must be 'singles' or 'doubles'.")
   }
@@ -72,6 +76,7 @@ function parseSubmitInput(body: unknown): SubmitMatchInput {
   }
 
   return {
+    club_id: record.club_id as string,
     match_type: record.match_type,
     played_at: record.played_at,
     venue: (venue as string | null | undefined) ?? null,
@@ -103,6 +108,16 @@ export default defineEventHandler(async (event) => {
   }
 
   const input = parseSubmitInput(await readBody(event))
+
+  const membershipRepo = createClubMembershipRepository(userClient)
+  const membership = await membershipRepo.findByClubAndPlayer(input.club_id, playerProfile.id)
+  if (!membership || membership.status !== 'active') {
+    throw apiError(403, 'NOT_CLUB_MEMBER', 'You must be an active member of this club.')
+  }
+  if (membership.role !== 'OWNER' && membership.role !== 'ADMIN') {
+    throw apiError(403, 'NOT_CLUB_ADMIN', 'Only club owners or admins can submit matches.')
+  }
+
   const serviceClient = serverSupabaseServiceRole(event)
   const service = createMatchService(createMatchRepository(serviceClient))
 

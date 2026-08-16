@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <!-- ═══════════════════════════════════════════════════════════════════════
+         009-social: Social Relationships Domain
+         ═══════════════════════════════════════════════════════════════════════ -->
+
+    <!-- 0001: player_relationships table -->
+    <changeSet id="0001-player-relationships-table" author="claude">
+        <createTable tableName="player_relationships">
+            <column name="id" type="uuid" defaultValueComputed="gen_random_uuid()">
+                <constraints primaryKey="true"/>
+            </column>
+            <column name="from_player_id" type="uuid">
+                <constraints nullable="false"
+                             foreignKeyName="fk_relationship_from_player"
+                             references="player_profiles(id)"/>
+            </column>
+            <column name="to_player_id" type="uuid">
+                <constraints nullable="false"
+                             foreignKeyName="fk_relationship_to_player"
+                             references="player_profiles(id)"/>
+            </column>
+            <column name="relationship_type" type="varchar(20)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="status" type="varchar(20)" defaultValue="active">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_at" type="timestamptz" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+            <column name="updated_at" type="timestamptz" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <sql>
+            ALTER TABLE player_relationships
+            ADD CONSTRAINT chk_relationship_type CHECK (relationship_type IN ('follow', 'block'));
+            ALTER TABLE player_relationships
+            ADD CONSTRAINT chk_relationship_status CHECK (status IN ('pending', 'active'));
+            ALTER TABLE player_relationships
+            ADD CONSTRAINT chk_no_self_relationship CHECK (from_player_id != to_player_id);
+        </sql>
+    </changeSet>
+
+    <!-- 0002: Unique constraint and indexes -->
+    <changeSet id="0002-player-relationships-indexes" author="claude">
+        <addUniqueConstraint
+            tableName="player_relationships"
+            columnNames="from_player_id,to_player_id,relationship_type"
+            constraintName="uq_player_relationship"/>
+        <createIndex tableName="player_relationships" indexName="idx_relationships_from_player">
+            <column name="from_player_id"/>
+        </createIndex>
+        <createIndex tableName="player_relationships" indexName="idx_relationships_to_player">
+            <column name="to_player_id"/>
+        </createIndex>
+        <createIndex tableName="player_relationships" indexName="idx_relationships_type_status">
+            <column name="relationship_type"/>
+            <column name="status"/>
+        </createIndex>
+    </changeSet>
+
+    <!-- RLS: players can see their own relationships and public follows.
+         Blocks are only visible to the blocker. All writes via service-role from server. -->
+    <changeSet id="0003-social-enable-rls" author="social-domain">
+        <sql>ALTER TABLE player_relationships ENABLE ROW LEVEL SECURITY;</sql>
+        <rollback>ALTER TABLE player_relationships DISABLE ROW LEVEL SECURITY;</rollback>
+    </changeSet>
+
+    <changeSet id="0004-social-relationships-policies" author="social-domain">
+        <sql>
+            CREATE POLICY relationships_select_own ON player_relationships
+                FOR SELECT
+                USING (
+                    from_player_id IN (SELECT id FROM player_profiles WHERE user_id = auth.uid())
+                    OR (
+                        to_player_id IN (SELECT id FROM player_profiles WHERE user_id = auth.uid())
+                        AND relationship_type = 'follow'
+                    )
+                );
+        </sql>
+        <rollback>
+            DROP POLICY IF EXISTS relationships_select_own ON player_relationships;
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

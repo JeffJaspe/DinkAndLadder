@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import type { ClubRecord, CreateClubInput } from '../dto/club.dto'
+import type { ClubRecord, ClubSearchQuery, CreateClubInput } from '../dto/club.dto'
 
 const CLUB_COLUMNS =
   'id, name, slug, description, province, city, visibility, status, created_by_user_id, created_at'
@@ -17,6 +17,7 @@ export interface ClubRepository {
   findBySlug(slug: string): Promise<ClubRecord | null>
   create(input: CreateClubInput, createdByUserId: string): Promise<ClubRecord>
   update(clubId: string, patch: UpdateClubInput): Promise<ClubRecord>
+  search(query: ClubSearchQuery): Promise<ClubRecord[]>
 }
 
 export function createClubRepository(client: SupabaseClient): ClubRepository {
@@ -64,6 +65,33 @@ export function createClubRepository(client: SupabaseClient): ClubRepository {
 
       if (error) throw error
       return data as unknown as ClubRecord
+    },
+
+    async search(query) {
+      let builder = client
+        .from('clubs')
+        .select(CLUB_COLUMNS)
+        .eq('visibility', 'public')
+        .eq('status', 'active')
+
+      if (query.q) {
+        builder = builder.ilike('name', `%${query.q}%`)
+      }
+      if (query.province) {
+        builder = builder.eq('province', query.province)
+      }
+      if (query.city) {
+        builder = builder.eq('city', query.city)
+      }
+
+      builder = builder
+        .order('name', { ascending: true })
+        .range(query.offset, query.offset + query.limit - 1)
+
+      const { data, error } = await builder
+
+      if (error) throw error
+      return (data ?? []) as unknown as ClubRecord[]
     }
   }
 }

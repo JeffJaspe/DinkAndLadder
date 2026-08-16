@@ -1,10 +1,206 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Event domain: events, event_registrations, brackets, bracket_matches.
-     Out of MVP scope (Phase 2). Changesets are added only when the backlog promotes this domain. -->
+<!-- Event domain: events, tournaments, tournament_registrations, bracket_matches.
+     Phase 2 implementation per docs/20-EVENT-SPECIFICATION.md. -->
 <databaseChangeLog
     xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
     xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
         http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+    <changeSet id="0001-create-events-table" author="event-domain">
+        <createTable tableName="events">
+            <column name="id" type="uuid" defaultValueComputed="gen_random_uuid()">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="club_id" type="uuid">
+                <constraints nullable="false" foreignKeyName="fk_events_club" references="clubs(id)"/>
+            </column>
+            <column name="name" type="text">
+                <constraints nullable="false"/>
+            </column>
+            <column name="description" type="text">
+                <constraints nullable="true"/>
+            </column>
+            <column name="venue" type="text">
+                <constraints nullable="true"/>
+            </column>
+            <column name="province" type="text">
+                <constraints nullable="true"/>
+            </column>
+            <column name="city" type="text">
+                <constraints nullable="true"/>
+            </column>
+            <column name="start_date" type="date">
+                <constraints nullable="false"/>
+            </column>
+            <column name="end_date" type="date">
+                <constraints nullable="false"/>
+            </column>
+            <column name="registration_opens" type="timestamptz">
+                <constraints nullable="true"/>
+            </column>
+            <column name="registration_closes" type="timestamptz">
+                <constraints nullable="true"/>
+            </column>
+            <column name="status" type="text" defaultValue="draft">
+                <constraints nullable="false"/>
+            </column>
+            <column name="visibility" type="text" defaultValue="public">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_by_player_id" type="uuid">
+                <constraints nullable="false" foreignKeyName="fk_events_creator" references="player_profiles(id)"/>
+            </column>
+            <column name="created_at" type="timestamptz" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+            <column name="updated_at" type="timestamptz" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
+
+    <changeSet id="0002-events-indexes" author="event-domain">
+        <createIndex tableName="events" indexName="idx_events_club_id">
+            <column name="club_id"/>
+        </createIndex>
+        <createIndex tableName="events" indexName="idx_events_status">
+            <column name="status"/>
+        </createIndex>
+        <createIndex tableName="events" indexName="idx_events_start_date">
+            <column name="start_date"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="0003-create-tournaments-table" author="event-domain">
+        <createTable tableName="tournaments">
+            <column name="id" type="uuid" defaultValueComputed="gen_random_uuid()">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="event_id" type="uuid">
+                <constraints nullable="false" foreignKeyName="fk_tournaments_event" references="events(id)"/>
+            </column>
+            <column name="name" type="text">
+                <constraints nullable="false"/>
+            </column>
+            <column name="format" type="text" defaultValue="single_elimination">
+                <constraints nullable="false"/>
+            </column>
+            <column name="match_type" type="text">
+                <constraints nullable="false"/>
+            </column>
+            <column name="min_rating" type="numeric">
+                <constraints nullable="true"/>
+            </column>
+            <column name="max_rating" type="numeric">
+                <constraints nullable="true"/>
+            </column>
+            <column name="max_participants" type="int">
+                <constraints nullable="true"/>
+            </column>
+            <column name="status" type="text" defaultValue="draft">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_at" type="timestamptz" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+            <column name="updated_at" type="timestamptz" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
+
+    <changeSet id="0004-tournaments-indexes" author="event-domain">
+        <createIndex tableName="tournaments" indexName="idx_tournaments_event_id">
+            <column name="event_id"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="0005-create-tournament-registrations-table" author="event-domain">
+        <createTable tableName="tournament_registrations">
+            <column name="id" type="uuid" defaultValueComputed="gen_random_uuid()">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="tournament_id" type="uuid">
+                <constraints nullable="false" foreignKeyName="fk_tournament_registrations_tournament" references="tournaments(id)"/>
+            </column>
+            <column name="player_id" type="uuid">
+                <constraints nullable="false" foreignKeyName="fk_tournament_registrations_player" references="player_profiles(id)"/>
+            </column>
+            <column name="partner_player_id" type="uuid">
+                <constraints nullable="true" foreignKeyName="fk_tournament_registrations_partner" references="player_profiles(id)"/>
+            </column>
+            <column name="status" type="text" defaultValue="pending">
+                <constraints nullable="false"/>
+            </column>
+            <column name="registered_at" type="timestamptz" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+            <column name="confirmed_at" type="timestamptz">
+                <constraints nullable="true"/>
+            </column>
+            <column name="created_at" type="timestamptz" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
+
+    <changeSet id="0006-tournament-registrations-indexes" author="event-domain">
+        <createIndex tableName="tournament_registrations" indexName="idx_tournament_registrations_tournament_id">
+            <column name="tournament_id"/>
+        </createIndex>
+        <createIndex tableName="tournament_registrations" indexName="idx_tournament_registrations_player_id">
+            <column name="player_id"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="0007-create-bracket-matches-table" author="event-domain">
+        <createTable tableName="bracket_matches">
+            <column name="id" type="uuid" defaultValueComputed="gen_random_uuid()">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="tournament_id" type="uuid">
+                <constraints nullable="false" foreignKeyName="fk_bracket_matches_tournament" references="tournaments(id)"/>
+            </column>
+            <column name="round" type="int">
+                <constraints nullable="false"/>
+            </column>
+            <column name="position" type="int">
+                <constraints nullable="false"/>
+            </column>
+            <column name="match_id" type="uuid">
+                <constraints nullable="true" foreignKeyName="fk_bracket_matches_match" references="matches(id)"/>
+            </column>
+            <column name="participant1_registration_id" type="uuid">
+                <constraints nullable="true" foreignKeyName="fk_bracket_matches_participant1" references="tournament_registrations(id)"/>
+            </column>
+            <column name="participant2_registration_id" type="uuid">
+                <constraints nullable="true" foreignKeyName="fk_bracket_matches_participant2" references="tournament_registrations(id)"/>
+            </column>
+            <column name="winner_registration_id" type="uuid">
+                <constraints nullable="true" foreignKeyName="fk_bracket_matches_winner" references="tournament_registrations(id)"/>
+            </column>
+            <column name="status" type="text" defaultValue="pending">
+                <constraints nullable="false"/>
+            </column>
+            <column name="scheduled_at" type="timestamptz">
+                <constraints nullable="true"/>
+            </column>
+            <column name="created_at" type="timestamptz" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
+
+    <changeSet id="0008-bracket-matches-indexes" author="event-domain">
+        <createIndex tableName="bracket_matches" indexName="idx_bracket_matches_tournament_id">
+            <column name="tournament_id"/>
+        </createIndex>
+        <createIndex tableName="bracket_matches" indexName="idx_bracket_matches_round_position">
+            <column name="tournament_id"/>
+            <column name="round"/>
+            <column name="position"/>
+        </createIndex>
+    </changeSet>
 
 </databaseChangeLog>

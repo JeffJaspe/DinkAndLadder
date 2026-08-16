@@ -17,9 +17,13 @@ Decided so far (not final until the remaining open items below are resolved):
   participant, as if it never happened. (Exact mechanism for flagging a no-show in the Match
   Verification workflow is not yet designed — see MVP-005/MVP-006 boundary.)
 - Initial rating for a brand-new/unrated player: determined via a self-assessment
-  questionnaire, not a flat default. Question content and the answer-to-rating scoring formula
-  are pending from the user — see the BLOCKED sub-item under MVP-006 in
-  `docs/10-IMPLEMENTATION-BACKLOG.md`. Do not invent placeholder questions/scoring.
+  questionnaire (implemented in `apps/web/server/domains/rating/data/question-bank.ts`).
+  - Question selection: 1 Experience, 3 Skill, 1 Strategy, 1 Competition, 1 Self-Assessment
+    (7 total, randomly selected from a bank of 31 questions per the user-provided spec).
+  - Scoring: points per answer (1-6), normalized to a 2.0-6.0 rating range.
+  - Tiers: Beginner (2.0-2.49), Novice (2.5-2.99), Intermediate (3.0-3.49), Advanced (3.5-3.99),
+    Skilled (4.0-4.49), Expert (4.5-4.99), Pro (5.0-5.49), Elite (5.5-5.99), Champion (6.0+).
+  - Both singles and doubles ratings initialized to the same questionnaire result.
 
 Interim implementation (MVP-006, not a final decision — revisit here first if it changes): see
 `kFactorFor`/`distributeTeamDelta` in `apps/web/server/domains/rating/services/rating.service.ts`.
@@ -68,6 +72,29 @@ See `resolveMatchStatus` in `apps/web/server/domains/match/services/match.servic
 
 ADR-003 — Ranking Eligibility Rules
 Status: OPEN
+
+Interim implementation (MVP-007, not a final decision — revisit here first if it changes): a
+player appears in a rating type's ranking if they have a non-null `player_ratings.rating_value`
+for that type AND their `player_profiles.profile_visibility` is `'public'` — the latter isn't a
+new ranking-specific rule, it's the same public/private contract every other public-facing
+surface (player profile pages, MVP-002) already respects. See `RankingService` in
+`apps/web/server/domains/rating/services/ranking.service.ts`.
+
+None of `/docs/16-RANKINGS-SPECIFICATION.md`'s required Eligibility decisions are implemented —
+still open, not filtered on, and not to be invented:
+- Minimum matches played.
+- Provisional-rating treatment (a provisional player currently ranks the same as an established
+  one).
+- Inactive-player handling (no time-since-last-match cutoff).
+- Verification requirement beyond what already gates `rating_value` existing (a rating only
+  exists because a match reached `verified` — see ADR-002 — but there's no additional
+  ranking-specific verification rule).
+- Dispute handling (no special-cases a disputed/rejected match differently from one that was
+  never submitted).
+- Time window (rankings are the live current state, not a windowed/seasonal view).
+
+`RankingQuery` (the service's query options) is intentionally structured to make adding these
+filters later straightforward — a new optional field, not a redesign.
 
 ADR-004 — Tournament/Bracket Rules
 Status: FUTURE
