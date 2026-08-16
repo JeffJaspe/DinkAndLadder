@@ -91,6 +91,8 @@ Deliver:
 - production algorithm only after ADR finalization
 - exhaustive unit tests
 
+**BLOCKED sub-item**: initial/unrated-player self-assessment questionnaire (content + answer-to-starting-rating scoring formula) is pending from the user — do not draft placeholder content, wait for the real question set. See ADR-001.
+
 ## MVP-007 Rankings
 Deliver:
 - ranking query/service

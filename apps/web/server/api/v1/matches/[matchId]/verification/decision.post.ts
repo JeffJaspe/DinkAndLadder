@@ -9,8 +9,17 @@ import {
   MatchServiceError
 } from '~/server/domains/match/services/match.service'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
+import { createRatingRepository } from '~/server/domains/rating/repositories/rating.repository'
+import {
+  createRatingService,
+  RatingServiceError
+} from '~/server/domains/rating/services/rating.service'
 import { apiError } from '~/server/utils/api-error'
-import type { RecordVerificationDecisionInput } from '~/server/domains/match/dto/match.dto'
+import type {
+  MatchDto,
+  RecordVerificationDecisionInput
+} from '~/server/domains/match/dto/match.dto'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 function parseDecisionInput(body: unknown): RecordVerificationDecisionInput {
   if (typeof body !== 'object' || body === null) {
@@ -40,6 +49,43 @@ function parseDecisionInput(body: unknown): RecordVerificationDecisionInput {
   return {
     status: record.status,
     response_note: (record.response_note as string | null | undefined) ?? null
+  }
+}
+
+/**
+ * Best-effort: a match's verification is already a complete, successful domain action in its
+ * own right (see MatchService's own domain boundary) by the time this runs, so a rating
+ * failure must never fail or roll back the verification response. The most likely failure —
+ * RatingServiceError('PLAYER_UNRATED') — is an expected, known gap right now: the
+ * initial-rating questionnaire (ADR-001, docs/18-ADR-INDEX.md) hasn't been built yet, so
+ * brand-new players have no seeded rating for the engine to update from. Once that lands,
+ * whatever process seeds those ratings is also responsible for re-running this for any match
+ * that failed here — applyMatchResult is idempotent (see hasTransactionsForMatch) so replaying
+ * it is always safe.
+ */
+async function triggerRatingCalculation(match: MatchDto, client: SupabaseClient): Promise<void> {
+  const service = createRatingService(createRatingRepository(client))
+  const team1Points = match.scores.reduce((sum, s) => sum + s.team1_score, 0)
+  const team2Points = match.scores.reduce((sum, s) => sum + s.team2_score, 0)
+
+  try {
+    await service.applyMatchResult({
+      match_id: match.id,
+      rating_type: match.match_type,
+      participants: match.participants.map((p) => ({
+        player_id: p.player_id,
+        team_number: p.team_number
+      })),
+      team1_points: team1Points,
+      team2_points: team2Points,
+      played_at: match.played_at
+    })
+  } catch (err) {
+    if (err instanceof RatingServiceError) {
+      console.warn(`[match ${match.id}] rating calculation skipped: ${err.code} — ${err.message}`)
+      return
+    }
+    console.error(`[match ${match.id}] rating calculation failed unexpectedly:`, err)
   }
 }
 
@@ -76,6 +122,9 @@ export default defineEventHandler(async (event) => {
 
   try {
     const match = await service.recordVerificationDecision(playerProfile.id, matchId, input)
+    if (match.status === 'verified') {
+      await triggerRatingCalculation(match, serviceClient)
+    }
     return {
       data: match,
       message: 'Verification decision recorded',

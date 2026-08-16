@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { PlayerProfileDto } from '~/server/domains/player/dto/player-profile.dto'
+import type { PlayerRatingDto } from '~/server/domains/rating/dto/rating.dto'
 
 const route = useRoute()
 const {
@@ -7,6 +8,11 @@ const {
   pending,
   error
 } = await useFetch<PlayerProfileDto>(() => `/api/v1/players/${route.params.playerId}`)
+
+const { data: ratings } = await useFetch<{
+  singles: PlayerRatingDto | null
+  doubles: PlayerRatingDto | null
+}>(() => `/api/v1/players/${route.params.playerId}/ratings`)
 </script>
 
 <template>
@@ -35,6 +41,17 @@ const {
           <dd>{{ profile.preferred_position }}</dd>
         </template>
       </dl>
+
+      <div class="mt-6 grid grid-cols-2 gap-4">
+        <div v-for="type in ['singles', 'doubles'] as const" :key="type" class="rounded border p-3">
+          <p class="text-xs font-medium uppercase text-gray-500">{{ type }}</p>
+          <template v-if="ratings?.[type]?.rating_value != null">
+            <p class="text-xl font-semibold">{{ ratings[type]!.rating_value!.toFixed(3) }}</p>
+            <p v-if="ratings[type]!.provisional" class="text-xs text-amber-600">Provisional</p>
+          </template>
+          <p v-else class="text-sm text-gray-400">Unrated</p>
+        </div>
+      </div>
     </div>
   </main>
 </template>

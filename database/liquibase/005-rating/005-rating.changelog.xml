@@ -1,10 +1,154 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Rating domain: player_ratings, rating_transactions, ranking_snapshots.
-     Changesets are added when MVP-006 Rating Engine begins. -->
+<!-- Rating domain: player_ratings, rating_transactions — see ADR-001 (docs/18-ADR-INDEX.md,
+     DECIDED except the initial-rating questionnaire, which is a separate blocked dependency)
+     and /docs/05-DATABASE-BLUEPRINT.md. Column names follow the blueprint's suggested shape
+     exactly (confidence_score/old_rating/new_rating, not variance/rating_before/rating_after)
+     even though the interim algorithm's underlying value is a rating-variance parameter, not a
+     0-1 confidence probability — see decayConfidence's doc comment in rating.service.ts.
+     ranking_snapshots is deferred to MVP-007 Rankings, same as match_verifications was
+     deferred from MVP-004 to MVP-005 — nothing in this pass reads or writes it. -->
 <databaseChangeLog
     xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
     xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
         http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+    <changeSet id="0001-create-player-ratings-table" author="rating-engine">
+        <createTable tableName="player_ratings">
+            <column name="id" type="uuid" defaultValueComputed="gen_random_uuid()">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="player_id" type="uuid">
+                <constraints
+                    nullable="false"
+                    foreignKeyName="fk_player_ratings_player"
+                    references="player_profiles(id)"/>
+            </column>
+            <column name="rating_type" type="text">
+                <constraints nullable="false"/>
+            </column>
+            <!-- Null until the player has a seeded starting rating (self-assessment
+                 questionnaire, content pending — see BLOCKED item under MVP-006 in
+                 docs/10-IMPLEMENTATION-BACKLOG.md). A match cannot be rated until every
+                 participant has a non-null rating_value for the relevant rating_type. -->
+            <column name="rating_value" type="numeric(5,3)"/>
+            <column name="confidence_score" type="numeric(5,3)" defaultValueNumeric="1.000">
+                <constraints nullable="false"/>
+            </column>
+            <column name="matches_played" type="int" defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+            <column name="calculated_at" type="timestamptz"/>
+            <column name="created_at" type="timestamptz" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+            <column name="updated_at" type="timestamptz" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
+
+    <!-- Postgres generated column (12+): always in sync with matches_played by construction,
+         rather than a plain boolean the application could forget to update. -->
+    <changeSet id="0002-player-ratings-provisional-column" author="rating-engine">
+        <sql>
+            ALTER TABLE player_ratings
+                ADD COLUMN provisional boolean GENERATED ALWAYS AS (matches_played &lt; 5) STORED;
+        </sql>
+        <rollback>ALTER TABLE player_ratings DROP COLUMN provisional;</rollback>
+    </changeSet>
+
+    <changeSet id="0003-player-ratings-checks" author="rating-engine">
+        <sql>
+            ALTER TABLE player_ratings ADD CONSTRAINT ck_player_ratings_type
+                CHECK (rating_type IN ('singles', 'doubles'));
+            ALTER TABLE player_ratings ADD CONSTRAINT ck_player_ratings_matches_played_nonnegative
+                CHECK (matches_played >= 0);
+            ALTER TABLE player_ratings ADD CONSTRAINT ck_player_ratings_confidence_positive
+                CHECK (confidence_score > 0);
+            ALTER TABLE player_ratings ADD CONSTRAINT ck_player_ratings_value_range
+                CHECK (rating_value IS NULL OR (rating_value >= 2.000 AND rating_value &lt;= 8.000));
+            ALTER TABLE player_ratings ADD CONSTRAINT uq_player_ratings_player_type
+                UNIQUE (player_id, rating_type);
+        </sql>
+        <rollback>
+            ALTER TABLE player_ratings DROP CONSTRAINT ck_player_ratings_type;
+            ALTER TABLE player_ratings DROP CONSTRAINT ck_player_ratings_matches_played_nonnegative;
+            ALTER TABLE player_ratings DROP CONSTRAINT ck_player_ratings_confidence_positive;
+            ALTER TABLE player_ratings DROP CONSTRAINT ck_player_ratings_value_range;
+            ALTER TABLE player_ratings DROP CONSTRAINT uq_player_ratings_player_type;
+        </rollback>
+    </changeSet>
+
+    <!-- Historical rating changes, one row per player per match per rating_type. Never
+         mutated once written — corrections would be compensating rows, not edits (see
+         /docs/11-RATING-SYSTEM-SPECIFICATION.md's Historical Integrity section). match_id is
+         nullable per the blueprint (future manual/administrative corrections not tied to a
+         match); MVP-006's application code always populates it. -->
+    <changeSet id="0004-create-rating-transactions-table" author="rating-engine">
+        <createTable tableName="rating_transactions">
+            <column name="id" type="uuid" defaultValueComputed="gen_random_uuid()">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="player_id" type="uuid">
+                <constraints
+                    nullable="false"
+                    foreignKeyName="fk_rating_transactions_player"
+                    references="player_profiles(id)"/>
+            </column>
+            <column name="rating_type" type="text">
+                <constraints nullable="false"/>
+            </column>
+            <column name="match_id" type="uuid">
+                <constraints
+                    nullable="true"
+                    foreignKeyName="fk_rating_transactions_match"
+                    references="matches(id)"/>
+            </column>
+            <column name="old_rating" type="numeric(5,3)"/>
+            <column name="new_rating" type="numeric(5,3)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="rating_delta" type="numeric(5,3)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="confidence_before" type="numeric(5,3)"/>
+            <column name="confidence_after" type="numeric(5,3)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="calculation_version" type="int">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_at" type="timestamptz" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
+
+    <!-- NULL match_id rows (future manual corrections) never collide under the unique
+         constraint below — Postgres treats each NULL as distinct for uniqueness purposes,
+         which is the desired behavior here. -->
+    <changeSet id="0005-rating-transactions-checks" author="rating-engine">
+        <sql>
+            ALTER TABLE rating_transactions ADD CONSTRAINT ck_rating_transactions_type
+                CHECK (rating_type IN ('singles', 'doubles'));
+            ALTER TABLE rating_transactions ADD CONSTRAINT uq_rating_transactions_match_player_type
+                UNIQUE (match_id, player_id, rating_type);
+        </sql>
+        <rollback>
+            ALTER TABLE rating_transactions DROP CONSTRAINT ck_rating_transactions_type;
+            ALTER TABLE rating_transactions DROP CONSTRAINT uq_rating_transactions_match_player_type;
+        </rollback>
+    </changeSet>
+
+    <changeSet id="0006-rating-transactions-indexes" author="rating-engine">
+        <createIndex tableName="rating_transactions" indexName="idx_rating_transactions_player_created">
+            <column name="player_id"/>
+            <column name="created_at"/>
+        </createIndex>
+        <createIndex tableName="rating_transactions" indexName="idx_rating_transactions_match_id">
+            <column name="match_id"/>
+        </createIndex>
+    </changeSet>
 
 </databaseChangeLog>
