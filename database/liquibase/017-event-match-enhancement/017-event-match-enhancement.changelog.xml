@@ -1,0 +1,517 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Event-centric match system enhancement per docs/31-MATCH-EVENT-SYSTEM-SPECIFICATION.md.
+     All matches must now be linked to an event. Events have types that determine
+     who can submit scores and whether ratings are affected. -->
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+    <!-- Add event_type to events table -->
+    <changeSet id="0001-add-event-type" author="event-match-enhancement">
+        <addColumn tableName="events">
+            <column name="event_type" type="text" defaultValue="open_ranked">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+        <sql>
+            ALTER TABLE events ADD CONSTRAINT ck_events_event_type
+                CHECK (event_type IN ('open_casual', 'open_ranked', 'club_casual', 'club_ranked', 'tournament'));
+        </sql>
+        <rollback>
+            ALTER TABLE events DROP CONSTRAINT ck_events_event_type;
+            <dropColumn tableName="events" columnName="event_type"/>
+        </rollback>
+    </changeSet>
+
+    <!-- Add fee columns to events -->
+    <changeSet id="0002-add-event-fee" author="event-match-enhancement">
+        <addColumn tableName="events">
+            <column name="fee_amount" type="decimal">
+                <constraints nullable="true"/>
+            </column>
+            <column name="fee_currency" type="text" defaultValue="PHP">
+                <constraints nullable="true"/>
+            </column>
+            <column name="max_participants" type="int">
+                <constraints nullable="true"/>
+            </column>
+        </addColumn>
+    </changeSet>
+
+    <!-- Add queue settings to events -->
+    <changeSet id="0003-add-event-queue-settings" author="event-match-enhancement">
+        <addColumn tableName="events">
+            <column name="queue_enabled" type="boolean" defaultValueBoolean="false">
+                <constraints nullable="false"/>
+            </column>
+            <column name="queue_courts" type="int" defaultValueNumeric="1">
+                <constraints nullable="false"/>
+            </column>
+            <column name="queue_mode" type="text" defaultValue="first_come">
+                <constraints nullable="false"/>
+            </column>
+            <column name="queue_skip_timeout_seconds" type="int" defaultValueNumeric="120">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+        <sql>
+            ALTER TABLE events ADD CONSTRAINT ck_events_queue_mode
+                CHECK (queue_mode IN ('first_come', 'rating_based', 'random'));
+        </sql>
+        <rollback>
+            ALTER TABLE events DROP CONSTRAINT ck_events_queue_mode;
+            <dropColumn tableName="events" columnName="queue_enabled"/>
+            <dropColumn tableName="events" columnName="queue_courts"/>
+            <dropColumn tableName="events" columnName="queue_mode"/>
+            <dropColumn tableName="events" columnName="queue_skip_timeout_seconds"/>
+        </rollback>
+    </changeSet>
+
+    <!-- Create event_registrations table (general event registration) -->
+    <changeSet id="0004-create-event-registrations" author="event-match-enhancement">
+        <createTable tableName="event_registrations">
+            <column name="id" type="uuid" defaultValueComputed="gen_random_uuid()">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="event_id" type="uuid">
+                <constraints nullable="false" foreignKeyName="fk_event_registrations_event" references="events(id)"/>
+            </column>
+            <column name="player_id" type="uuid">
+                <constraints nullable="false" foreignKeyName="fk_event_registrations_player" references="player_profiles(id)"/>
+            </column>
+            <column name="status" type="text" defaultValue="registered">
+                <constraints nullable="false"/>
+            </column>
+            <column name="registered_at" type="timestamptz" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+            <column name="checked_in_at" type="timestamptz">
+                <constraints nullable="true"/>
+            </column>
+            <column name="withdrawn_at" type="timestamptz">
+                <constraints nullable="true"/>
+            </column>
+        </createTable>
+    </changeSet>
+
+    <changeSet id="0005-event-registrations-constraints" author="event-match-enhancement">
+        <sql>
+            ALTER TABLE event_registrations ADD CONSTRAINT ck_event_registrations_status
+                CHECK (status IN ('registered', 'checked_in', 'withdrawn'));
+            ALTER TABLE event_registrations ADD CONSTRAINT uq_event_registrations_event_player
+                UNIQUE (event_id, player_id);
+        </sql>
+        <rollback>
+            ALTER TABLE event_registrations DROP CONSTRAINT ck_event_registrations_status;
+            ALTER TABLE event_registrations DROP CONSTRAINT uq_event_registrations_event_player;
+        </rollback>
+    </changeSet>
+
+    <changeSet id="0006-event-registrations-indexes" author="event-match-enhancement">
+        <createIndex tableName="event_registrations" indexName="idx_event_registrations_event_id">
+            <column name="event_id"/>
+        </createIndex>
+        <createIndex tableName="event_registrations" indexName="idx_event_registrations_player_id">
+            <column name="player_id"/>
+        </createIndex>
+        <createIndex tableName="event_registrations" indexName="idx_event_registrations_status">
+            <column name="event_id"/>
+            <column name="status"/>
+        </createIndex>
+    </changeSet>
+
+    <!-- Add event_id to matches (nullable initially for migration, will be required) -->
+    <changeSet id="0007-add-match-event-id" author="event-match-enhancement">
+        <addColumn tableName="matches">
+            <column name="event_id" type="uuid">
+                <constraints nullable="true" foreignKeyName="fk_matches_event" references="events(id)"/>
+            </column>
+            <column name="affects_rating" type="boolean" defaultValueBoolean="true">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+        <createIndex tableName="matches" indexName="idx_matches_event_id">
+            <column name="event_id"/>
+        </createIndex>
+    </changeSet>
+
+    <!-- Create event_queue table -->
+    <changeSet id="0008-create-event-queue" author="event-match-enhancement">
+        <createTable tableName="event_queue">
+            <column name="id" type="uuid" defaultValueComputed="gen_random_uuid()">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="event_id" type="uuid">
+                <constraints nullable="false" foreignKeyName="fk_event_queue_event" references="events(id)"/>
+            </column>
+            <column name="player_id" type="uuid">
+                <constraints nullable="false" foreignKeyName="fk_event_queue_player" references="player_profiles(id)"/>
+            </column>
+            <column name="match_type" type="text">
+                <constraints nullable="false"/>
+            </column>
+            <column name="partner_id" type="uuid">
+                <constraints nullable="true" foreignKeyName="fk_event_queue_partner" references="player_profiles(id)"/>
+            </column>
+            <column name="joined_at" type="timestamptz" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+            <column name="status" type="text" defaultValue="waiting">
+                <constraints nullable="false"/>
+            </column>
+            <column name="matched_at" type="timestamptz">
+                <constraints nullable="true"/>
+            </column>
+            <column name="court_number" type="int">
+                <constraints nullable="true"/>
+            </column>
+            <column name="match_id" type="uuid">
+                <constraints nullable="true" foreignKeyName="fk_event_queue_match" references="matches(id)"/>
+            </column>
+            <column name="opponent_queue_id" type="uuid">
+                <constraints nullable="true"/>
+            </column>
+        </createTable>
+    </changeSet>
+
+    <changeSet id="0009-event-queue-constraints" author="event-match-enhancement">
+        <sql>
+            ALTER TABLE event_queue ADD CONSTRAINT ck_event_queue_match_type
+                CHECK (match_type IN ('singles', 'doubles'));
+            ALTER TABLE event_queue ADD CONSTRAINT ck_event_queue_status
+                CHECK (status IN ('waiting', 'matched', 'playing', 'completed', 'skipped', 'left'));
+            ALTER TABLE event_queue ADD CONSTRAINT fk_event_queue_opponent
+                FOREIGN KEY (opponent_queue_id) REFERENCES event_queue(id);
+        </sql>
+        <rollback>
+            ALTER TABLE event_queue DROP CONSTRAINT ck_event_queue_match_type;
+            ALTER TABLE event_queue DROP CONSTRAINT ck_event_queue_status;
+            ALTER TABLE event_queue DROP CONSTRAINT fk_event_queue_opponent;
+        </rollback>
+    </changeSet>
+
+    <changeSet id="0010-event-queue-indexes" author="event-match-enhancement">
+        <createIndex tableName="event_queue" indexName="idx_event_queue_waiting">
+            <column name="event_id"/>
+            <column name="match_type"/>
+            <column name="status"/>
+            <column name="joined_at"/>
+        </createIndex>
+    </changeSet>
+
+    <!-- Create event_courts table -->
+    <changeSet id="0011-create-event-courts" author="event-match-enhancement">
+        <createTable tableName="event_courts">
+            <column name="id" type="uuid" defaultValueComputed="gen_random_uuid()">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="event_id" type="uuid">
+                <constraints nullable="false" foreignKeyName="fk_event_courts_event" references="events(id)"/>
+            </column>
+            <column name="court_number" type="int">
+                <constraints nullable="false"/>
+            </column>
+            <column name="court_name" type="text">
+                <constraints nullable="true"/>
+            </column>
+            <column name="status" type="text" defaultValue="available">
+                <constraints nullable="false"/>
+            </column>
+            <column name="current_match_id" type="uuid">
+                <constraints nullable="true" foreignKeyName="fk_event_courts_match" references="matches(id)"/>
+            </column>
+            <column name="match_started_at" type="timestamptz">
+                <constraints nullable="true"/>
+            </column>
+        </createTable>
+    </changeSet>
+
+    <changeSet id="0012-event-courts-constraints" author="event-match-enhancement">
+        <sql>
+            ALTER TABLE event_courts ADD CONSTRAINT ck_event_courts_status
+                CHECK (status IN ('available', 'playing', 'reserved', 'maintenance'));
+            ALTER TABLE event_courts ADD CONSTRAINT uq_event_courts_event_number
+                UNIQUE (event_id, court_number);
+        </sql>
+        <rollback>
+            ALTER TABLE event_courts DROP CONSTRAINT ck_event_courts_status;
+            ALTER TABLE event_courts DROP CONSTRAINT uq_event_courts_event_number;
+        </rollback>
+    </changeSet>
+
+    <!-- Add match status for score agreement flow -->
+    <changeSet id="0013-update-match-status-values" author="event-match-enhancement">
+        <sql>
+            ALTER TABLE matches DROP CONSTRAINT ck_matches_status;
+            ALTER TABLE matches ADD CONSTRAINT ck_matches_status
+                CHECK (status IN ('draft', 'submitted', 'pending_agreement', 'pending_verification', 'verified', 'rejected', 'disputed'));
+        </sql>
+        <rollback>
+            ALTER TABLE matches DROP CONSTRAINT ck_matches_status;
+            ALTER TABLE matches ADD CONSTRAINT ck_matches_status
+                CHECK (status IN ('draft', 'submitted', 'pending_verification', 'verified', 'rejected', 'disputed'));
+        </rollback>
+    </changeSet>
+
+    <!-- Add proposed scores table for counter-proposals -->
+    <changeSet id="0014-create-match-score-proposals" author="event-match-enhancement">
+        <createTable tableName="match_score_proposals">
+            <column name="id" type="uuid" defaultValueComputed="gen_random_uuid()">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="match_id" type="uuid">
+                <constraints nullable="false" foreignKeyName="fk_match_score_proposals_match" references="matches(id)"/>
+            </column>
+            <column name="proposed_by_player_id" type="uuid">
+                <constraints nullable="false" foreignKeyName="fk_match_score_proposals_player" references="player_profiles(id)"/>
+            </column>
+            <column name="scores" type="jsonb">
+                <constraints nullable="false"/>
+            </column>
+            <column name="status" type="text" defaultValue="pending">
+                <constraints nullable="false"/>
+            </column>
+            <column name="proposal_round" type="int" defaultValueNumeric="1">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_at" type="timestamptz" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
+
+    <changeSet id="0015-match-score-proposals-constraints" author="event-match-enhancement">
+        <sql>
+            ALTER TABLE match_score_proposals ADD CONSTRAINT ck_match_score_proposals_status
+                CHECK (status IN ('pending', 'accepted', 'countered', 'expired'));
+        </sql>
+        <rollback>
+            ALTER TABLE match_score_proposals DROP CONSTRAINT ck_match_score_proposals_status;
+        </rollback>
+    </changeSet>
+
+    <changeSet id="0016-match-score-proposals-indexes" author="event-match-enhancement">
+        <createIndex tableName="match_score_proposals" indexName="idx_match_score_proposals_match">
+            <column name="match_id"/>
+        </createIndex>
+    </changeSet>
+
+    <!-- RLS — relocated from 008-security.changelog.xml (was 0038-0050 there): the master
+         changelog includes 008-security before this file, so those policies were trying to
+         ALTER/CREATE POLICY and reference functions against tables/columns this file hadn't
+         created yet. Never applied under the old location, so moving them here is safe. -->
+
+    <!-- Event registrations: players can see their own, event visibility rules apply -->
+    <changeSet id="0017-event-registrations-enable-rls" author="event-match-enhancement">
+        <sql>ALTER TABLE event_registrations ENABLE ROW LEVEL SECURITY;</sql>
+        <rollback>ALTER TABLE event_registrations DISABLE ROW LEVEL SECURITY;</rollback>
+    </changeSet>
+
+    <changeSet id="0018-fn-is-event-registered" author="event-match-enhancement">
+        <sql splitStatements="false">
+            CREATE OR REPLACE FUNCTION fn_is_event_registered(target_event_id uuid)
+            RETURNS boolean
+            LANGUAGE sql SECURITY DEFINER STABLE
+            SET search_path = public
+            AS $$
+                SELECT EXISTS (
+                    SELECT 1 FROM event_registrations er
+                    JOIN player_profiles pp ON er.player_id = pp.id
+                    WHERE er.event_id = target_event_id
+                      AND pp.user_id = auth.uid()
+                      AND er.status IN ('registered', 'checked_in')
+                );
+            $$;
+        </sql>
+        <rollback>DROP FUNCTION IF EXISTS fn_is_event_registered(uuid);</rollback>
+    </changeSet>
+
+    <changeSet id="0019-fn-is-event-organizer" author="event-match-enhancement">
+        <sql splitStatements="false">
+            CREATE OR REPLACE FUNCTION fn_is_event_organizer(target_event_id uuid)
+            RETURNS boolean
+            LANGUAGE sql SECURITY DEFINER STABLE
+            SET search_path = public
+            AS $$
+                SELECT EXISTS (
+                    SELECT 1 FROM events e
+                    JOIN player_profiles pp ON e.created_by_player_id = pp.id
+                    WHERE e.id = target_event_id
+                      AND pp.user_id = auth.uid()
+                );
+            $$;
+        </sql>
+        <rollback>DROP FUNCTION IF EXISTS fn_is_event_organizer(uuid);</rollback>
+    </changeSet>
+
+    <changeSet id="0020-event-registrations-policies" author="event-match-enhancement">
+        <sql>
+            -- Players can see their own registrations
+            CREATE POLICY event_registrations_select_own ON event_registrations
+                FOR SELECT
+                USING (
+                    player_id IN (SELECT id FROM player_profiles WHERE user_id = auth.uid())
+                );
+
+            -- Players can see registrations for public events they're registered to
+            CREATE POLICY event_registrations_select_event ON event_registrations
+                FOR SELECT
+                USING (
+                    event_id IN (
+                        SELECT id FROM events WHERE visibility = 'public' AND status != 'draft'
+                    )
+                    OR fn_is_event_registered(event_id)
+                    OR fn_is_event_organizer(event_id)
+                );
+
+            -- Players can register themselves to events
+            CREATE POLICY event_registrations_insert_own ON event_registrations
+                FOR INSERT
+                WITH CHECK (
+                    player_id IN (SELECT id FROM player_profiles WHERE user_id = auth.uid())
+                );
+
+            -- Players can update their own registration (withdraw)
+            CREATE POLICY event_registrations_update_own ON event_registrations
+                FOR UPDATE
+                USING (
+                    player_id IN (SELECT id FROM player_profiles WHERE user_id = auth.uid())
+                )
+                WITH CHECK (
+                    player_id IN (SELECT id FROM player_profiles WHERE user_id = auth.uid())
+                );
+        </sql>
+        <rollback>
+            DROP POLICY IF EXISTS event_registrations_select_own ON event_registrations;
+            DROP POLICY IF EXISTS event_registrations_select_event ON event_registrations;
+            DROP POLICY IF EXISTS event_registrations_insert_own ON event_registrations;
+            DROP POLICY IF EXISTS event_registrations_update_own ON event_registrations;
+        </rollback>
+    </changeSet>
+
+    <!-- Event queue: only registered players can see/join queue -->
+    <changeSet id="0021-event-queue-enable-rls" author="event-match-enhancement">
+        <sql>ALTER TABLE event_queue ENABLE ROW LEVEL SECURITY;</sql>
+        <rollback>ALTER TABLE event_queue DISABLE ROW LEVEL SECURITY;</rollback>
+    </changeSet>
+
+    <changeSet id="0022-event-queue-policies" author="event-match-enhancement">
+        <sql>
+            -- Can see queue if registered to event
+            CREATE POLICY event_queue_select_registered ON event_queue
+                FOR SELECT
+                USING (fn_is_event_registered(event_id) OR fn_is_event_organizer(event_id));
+
+            -- Can join queue if registered
+            CREATE POLICY event_queue_insert_own ON event_queue
+                FOR INSERT
+                WITH CHECK (
+                    player_id IN (SELECT id FROM player_profiles WHERE user_id = auth.uid())
+                    AND fn_is_event_registered(event_id)
+                );
+
+            -- Can update own queue entry
+            CREATE POLICY event_queue_update_own ON event_queue
+                FOR UPDATE
+                USING (
+                    player_id IN (SELECT id FROM player_profiles WHERE user_id = auth.uid())
+                )
+                WITH CHECK (
+                    player_id IN (SELECT id FROM player_profiles WHERE user_id = auth.uid())
+                );
+        </sql>
+        <rollback>
+            DROP POLICY IF EXISTS event_queue_select_registered ON event_queue;
+            DROP POLICY IF EXISTS event_queue_insert_own ON event_queue;
+            DROP POLICY IF EXISTS event_queue_update_own ON event_queue;
+        </rollback>
+    </changeSet>
+
+    <!-- Event courts: visible to registered players -->
+    <changeSet id="0023-event-courts-enable-rls" author="event-match-enhancement">
+        <sql>ALTER TABLE event_courts ENABLE ROW LEVEL SECURITY;</sql>
+        <rollback>ALTER TABLE event_courts DISABLE ROW LEVEL SECURITY;</rollback>
+    </changeSet>
+
+    <changeSet id="0024-event-courts-policies" author="event-match-enhancement">
+        <sql>
+            CREATE POLICY event_courts_select_registered ON event_courts
+                FOR SELECT
+                USING (fn_is_event_registered(event_id) OR fn_is_event_organizer(event_id));
+        </sql>
+        <rollback>
+            DROP POLICY IF EXISTS event_courts_select_registered ON event_courts;
+        </rollback>
+    </changeSet>
+
+    <!-- Match score proposals: visible to match participants -->
+    <changeSet id="0025-match-score-proposals-enable-rls" author="event-match-enhancement">
+        <sql>ALTER TABLE match_score_proposals ENABLE ROW LEVEL SECURITY;</sql>
+        <rollback>ALTER TABLE match_score_proposals DISABLE ROW LEVEL SECURITY;</rollback>
+    </changeSet>
+
+    <changeSet id="0026-match-score-proposals-policies" author="event-match-enhancement">
+        <sql>
+            CREATE POLICY match_score_proposals_select_participant ON match_score_proposals
+                FOR SELECT
+                USING (fn_is_match_participant(match_id));
+        </sql>
+        <rollback>
+            DROP POLICY IF EXISTS match_score_proposals_select_participant ON match_score_proposals;
+        </rollback>
+    </changeSet>
+
+    <!-- Update matches policy to include event visibility -->
+    <changeSet id="0027-fn-can-view-event-matches" author="event-match-enhancement">
+        <sql splitStatements="false">
+            CREATE OR REPLACE FUNCTION fn_can_view_event_matches(target_event_id uuid)
+            RETURNS boolean
+            LANGUAGE sql SECURITY DEFINER STABLE
+            SET search_path = public
+            AS $$
+                SELECT EXISTS (
+                    SELECT 1 FROM events e
+                    WHERE e.id = target_event_id
+                    AND (
+                        e.visibility = 'public'
+                        OR fn_is_event_registered(target_event_id)
+                        OR fn_is_event_organizer(target_event_id)
+                    )
+                );
+            $$;
+        </sql>
+        <rollback>DROP FUNCTION IF EXISTS fn_can_view_event_matches(uuid);</rollback>
+    </changeSet>
+
+    <!-- Add policy for matches visibility based on event -->
+    <changeSet id="0028-matches-select-event-policy" author="event-match-enhancement">
+        <sql>
+            CREATE POLICY matches_select_event ON matches
+                FOR SELECT
+                USING (
+                    event_id IS NOT NULL AND fn_can_view_event_matches(event_id)
+                );
+        </sql>
+        <rollback>
+            DROP POLICY IF EXISTS matches_select_event ON matches;
+        </rollback>
+    </changeSet>
+
+    <!-- A registered_only/private event's own organizer could see the event row itself once
+         it's non-public; a player who registered to it could see their own registration but
+         not the event they registered for, breaking upcoming-events lookups and the event
+         detail page for anyone but the organizer. -->
+    <changeSet id="0029-events-select-registered-policy" author="event-match-enhancement">
+        <sql>
+            CREATE POLICY events_select_registered ON events
+                FOR SELECT
+                USING (fn_is_event_registered(id));
+        </sql>
+        <rollback>
+            DROP POLICY IF EXISTS events_select_registered ON events;
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

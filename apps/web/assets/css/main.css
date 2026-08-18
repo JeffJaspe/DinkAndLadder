@@ -1,0 +1,8 @@
+/* Native date/time picker indicators default to a dark glyph, which is invisible
+   against this app's dark form backgrounds. Invert so it renders light. */
+input[type='date']::-webkit-calendar-picker-indicator,
+input[type='time']::-webkit-calendar-picker-indicator,
+input[type='datetime-local']::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+  cursor: pointer;
+}

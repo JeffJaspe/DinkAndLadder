@@ -16,7 +16,7 @@ export default defineEventHandler(async (event) => {
   let playerId: string | null = null
   if (user) {
     const playerRepo = createPlayerProfileRepository(client)
-    const profile = await playerRepo.findByUserId(user.id)
+    const profile = await playerRepo.findByUserId(user.sub)
     playerId = profile?.id ?? null
   }
 

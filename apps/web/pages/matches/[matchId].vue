@@ -31,6 +31,59 @@ const canInitiate = computed(() => isParticipant.value && match.value?.status ==
 const canDecide = computed(
   () => match.value?.status === 'pending_verification' && myVerification.value?.status === 'pending'
 )
+const isSinglesMatch = computed(() => match.value?.participants.length === 2)
+const canCounter = computed(
+  () =>
+    isSinglesMatch.value &&
+    isParticipant.value &&
+    (match.value?.status === 'submitted' || match.value?.status === 'pending_verification')
+)
+
+const showCounterForm = ref(false)
+const counterSets = ref([{ team1Score: '', team2Score: '' }])
+
+function addCounterSet() {
+  if (counterSets.value.length < 5) counterSets.value.push({ team1Score: '', team2Score: '' })
+}
+
+function removeCounterSet(index: number) {
+  if (counterSets.value.length > 1) counterSets.value.splice(index, 1)
+}
+
+const canSubmitCounter = computed(() =>
+  counterSets.value.every((s) => s.team1Score !== '' && s.team2Score !== '')
+)
+
+async function submitCounter() {
+  actionError.value = ''
+  actionMessage.value = ''
+  if (!canSubmitCounter.value) {
+    actionError.value = 'Enter a score for every set.'
+    return
+  }
+  acting.value = true
+  try {
+    await $fetch(`/api/v1/matches/${matchId.value}/counter`, {
+      method: 'POST',
+      body: {
+        scores: counterSets.value.map((s, i) => ({
+          set_number: i + 1,
+          team1_score: Number(s.team1Score),
+          team2_score: Number(s.team2Score)
+        }))
+      }
+    })
+    actionMessage.value = 'Your proposed score was recorded. The match is now marked disputed for review.'
+    showCounterForm.value = false
+    counterSets.value = [{ team1Score: '', team2Score: '' }]
+    await refresh()
+  } catch (err) {
+    const fetchError = err as { data?: { message?: string } }
+    actionError.value = fetchError.data?.message ?? 'Could not propose a different score.'
+  } finally {
+    acting.value = false
+  }
+}
 
 const statusConfig: Record<string, { bg: string; text: string }> = {
   submitted: { bg: 'bg-yellow-500/20', text: 'text-yellow-400' },
@@ -274,6 +327,113 @@ function didTeamWinSet(setNumber: number, teamNumber: number): boolean {
             >
               Dispute
             </button>
+          </div>
+        </div>
+
+        <!-- Counter-Proposal -->
+        <div v-if="canCounter" class="mb-6 rounded-xl bg-[#1E2E2A] p-5">
+          <div class="mb-4 flex items-center justify-between">
+            <h2 class="font-semibold text-white">Disagree with the score?</h2>
+            <button
+              v-if="!showCounterForm"
+              type="button"
+              class="text-sm text-yellow-400 hover:underline"
+              @click="showCounterForm = true"
+            >
+              Propose Different Score
+            </button>
+          </div>
+
+          <div v-if="showCounterForm" class="space-y-3">
+            <p class="text-sm text-[#6B7B75]">
+              This records your proposed score and marks the match disputed for organizer review.
+            </p>
+            <div
+              v-for="(set, i) in counterSets"
+              :key="i"
+              class="flex items-center gap-3 rounded-lg bg-[#0B0D09] p-3"
+            >
+              <span class="w-14 text-sm text-[#6B7B75]">Set {{ i + 1 }}</span>
+              <div class="flex flex-1 items-center gap-2">
+                <input
+                  v-model="set.team1Score"
+                  type="number"
+                  min="0"
+                  placeholder="T1"
+                  class="w-full rounded-lg border border-[#3A5750] bg-[#1E2E2A] px-3 py-2 text-center text-white focus:border-[#4DB175] focus:outline-none"
+                />
+                <span class="text-[#6B7B75]">-</span>
+                <input
+                  v-model="set.team2Score"
+                  type="number"
+                  min="0"
+                  placeholder="T2"
+                  class="w-full rounded-lg border border-[#3A5750] bg-[#1E2E2A] px-3 py-2 text-center text-white focus:border-[#4DB175] focus:outline-none"
+                />
+              </div>
+              <button
+                v-if="counterSets.length > 1"
+                type="button"
+                class="text-[#6B7B75] hover:text-red-400"
+                @click="removeCounterSet(i)"
+              >
+                <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <button
+              v-if="counterSets.length < 5"
+              type="button"
+              class="text-sm text-[#4DB175] hover:underline"
+              @click="addCounterSet"
+            >
+              + Add Set
+            </button>
+            <div class="flex gap-2 pt-2">
+              <button
+                type="button"
+                :disabled="acting"
+                class="flex-1 rounded-lg border border-yellow-400 py-2.5 font-medium text-yellow-400 hover:bg-yellow-400/10 disabled:opacity-50"
+                @click="submitCounter"
+              >
+                {{ acting ? 'Submitting...' : 'Submit Proposed Score' }}
+              </button>
+              <button
+                type="button"
+                class="rounded-lg border border-[#3A5750] px-4 py-2.5 text-[#A6ABA7] hover:bg-[#2E4540]"
+                @click="showCounterForm = false"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Score Proposal History -->
+        <div v-if="match.score_proposals.length > 0" class="mb-6 rounded-xl bg-[#1E2E2A] p-5">
+          <h2 class="mb-4 font-semibold text-white">Proposed Scores</h2>
+          <div class="space-y-3">
+            <div
+              v-for="proposal in match.score_proposals"
+              :key="proposal.id"
+              class="rounded-lg bg-[#0B0D09] p-3"
+            >
+              <div class="mb-2 flex items-center justify-between">
+                <span class="text-sm text-[#A6ABA7]">
+                  Round {{ proposal.proposal_round }} by
+                  {{ proposal.proposed_by_player_id === myProfile?.id ? 'you' : proposal.proposed_by_player_id.slice(0, 8) }}
+                </span>
+                <span class="rounded-md bg-yellow-500/20 px-2 py-0.5 text-xs font-medium capitalize text-yellow-400">
+                  {{ proposal.status }}
+                </span>
+              </div>
+              <div class="flex gap-2 text-sm text-white">
+                <span v-for="s in proposal.scores" :key="s.set_number" class="rounded bg-[#2E4540] px-2 py-1">
+                  {{ s.team1_score }}-{{ s.team2_score }}
+                </span>
+              </div>
+            </div>
           </div>
         </div>
 

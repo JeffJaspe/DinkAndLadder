@@ -1,4 +1,4 @@
-import { serverSupabaseClient, serverSupabaseUser } from '#supabase/server'
+import { serverSupabaseClient, serverSupabaseServiceRole, serverSupabaseUser } from '#supabase/server'
 import { createBracketRepository } from '~/server/domains/event/repositories/bracket.repository'
 import { createEventRepository } from '~/server/domains/event/repositories/event.repository'
 import {
@@ -22,15 +22,16 @@ export default defineEventHandler(async (event) => {
   const client = await serverSupabaseClient(event)
 
   const playerRepo = createPlayerProfileRepository(client)
-  const profile = await playerRepo.findByUserId(user.id)
+  const profile = await playerRepo.findByUserId(user.sub)
   if (!profile) {
     throw createError({ statusCode: 403, statusMessage: 'Player profile required.' })
   }
 
-  const bracketRepo = createBracketRepository(client)
-  const tournamentRepo = createTournamentRepository(client)
-  const registrationRepo = createTournamentRegistrationRepository(client)
-  const eventRepo = createEventRepository(client)
+  const serviceClient = serverSupabaseServiceRole(event)
+  const bracketRepo = createBracketRepository(serviceClient)
+  const tournamentRepo = createTournamentRepository(serviceClient)
+  const registrationRepo = createTournamentRegistrationRepository(serviceClient)
+  const eventRepo = createEventRepository(serviceClient)
   const service = createBracketService(bracketRepo, tournamentRepo, registrationRepo, eventRepo)
 
   try {

@@ -160,3 +160,58 @@ Requires Flutter mobile app:
 - Multi-tenancy
 - Advanced auditing
 - Data warehouse/BI integration
+
+---
+
+# Current Sprint — Event-Centric Match System
+
+## Priority Order
+
+### 1. Match & Event System Enhancement
+Per `docs/31-MATCH-EVENT-SYSTEM-SPECIFICATION.md`:
+- [x] Database: Enhance events table (event_type, queue settings)
+- [x] Database: Add event_registrations table
+- [x] Database: Link matches to events (event_id required)
+- [x] Database: Add event_queue and event_courts tables
+- [x] Database: Update RLS policies for visibility rules
+- [x] API: Event registration endpoints (register/check-in/withdraw/list)
+- [x] API: Event content endpoints (matches, players/registrations)
+- [x] API: Event rankings endpoint — event-scoped wins/losses/matches-played leaderboard from
+      verified matches only; deliberately excludes rating change (rating_transactions is
+      "select own" RLS, no documented reason to bypass it for a shared leaderboard)
+- [x] API: Match agreement flow — reuses the existing MVP-005 confirm/reject/dispute
+      verifier flow (`/matches/{id}/verification*`) for agree/dispute; counter-proposal is
+      scoped to singles matches only and moves the match straight to `disputed` for
+      organizer review rather than a multi-round negotiation loop (see the scoping note on
+      `MatchService.proposeCounterScore` — full turn-based negotiation is blocked on the
+      unresolved "exact match verification policy" decision, CLAUDE.md section 7)
+- [x] API: Queue endpoints (join/leave/match/skip)
+- [x] UI: Event page tabs (Info, Matches, Players, Rankings, Queue)
+- [x] UI: Match agreement flow (existing Confirm/Reject/Dispute on match detail page)
+- [x] UI: Score counter-proposal ("Propose Different Score" on match detail page, singles only)
+
+### 2. Dashboard Wiring
+Per `docs/32-DASHBOARD-SPECIFICATION.md`:
+- [x] Remove podium from player dashboard
+- [x] Wire player rank position (top-100 lookup in the player's own province; shows "Unranked"
+      if not found rather than fabricating a position)
+- [x] Wire rating chart to real data (`players/me/rating-history`)
+- [x] Add "My Recent Matches" section (new `players/me/matches` endpoint)
+- [x] Add "Pending Actions" section (pending match verifications + the player's own pending
+      club join requests — no invite-to-club feature exists in this codebase, so this reports
+      real pending state rather than inventing "invitations")
+- [x] Add "My Upcoming Events" section (new `players/me/upcoming-events` endpoint)
+- [x] Wire club dashboard podium (top members) — new `clubs/{id}/rankings` endpoint
+- [x] Add club matches section — new `clubs/{id}/matches` endpoint
+- [x] Add club events (previous + upcoming) — reuses the existing public events search endpoint
+
+### 3. Dummy Data Seeding
+- [ ] Seed test players (10-20)
+- [ ] Seed test clubs (2-3)
+- [ ] Seed test events (5-10)
+- [ ] Seed test matches with ratings
+- [ ] Seed rankings data
+
+### 4. Production Cleanup (Later)
+- [ ] Wipe all test data
+- [ ] Fresh production start

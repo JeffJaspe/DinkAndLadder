@@ -554,3 +554,101 @@ The Settings screen (listed in doc 17) is now implemented at `/settings` with li
    - Filters to OWNER/ADMIN roles only
    - Shows club dropdown with role indicator
    - Shows helpful empty state for users with no admin clubs
+
+---
+
+## Event-Centric Match System (2026-08-17)
+
+Per `docs/31-MATCH-EVENT-SYSTEM-SPECIFICATION.md` — all matches must now be linked to an event.
+
+### Database Schema Changes
+- `017-event-match-enhancement.changelog.xml` created with 16 changesets:
+  - Added `event_type` to events (open_casual, open_ranked, club_casual, club_ranked, tournament)
+  - Added `fee_amount`, `fee_currency`, `max_participants` to events
+  - Added queue settings (`queue_enabled`, `queue_courts`, `queue_mode`, `queue_skip_timeout_seconds`)
+  - Created `event_registrations` table for general event registration
+  - Added `event_id` and `affects_rating` to matches
+  - Created `event_queue` and `event_courts` tables for queue system
+  - Added `pending_agreement` match status
+  - Created `match_score_proposals` table for score agreement flow
+
+### RLS Policies
+- `008-security.changelog.xml` extended with 12 changesets (0038-0049):
+  - Event registrations: players can register/view their own
+  - Event visibility: public events vs registered-only access
+  - Queue/courts: visible to registered players
+  - Match visibility: based on event visibility rules
+
+### Domain Updates
+- `event.dto.ts`: Added EventType, QueueMode, EventRegistrationDto, EventQueueDto, EventCourtDto
+- `match.dto.ts`: Added event_id, affects_rating, ScoreProposalStatus, score agreement types
+- Created `event-registration.repository.ts`
+- Created `event-queue.repository.ts`
+- Updated `match.repository.ts` to include event_id
+- Updated `POST /api/v1/matches` to require event_id and check event registration
+
+### Tests Updated
+- `match.service.spec.ts`: Updated to use event_id instead of club_id
+- `event.service.spec.ts`: Updated to include event_type in inputs
+- `bracket.service.spec.ts`: Updated EventRecord factory
+
+### Migrations NOT YET APPLIED
+The 017-event-match-enhancement and related 008-security changesets (through 0050) have been
+authored but not yet run against the live database.
+
+### Completed Since (2026-08-17, continued)
+- Event registration API endpoints (register/check-in/withdraw/list) — done
+- Score agreement flow: agree/dispute reuse the existing MVP-005 verifier flow; counter-proposal
+  is new (`MatchService.proposeCounterScore`, `POST /matches/{id}/counter`), scoped to singles
+  matches, moves the match to `disputed` for organizer review (see scoping note in the service —
+  full multi-round negotiation is blocked on the unresolved match-verification-policy ADR)
+- Queue endpoints (join/leave/match/skip) — `EventQueueService` + 4 API routes
+- Event page UI: Info/Matches/Players/Rankings/Queue tabs, registration flow, queue join/leave
+  and organizer match-making controls
+- Match detail page: "Propose Different Score" flow + proposal history
+- Event-scoped rankings endpoint (`GET /events/{id}/rankings`) — wins/losses/matches-played from
+  verified matches only; deliberately excludes rating change (rating_transactions RLS is
+  select-own, no documented reason to bypass it for a shared leaderboard)
+- Dashboard wiring (per docs/32-DASHBOARD-SPECIFICATION.md) — player dashboard podium removed and
+  replaced with real rank/rating-chart/recent-matches/pending-actions/upcoming-events/my-clubs
+  sections; club dashboard got stats, top-members podium, club rankings, recent club matches, and
+  upcoming/previous events, backed by new `players/me/*` and `clubs/{id}/*` endpoints
+- Fixed along the way: `event.repository.ts` wasn't persisting/selecting most of the new event
+  columns; a real RLS gap where a registered player couldn't SELECT a `registered_only`/`private`
+  event they'd registered to (fixed via changeset 0050); `myRegistration` on the event page
+  matched any registration instead of the current user's
+
+### Migrations applied live (2026-08-18)
+Ran via the real Liquibase CLI (4.32.0, downloaded fresh, plus the PostgreSQL JDBC driver 42.7.4 —
+neither bundled in this environment) against the same session-mode pooler connection used for
+every prior migration on this project. `liquibase status` found **57 pending changesets**, not
+just the 017/008 ones expected — `012-announcement`, `013-payment`, `014-analytics`,
+`015-regions`, and `016-api-keys` had also been authored-but-never-applied from earlier phases
+(matches what this file already said above). All 148 total changesets are now applied;
+`liquibase status` confirms up to date.
+
+Two real bugs surfaced by actually running this, both fixed before the migration completed:
+
+1. **RLS ordering bug**: `008-security.changelog.xml` had accumulated RLS changesets for the
+   payment domain (0032-0037) and the event-match-enhancement domain (0038-0050) directly inside
+   itself, but the master changelog includes `008-security` *before* `013-payment` and
+   `017-event-match-enhancement` — so those policies tried to `ALTER`/`CREATE POLICY` on tables
+   that didn't exist yet (`relation "subscription_plans" does not exist`). Every other domain
+   from `009-social` onward already keeps its RLS self-contained in its own domain file; these
+   two were the only stragglers still living in the shared security file. **Fix**: relocated
+   both blocks into their own domain changelogs (`013-payment.changelog.xml` 0007-0012,
+   `017-event-match-enhancement.changelog.xml` 0017-0029) — safe because neither had ever been
+   applied under the old location, so there's no checksum to break.
+2. **Malformed array default**: `016-api-keys.changelog.xml`'s `api_keys.permissions` column used
+   `defaultValue="'{read}'"`, which Liquibase double-quotes for a `text[]` column, producing
+   invalid SQL (`DEFAULT ''{read}''`). Fixed by switching to `defaultValueComputed="'{read}'"`
+   (a raw SQL literal, not a value Liquibase should quote itself) — also never applied before, no
+   checksum risk.
+
+**Verified**: `nuxi build` succeeded against the now-current schema, all 240 Vitest unit tests
+pass, and the full Playwright suite (19 tests across auth/club/match/player-profile/rankings/
+rating/smoke) passed against a fresh build.
+
+### Remaining Work
+- [ ] Dummy data seeding (players, clubs, events, matches, ratings) — on hold per user
+- [ ] Production cleanup / data wipe (after go-live dry run)

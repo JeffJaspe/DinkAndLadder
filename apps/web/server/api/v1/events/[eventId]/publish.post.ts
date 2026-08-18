@@ -1,4 +1,4 @@
-import { serverSupabaseClient, serverSupabaseUser } from '#supabase/server'
+import { serverSupabaseClient, serverSupabaseServiceRole, serverSupabaseUser } from '#supabase/server'
 import { createEventRepository } from '~/server/domains/event/repositories/event.repository'
 import {
   createTournamentRepository,
@@ -21,14 +21,15 @@ export default defineEventHandler(async (event) => {
   const client = await serverSupabaseClient(event)
 
   const playerRepo = createPlayerProfileRepository(client)
-  const profile = await playerRepo.findByUserId(user.id)
+  const profile = await playerRepo.findByUserId(user.sub)
   if (!profile) {
     throw createError({ statusCode: 403, statusMessage: 'Player profile required.' })
   }
 
-  const eventRepo = createEventRepository(client)
-  const tournamentRepo = createTournamentRepository(client)
-  const registrationRepo = createTournamentRegistrationRepository(client)
+  const serviceClient = serverSupabaseServiceRole(event)
+  const eventRepo = createEventRepository(serviceClient)
+  const tournamentRepo = createTournamentRepository(serviceClient)
+  const registrationRepo = createTournamentRegistrationRepository(serviceClient)
   const service = createEventService(eventRepo, tournamentRepo, registrationRepo)
 
   try {

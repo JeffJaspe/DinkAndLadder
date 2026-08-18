@@ -1,4 +1,4 @@
-import { serverSupabaseClient, serverSupabaseUser } from '#supabase/server'
+import { serverSupabaseClient, serverSupabaseServiceRole, serverSupabaseUser } from '#supabase/server'
 import { createEventRepository } from '~/server/domains/event/repositories/event.repository'
 import {
   createTournamentRepository,
@@ -18,22 +18,23 @@ export default defineEventHandler(async (event) => {
   const client = await serverSupabaseClient(event)
 
   const playerRepo = createPlayerProfileRepository(client)
-  const profile = await playerRepo.findByUserId(user.id)
+  const profile = await playerRepo.findByUserId(user.sub)
   if (!profile) {
     throw createError({ statusCode: 403, statusMessage: 'Player profile required.' })
   }
 
   const input = await readBody<CreateEventInput>(event)
-  if (!input.club_id || !input.name || !input.start_date || !input.end_date) {
+  if (!input.club_id || !input.name || !input.start_date || !input.end_date || !input.event_type) {
     throw createError({
       statusCode: 400,
-      statusMessage: 'club_id, name, start_date, and end_date are required.'
+      statusMessage: 'club_id, name, start_date, end_date, and event_type are required.'
     })
   }
 
-  const eventRepo = createEventRepository(client)
-  const tournamentRepo = createTournamentRepository(client)
-  const registrationRepo = createTournamentRegistrationRepository(client)
+  const serviceClient = serverSupabaseServiceRole(event)
+  const eventRepo = createEventRepository(serviceClient)
+  const tournamentRepo = createTournamentRepository(serviceClient)
+  const registrationRepo = createTournamentRegistrationRepository(serviceClient)
   const membershipRepo = createClubMembershipRepository(client)
   const service = createEventService(eventRepo, tournamentRepo, registrationRepo, membershipRepo)
 

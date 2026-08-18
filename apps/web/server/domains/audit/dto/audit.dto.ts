@@ -4,6 +4,7 @@ export type AuditEventType =
   | 'club.membership_reject'
   | 'club.membership_remove'
   | 'match.verification_decision'
+  | 'match.score_counter_proposed'
   | 'player.profile_admin_change'
   | 'rating.correction'
 

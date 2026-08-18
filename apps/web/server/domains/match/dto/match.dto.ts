@@ -1,9 +1,16 @@
 export type MatchType = 'singles' | 'doubles'
 export type MatchStatus =
-  'draft' | 'submitted' | 'pending_verification' | 'verified' | 'rejected' | 'disputed'
+  | 'draft'
+  | 'submitted'
+  | 'pending_agreement'
+  | 'pending_verification'
+  | 'verified'
+  | 'rejected'
+  | 'disputed'
 export type ParticipantResultStatus = 'pending' | 'won' | 'lost'
 export type TeamNumber = 1 | 2
 export type VerificationStatus = 'pending' | 'confirmed' | 'rejected' | 'disputed'
+export type ScoreProposalStatus = 'pending' | 'accepted' | 'countered' | 'expired'
 
 export interface MatchParticipantRecord {
   id: string
@@ -31,11 +38,23 @@ export interface MatchVerificationRecord {
   created_at: string
 }
 
+export interface MatchScoreProposalRecord {
+  id: string
+  match_id: string
+  proposed_by_player_id: string
+  scores: Array<{ set_number: number; team1_score: number; team2_score: number }>
+  status: ScoreProposalStatus
+  proposal_round: number
+  created_at: string
+}
+
 export interface MatchRecord {
   id: string
   match_type: MatchType
   status: MatchStatus
   submitted_by_player_id: string
+  event_id: string | null
+  affects_rating: boolean
   venue: string | null
   played_at: string
   submitted_at: string
@@ -44,6 +63,7 @@ export interface MatchRecord {
   match_participants: MatchParticipantRecord[]
   match_scores: MatchScoreRecord[]
   match_verifications: MatchVerificationRecord[]
+  match_score_proposals: MatchScoreProposalRecord[]
 }
 
 export interface MatchDto {
@@ -51,6 +71,8 @@ export interface MatchDto {
   match_type: MatchType
   status: MatchStatus
   submitted_by_player_id: string
+  event_id: string | null
+  affects_rating: boolean
   venue: string | null
   played_at: string
   submitted_at: string
@@ -67,6 +89,14 @@ export interface MatchDto {
     status: VerificationStatus
     response_note: string | null
     responded_at: string | null
+  }>
+  score_proposals: Array<{
+    id: string
+    proposed_by_player_id: string
+    scores: Array<{ set_number: number; team1_score: number; team2_score: number }>
+    status: ScoreProposalStatus
+    proposal_round: number
+    created_at: string
   }>
 }
 
@@ -87,11 +117,15 @@ export interface SubmitMatchScoreInput {
 }
 
 export interface SubmitMatchInput {
-  club_id: string
+  event_id: string
   match_type: MatchType
   venue?: string | null
   played_at: string
   participants: SubmitMatchParticipantInput[]
+  scores: SubmitMatchScoreInput[]
+}
+
+export interface CounterScoreInput {
   scores: SubmitMatchScoreInput[]
 }
 
@@ -101,6 +135,8 @@ export function toMatchDto(match: MatchRecord): MatchDto {
     match_type: match.match_type,
     status: match.status,
     submitted_by_player_id: match.submitted_by_player_id,
+    event_id: match.event_id,
+    affects_rating: match.affects_rating,
     venue: match.venue,
     played_at: match.played_at,
     submitted_at: match.submitted_at,
@@ -121,6 +157,14 @@ export function toMatchDto(match: MatchRecord): MatchDto {
       status: v.status,
       response_note: v.response_note,
       responded_at: v.responded_at
+    })),
+    score_proposals: match.match_score_proposals.map((p) => ({
+      id: p.id,
+      proposed_by_player_id: p.proposed_by_player_id,
+      scores: p.scores,
+      status: p.status,
+      proposal_round: p.proposal_round,
+      created_at: p.created_at
     }))
   }
 }

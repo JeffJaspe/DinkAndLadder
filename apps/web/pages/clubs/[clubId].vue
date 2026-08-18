@@ -3,6 +3,23 @@ import type { ClubDto } from '~/server/domains/club/dto/club.dto'
 import type { RosterMemberDto } from '~/server/domains/club/dto/club-membership.dto'
 import type { PlayerProfileDto } from '~/server/domains/player/dto/player-profile.dto'
 import type { AnnouncementDto } from '~/server/domains/announcement/dto/announcement.dto'
+import type { EventDto } from '~/server/domains/event/dto/event.dto'
+
+interface ClubRankingEntry {
+  rank: number
+  player_id: string
+  display_name: string
+  rating_value: number | null
+}
+
+interface ClubMatchSummary {
+  id: string
+  match_type: 'singles' | 'doubles'
+  status: string
+  played_at: string
+  participants: Array<{ player_id: string; team_number: 1 | 2; display_name: string }>
+  scores: Array<{ set_number: number; team1_score: number; team2_score: number }>
+}
 
 const route = useRoute()
 const clubId = computed(() => route.params.clubId as string)
@@ -22,6 +39,10 @@ const joinError = ref('')
 const joining = ref(false)
 
 const announcements = ref<AnnouncementDto[]>([])
+const clubRankings = ref<ClubRankingEntry[]>([])
+const clubMatches = ref<ClubMatchSummary[]>([])
+const upcomingClubEvents = ref<EventDto[]>([])
+const previousClubEvents = ref<EventDto[]>([])
 
 async function loadRoster() {
   notAMember.value = false
@@ -47,10 +68,66 @@ async function loadAnnouncements() {
   }
 }
 
+async function loadClubRankings() {
+  try {
+    const response = await $fetch<{ data: ClubRankingEntry[] }>(
+      `/api/v1/clubs/${clubId.value}/rankings`
+    )
+    clubRankings.value = response.data
+  } catch {
+    clubRankings.value = []
+  }
+}
+
+async function loadClubMatches() {
+  try {
+    const response = await $fetch<{ data: ClubMatchSummary[] }>(
+      `/api/v1/clubs/${clubId.value}/matches?limit=50`
+    )
+    clubMatches.value = response.data
+  } catch {
+    clubMatches.value = []
+  }
+}
+
+async function loadClubEvents() {
+  try {
+    const [published, active, previous] = await Promise.all([
+      $fetch<{ events: EventDto[] }>('/api/v1/events', {
+        query: { club_id: clubId.value, status: 'published' }
+      }),
+      $fetch<{ events: EventDto[] }>('/api/v1/events', {
+        query: { club_id: clubId.value, status: 'active' }
+      }),
+      $fetch<{ events: EventDto[] }>('/api/v1/events', {
+        query: { club_id: clubId.value, status: 'completed' }
+      })
+    ])
+    upcomingClubEvents.value = [...published.events, ...active.events].sort(
+      (a, b) => new Date(a.start_date).getTime() - new Date(b.start_date).getTime()
+    )
+    previousClubEvents.value = previous.events
+  } catch {
+    upcomingClubEvents.value = []
+    previousClubEvents.value = []
+  }
+}
+
 onMounted(() => {
   loadRoster()
   loadAnnouncements()
+  loadClubRankings()
+  loadClubMatches()
+  loadClubEvents()
 })
+
+function formatScore(scores: ClubMatchSummary['scores']): string {
+  return scores.map(s => `${s.team1_score}-${s.team2_score}`).join(', ')
+}
+
+function formatEventDate(dateStr: string): string {
+  return new Date(dateStr).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}
 
 const myMembership = computed(
   () => roster.value?.find((m) => m.player_id === myProfile.value?.id) ?? null
@@ -192,6 +269,119 @@ const draftAnnouncements = computed(() =>
                 {{ club.description }}
               </p>
             </div>
+          </div>
+        </div>
+
+        <!-- Club Stats -->
+        <div v-if="roster" class="mb-6 rounded-xl bg-[#1E2E2A] p-5">
+          <h2 class="mb-3 text-sm font-medium uppercase tracking-wider text-[#6B7B75]">Club Stats</h2>
+          <div class="flex gap-6 text-[#A6ABA7]">
+            <span>👥 {{ roster.filter(m => m.status === 'active').length }} Members</span>
+            <span>🎾 {{ clubMatches.length }}{{ clubMatches.length === 50 ? '+' : '' }} Matches</span>
+            <span>📅 {{ upcomingClubEvents.length + previousClubEvents.length }} Events</span>
+          </div>
+        </div>
+
+        <!-- Top Members Podium -->
+        <div v-if="clubRankings.length > 0" class="mb-6 rounded-xl bg-[#1E2E2A] p-5">
+          <div class="mb-4 flex items-center justify-between">
+            <h2 class="font-semibold text-white">Top Members</h2>
+            <span class="text-xs text-[#6B7B75]">By singles rating</span>
+          </div>
+          <div class="flex items-end justify-center gap-3 pt-2">
+            <template v-for="place in [2, 1, 3]" :key="place">
+              <div v-if="clubRankings[place - 1]" class="flex flex-col items-center">
+                <div
+                  class="mb-2 flex items-center justify-center rounded-full bg-[#2E4540] font-bold ring-2"
+                  :class="place === 1 ? 'h-14 w-14 text-lg text-[#F5A623] ring-[#F5A623]' : place === 2 ? 'h-11 w-11 text-sm text-[#C0C0C0] ring-[#C0C0C0]' : 'h-10 w-10 text-sm text-[#CD7F32] ring-[#CD7F32]'"
+                >
+                  {{ clubRankings[place - 1].display_name.charAt(0) }}
+                </div>
+                <p class="text-xs text-[#A6ABA7]">{{ clubRankings[place - 1].display_name }}</p>
+                <p class="text-xs text-[#6B7B75]">{{ clubRankings[place - 1].rating_value?.toFixed(2) ?? '—' }}</p>
+                <div
+                  class="mt-2 flex w-14 items-end justify-center rounded-t-lg"
+                  :class="place === 1 ? 'h-24 bg-[#F5A623]/20' : place === 2 ? 'h-16 bg-[#C0C0C0]/20' : 'h-12 bg-[#CD7F32]/20'"
+                >
+                  <span
+                    class="mb-2 text-xl font-bold"
+                    :class="place === 1 ? 'text-[#F5A623]' : place === 2 ? 'text-[#C0C0C0]' : 'text-[#CD7F32]'"
+                  >
+                    {{ place }}
+                  </span>
+                </div>
+              </div>
+            </template>
+          </div>
+          <div v-if="clubRankings.length > 3" class="mt-4 space-y-1">
+            <div
+              v-for="r in clubRankings.slice(3)"
+              :key="r.player_id"
+              class="flex items-center justify-between rounded-lg bg-[#0B0D09] px-3 py-2 text-sm"
+            >
+              <span class="text-[#A6ABA7]">#{{ r.rank }} {{ r.display_name }}</span>
+              <span class="text-[#6B7B75]">{{ r.rating_value?.toFixed(2) ?? '—' }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Recent Club Matches -->
+        <div v-if="clubMatches.length > 0" class="mb-6 rounded-xl bg-[#1E2E2A] p-5">
+          <h2 class="mb-4 font-semibold text-white">Recent Club Matches</h2>
+          <div class="space-y-2">
+            <NuxtLink
+              v-for="match in clubMatches.slice(0, 5)"
+              :key="match.id"
+              :to="`/matches/${match.id}`"
+              class="flex items-center justify-between rounded-lg bg-[#0B0D09] p-3 hover:bg-[#2E4540]"
+            >
+              <div class="text-sm text-white">
+                <span v-for="(p, i) in match.participants.filter(pp => pp.team_number === 1)" :key="p.player_id">
+                  {{ i > 0 ? ' & ' : '' }}{{ p.display_name }}
+                </span>
+                <span class="mx-1 text-[#6B7B75]">vs</span>
+                <span v-for="(p, i) in match.participants.filter(pp => pp.team_number === 2)" :key="p.player_id">
+                  {{ i > 0 ? ' & ' : '' }}{{ p.display_name }}
+                </span>
+                <span class="ml-2 text-[#4DB175]">{{ formatScore(match.scores) }}</span>
+              </div>
+              <span class="text-xs text-[#6B7B75]">{{ new Date(match.played_at).toLocaleDateString() }}</span>
+            </NuxtLink>
+          </div>
+        </div>
+
+        <!-- Upcoming Events -->
+        <div v-if="upcomingClubEvents.length > 0" class="mb-6 rounded-xl bg-[#1E2E2A] p-5">
+          <h2 class="mb-4 font-semibold text-white">Upcoming Events</h2>
+          <div class="space-y-2">
+            <NuxtLink
+              v-for="e in upcomingClubEvents"
+              :key="e.id"
+              :to="`/events/${e.id}`"
+              class="flex items-center justify-between rounded-lg bg-[#0B0D09] p-3 hover:bg-[#2E4540]"
+            >
+              <span class="text-sm text-white">
+                📅 {{ e.name }}
+                <span class="text-[#6B7B75]">{{ [e.venue, e.city].filter(Boolean).join(', ') }}</span>
+              </span>
+              <span class="text-xs text-[#6B7B75]">{{ formatEventDate(e.start_date) }}</span>
+            </NuxtLink>
+          </div>
+        </div>
+
+        <!-- Previous Events -->
+        <div v-if="previousClubEvents.length > 0" class="mb-6 rounded-xl bg-[#1E2E2A] p-5">
+          <h2 class="mb-4 font-semibold text-white">Previous Events</h2>
+          <div class="space-y-2">
+            <NuxtLink
+              v-for="e in previousClubEvents"
+              :key="e.id"
+              :to="`/events/${e.id}`"
+              class="flex items-center justify-between rounded-lg bg-[#0B0D09] p-3 hover:bg-[#2E4540]"
+            >
+              <span class="text-sm text-[#A6ABA7]">📅 {{ e.name }}</span>
+              <span class="text-xs text-[#6B7B75]">{{ formatEventDate(e.start_date) }}</span>
+            </NuxtLink>
           </div>
         </div>
 

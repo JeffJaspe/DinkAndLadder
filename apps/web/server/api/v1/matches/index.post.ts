@@ -9,7 +9,7 @@ import {
   MatchServiceError
 } from '~/server/domains/match/services/match.service'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
-import { createClubMembershipRepository } from '~/server/domains/club/repositories/club-membership.repository'
+import { createEventRegistrationRepository } from '~/server/domains/event/repositories/event-registration.repository'
 import { apiError } from '~/server/utils/api-error'
 import type {
   SubmitMatchInput,
@@ -23,8 +23,8 @@ function parseSubmitInput(body: unknown): SubmitMatchInput {
   }
   const record = body as Record<string, unknown>
 
-  if (typeof record.club_id !== 'string' || !record.club_id) {
-    throw apiError(400, 'VALIDATION_ERROR', 'club_id is required.')
+  if (typeof record.event_id !== 'string' || !record.event_id) {
+    throw apiError(400, 'VALIDATION_ERROR', 'event_id is required.')
   }
   if (record.match_type !== 'singles' && record.match_type !== 'doubles') {
     throw apiError(400, 'VALIDATION_ERROR', "match_type must be 'singles' or 'doubles'.")
@@ -76,7 +76,7 @@ function parseSubmitInput(body: unknown): SubmitMatchInput {
   }
 
   return {
-    club_id: record.club_id as string,
+    event_id: record.event_id as string,
     match_type: record.match_type,
     played_at: record.played_at,
     venue: (venue as string | null | undefined) ?? null,
@@ -88,8 +88,8 @@ function parseSubmitInput(body: unknown): SubmitMatchInput {
 /**
  * Uses the service-role client: submitting a match inherently creates match_participants
  * rows for OTHER players, which no self-service RLS policy can express (see 008-security's
- * note on the match domain). Authorization is that the caller must be one of the listed
- * participants — checked in MatchService.submitMatch, not skipped by the bypass.
+ * note on the match domain). Authorization: caller must be registered to the event and
+ * be one of the listed participants — checked in MatchService.submitMatch.
  */
 export default defineEventHandler(async (event) => {
   const claims = await serverSupabaseUser(event)
@@ -109,13 +109,10 @@ export default defineEventHandler(async (event) => {
 
   const input = parseSubmitInput(await readBody(event))
 
-  const membershipRepo = createClubMembershipRepository(userClient)
-  const membership = await membershipRepo.findByClubAndPlayer(input.club_id, playerProfile.id)
-  if (!membership || membership.status !== 'active') {
-    throw apiError(403, 'NOT_CLUB_MEMBER', 'You must be an active member of this club.')
-  }
-  if (membership.role !== 'OWNER' && membership.role !== 'ADMIN') {
-    throw apiError(403, 'NOT_CLUB_ADMIN', 'Only club owners or admins can submit matches.')
+  const registrationRepo = createEventRegistrationRepository(userClient)
+  const registration = await registrationRepo.findByEventAndPlayer(input.event_id, playerProfile.id)
+  if (!registration || registration.status === 'withdrawn') {
+    throw apiError(403, 'NOT_REGISTERED', 'You must be registered to this event to submit matches.')
   }
 
   const serviceClient = serverSupabaseServiceRole(event)

@@ -28,7 +28,7 @@ export default defineEventHandler(async (event) => {
   }
 
   const playerRepo = createPlayerProfileRepository(client)
-  const profile = await playerRepo.findByUserId(user.id)
+  const profile = await playerRepo.findByUserId(user.sub)
 
   if (!profile) {
     const activities = await service.getPublicFeed(query)

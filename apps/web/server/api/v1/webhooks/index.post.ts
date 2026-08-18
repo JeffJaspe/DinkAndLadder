@@ -25,7 +25,7 @@ export default defineEventHandler(async (event) => {
   const client = await serverSupabaseClient(event)
 
   const playerRepo = createPlayerProfileRepository(client)
-  const profile = await playerRepo.findByUserId(user.id)
+  const profile = await playerRepo.findByUserId(user.sub)
   if (!profile) {
     throw createError({ statusCode: 403, statusMessage: 'Player profile required' })
   }

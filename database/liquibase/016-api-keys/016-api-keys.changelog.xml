@@ -23,7 +23,7 @@
       <column name="name" type="varchar(100)">
         <constraints nullable="false"/>
       </column>
-      <column name="permissions" type="text[]" defaultValue="'{read}'"/>
+      <column name="permissions" type="text[]" defaultValueComputed="'{read}'"/>
       <column name="last_used_at" type="timestamptz"/>
       <column name="expires_at" type="timestamptz"/>
       <column name="is_active" type="boolean" defaultValueBoolean="true">

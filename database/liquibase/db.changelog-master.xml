@@ -21,5 +21,6 @@
     <include file="014-analytics/014-analytics.changelog.xml" relativeToChangelogFile="true"/>
     <include file="015-regions/015-regions.changelog.xml" relativeToChangelogFile="true"/>
     <include file="016-api-keys/016-api-keys.changelog.xml" relativeToChangelogFile="true"/>
+    <include file="017-event-match-enhancement/017-event-match-enhancement.changelog.xml" relativeToChangelogFile="true"/>
 
 </databaseChangeLog>

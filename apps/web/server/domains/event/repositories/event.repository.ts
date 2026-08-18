@@ -9,7 +9,9 @@ import type {
 
 const EVENT_COLUMNS =
   'id, club_id, name, description, venue, province, city, start_date, end_date, ' +
-  'registration_opens, registration_closes, status, visibility, created_by_player_id, created_at, updated_at'
+  'registration_opens, registration_closes, status, visibility, event_type, ' +
+  'fee_amount, fee_currency, max_participants, queue_enabled, queue_courts, queue_mode, ' +
+  'queue_skip_timeout_seconds, created_by_player_id, created_at, updated_at'
 
 export interface EventRepository {
   findById(eventId: string): Promise<EventRecord | null>
@@ -47,6 +49,13 @@ export function createEventRepository(client: SupabaseClient): EventRepository {
           registration_opens: input.registration_opens ?? null,
           registration_closes: input.registration_closes ?? null,
           visibility: input.visibility ?? 'public',
+          event_type: input.event_type,
+          fee_amount: input.fee_amount ?? null,
+          fee_currency: input.fee_currency ?? null,
+          max_participants: input.max_participants ?? null,
+          queue_enabled: input.queue_enabled ?? false,
+          queue_courts: input.queue_courts ?? 1,
+          queue_mode: input.queue_mode ?? 'first_come',
           status: 'draft',
           created_by_player_id: createdByPlayerId
         })
@@ -100,6 +109,9 @@ export function createEventRepository(client: SupabaseClient): EventRepository {
       }
       if (query.status) {
         builder = builder.eq('status', query.status)
+      }
+      if (query.event_type) {
+        builder = builder.eq('event_type', query.event_type)
       }
 
       builder = builder

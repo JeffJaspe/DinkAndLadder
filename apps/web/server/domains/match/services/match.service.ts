@@ -4,7 +4,8 @@ import type {
   MatchStatus,
   MatchVerificationRecord,
   RecordVerificationDecisionInput,
-  SubmitMatchInput
+  SubmitMatchInput,
+  SubmitMatchScoreInput
 } from '../dto/match.dto'
 import { toMatchDto } from '../dto/match.dto'
 
@@ -28,6 +29,11 @@ export interface MatchService {
     actingPlayerId: string,
     matchId: string,
     input: RecordVerificationDecisionInput
+  ): Promise<MatchDto>
+  proposeCounterScore(
+    actingPlayerId: string,
+    matchId: string,
+    scores: SubmitMatchScoreInput[]
   ): Promise<MatchDto>
 }
 
@@ -78,13 +84,7 @@ function validateSubmission(submittedByPlayerId: string, input: SubmitMatchInput
     )
   }
 
-  if (input.scores.length === 0) {
-    throw new MatchServiceError(400, 'VALIDATION_ERROR', 'At least one set score is required.')
-  }
-  const setNumbers = new Set(input.scores.map((s) => s.set_number))
-  if (setNumbers.size !== input.scores.length) {
-    throw new MatchServiceError(400, 'VALIDATION_ERROR', 'Duplicate set_number in scores.')
-  }
+  validateScores(input.scores)
 }
 
 /**
@@ -100,6 +100,16 @@ function validateSubmission(submittedByPlayerId: string, input: SubmitMatchInput
  * initiateVerification below) — the spec never distinguishes teammate from opponent here, and
  * inventing that distinction isn't this pass's call to make.
  */
+function validateScores(scores: SubmitMatchScoreInput[]): void {
+  if (scores.length === 0) {
+    throw new MatchServiceError(400, 'VALIDATION_ERROR', 'At least one set score is required.')
+  }
+  const setNumbers = new Set(scores.map((s) => s.set_number))
+  if (setNumbers.size !== scores.length) {
+    throw new MatchServiceError(400, 'VALIDATION_ERROR', 'Duplicate set_number in scores.')
+  }
+}
+
 function resolveMatchStatus(verifications: MatchVerificationRecord[]): MatchStatus {
   if (verifications.some((v) => v.status === 'disputed')) return 'disputed'
   if (verifications.some((v) => v.status === 'rejected')) return 'rejected'
@@ -211,6 +221,59 @@ export function createMatchService(repository: MatchRepository): MatchService {
           newStatus === 'verified' ? new Date().toISOString() : null
         )
       }
+
+      const updated = await repository.findById(matchId)
+      if (!updated) throw new Error('Match disappeared immediately after being updated.')
+      return toMatchDto(updated)
+    },
+
+    /**
+     * The full multi-round counter-proposal negotiation described in
+     * /docs/31-MATCH-EVENT-SYSTEM-SPECIFICATION.md ("Player A must agree to new score, max 2
+     * rounds then auto-dispute") requires a resolved turn-taking policy for who may accept a
+     * proposal, which doesn't exist yet — see CLAUDE.md's "Exact match verification policy"
+     * under Unresolved Business Decisions. Until that's decided, proposing an alternative score
+     * records the proposal (for the organizer/club to review) and moves the match straight to
+     * 'disputed', matching the spec's own fallback behavior rather than inventing a resolution
+     * flow. Only singles matches are supported: doubles has no single designated opponent to
+     * negotiate with.
+     */
+    async proposeCounterScore(actingPlayerId, matchId, scores) {
+      const match = await repository.findById(matchId)
+      if (!match) {
+        throw new MatchServiceError(404, 'NOT_FOUND', 'No match found with that id.')
+      }
+
+      const participantIds = match.match_participants.map((p) => p.player_id)
+      if (!participantIds.includes(actingPlayerId)) {
+        throw new MatchServiceError(
+          403,
+          'FORBIDDEN',
+          'Only a participant in this match can propose a different score.'
+        )
+      }
+
+      if (match.match_participants.length !== 2) {
+        throw new MatchServiceError(
+          409,
+          'NOT_SUPPORTED',
+          'Counter-proposing a score is only available for singles matches.'
+        )
+      }
+
+      if (match.status !== 'submitted' && match.status !== 'pending_verification') {
+        throw new MatchServiceError(
+          409,
+          'INVALID_MATCH_STATE',
+          `Cannot propose a different score while this match is '${match.status}'.`
+        )
+      }
+
+      validateScores(scores)
+
+      const nextRound = match.match_score_proposals.length + 1
+      await repository.createScoreProposal(matchId, actingPlayerId, scores, nextRound)
+      await repository.updateMatchStatus(matchId, 'disputed', null)
 
       const updated = await repository.findById(matchId)
       if (!updated) throw new Error('Match disappeared immediately after being updated.')

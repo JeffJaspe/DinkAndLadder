@@ -83,6 +83,14 @@ function makeEventRecord(overrides?: Partial<EventRecord>): EventRecord {
     registration_closes: null,
     status: 'draft',
     visibility: 'public',
+    event_type: 'open_ranked',
+    fee_amount: null,
+    fee_currency: null,
+    max_participants: null,
+    queue_enabled: false,
+    queue_courts: 1,
+    queue_mode: 'first_come',
+    queue_skip_timeout_seconds: 120,
     created_by_player_id: 'player-1',
     created_at: '2026-08-01T00:00:00Z',
     updated_at: '2026-08-01T00:00:00Z',
@@ -141,7 +149,8 @@ describe('EventService', () => {
         club_id: 'club-1',
         name: 'Test Event',
         start_date: '2026-09-01',
-        end_date: '2026-09-02'
+        end_date: '2026-09-02',
+        event_type: 'open_ranked'
       })
 
       expect(result.id).toBe('event-1')
@@ -174,7 +183,8 @@ describe('EventService', () => {
           club_id: 'club-1',
           name: 'Test Event',
           start_date: '2026-09-01',
-          end_date: '2026-09-02'
+          end_date: '2026-09-02',
+          event_type: 'open_ranked'
         })
       ).rejects.toThrow(EventServiceError)
     })
@@ -196,7 +206,8 @@ describe('EventService', () => {
           club_id: 'club-1',
           name: 'Test Event',
           start_date: '2026-09-01',
-          end_date: '2026-09-02'
+          end_date: '2026-09-02',
+          event_type: 'open_ranked'
         })
       ).rejects.toThrow(EventServiceError)
     })

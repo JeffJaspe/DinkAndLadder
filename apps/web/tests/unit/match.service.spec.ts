@@ -5,6 +5,7 @@ import type { MatchRecord, SubmitMatchInput } from '../../server/domains/match/d
 
 let matchCounter = 0
 let verificationCounter = 0
+let proposalCounter = 0
 
 function createFakeMatchRepository(): MatchRepository {
   const rows = new Map<string, MatchRecord>()
@@ -12,7 +13,13 @@ function createFakeMatchRepository(): MatchRepository {
   return {
     async findById(matchId) {
       const row = rows.get(matchId)
-      return row ? { ...row, match_verifications: [...row.match_verifications] } : null
+      return row
+        ? {
+            ...row,
+            match_verifications: [...row.match_verifications],
+            match_score_proposals: [...row.match_score_proposals]
+          }
+        : null
     },
     async create(input: SubmitMatchInput, submittedByPlayerId: string) {
       const now = new Date().toISOString()
@@ -22,6 +29,8 @@ function createFakeMatchRepository(): MatchRepository {
         match_type: input.match_type,
         status: 'submitted',
         submitted_by_player_id: submittedByPlayerId,
+        event_id: input.event_id,
+        affects_rating: true,
         venue: input.venue ?? null,
         played_at: input.played_at,
         submitted_at: now,
@@ -41,7 +50,8 @@ function createFakeMatchRepository(): MatchRepository {
           team1_score: s.team1_score,
           team2_score: s.team2_score
         })),
-        match_verifications: []
+        match_verifications: [],
+        match_score_proposals: []
       }
       rows.set(id, record)
       return record
@@ -76,12 +86,27 @@ function createFakeMatchRepository(): MatchRepository {
       if (!row) throw new Error('not found')
       row.status = status
       row.verified_at = verifiedAt
+    },
+    async createScoreProposal(matchId, proposedByPlayerId, scores, proposalRound) {
+      const row = rows.get(matchId)
+      if (!row) throw new Error('not found')
+      const proposal = {
+        id: `proposal-${++proposalCounter}`,
+        match_id: matchId,
+        proposed_by_player_id: proposedByPlayerId,
+        scores,
+        status: 'pending' as const,
+        proposal_round: proposalRound,
+        created_at: new Date().toISOString()
+      }
+      row.match_score_proposals = [...row.match_score_proposals, proposal]
+      return proposal
     }
   }
 }
 
 const baseSinglesInput: SubmitMatchInput = {
-  club_id: 'club-1',
+  event_id: 'event-1',
   match_type: 'singles',
   played_at: new Date().toISOString(),
   participants: [
@@ -112,7 +137,7 @@ describe('MatchService', () => {
   it('submits a valid doubles match', async () => {
     const service = createMatchService(repository)
     const input: SubmitMatchInput = {
-      club_id: 'club-1',
+      event_id: 'club-1',
       match_type: 'doubles',
       played_at: new Date().toISOString(),
       participants: [
@@ -145,7 +170,7 @@ describe('MatchService', () => {
   it('rejects doubles with only 2 participants', async () => {
     const service = createMatchService(repository)
     const input: SubmitMatchInput = {
-      club_id: 'club-1',
+      event_id: 'club-1',
       match_type: 'doubles',
       played_at: new Date().toISOString(),
       participants: baseSinglesInput.participants,
@@ -160,7 +185,7 @@ describe('MatchService', () => {
   it('rejects a lopsided team split (3-1 in doubles)', async () => {
     const service = createMatchService(repository)
     const input: SubmitMatchInput = {
-      club_id: 'club-1',
+      event_id: 'club-1',
       match_type: 'doubles',
       played_at: new Date().toISOString(),
       participants: [
@@ -249,7 +274,7 @@ describe('MatchService verification', () => {
   })
 
   const doublesInput: SubmitMatchInput = {
-    club_id: 'club-1',
+    event_id: 'club-1',
     match_type: 'doubles',
     played_at: new Date().toISOString(),
     participants: [
@@ -438,5 +463,76 @@ describe('MatchService verification', () => {
       (v) => v.verifier_player_id === 'player-opponent'
     )
     expect(verification?.response_note).toBe('The score was 11-7, not 11-9')
+  })
+
+  describe('proposeCounterScore', () => {
+    const counterScores = [{ set_number: 1, team1_score: 11, team2_score: 7 }]
+
+    it('records a proposal and moves the match to disputed', async () => {
+      const service = createMatchService(repository)
+      const match = await service.submitMatch('player-me', baseSinglesInput)
+
+      const updated = await service.proposeCounterScore(
+        'player-opponent',
+        match.id,
+        counterScores
+      )
+
+      expect(updated.status).toBe('disputed')
+      expect(updated.score_proposals).toHaveLength(1)
+      expect(updated.score_proposals[0]).toMatchObject({
+        proposed_by_player_id: 'player-opponent',
+        proposal_round: 1,
+        scores: counterScores
+      })
+    })
+
+    it('rejects a counter-proposal from a non-participant', async () => {
+      const service = createMatchService(repository)
+      const match = await service.submitMatch('player-me', baseSinglesInput)
+
+      await expect(
+        service.proposeCounterScore('player-stranger', match.id, counterScores)
+      ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    })
+
+    it('rejects a counter-proposal on a doubles match', async () => {
+      const service = createMatchService(repository)
+      const match = await service.submitMatch('player-me', doublesInput)
+
+      await expect(
+        service.proposeCounterScore('player-opp1', match.id, counterScores)
+      ).rejects.toMatchObject({ code: 'NOT_SUPPORTED' })
+    })
+
+    it('rejects a counter-proposal once the match has reached a terminal state', async () => {
+      const service = createMatchService(repository)
+      const match = await service.submitMatch('player-me', baseSinglesInput)
+      await service.initiateVerification('player-me', match.id)
+      await service.recordVerificationDecision('player-opponent', match.id, {
+        status: 'confirmed'
+      })
+
+      await expect(
+        service.proposeCounterScore('player-opponent', match.id, counterScores)
+      ).rejects.toMatchObject({ code: 'INVALID_MATCH_STATE' })
+    })
+
+    it('rejects a counter-proposal on a non-existent match', async () => {
+      const service = createMatchService(repository)
+
+      await expect(
+        service.proposeCounterScore('player-me', 'non-existent-match-id', counterScores)
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+    })
+
+    it('rejects an empty scores array', async () => {
+      const service = createMatchService(repository)
+      const match = await service.submitMatch('player-me', baseSinglesInput)
+
+      await expect(
+        service.proposeCounterScore('player-opponent', match.id, [])
+      ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' })
+    })
   })
 })

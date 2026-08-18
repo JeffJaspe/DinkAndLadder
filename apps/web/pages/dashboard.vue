@@ -1,10 +1,37 @@
 <script setup lang="ts">
 import type { UserDto } from '~/server/domains/identity/dto/user.dto'
 import type { PlayerProfileDto } from '~/server/domains/player/dto/player-profile.dto'
+import type { RankingEntryDto } from '~/server/domains/rating/dto/ranking.dto'
+import type { RatingTransactionDto } from '~/server/domains/rating/dto/rating.dto'
+import type { MyClubMembershipDto } from '~/server/domains/club/dto/club-membership.dto'
+
+interface MatchSummary {
+  id: string
+  match_type: 'singles' | 'doubles'
+  status: string
+  played_at: string
+  participants: Array<{ player_id: string; team_number: 1 | 2; display_name: string }>
+  scores: Array<{ set_number: number; team1_score: number; team2_score: number }>
+}
+
+interface UpcomingEventEntry {
+  event: { id: string; name: string; venue: string | null; city: string | null; start_date: string; end_date: string }
+  registration_status: string
+}
+
+interface PendingActionsResponse {
+  pending_verifications: Array<{ match_id: string; match_type: string; played_at: string }>
+  pending_memberships: Array<{ club_id: string; club_name: string }>
+  total: number
+}
 
 const { data: currentUser, pending, error } = await useFetch<UserDto>('/api/v1/auth/me')
 const { data: myProfile } = await useFetch<PlayerProfileDto>('/api/v1/players/me')
 const { data: ratingsData } = await useFetch<{ singles?: { rating_value: number }; doubles?: { rating_value: number } }>('/api/v1/players/me/ratings')
+const { data: myClubsData } = await useFetch<{ items: MyClubMembershipDto[] }>('/api/v1/clubs/mine')
+const { data: recentMatches } = await useFetch<{ data: MatchSummary[] }>('/api/v1/players/me/matches?limit=5')
+const { data: upcomingEvents } = await useFetch<{ data: UpcomingEventEntry[] }>('/api/v1/players/me/upcoming-events')
+const { data: pendingActions } = await useFetch<{ data: PendingActionsResponse }>('/api/v1/players/me/pending-actions')
 
 const supabase = useSupabaseClient()
 
@@ -32,17 +59,71 @@ const ratingTier = computed(() => {
   return 'Unrated'
 })
 
-const recentActivity = [
-  { id: '1', text: 'Kevin Reyes reached a new rating: 4.52', time: '2h ago', icon: '📈' },
-  { id: '2', text: 'You won against Mark Cruz 11-8, 11-6', time: '4h ago', icon: '🏆' },
-  { id: '3', text: 'Maria Santos joined Cebu Picklers', time: '1d ago', icon: '🏸' }
-]
+const { data: rankingData } = await useFetch<{ data: RankingEntryDto[] }>('/api/v1/rankings', {
+  query: {
+    rating_type: activeRatingType,
+    province: computed(() => myProfile.value?.province || undefined),
+    limit: 100
+  },
+  watch: [activeRatingType]
+})
 
-const topPlayers = [
-  { rank: 2, name: 'Kevin Reyes', rating: 5.12 },
-  { rank: 1, name: 'Miguel Santos', rating: 5.34 },
-  { rank: 3, name: 'James Yu', rating: 4.98 }
-]
+const myRankEntry = computed(() => {
+  if (!myProfile.value || !rankingData.value?.data) return null
+  return rankingData.value.data.find(r => r.player_id === myProfile.value!.id) ?? null
+})
+
+const { data: historyData } = await useFetch<{ data: RatingTransactionDto[] }>('/api/v1/players/me/rating-history', {
+  query: { type: activeRatingType },
+  watch: [activeRatingType]
+})
+
+const ratingHistoryChronological = computed(() => [...(historyData.value?.data ?? [])].reverse())
+
+const chartBars = computed(() => {
+  const points = ratingHistoryChronological.value
+  if (points.length === 0) return []
+  const values = points.map(p => p.new_rating)
+  const min = Math.min(...values)
+  const max = Math.max(...values)
+  const range = max - min || 1
+  return points.slice(-12).map(p => ({
+    height: Math.max(10, Math.round(((p.new_rating - min) / range) * 100)),
+    value: p.new_rating
+  }))
+})
+
+function getOpponentNames(match: MatchSummary): string {
+  const myTeam = match.participants.find(p => p.player_id === myProfile.value?.id)?.team_number
+  const opponents = match.participants.filter(p => p.team_number !== myTeam)
+  return opponents.map(p => p.display_name).join(' & ') || 'Unknown'
+}
+
+function didIWin(match: MatchSummary): boolean | null {
+  const myTeam = match.participants.find(p => p.player_id === myProfile.value?.id)?.team_number
+  if (!myTeam || match.scores.length === 0) return null
+  const mySets = match.scores.filter(s =>
+    myTeam === 1 ? s.team1_score > s.team2_score : s.team2_score > s.team1_score
+  ).length
+  return mySets > match.scores.length / 2
+}
+
+function formatScore(match: MatchSummary): string {
+  return match.scores.map(s => `${s.team1_score}-${s.team2_score}`).join(', ')
+}
+
+function formatRelativeTime(dateStr: string): string {
+  const diffMs = Date.now() - new Date(dateStr).getTime()
+  const days = Math.floor(diffMs / (1000 * 60 * 60 * 24))
+  if (days <= 0) return 'Today'
+  if (days === 1) return 'Yesterday'
+  if (days < 30) return `${days}d ago`
+  return new Date(dateStr).toLocaleDateString()
+}
+
+function formatEventDate(dateStr: string): string {
+  return new Date(dateStr).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}
 </script>
 
 <template>
@@ -65,7 +146,7 @@ const topPlayers = [
     </div>
 
     <!-- Content -->
-    <div v-else-if="currentUser" class="space-y-5">
+    <div v-else-if="currentUser" class="mx-auto max-w-3xl space-y-5">
       <!-- Header -->
       <div class="flex items-start justify-between">
         <div>
@@ -75,14 +156,12 @@ const topPlayers = [
           </h1>
           <p class="mt-1 text-sm text-[#6B7B75]">Let's climb the ladder today.</p>
         </div>
-        <div class="flex gap-2">
-          <button class="rounded-lg border border-[#3A5750] px-3 py-1.5 text-xs text-[#A6ABA7] hover:bg-[#2E4540]">
-            Share
-          </button>
-          <button class="rounded-lg border border-[#3A5750] px-3 py-1.5 text-xs text-[#A6ABA7] hover:bg-[#2E4540]">
-            Actions
-          </button>
-        </div>
+        <button
+          class="rounded-lg border border-[#3A5750] px-3 py-1.5 text-xs text-[#A6ABA7] hover:bg-[#2E4540]"
+          @click="handleLogout"
+        >
+          Log Out
+        </button>
       </div>
 
       <!-- Rating & Rank Row -->
@@ -121,111 +200,147 @@ const topPlayers = [
           <div class="mb-3">
             <span class="text-xs font-medium uppercase tracking-wider text-[#6B7B75]">RANK</span>
           </div>
-          <div class="flex items-baseline gap-3">
-            <span class="text-5xl font-bold text-white">#12</span>
+          <div v-if="myRankEntry" class="flex items-baseline gap-3">
+            <span class="text-5xl font-bold text-white">#{{ myRankEntry.rank }}</span>
             <div>
-              <p class="text-sm text-[#A6ABA7]">Cebu City</p>
-              <p class="text-xs text-[#4DB175]">Top 2%</p>
+              <p class="text-sm text-[#A6ABA7]">{{ myProfile?.city || myProfile?.province || 'Overall' }}</p>
+              <p class="text-xs text-[#4DB175]">of top {{ rankingData?.data.length }} tracked</p>
             </div>
+          </div>
+          <div v-else class="flex items-center gap-3">
+            <span class="text-3xl font-bold text-[#6B7B75]">Unranked</span>
           </div>
         </div>
       </div>
 
-      <!-- Podium & Chart Row -->
-      <div class="grid gap-4 sm:grid-cols-2">
-        <!-- Podium -->
-        <div class="rounded-xl bg-[#1E2E2A] p-5">
-          <div class="flex items-end justify-center gap-3 pt-6">
-            <!-- 2nd Place -->
-            <div class="flex flex-col items-center">
-              <div class="mb-2 flex h-11 w-11 items-center justify-center rounded-full bg-[#2E4540] text-sm font-bold text-[#C0C0C0] ring-2 ring-[#C0C0C0]">
-                K
-              </div>
-              <p class="text-xs text-[#A6ABA7]">Kevin</p>
-              <p class="text-xs text-[#6B7B75]">5.12</p>
-              <div class="mt-2 flex h-16 w-14 items-end justify-center rounded-t-lg bg-[#C0C0C0]/20">
-                <span class="mb-2 text-xl font-bold text-[#C0C0C0]">2</span>
-              </div>
-            </div>
-
-            <!-- 1st Place -->
-            <div class="flex flex-col items-center">
-              <div class="relative mb-2">
-                <div class="flex h-14 w-14 items-center justify-center rounded-full bg-[#2E4540] text-lg font-bold text-[#F5A623] ring-2 ring-[#F5A623]">
-                  M
-                </div>
-                <span class="absolute -top-4 left-1/2 -translate-x-1/2 text-lg">👑</span>
-              </div>
-              <p class="text-xs text-[#A6ABA7]">Miguel</p>
-              <p class="text-xs text-[#6B7B75]">5.34</p>
-              <div class="mt-2 flex h-24 w-14 items-end justify-center rounded-t-lg bg-[#F5A623]/20">
-                <span class="mb-2 text-xl font-bold text-[#F5A623]">1</span>
-              </div>
-            </div>
-
-            <!-- 3rd Place -->
-            <div class="flex flex-col items-center">
-              <div class="mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-[#2E4540] text-sm font-bold text-[#CD7F32] ring-2 ring-[#CD7F32]">
-                J
-              </div>
-              <p class="text-xs text-[#A6ABA7]">James</p>
-              <p class="text-xs text-[#6B7B75]">4.98</p>
-              <div class="mt-2 flex h-12 w-14 items-end justify-center rounded-t-lg bg-[#CD7F32]/20">
-                <span class="mb-2 text-xl font-bold text-[#CD7F32]">3</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Rating Progress Chart -->
-        <div class="rounded-xl bg-[#1E2E2A] p-5">
-          <div class="mb-4 flex items-center justify-between">
-            <span class="text-sm text-[#A6ABA7]">Rating Progress</span>
-            <div class="flex gap-1">
-              <button class="rounded px-2 py-0.5 text-xs text-[#6B7B75] hover:bg-[#2E4540]">1D</button>
-              <button class="rounded px-2 py-0.5 text-xs text-[#6B7B75] hover:bg-[#2E4540]">7D</button>
-              <button class="rounded bg-[#4DB175]/20 px-2 py-0.5 text-xs text-[#4DB175]">1M</button>
-              <button class="rounded px-2 py-0.5 text-xs text-[#6B7B75] hover:bg-[#2E4540]">ALL</button>
-            </div>
-          </div>
-          <div class="flex h-28 items-end gap-1">
-            <div class="h-[45%] flex-1 rounded-t bg-[#4DB175]/40" />
-            <div class="h-[55%] flex-1 rounded-t bg-[#4DB175]/40" />
-            <div class="h-[50%] flex-1 rounded-t bg-[#4DB175]/40" />
-            <div class="h-[65%] flex-1 rounded-t bg-[#4DB175]/40" />
-            <div class="h-[60%] flex-1 rounded-t bg-[#4DB175]/40" />
-            <div class="h-[70%] flex-1 rounded-t bg-[#4DB175]/40" />
-            <div class="h-[75%] flex-1 rounded-t bg-[#4DB175]/40" />
-            <div class="h-[68%] flex-1 rounded-t bg-[#4DB175]/40" />
-            <div class="h-[80%] flex-1 rounded-t bg-[#4DB175]/40" />
-            <div class="h-[85%] flex-1 rounded-t bg-[#4DB175]/40" />
-            <div class="h-[78%] flex-1 rounded-t bg-[#4DB175]/40" />
-            <div class="h-[90%] flex-1 rounded-t bg-[#4DB175]/40" />
-          </div>
-          <div class="mt-2 flex justify-between text-xs text-[#6B7B75]">
-            <span>May 1</span>
-            <span>May 15</span>
-            <span>Jun 1</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- Recent Activity -->
+      <!-- Rating Progress Chart -->
       <div class="rounded-xl bg-[#1E2E2A] p-5">
         <div class="mb-4 flex items-center justify-between">
-          <span class="text-sm font-medium text-[#A6ABA7]">Recent Activity</span>
-          <NuxtLink to="/feed" class="text-xs text-[#4DB175] hover:underline">View all (3)</NuxtLink>
+          <span class="text-sm text-[#A6ABA7]">Rating Progress</span>
         </div>
-        <div class="space-y-2">
-          <div
-            v-for="activity in recentActivity"
-            :key="activity.id"
-            class="flex items-center gap-3 rounded-lg bg-[#2E4540]/50 p-3"
-          >
-            <span class="text-base">{{ activity.icon }}</span>
-            <span class="flex-1 text-sm text-[#A6ABA7]">{{ activity.text }}</span>
-            <span class="text-xs text-[#6B7B75]">{{ activity.time }}</span>
+        <div v-if="chartBars.length === 0" class="flex h-28 items-center justify-center text-sm text-[#6B7B75]">
+          No rating history yet — play a verified match to start tracking progress.
+        </div>
+        <template v-else>
+          <div class="flex h-28 items-end gap-1">
+            <div
+              v-for="(bar, i) in chartBars"
+              :key="i"
+              class="flex-1 rounded-t bg-[#4DB175]/40"
+              :style="{ height: bar.height + '%' }"
+              :title="bar.value.toFixed(2)"
+            />
           </div>
+          <div class="mt-2 flex justify-between text-xs text-[#6B7B75]">
+            <span>{{ chartBars[0].value.toFixed(2) }}</span>
+            <span>{{ chartBars[chartBars.length - 1].value.toFixed(2) }}</span>
+          </div>
+        </template>
+      </div>
+
+      <!-- Pending Actions -->
+      <div v-if="pendingActions?.data.total" class="rounded-xl bg-[#1E2E2A] p-5">
+        <span class="text-sm font-medium text-[#A6ABA7]">Pending Actions ({{ pendingActions.data.total }})</span>
+        <div class="mt-3 space-y-2">
+          <NuxtLink
+            v-for="v in pendingActions.data.pending_verifications"
+            :key="v.match_id"
+            :to="`/matches/${v.match_id}`"
+            class="flex items-center gap-3 rounded-lg bg-[#2E4540]/50 p-3 hover:bg-[#2E4540]"
+          >
+            <span class="text-base">⚠️</span>
+            <span class="flex-1 text-sm text-[#A6ABA7]">
+              A {{ v.match_type }} match is waiting for your verification
+            </span>
+          </NuxtLink>
+          <NuxtLink
+            v-for="m in pendingActions.data.pending_memberships"
+            :key="m.club_id"
+            :to="`/clubs/${m.club_id}`"
+            class="flex items-center gap-3 rounded-lg bg-[#2E4540]/50 p-3 hover:bg-[#2E4540]"
+          >
+            <span class="text-base">📩</span>
+            <span class="flex-1 text-sm text-[#A6ABA7]">
+              Your request to join {{ m.club_name }} is pending approval
+            </span>
+          </NuxtLink>
+        </div>
+      </div>
+
+      <!-- Recent Matches -->
+      <div class="rounded-xl bg-[#1E2E2A] p-5">
+        <div class="mb-4 flex items-center justify-between">
+          <span class="text-sm font-medium text-[#A6ABA7]">My Recent Matches</span>
+        </div>
+        <div v-if="!recentMatches?.data.length" class="py-4 text-center text-sm text-[#6B7B75]">
+          No matches yet — <NuxtLink to="/events" class="text-[#4DB175] hover:underline">find an event</NuxtLink> to get started.
+        </div>
+        <div v-else class="space-y-2">
+          <NuxtLink
+            v-for="match in recentMatches.data"
+            :key="match.id"
+            :to="`/matches/${match.id}`"
+            class="flex items-center gap-3 rounded-lg bg-[#2E4540]/50 p-3 hover:bg-[#2E4540]"
+          >
+            <span class="text-base">
+              {{ didIWin(match) === true ? '🏆' : didIWin(match) === false ? '❌' : '🎾' }}
+            </span>
+            <span class="flex-1 text-sm text-[#A6ABA7]">
+              {{ didIWin(match) === true ? 'Won' : didIWin(match) === false ? 'Lost' : 'Played' }}
+              vs {{ getOpponentNames(match) }}
+              <span class="text-[#6B7B75]">{{ formatScore(match) }}</span>
+            </span>
+            <span class="text-xs text-[#6B7B75]">{{ formatRelativeTime(match.played_at) }}</span>
+          </NuxtLink>
+        </div>
+      </div>
+
+      <!-- Upcoming Events -->
+      <div class="rounded-xl bg-[#1E2E2A] p-5">
+        <div class="mb-4 flex items-center justify-between">
+          <span class="text-sm font-medium text-[#A6ABA7]">My Upcoming Events</span>
+          <NuxtLink to="/events" class="text-xs text-[#4DB175] hover:underline">Find more →</NuxtLink>
+        </div>
+        <div v-if="!upcomingEvents?.data.length" class="py-4 text-center text-sm text-[#6B7B75]">
+          You're not registered for any upcoming events.
+        </div>
+        <div v-else class="space-y-2">
+          <NuxtLink
+            v-for="entry in upcomingEvents.data"
+            :key="entry.event.id"
+            :to="`/events/${entry.event.id}`"
+            class="flex items-center gap-3 rounded-lg bg-[#2E4540]/50 p-3 hover:bg-[#2E4540]"
+          >
+            <span class="text-base">📅</span>
+            <span class="flex-1 text-sm text-[#A6ABA7]">
+              {{ entry.event.name }}
+              <span class="text-[#6B7B75]">{{ [entry.event.venue, entry.event.city].filter(Boolean).join(', ') }}</span>
+            </span>
+            <span class="text-xs text-[#6B7B75]">{{ formatEventDate(entry.event.start_date) }}</span>
+          </NuxtLink>
+        </div>
+      </div>
+
+      <!-- My Clubs -->
+      <div class="rounded-xl bg-[#1E2E2A] p-5">
+        <div class="mb-4 flex items-center justify-between">
+          <span class="text-sm font-medium text-[#A6ABA7]">My Clubs</span>
+          <NuxtLink to="/my-clubs" class="text-xs text-[#4DB175] hover:underline">View all →</NuxtLink>
+        </div>
+        <div v-if="!myClubsData?.items.length" class="py-4 text-center text-sm text-[#6B7B75]">
+          You haven't joined a club yet.
+        </div>
+        <div v-else class="space-y-2">
+          <NuxtLink
+            v-for="membership in myClubsData.items"
+            :key="membership.club.id"
+            :to="`/clubs/${membership.club.id}`"
+            class="flex items-center gap-3 rounded-lg bg-[#2E4540]/50 p-3 hover:bg-[#2E4540]"
+          >
+            <span class="text-base">🏸</span>
+            <span class="flex-1 text-sm text-[#A6ABA7]">{{ membership.club.name }}</span>
+            <span class="text-xs capitalize text-[#6B7B75]">{{ membership.role.toLowerCase() }}</span>
+          </NuxtLink>
         </div>
       </div>
 
