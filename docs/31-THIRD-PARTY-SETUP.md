@@ -130,7 +130,87 @@ Charge the source
 
 ---
 
-## 5. Environment Variables Summary
+## 5. Cloudflare (free tier)
+
+Two independent pieces. The first is implemented in this app's code; the
+second is a dashboard/DNS action against your own domain that no amount of
+application code can do for you.
+
+### 5a. Turnstile (bot protection on register/login) — code already wired up
+
+1. **Cloudflare Dashboard** (https://dash.cloudflare.com) → **Turnstile** → **Add site**
+   - Domain: your production domain (e.g. `dinkandladder.app`). For local
+     testing you can add `localhost` as an additional domain on the same site.
+   - Widget mode: "Managed" is fine — the app doesn't depend on a specific mode.
+   - Copy the **Site Key** (public) and **Secret Key** (server-only).
+
+2. **Environment Variables** (`apps/web/.env`)
+   ```env
+   TURNSTILE_SITE_KEY=0x4AAAAAAA...
+   TURNSTILE_SECRET_KEY=0x4AAAAAAA...
+   ```
+   Leaving these unset does **not** break the app — registration/login work
+   without Turnstile enforcement (see `docs/07-SECURITY-ARCHITECTURE.md`).
+   Set them to actually enforce bot protection.
+
+3. **What already exists in code** (nothing further to build):
+   - `apps/web/components/TurnstileWidget.vue` — renders the Cloudflare widget
+     on `/register` and `/login`.
+   - `apps/web/server/utils/turnstile.ts` — server-side `siteverify` check.
+   - `POST /api/v1/auth/register` / `POST /api/v1/auth/login` — the two
+     endpoints that verify the token before delegating to Supabase.
+
+4. **Testing without a real Cloudflare account**: Cloudflare publishes dummy
+   test keypairs for exactly this purpose (see
+   https://developers.cloudflare.com/turnstile/troubleshooting/testing/):
+   ```env
+   # Always passes — used in this repo's CI (.github/workflows/ci.yml)
+   TURNSTILE_SITE_KEY=1x00000000000000000000AA
+   TURNSTILE_SECRET_KEY=1x0000000000000000000000000000000AA
+   ```
+   These are not secrets and are safe to commit/share.
+
+### 5b. DNS proxy + firewall rules (edge protection) — manual, dashboard-only
+
+This is **not** something the app's code can set up — it's a change to how
+your domain's DNS resolves and is configured directly in Cloudflare's
+dashboard by whoever controls the domain. Steps, for the free tier:
+
+1. **Add your domain to Cloudflare**: Dashboard → "Add a site" → enter your
+   domain → pick the **Free** plan.
+2. **Update nameservers**: Cloudflare gives you two nameservers to set at
+   your domain registrar (wherever the domain was bought), replacing
+   whatever nameservers point at it today (e.g. Vercel's, if using Vercel DNS).
+   This is the step that actually routes traffic through Cloudflare — DNS
+   propagation can take a few hours.
+3. **Re-create your DNS records in Cloudflare**, pointing at the same target
+   the domain already resolves to (e.g. a `CNAME` to your Vercel deployment).
+   Make sure the record's proxy status is "Proxied" (orange cloud icon), not
+   "DNS only" (grey cloud) — only proxied records get Cloudflare's DDoS
+   mitigation/WAF/firewall rules; unproxied records bypass it entirely.
+4. **SSL/TLS mode**: set to "Full" or "Full (strict)" under SSL/TLS →
+   Overview, so Cloudflare-to-origin traffic stays encrypted (not "Flexible").
+5. **Free-tier firewall rules** (Security → WAF → Custom rules — a small
+   number of rules are included free): a few concrete starting rules for
+   this app, since the API surface is public-read-heavy:
+   - Rate-limit or challenge repeated POSTs to `/api/v1/auth/register` and
+     `/api/v1/auth/login` from the same IP (defense in depth on top of
+     Turnstile — free-tier rate limiting rules are limited, treat this as
+     "some," not "unlimited").
+   - Block or challenge known bad user agents (empty UA, common scraper
+     strings) hitting `/api/*`.
+   - Consider a "Managed Challenge" (not outright block) rather than hard
+     blocks, since this is a public sports app, not something behind a login
+     wall by default.
+6. **Verify**: after nameservers propagate, `dig your-domain.com` should
+   resolve to Cloudflare's IPs, and response headers on any request should
+   include `cf-ray`/`server: cloudflare`.
+
+None of this is reversible-free to get wrong (a bad SSL mode or a missed DNS
+record can take the whole site down), so do it during a low-traffic window
+and verify the site still loads immediately after switching nameservers.
+
+## 6. Environment Variables Summary
 
 ```env
 # Supabase (required)
@@ -151,11 +231,15 @@ PAYMONGO_WEBHOOK_SECRET=whsec_...
 # Optional: Direct GCash API (if not using PayMongo)
 GCASH_APP_ID=...
 GCASH_APP_SECRET=...
+
+# Cloudflare Turnstile (bot protection on register/login — optional, see section 5a)
+TURNSTILE_SITE_KEY=0x4AAAAAAA...
+TURNSTILE_SECRET_KEY=0x4AAAAAAA...
 ```
 
 ---
 
-## 6. Webhook Endpoints to Create
+## 7. Webhook Endpoints to Create
 
 | Provider | Endpoint | Purpose |
 |----------|----------|---------|
@@ -164,7 +248,7 @@ GCASH_APP_SECRET=...
 
 ---
 
-## 7. Testing
+## 8. Testing
 
 ### Stripe Test Cards
 - Success: `4242 4242 4242 4242`
@@ -181,7 +265,7 @@ GCASH_APP_SECRET=...
 
 ---
 
-## 8. Go-Live Checklist
+## 9. Go-Live Checklist
 
 - [ ] Switch all API keys from test to live
 - [ ] Complete PayMongo business verification
@@ -190,3 +274,5 @@ GCASH_APP_SECRET=...
 - [ ] Test full payment flow end-to-end
 - [ ] Set up payment failure notifications
 - [ ] Configure refund policies
+- [ ] Create a production Cloudflare Turnstile site and set real `TURNSTILE_SITE_KEY`/`TURNSTILE_SECRET_KEY` (see 5a)
+- [ ] Point the production domain's nameservers at Cloudflare and re-add DNS records as proxied (see 5b)

@@ -27,7 +27,8 @@ const clubId = computed(() => route.params.clubId as string)
 const {
   data: club,
   pending: clubPending,
-  error: clubError
+  error: clubError,
+  refresh: refreshClub
 } = await useFetch<ClubDto>(() => `/api/v1/clubs/${clubId.value}`)
 
 const { data: myProfile } = await useFetch<PlayerProfileDto>('/api/v1/players/me')
@@ -138,6 +139,24 @@ const isAdmin = computed(
 const isStaff = computed(
   () => ['OWNER', 'ADMIN', 'MODERATOR'].includes(myMembership.value?.role ?? '')
 )
+const isOwner = computed(() => myMembership.value?.role === 'OWNER')
+
+const verificationLoading = ref(false)
+const verificationError = ref('')
+
+async function handleRequestVerification() {
+  verificationError.value = ''
+  verificationLoading.value = true
+  try {
+    await $fetch(`/api/v1/clubs/${clubId.value}/request-verification`, { method: 'POST' })
+    await refreshClub()
+  } catch (err) {
+    const fetchError = err as { data?: { message?: string } }
+    verificationError.value = fetchError.data?.message ?? 'Could not request verification.'
+  } finally {
+    verificationLoading.value = false
+  }
+}
 
 const roleColors: Record<string, string> = {
   OWNER: 'bg-[#F5A623] text-[#0B0D09]',
@@ -261,13 +280,36 @@ const draftAnnouncements = computed(() =>
               {{ club.name.charAt(0).toUpperCase() }}
             </div>
             <div class="flex-1">
-              <h1 class="text-2xl font-bold text-white">{{ club.name }}</h1>
+              <div class="flex items-center gap-2">
+                <h1 class="text-2xl font-bold text-white">{{ club.name }}</h1>
+                <VerifiedBadge v-if="club.verification_status === 'verified'" />
+              </div>
               <p v-if="club.city || club.province" class="mt-1 text-[#6B7B75]">
                 {{ [club.city, club.province].filter(Boolean).join(', ') }}
               </p>
               <p v-if="club.description" class="mt-3 text-[#A6ABA7]">
                 {{ club.description }}
               </p>
+
+              <!-- Verification status/action, owner only -->
+              <div v-if="isOwner" class="mt-3">
+                <span
+                  v-if="club.verification_status === 'pending'"
+                  class="inline-flex items-center gap-1.5 rounded-full bg-amber-500/10 px-3 py-1 text-xs text-amber-400"
+                >
+                  Verification requested — awaiting review
+                </span>
+                <button
+                  v-else-if="club.verification_status !== 'verified'"
+                  type="button"
+                  :disabled="verificationLoading"
+                  class="rounded-lg border border-[#3A5750] px-3 py-1.5 text-xs text-[#A6ABA7] hover:bg-[#2E4540] disabled:opacity-50"
+                  @click="handleRequestVerification"
+                >
+                  {{ verificationLoading ? 'Requesting…' : 'Request Verification' }}
+                </button>
+                <p v-if="verificationError" class="mt-1 text-xs text-red-400">{{ verificationError }}</p>
+              </div>
             </div>
           </div>
         </div>

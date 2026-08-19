@@ -1,21 +1,33 @@
 <script setup lang="ts">
-interface ClubSearchResult {
-  id: string
-  name: string
-  logo_url?: string
-  province?: string
-  city?: string
-  member_count: number
-  visibility: 'public' | 'private'
-}
+import type { ClubSearchResultDto } from '~/server/domains/club/dto/club.dto'
 
 const search = ref('')
 const province = ref('')
 
-const { data, pending, error } = await useFetch<{ clubs: ClubSearchResult[] }>('/api/v1/clubs/search', {
-  query: { q: search, province, limit: 50 },
-  watch: [search, province]
-})
+// The endpoint 400s if q/province/city are all empty (deliberately — it's search, not
+// a full listing), so don't fetch at all until there's something to search on. Fixes
+// two real bugs at once: this page was previously fetching immediately on mount with
+// empty params (always erroring before the user typed anything), and reading the
+// response as `{ clubs: [...] }` when the endpoint actually returns `{ data: [...] }`.
+const { data, pending, error, execute } = await useFetch<{ data: ClubSearchResultDto[] }>(
+  '/api/v1/clubs/search',
+  {
+    query: { q: search, province, limit: 50 },
+    immediate: false
+  }
+)
+
+watch(
+  [search, province],
+  () => {
+    if (search.value || province.value) {
+      execute()
+    } else {
+      data.value = null
+    }
+  },
+  { immediate: true }
+)
 </script>
 
 <template>
@@ -73,7 +85,7 @@ const { data, pending, error } = await useFetch<{ clubs: ClubSearchResult[] }>('
     </div>
 
     <!-- Empty -->
-    <div v-else-if="!data?.clubs.length" class="rounded-xl bg-[#1E2E2A] p-12 text-center">
+    <div v-else-if="!data?.data.length" class="rounded-xl bg-[#1E2E2A] p-12 text-center">
       <p class="text-4xl">🏸</p>
       <h3 class="mt-4 text-lg font-semibold text-white">
         {{ search ? 'No clubs found' : 'Start searching' }}
@@ -89,7 +101,7 @@ const { data, pending, error } = await useFetch<{ clubs: ClubSearchResult[] }>('
     <!-- Results -->
     <div v-else class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
       <NuxtLink
-        v-for="club in data.clubs"
+        v-for="club in data.data"
         :key="club.id"
         :to="`/clubs/${club.id}`"
         class="rounded-xl bg-[#1E2E2A] p-4 transition-all hover:bg-[#2E4540]"

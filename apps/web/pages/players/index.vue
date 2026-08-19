@@ -1,22 +1,32 @@
 <script setup lang="ts">
-interface PlayerSearchResult {
-  id: string
-  display_name: string
-  avatar_url?: string
-  province?: string
-  city?: string
-  singles_rating?: number
-  doubles_rating?: number
-}
+import type { PlayerSearchResultDto } from '~/server/domains/player/dto/player-profile.dto'
 
 const search = ref('')
 const province = ref('')
 const city = ref('')
 
-const { data, pending, error } = await useFetch<{ players: PlayerSearchResult[] }>('/api/v1/players/search', {
-  query: { q: search, province, city, limit: 50 },
-  watch: [search, province, city]
-})
+// Same two bugs as clubs/index.vue: the endpoint 400s if q/province/city are all
+// empty, so don't fetch until there's something to search on; and it returns
+// `{ data: [...] }`, not `{ players: [...] }`.
+const { data, pending, error, execute } = await useFetch<{ data: PlayerSearchResultDto[] }>(
+  '/api/v1/players/search',
+  {
+    query: { q: search, province, city, limit: 50 },
+    immediate: false
+  }
+)
+
+watch(
+  [search, province, city],
+  () => {
+    if (search.value || province.value || city.value) {
+      execute()
+    } else {
+      data.value = null
+    }
+  },
+  { immediate: true }
+)
 </script>
 
 <template>
@@ -63,7 +73,7 @@ const { data, pending, error } = await useFetch<{ players: PlayerSearchResult[] 
     </div>
 
     <!-- Empty -->
-    <div v-else-if="!data?.players.length" class="rounded-xl bg-[#1E2E2A] p-12 text-center">
+    <div v-else-if="!data?.data.length" class="rounded-xl bg-[#1E2E2A] p-12 text-center">
       <p class="text-4xl">👥</p>
       <h3 class="mt-4 text-lg font-semibold text-white">
         {{ search ? 'No players found' : 'Start searching' }}
@@ -76,7 +86,7 @@ const { data, pending, error } = await useFetch<{ players: PlayerSearchResult[] 
     <!-- Results -->
     <div v-else class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
       <NuxtLink
-        v-for="player in data.players"
+        v-for="player in data.data"
         :key="player.id"
         :to="`/players/${player.id}`"
         class="flex items-center gap-4 rounded-xl bg-[#1E2E2A] p-4 transition-all hover:bg-[#2E4540]"

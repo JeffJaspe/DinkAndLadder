@@ -3,6 +3,41 @@ import { createActivityService, createActivityLogger } from '../../server/domain
 import type { ActivityRepository } from '../../server/domains/activity/repositories/activity.repository'
 import type { RelationshipRepository } from '../../server/domains/social/repositories/relationship.repository'
 import type { ActivityRecord } from '../../server/domains/activity/dto/activity.dto'
+import type { ClubRepository } from '../../server/domains/club/repositories/club.repository'
+import type { ClubRecord } from '../../server/domains/club/dto/club.dto'
+
+function makeClubRecord(overrides?: Partial<ClubRecord>): ClubRecord {
+  return {
+    id: 'club-1',
+    name: 'Test Club',
+    slug: 'test-club',
+    description: null,
+    province: null,
+    city: null,
+    visibility: 'public',
+    status: 'active',
+    created_by_user_id: 'user-1',
+    created_at: '2026-01-01T00:00:00Z',
+    verification_status: 'unverified',
+    verification_requested_at: null,
+    verified_at: null,
+    verified_by_user_id: null,
+    ...overrides
+  }
+}
+
+function createFakeClubRepository(byId: Record<string, ClubRecord>): ClubRepository {
+  return {
+    findById: vi.fn(async (id: string) => byId[id] ?? null),
+    findBySlug: vi.fn().mockResolvedValue(null),
+    create: vi.fn(),
+    update: vi.fn(),
+    search: vi.fn().mockResolvedValue([]),
+    updateVerification: vi.fn(),
+    findPendingVerification: vi.fn().mockResolvedValue([]),
+    findVerifiedClubs: vi.fn().mockResolvedValue([])
+  }
+}
 
 function createFakeActivityRepository(overrides?: Partial<ActivityRepository>): ActivityRepository {
   return {
@@ -103,6 +138,49 @@ describe('ActivityService', () => {
 
       expect(result).toHaveLength(1)
       expect(result[0].actor_player_id).toBe('player-2')
+    })
+
+    it('prioritizes the player\'s own verified club above other verified clubs, above unverified/personal activity', async () => {
+      const activities = [
+        makeActivityRecord({ id: 'a-personal', actor_club_id: null, created_at: '2026-08-03T00:00:00Z' }),
+        makeActivityRecord({ id: 'a-other-verified', actor_club_id: 'club-other', created_at: '2026-08-01T00:00:00Z' }),
+        makeActivityRecord({ id: 'a-own-verified', actor_club_id: 'club-mine', created_at: '2026-08-02T00:00:00Z' }),
+        makeActivityRecord({ id: 'a-unverified', actor_club_id: 'club-unverified', created_at: '2026-08-04T00:00:00Z' })
+      ]
+      const activityRepo = createFakeActivityRepository({
+        findFollowingFeed: vi.fn().mockResolvedValue(activities)
+      })
+      const clubRepo = createFakeClubRepository({
+        'club-mine': makeClubRecord({ id: 'club-mine', verification_status: 'verified' }),
+        'club-other': makeClubRecord({ id: 'club-other', verification_status: 'verified' }),
+        'club-unverified': makeClubRecord({ id: 'club-unverified', verification_status: 'unverified' })
+      })
+
+      const service = createActivityService(activityRepo, createFakeRelationshipRepository(), clubRepo)
+
+      const result = await service.getPersonalizedFeed('player-1', ['club-mine'], { limit: 20, offset: 0 })
+
+      expect(result.map((r) => r.id)).toEqual([
+        'a-own-verified',
+        'a-other-verified',
+        'a-unverified',
+        'a-personal'
+      ])
+    })
+
+    it('leaves ordering unchanged when no ClubRepository is provided (backward compatible)', async () => {
+      const activities = [
+        makeActivityRecord({ id: 'a-1', created_at: '2026-08-01T00:00:00Z' }),
+        makeActivityRecord({ id: 'a-2', created_at: '2026-08-02T00:00:00Z' })
+      ]
+      const activityRepo = createFakeActivityRepository({
+        findFollowingFeed: vi.fn().mockResolvedValue(activities)
+      })
+      const service = createActivityService(activityRepo, createFakeRelationshipRepository())
+
+      const result = await service.getPersonalizedFeed('player-1', [], { limit: 20, offset: 0 })
+
+      expect(result.map((r) => r.id)).toEqual(['a-1', 'a-2'])
     })
   })
 

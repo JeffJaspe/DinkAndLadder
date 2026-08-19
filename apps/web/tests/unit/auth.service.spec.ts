@@ -1,5 +1,9 @@
-import { beforeEach, describe, expect, it } from 'vitest'
-import { createAuthService } from '../../server/domains/identity/services/auth.service'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  createAuthService,
+  loginWithPassword,
+  registerWithPassword
+} from '../../server/domains/identity/services/auth.service'
 import type {
   AuthIdentity,
   UserRepository
@@ -74,5 +78,75 @@ describe('AuthService', () => {
 
     expect(user).not.toBeNull()
     expect(user?.email).toBe('player@example.com')
+  })
+})
+
+describe('registerWithPassword / loginWithPassword', () => {
+  it('registerWithPassword delegates to the auth client and reports no error on success', async () => {
+    const client = {
+      auth: {
+        signUp: vi.fn().mockResolvedValue({ error: null }),
+        signInWithPassword: vi.fn()
+      }
+    }
+
+    const result = await registerWithPassword(client, 'player@example.com', 'password123')
+
+    expect(result.error).toBeNull()
+    expect(client.auth.signUp).toHaveBeenCalledWith({
+      email: 'player@example.com',
+      password: 'password123'
+    })
+  })
+
+  it('registerWithPassword surfaces the provider error message and code', async () => {
+    const client = {
+      auth: {
+        signUp: vi.fn().mockResolvedValue({ error: { message: 'User already registered', code: 'user_already_exists' } }),
+        signInWithPassword: vi.fn()
+      }
+    }
+
+    const result = await registerWithPassword(client, 'player@example.com', 'password123')
+
+    expect(result.error).toBe('User already registered')
+    expect(result.code).toBe('user_already_exists')
+  })
+
+  it('loginWithPassword delegates to the auth client and returns the session on success', async () => {
+    const session = { access_token: 'at-1', refresh_token: 'rt-1', expires_at: 12345 }
+    const client = {
+      auth: {
+        signUp: vi.fn(),
+        signInWithPassword: vi.fn().mockResolvedValue({ data: { session }, error: null })
+      }
+    }
+
+    const result = await loginWithPassword(client, 'player@example.com', 'password123')
+
+    expect(result.error).toBeNull()
+    expect(result.session).toEqual(session)
+    expect(client.auth.signInWithPassword).toHaveBeenCalledWith({
+      email: 'player@example.com',
+      password: 'password123'
+    })
+  })
+
+  it('loginWithPassword surfaces the provider error message, code, and no session', async () => {
+    const client = {
+      auth: {
+        signUp: vi.fn(),
+        signInWithPassword: vi.fn().mockResolvedValue({
+          data: { session: null },
+          error: { message: 'Invalid login credentials', code: 'invalid_credentials' }
+        })
+      }
+    }
+
+    const result = await loginWithPassword(client, 'player@example.com', 'password123')
+
+    expect(result.error).toBe('Invalid login credentials')
+    expect(result.code).toBe('invalid_credentials')
+    expect(result.session).toBeNull()
   })
 })

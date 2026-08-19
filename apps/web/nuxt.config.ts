@@ -12,16 +12,28 @@ export default defineNuxtConfig({
     stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET,
     paymongoSecretKey: process.env.PAYMONGO_SECRET_KEY,
     paymongoWebhookSecret: process.env.PAYMONGO_WEBHOOK_SECRET,
+    turnstileSecretKey: process.env.TURNSTILE_SECRET_KEY,
     public: {
       stripePublishableKey: process.env.STRIPE_PUBLISHABLE_KEY,
-      paymongoPublicKey: process.env.PAYMONGO_PUBLIC_KEY
+      paymongoPublicKey: process.env.PAYMONGO_PUBLIC_KEY,
+      turnstileSiteKey: process.env.TURNSTILE_SITE_KEY
     }
   },
   supabase: {
     redirectOptions: {
       login: '/login',
       callback: '/confirm',
-      exclude: ['/', '/register', '/players/*', '/clubs/*', '/rankings', '/events/*', '/api/webhooks/*']
+      exclude: [
+        '/',
+        '/register',
+        '/check-email',
+        '/players/*',
+        '/clubs/*',
+        '/rankings',
+        '/verified-clubs',
+        '/events/*',
+        '/api/webhooks/*'
+      ]
     }
   }
 })

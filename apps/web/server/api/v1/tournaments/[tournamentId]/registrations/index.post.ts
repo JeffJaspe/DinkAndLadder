@@ -7,6 +7,9 @@ import {
 import { createEventService, EventServiceError } from '~/server/domains/event/services/event.service'
 import type { RegisterForTournamentInput } from '~/server/domains/event/dto/tournament.dto'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
+import { createTournamentCategoryRepository } from '~/server/domains/event/repositories/tournament-category.repository'
+import { createRatingRepository } from '~/server/domains/rating/repositories/rating.repository'
+import { createRatingService } from '~/server/domains/rating/services/rating.service'
 
 export default defineEventHandler(async (event) => {
   const user = await serverSupabaseUser(event)
@@ -35,11 +38,49 @@ export default defineEventHandler(async (event) => {
   const registrationRepo = createTournamentRegistrationRepository(serviceClient)
   const service = createEventService(eventRepo, tournamentRepo, registrationRepo)
 
+  const categoryId = body?.category_id ?? null
+
   try {
+    // Category rating-eligibility check lives here rather than in EventService — it
+    // crosses into the rating domain, and EventService's factory is called from 14
+    // other controllers that have no reason to depend on it.
+    if (categoryId) {
+      const categoryRepo = createTournamentCategoryRepository(serviceClient)
+      const category = await categoryRepo.findById(categoryId)
+      if (!category || category.tournament_id !== tournamentId) {
+        throw createError({ statusCode: 404, statusMessage: 'Category not found for this tournament.' })
+      }
+      if (category.min_rating != null || category.max_rating != null) {
+        const tournament = await tournamentRepo.findById(tournamentId)
+        const ratingService = createRatingService(createRatingRepository(serviceClient))
+        const rating = tournament ? await ratingService.getRating(profile.id, tournament.match_type) : null
+        const ratingValue = rating?.rating_value ?? null
+        if (ratingValue == null) {
+          throw createError({
+            statusCode: 400,
+            statusMessage: 'A rating is required to register for this category.'
+          })
+        }
+        if (category.min_rating != null && ratingValue < category.min_rating) {
+          throw createError({
+            statusCode: 400,
+            statusMessage: `Your rating is below this category's minimum (${category.min_rating}).`
+          })
+        }
+        if (category.max_rating != null && ratingValue > category.max_rating) {
+          throw createError({
+            statusCode: 400,
+            statusMessage: `Your rating is above this category's maximum (${category.max_rating}).`
+          })
+        }
+      }
+    }
+
     const registration = await service.register(
       profile.id,
       tournamentId,
-      body?.partner_player_id ?? null
+      body?.partner_player_id ?? null,
+      categoryId
     )
     return registration
   } catch (err) {

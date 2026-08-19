@@ -34,8 +34,11 @@ export default defineEventHandler(async (event) => {
   const eventRepo = createEventRepository(serviceClient)
   const service = createBracketService(bracketRepo, tournamentRepo, registrationRepo, eventRepo)
 
+  const body = await readBody<{ category_id?: string }>(event).catch(() => undefined)
+  const categoryId = body?.category_id
+
   try {
-    const bracket = await service.generateBracket(profile.id, tournamentId)
+    const bracket = await service.generateBracket(profile.id, tournamentId, categoryId)
     return bracket
   } catch (err) {
     if (err instanceof BracketServiceError) {

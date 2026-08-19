@@ -1,37 +1,73 @@
 <script setup lang="ts">
 const supabase = useSupabaseClient()
+const { public: publicConfig } = useRuntimeConfig()
 const email = ref('')
 const password = ref('')
+const turnstileToken = ref('')
+const turnstileWidget = ref<{ reset: () => void } | null>(null)
 const errorMessage = ref('')
+const errorCode = ref('')
 const loading = ref(false)
 const googleLoading = ref(false)
 
+// Codes that are expected/informational outcomes rather than real errors
+// (see server/domains/identity/services/auth-error-mapper.ts) get a softer
+// amber "warning" toast; everything else (e.g. wrong password) stays red.
+const errorVariant = computed(() => {
+  return errorCode.value === 'RATE_LIMITED' || errorCode.value === 'EMAIL_NOT_CONFIRMED' ? 'warning' : 'error'
+})
+
 async function handleLogin() {
   errorMessage.value = ''
+  errorCode.value = ''
+  if (publicConfig.turnstileSiteKey && !turnstileToken.value) {
+    errorMessage.value = 'Please complete the verification challenge.'
+    errorCode.value = 'TURNSTILE_REQUIRED'
+    return
+  }
   loading.value = true
   try {
-    const { error } = await supabase.auth.signInWithPassword({
-      email: email.value,
-      password: password.value
+    const loginResponse = await $fetch<{
+      session: { access_token: string; refresh_token: string } | null
+    }>('/api/v1/auth/login', {
+      method: 'POST',
+      body: {
+        email: email.value,
+        password: password.value,
+        turnstile_token: turnstileToken.value
+      }
     })
-    if (error) {
-      errorMessage.value = error.message
-      return
+    // setSession() (not getSession()) is what actually fires
+    // @nuxtjs/supabase's onAuthStateChange listener and updates the reactive
+    // session state its route guard reads — cookies alone don't.
+    if (loginResponse.session) {
+      await supabase.auth.setSession({
+        access_token: loginResponse.session.access_token,
+        refresh_token: loginResponse.session.refresh_token
+      })
     }
     await $fetch('/api/v1/auth/session', { method: 'POST' })
-    const profileResponse = await $fetch('/api/v1/players/me', { ignoreResponseError: true })
-    if (!profileResponse || (profileResponse as any).statusCode === 404) {
-      await navigateTo('/onboarding')
-    } else {
-      await navigateTo('/dashboard')
-    }
+    // /onboarding itself now decides where to land: no profile yet -> account
+    // type chooser, profile but no saved rating (e.g. a prior submission that
+    // never actually persisted) -> straight to the questionnaire, otherwise ->
+    // dashboard. Routing everyone through it avoids duplicating that logic here.
+    await navigateTo('/onboarding')
+  } catch (err) {
+    // fetchError.data is h3's whole error envelope; the app-level code we
+    // pass to apiError() ends up at statusMessage (see server/utils/api-error.ts).
+    const fetchError = err as { data?: { message?: string; statusMessage?: string } }
+    errorMessage.value = fetchError.data?.message ?? 'Could not sign you in.'
+    errorCode.value = fetchError.data?.statusMessage ?? ''
   } finally {
+    turnstileToken.value = ''
+    turnstileWidget.value?.reset()
     loading.value = false
   }
 }
 
 async function handleGoogleLogin() {
   errorMessage.value = ''
+  errorCode.value = ''
   googleLoading.value = true
   try {
     const { error } = await supabase.auth.signInWithOAuth({
@@ -51,6 +87,7 @@ async function handleGoogleLogin() {
 
 <template>
   <div class="flex min-h-screen items-center justify-center bg-[#0B0D09] px-4 py-12">
+    <UiToast :message="errorMessage" :variant="errorVariant" @close="errorMessage = ''" />
     <div class="w-full max-w-md">
       <!-- Logo -->
       <div class="mb-8 text-center">
@@ -116,13 +153,18 @@ async function handleGoogleLogin() {
             />
           </div>
 
-          <div v-if="errorMessage" class="rounded-lg bg-red-500/10 px-4 py-3 text-sm text-red-400">
-            {{ errorMessage }}
-          </div>
+          <TurnstileWidget
+            v-if="publicConfig.turnstileSiteKey"
+            ref="turnstileWidget"
+            :site-key="publicConfig.turnstileSiteKey"
+            @verified="turnstileToken = $event"
+            @expired="turnstileToken = ''"
+            @error="turnstileToken = ''"
+          />
 
           <button
             type="submit"
-            :disabled="loading"
+            :disabled="loading || (!!publicConfig.turnstileSiteKey && !turnstileToken)"
             class="w-full rounded-lg bg-[#4DB175] py-3 font-semibold text-white transition-colors hover:bg-[#5FC287] disabled:opacity-50"
           >
             {{ loading ? 'Signing in…' : 'Sign in' }}

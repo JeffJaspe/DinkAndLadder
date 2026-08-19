@@ -12,7 +12,7 @@ const TOURNAMENT_COLUMNS =
   'id, event_id, name, format, match_type, min_rating, max_rating, max_participants, status, created_at, updated_at'
 
 const REGISTRATION_COLUMNS =
-  'id, tournament_id, player_id, partner_player_id, status, registered_at, confirmed_at, created_at'
+  'id, tournament_id, player_id, partner_player_id, status, registered_at, confirmed_at, created_at, category_id'
 
 export interface TournamentRepository {
   findById(tournamentId: string): Promise<TournamentRecord | null>
@@ -32,7 +32,8 @@ export interface TournamentRegistrationRepository {
   create(
     tournamentId: string,
     playerId: string,
-    partnerPlayerId: string | null
+    partnerPlayerId: string | null,
+    categoryId?: string | null
   ): Promise<TournamentRegistrationRecord>
   updateStatus(
     registrationId: string,
@@ -151,13 +152,14 @@ export function createTournamentRegistrationRepository(
       return (data ?? []) as unknown as TournamentRegistrationRecord[]
     },
 
-    async create(tournamentId, playerId, partnerPlayerId) {
+    async create(tournamentId, playerId, partnerPlayerId, categoryId) {
       const { data, error } = await client
         .from('tournament_registrations')
         .insert({
           tournament_id: tournamentId,
           player_id: playerId,
           partner_player_id: partnerPlayerId,
+          category_id: categoryId ?? null,
           status: 'pending'
         })
         .select(REGISTRATION_COLUMNS)

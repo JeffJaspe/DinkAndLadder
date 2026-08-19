@@ -20,6 +20,11 @@ jobs:
       NUXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
       NUXT_PUBLIC_SUPABASE_KEY: placeholder-anon-key
       NUXT_SUPABASE_SECRET_KEY: placeholder-service-key
+      # Cloudflare's officially documented dummy Turnstile test keypair
+      # (always passes) — not a secret, safe to commit. See
+      # https://developers.cloudflare.com/turnstile/troubleshooting/testing/
+      TURNSTILE_SITE_KEY: 1x00000000000000000000AA
+      TURNSTILE_SECRET_KEY: 1x0000000000000000000000000000000AA
     steps:
       - uses: actions/checkout@v4
 

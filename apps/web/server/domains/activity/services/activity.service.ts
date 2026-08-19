@@ -1,6 +1,7 @@
 import type { ActivityRepository } from '../repositories/activity.repository'
 import type { RelationshipRepository } from '../../social/repositories/relationship.repository'
-import type { ActivityDto, ActivityType, CreateActivityInput, FeedQuery } from '../dto/activity.dto'
+import type { ClubRepository } from '../../club/repositories/club.repository'
+import type { ActivityDto, ActivityRecord, ActivityType, CreateActivityInput, FeedQuery } from '../dto/activity.dto'
 import { toActivityDto } from '../dto/activity.dto'
 
 export class ActivityServiceError extends Error {
@@ -22,8 +23,50 @@ export interface ActivityService {
 
 export function createActivityService(
   activities: ActivityRepository,
-  relationships: RelationshipRepository
+  relationships: RelationshipRepository,
+  clubs?: ClubRepository
 ): ActivityService {
+  /**
+   * Feed prioritization (plan: "verified clubs first, then the player's own verified
+   * memberships, then everything else") re-sorts the already-fetched page rather than
+   * reordering before pagination — PostgREST can't cleanly order by a joined table's
+   * column, and re-fetching every matching row just to sort would change pagination
+   * semantics considerably for a first pass. Known simplification: prioritization only
+   * takes effect within a page, not across the full result set.
+   */
+  async function reprioritize(
+    records: ActivityRecord[],
+    memberClubIds: string[]
+  ): Promise<ActivityRecord[]> {
+    if (!clubs) return records
+    const clubIds = [...new Set(records.map((r) => r.actor_club_id).filter((id): id is string => !!id))]
+    if (clubIds.length === 0) return records
+
+    const memberSet = new Set(memberClubIds)
+    const verifiedSet = new Set<string>()
+    await Promise.all(
+      clubIds.map(async (id) => {
+        const club = await clubs.findById(id)
+        if (club?.verification_status === 'verified') verifiedSet.add(id)
+      })
+    )
+
+    function priority(record: ActivityRecord): number {
+      if (!record.actor_club_id) return 0
+      const verified = verifiedSet.has(record.actor_club_id)
+      const own = memberSet.has(record.actor_club_id)
+      if (verified && own) return 2
+      if (verified) return 1
+      return 0
+    }
+
+    return [...records].sort((a, b) => {
+      const diff = priority(b) - priority(a)
+      if (diff !== 0) return diff
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    })
+  }
+
   return {
     async createActivity(input) {
       const record = await activities.create(input)
@@ -42,7 +85,8 @@ export function createActivityService(
         query.types,
         query.since
       )
-      return records.map(toActivityDto)
+      const prioritized = await reprioritize(records, [])
+      return prioritized.map(toActivityDto)
     },
 
     async getPersonalizedFeed(playerId, clubIds, query) {
@@ -59,7 +103,8 @@ export function createActivityService(
         query.types,
         query.since
       )
-      return records.map(toActivityDto)
+      const prioritized = await reprioritize(records, clubIds)
+      return prioritized.map(toActivityDto)
     }
   }
 }

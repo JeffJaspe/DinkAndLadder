@@ -18,6 +18,19 @@ interface RatingResult {
 }
 
 const user = useSupabaseUser()
+const route = useRoute()
+const { switchToPlayer } = useAccountMode()
+
+// Entry point for "switch to Player mode for the first time" (see AccountSwitcher.vue):
+// a club-only account has a player_profiles row (created regardless of onboarding
+// choice) but no rating yet. This flag skips straight to the questionnaire instead of
+// the account-type prompt, and redirects back to wherever the switch was heading
+// instead of into club creation.
+const isRateOnlyFlow = computed(() => route.query.flow === 'rate-only')
+const redirectAfter = computed(() =>
+  typeof route.query.redirect === 'string' ? route.query.redirect : '/dashboard'
+)
+
 const step = ref<'type' | 'questionnaire' | 'result' | 'club'>('type')
 const accountType = ref<'player' | 'club' | null>(null)
 const loading = ref(false)
@@ -37,12 +50,31 @@ onMounted(async () => {
     await navigateTo('/login')
     return
   }
+  if (isRateOnlyFlow.value) {
+    accountType.value = 'player'
+    await loadQuestions()
+    return
+  }
   try {
     const profile = await $fetch<PlayerProfileDto>('/api/v1/players/me')
     if (profile?.id) {
-      await navigateTo('/dashboard')
+      // A profile with no rating means a previous assessment attempt never
+      // actually persisted (e.g. the RLS bug where player_ratings writes were
+      // silently rejected) or this is a club-only account rating for the
+      // first time — either way, send them straight to the questionnaire
+      // instead of the dashboard so they can (re)take it.
+      const ratings = await $fetch<{ singles: unknown }>('/api/v1/players/me/ratings', {
+        ignoreResponseError: true
+      })
+      if (ratings && !(ratings as { statusCode?: number }).statusCode && ratings.singles) {
+        await navigateTo('/dashboard')
+      } else {
+        accountType.value = 'player'
+        await loadQuestions()
+      }
     }
   } catch {
+    // No profile yet — fall through to the account-type chooser below.
   }
 })
 
@@ -79,9 +111,11 @@ function selectAnswer(choiceIndex: number) {
   }
 }
 
-function goBack() {
+async function goBack() {
   if (currentQuestionIndex.value > 0) {
     currentQuestionIndex.value--
+  } else if (isRateOnlyFlow.value) {
+    await navigateTo(redirectAfter.value)
   } else {
     step.value = 'type'
   }
@@ -126,7 +160,10 @@ async function continueToClubCreation() {
 }
 
 async function goToDashboard() {
-  await navigateTo('/dashboard')
+  if (isRateOnlyFlow.value) {
+    switchToPlayer()
+  }
+  await navigateTo(redirectAfter.value)
 }
 
 const tierEmoji = computed(() => {

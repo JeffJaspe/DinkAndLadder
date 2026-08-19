@@ -47,6 +47,18 @@ const adminClubs = computed(() => {
   )
 })
 
+// Auto-select when there's only one club to choose from — no reason to make someone
+// pick from a dropdown with a single option (plan: Phase 4.3).
+watch(
+  adminClubs,
+  (clubs) => {
+    if (clubs.length === 1 && !form.club_id) {
+      form.club_id = clubs[0].club.id
+    }
+  },
+  { immediate: true }
+)
+
 const selectedEventType = computed(() => eventTypes.find(t => t.value === form.event_type))
 
 const provinces = [
@@ -161,7 +173,14 @@ async function submit() {
           <div class="space-y-4">
             <div>
               <label class="mb-1.5 block text-sm text-[#A6ABA7]">Hosting Club</label>
+              <div
+                v-if="adminClubs.length === 1"
+                class="w-full rounded-lg border border-[#3A5750] bg-[#0B0D09]/50 px-4 py-2.5 text-white"
+              >
+                {{ adminClubs[0].club.name }}
+              </div>
               <select
+                v-else
                 v-model="form.club_id"
                 required
                 class="w-full rounded-lg border border-[#3A5750] bg-[#0B0D09] px-4 py-2.5 text-white focus:border-[#4DB175] focus:outline-none"

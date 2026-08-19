@@ -58,3 +58,34 @@ Future production hardening should include:
 - anti-spam controls,
 - match fraud/dispute handling,
 - suspicious activity monitoring.
+
+### Bot protection (Cloudflare Turnstile) — IMPLEMENTED
+
+Registration (`POST /api/v1/auth/register`) and login (`POST /api/v1/auth/login`)
+are enforced server-side, not client-side: the browser no longer calls
+Supabase's `signUp`/`signInWithPassword` directly — it calls these two app
+endpoints, which verify a Cloudflare Turnstile token via Cloudflare's
+`siteverify` API before delegating to Supabase. This closes the gap where a
+bot could otherwise drive the register/login forms directly.
+
+- **Fails closed, not open**: if Turnstile's verification service is
+  unreachable, the request is rejected, not silently allowed through.
+- **Config point, not a hard requirement**: enforcement only activates once
+  `TURNSTILE_SECRET_KEY` is set (see `apps/web/server/utils/turnstile.ts`).
+  Unconfigured environments (local dev, CI without a Cloudflare account)
+  bypass the check rather than being unable to register/log in at all.
+- **Known limitation**: Supabase's Auth API (anon key) is directly reachable
+  over the network regardless of this app's own UI. Turnstile raises the bar
+  for bots driving *this app's* register/login forms; it is not a guarantee
+  against a determined attacker calling Supabase directly. Supabase's own
+  provider-side abuse controls are the backstop for that case.
+- Setup steps (getting a Cloudflare account/site key): `docs/31-THIRD-PARTY-SETUP.md`.
+
+### Edge protection (Cloudflare DNS proxy + firewall rules) — NOT IMPLEMENTED IN CODE
+
+Putting the deployed domain behind Cloudflare's DNS proxy (basic DDoS
+mitigation, SSL, a small number of free custom firewall rules) is a
+dashboard/DNS configuration action against the user's own domain and
+Cloudflare account — not something expressed in this codebase. Manual setup
+steps are documented in `docs/31-THIRD-PARTY-SETUP.md` for whoever manages
+the domain/DNS to perform.

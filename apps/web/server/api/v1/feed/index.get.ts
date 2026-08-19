@@ -4,6 +4,7 @@ import { createRelationshipRepository } from '~/server/domains/social/repositori
 import { createActivityService } from '~/server/domains/activity/services/activity.service'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
 import { createClubMembershipRepository } from '~/server/domains/club/repositories/club-membership.repository'
+import { createClubRepository } from '~/server/domains/club/repositories/club.repository'
 import type { ActivityType, FeedQuery } from '~/server/domains/activity/dto/activity.dto'
 
 export default defineEventHandler(async (event) => {
@@ -20,7 +21,8 @@ export default defineEventHandler(async (event) => {
   const client = await serverSupabaseClient(event)
   const activityRepo = createActivityRepository(client)
   const relationshipRepo = createRelationshipRepository(client)
-  const service = createActivityService(activityRepo, relationshipRepo)
+  const clubRepo = createClubRepository(client)
+  const service = createActivityService(activityRepo, relationshipRepo, clubRepo)
 
   if (!user) {
     const activities = await service.getPublicFeed(query)

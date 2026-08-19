@@ -3,14 +3,19 @@ import type { BracketMatchRecord, BracketMatchStatus, UpdateBracketMatchInput } 
 
 const BRACKET_MATCH_COLUMNS =
   'id, tournament_id, round, position, match_id, participant1_registration_id, ' +
-  'participant2_registration_id, winner_registration_id, status, scheduled_at, created_at'
+  'participant2_registration_id, winner_registration_id, status, scheduled_at, created_at, category_id'
 
 export interface BracketRepository {
   findById(bracketMatchId: string): Promise<BracketMatchRecord | null>
-  findByTournamentId(tournamentId: string): Promise<BracketMatchRecord[]>
+  /**
+   * categoryId omitted → all matches for the tournament, regardless of category (used
+   * when a tournament has no categories at all). categoryId === null → only matches with
+   * no category. categoryId === a string → only that category's matches.
+   */
+  findByTournamentId(tournamentId: string, categoryId?: string | null): Promise<BracketMatchRecord[]>
   createMany(matches: Omit<BracketMatchRecord, 'id' | 'created_at'>[]): Promise<BracketMatchRecord[]>
   update(bracketMatchId: string, input: UpdateBracketMatchInput): Promise<BracketMatchRecord>
-  deleteByTournamentId(tournamentId: string): Promise<void>
+  deleteByTournamentId(tournamentId: string, categoryId?: string | null): Promise<void>
 }
 
 export function createBracketRepository(client: SupabaseClient): BracketRepository {
@@ -26,11 +31,15 @@ export function createBracketRepository(client: SupabaseClient): BracketReposito
       return data as unknown as BracketMatchRecord | null
     },
 
-    async findByTournamentId(tournamentId) {
-      const { data, error } = await client
+    async findByTournamentId(tournamentId, categoryId) {
+      let builder = client
         .from('bracket_matches')
         .select(BRACKET_MATCH_COLUMNS)
         .eq('tournament_id', tournamentId)
+      if (categoryId !== undefined) {
+        builder = categoryId === null ? builder.is('category_id', null) : builder.eq('category_id', categoryId)
+      }
+      const { data, error } = await builder
         .order('round', { ascending: true })
         .order('position', { ascending: true })
 
@@ -67,11 +76,12 @@ export function createBracketRepository(client: SupabaseClient): BracketReposito
       return data as unknown as BracketMatchRecord
     },
 
-    async deleteByTournamentId(tournamentId) {
-      const { error } = await client
-        .from('bracket_matches')
-        .delete()
-        .eq('tournament_id', tournamentId)
+    async deleteByTournamentId(tournamentId, categoryId) {
+      let builder = client.from('bracket_matches').delete().eq('tournament_id', tournamentId)
+      if (categoryId !== undefined) {
+        builder = categoryId === null ? builder.is('category_id', null) : builder.eq('category_id', categoryId)
+      }
+      const { error } = await builder
 
       if (error) throw error
     }

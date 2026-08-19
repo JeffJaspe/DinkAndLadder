@@ -48,7 +48,8 @@ export interface EventService {
   register(
     playerId: string,
     tournamentId: string,
-    partnerPlayerId: string | null
+    partnerPlayerId: string | null,
+    categoryId?: string | null
   ): Promise<TournamentRegistrationDto>
   getRegistrations(tournamentId: string): Promise<TournamentRegistrationDto[]>
   withdrawRegistration(playerId: string, registrationId: string): Promise<TournamentRegistrationDto>
@@ -160,7 +161,7 @@ export function createEventService(
       return toTournamentDto(updated)
     },
 
-    async register(playerId, tournamentId, partnerPlayerId) {
+    async register(playerId, tournamentId, partnerPlayerId, categoryId) {
       const tournament = await tournaments.findById(tournamentId)
       if (!tournament) {
         throw new EventServiceError(404, 'NOT_FOUND', 'Tournament not found.')
@@ -198,7 +199,12 @@ export function createEventService(
         }
       }
 
-      const registration = await registrations.create(tournamentId, playerId, partnerPlayerId)
+      const registration = await registrations.create(
+        tournamentId,
+        playerId,
+        partnerPlayerId,
+        categoryId ?? null
+      )
       return toTournamentRegistrationDto(registration)
     },
 

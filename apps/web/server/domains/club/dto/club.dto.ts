@@ -1,5 +1,6 @@
 export type ClubVisibility = 'public' | 'private'
 export type ClubStatus = 'active' | 'archived'
+export type ClubVerificationStatus = 'unverified' | 'pending' | 'verified' | 'suspended' | 'revoked'
 
 export interface ClubRecord {
   id: string
@@ -12,6 +13,10 @@ export interface ClubRecord {
   status: ClubStatus
   created_by_user_id: string
   created_at: string
+  verification_status: ClubVerificationStatus
+  verification_requested_at: string | null
+  verified_at: string | null
+  verified_by_user_id: string | null
 }
 
 export interface ClubDto {
@@ -24,6 +29,9 @@ export interface ClubDto {
   visibility: ClubVisibility
   status: ClubStatus
   created_at: string
+  verification_status: ClubVerificationStatus
+  verification_requested_at: string | null
+  verified_at: string | null
 }
 
 export interface CreateClubInput {
@@ -45,7 +53,10 @@ export function toClubDto(club: ClubRecord): ClubDto {
     city: club.city,
     visibility: club.visibility,
     status: club.status,
-    created_at: club.created_at
+    created_at: club.created_at,
+    verification_status: club.verification_status,
+    verification_requested_at: club.verification_requested_at,
+    verified_at: club.verified_at
   }
 }
 
@@ -64,6 +75,7 @@ export interface ClubSearchResultDto {
   description: string | null
   province: string | null
   city: string | null
+  verification_status: ClubVerificationStatus
   member_count?: number
 }
 
@@ -78,6 +90,7 @@ export function toClubSearchResultDto(
     description: club.description,
     province: club.province,
     city: club.city,
+    verification_status: club.verification_status,
     member_count: memberCount
   }
 }

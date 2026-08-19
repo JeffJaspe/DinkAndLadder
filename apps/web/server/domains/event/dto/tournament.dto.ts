@@ -79,6 +79,7 @@ export interface TournamentRegistrationRecord {
   registered_at: string
   confirmed_at: string | null
   created_at: string
+  category_id: string | null
 }
 
 export interface TournamentRegistrationDto {
@@ -89,6 +90,7 @@ export interface TournamentRegistrationDto {
   status: RegistrationStatus
   registered_at: string
   confirmed_at: string | null
+  category_id: string | null
 }
 
 export function toTournamentRegistrationDto(
@@ -101,10 +103,12 @@ export function toTournamentRegistrationDto(
     partner_player_id: record.partner_player_id,
     status: record.status,
     registered_at: record.registered_at,
-    confirmed_at: record.confirmed_at
+    confirmed_at: record.confirmed_at,
+    category_id: record.category_id
   }
 }
 
 export interface RegisterForTournamentInput {
   partner_player_id?: string | null
+  category_id?: string | null
 }

@@ -1,33 +1,60 @@
 <script setup lang="ts">
 const supabase = useSupabaseClient()
+const { public: publicConfig } = useRuntimeConfig()
 const email = ref('')
 const password = ref('')
+const turnstileToken = ref('')
+const turnstileWidget = ref<{ reset: () => void } | null>(null)
 const errorMessage = ref('')
-const infoMessage = ref('')
+const errorCode = ref('')
 const loading = ref(false)
 const googleLoading = ref(false)
 
+// Codes that are expected/informational outcomes rather than real errors
+// (see server/domains/identity/services/auth-error-mapper.ts) get a softer
+// amber "warning" toast; everything else stays red.
+const errorVariant = computed(() => {
+  return errorCode.value === 'EMAIL_ALREADY_REGISTERED' || errorCode.value === 'RATE_LIMITED'
+    ? 'warning'
+    : 'error'
+})
+
 async function handleRegister() {
   errorMessage.value = ''
-  infoMessage.value = ''
+  errorCode.value = ''
+  if (publicConfig.turnstileSiteKey && !turnstileToken.value) {
+    errorMessage.value = 'Please complete the verification challenge.'
+    errorCode.value = 'TURNSTILE_REQUIRED'
+    return
+  }
   loading.value = true
   try {
-    const { error } = await supabase.auth.signUp({
-      email: email.value,
-      password: password.value
+    await $fetch('/api/v1/auth/register', {
+      method: 'POST',
+      body: {
+        email: email.value,
+        password: password.value,
+        turnstile_token: turnstileToken.value
+      }
     })
-    if (error) {
-      errorMessage.value = error.message
-      return
-    }
-    infoMessage.value = 'Check your email to confirm your account.'
+    await navigateTo({ path: '/check-email', query: { email: email.value } })
+    return
+  } catch (err) {
+    // fetchError.data is h3's whole error envelope; the app-level code we
+    // pass to apiError() ends up at statusMessage (see server/utils/api-error.ts).
+    const fetchError = err as { data?: { message?: string; statusMessage?: string } }
+    errorMessage.value = fetchError.data?.message ?? 'Could not create your account.'
+    errorCode.value = fetchError.data?.statusMessage ?? ''
   } finally {
+    turnstileToken.value = ''
+    turnstileWidget.value?.reset()
     loading.value = false
   }
 }
 
 async function handleGoogleSignUp() {
   errorMessage.value = ''
+  errorCode.value = ''
   googleLoading.value = true
   try {
     const { error } = await supabase.auth.signInWithOAuth({
@@ -47,6 +74,7 @@ async function handleGoogleSignUp() {
 
 <template>
   <div class="flex min-h-screen items-center justify-center bg-[#0B0D09] px-4 py-12">
+    <UiToast :message="errorMessage" :variant="errorVariant" @close="errorMessage = ''" />
     <div class="w-full max-w-md">
       <!-- Logo -->
       <div class="mb-8 text-center">
@@ -84,11 +112,6 @@ async function handleGoogleSignUp() {
           <hr class="flex-1 border-[#3A5750]" />
         </div>
 
-        <!-- Success Message -->
-        <div v-if="infoMessage" class="mb-4 rounded-lg bg-[#4DB175]/10 px-4 py-3 text-sm text-[#4DB175]">
-          {{ infoMessage }}
-        </div>
-
         <!-- Form -->
         <form class="space-y-4" @submit.prevent="handleRegister">
           <div>
@@ -119,13 +142,18 @@ async function handleGoogleSignUp() {
             <p class="mt-1.5 text-xs text-[#6B7B75]">Minimum 8 characters</p>
           </div>
 
-          <div v-if="errorMessage" class="rounded-lg bg-red-500/10 px-4 py-3 text-sm text-red-400">
-            {{ errorMessage }}
-          </div>
+          <TurnstileWidget
+            v-if="publicConfig.turnstileSiteKey"
+            ref="turnstileWidget"
+            :site-key="publicConfig.turnstileSiteKey"
+            @verified="turnstileToken = $event"
+            @expired="turnstileToken = ''"
+            @error="turnstileToken = ''"
+          />
 
           <button
             type="submit"
-            :disabled="loading"
+            :disabled="loading || (!!publicConfig.turnstileSiteKey && !turnstileToken)"
             class="w-full rounded-lg bg-[#4DB175] py-3 font-semibold text-white transition-colors hover:bg-[#5FC287] disabled:opacity-50"
           >
             {{ loading ? 'Creating account…' : 'Register' }}

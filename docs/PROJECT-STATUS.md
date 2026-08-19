@@ -652,3 +652,528 @@ rating/smoke) passed against a fresh build.
 ### Remaining Work
 - [ ] Dummy data seeding (players, clubs, events, matches, ratings) — on hold per user
 - [ ] Production cleanup / data wipe (after go-live dry run)
+
+---
+
+## Security Hardening: Cloudflare Turnstile (2026-08-19)
+
+Per `/docs/07-SECURITY-ARCHITECTURE.md`'s "Abuse Controls" section (anti-spam
+controls were listed as future hardening, not yet built) and the user's
+request to integrate Cloudflare on the free tier for bot protection.
+
+- **Architecture change, not a bolt-on**: registration and login previously
+  called Supabase's `signUp`/`signInWithPassword` directly from the browser
+  (`pages/register.vue`/`login.vue`). To actually enforce Turnstile (not just
+  cosmetically gate a button), both moved server-side: new
+  `POST /api/v1/auth/register` and `POST /api/v1/auth/login` endpoints verify
+  the Turnstile token via Cloudflare's `siteverify` API
+  (`server/utils/turnstile.ts`, fails closed on a missing token or an
+  unreachable verification service) before delegating to Supabase
+  (`registerWithPassword`/`loginWithPassword` in `auth.service.ts`, a thin
+  passthrough kept separate from `AuthService`'s `users`-row provisioning
+  since it has no repository/persistence concern of its own).
+- **Login session handling**: `serverSupabaseClient(event)` is backed by
+  `@supabase/ssr`'s cookie adapter, so calling `signInWithPassword` through it
+  server-side sets the session cookies directly on the response — confirmed
+  by reading `@nuxtjs/supabase`'s own `serverSupabaseClient.js`. The browser
+  only needs to resync its in-memory state afterward (`supabase.auth.getSession()`
+  in `login.vue`), not call `setSession()` with tokens.
+  Registration needed no such handling — `signUp` before email confirmation
+  never returns an active session either way.
+- **Config point, not a hard requirement**: enforcement only activates once
+  `TURNSTILE_SECRET_KEY` is set. Unconfigured (local dev, CI without a
+  Cloudflare account) bypasses the check entirely rather than breaking
+  register/login — this repo's own CI now sets Cloudflare's officially
+  documented dummy "always passes" test keypair (not a secret) so the real
+  widget and `siteverify` call are genuinely exercised in CI, not skipped.
+- **Client widget**: `components/TurnstileWidget.vue` — loads Cloudflare's
+  script, renders/resets the widget, emits the token. Submit buttons on
+  `/register` and `/login` stay disabled until a token is present, but only
+  when `turnstileSiteKey` is actually configured (same config-point pattern).
+- **Known limitation, documented rather than glossed over**: Supabase's Auth
+  API is directly reachable with the public anon key regardless of this
+  app's UI. Turnstile protects *this app's* register/login forms from bots;
+  it cannot force a determined attacker calling Supabase directly through
+  this same check. See the "Known limitation" note in
+  `docs/07-SECURITY-ARCHITECTURE.md`.
+- **DNS proxy + firewall rules — explicitly NOT code**: putting the domain
+  behind Cloudflare's proxy and free-tier firewall rules is a DNS/dashboard
+  action against the live domain and Cloudflare account, which this session
+  has neither the credentials nor the authority to perform. Documented as
+  manual setup steps in `docs/31-THIRD-PARTY-SETUP.md` section 5b instead of
+  attempted in code.
+- **Tests**: `tests/unit/turnstile.spec.ts` (4 tests: missing-token fails
+  closed without calling the network, success/failure pass-through, fails
+  closed on a network error) and 4 new tests in `tests/unit/auth.service.spec.ts`
+  for `registerWithPassword`/`loginWithPassword`. `tests/e2e/auth.spec.ts`
+  gained 2 validation-guard tests for the new endpoints. Total: 248 unit
+  tests, 21 e2e tests.
+- **Validated**: `typecheck`, `lint` (no new violations — the one
+  pre-existing `no-explicit-any` in `login.vue` is unrelated code that
+  shifted line numbers, not introduced here), `test:unit` (248/248), `build`,
+  `test:e2e` (21/21, with the dummy Turnstile keypair set) all pass.
+- **Verified live in a browser**: ran the dev server with Cloudflare's real
+  test keypair and drove `/register` and `/login` with Playwright — the
+  widget genuinely loads from `challenges.cloudflare.com`, shows "Success!",
+  and the submit button transitions from disabled to enabled only after it
+  resolves (confirmed via screenshot and a disabled-state check before vs.
+  after resolution). Full signup/login against Supabase was not exercised
+  (no real Supabase project configured in this environment — same
+  pre-existing limitation as the rest of local/CI testing).
+- **Not done in this pass**: no audit-log entry is written for a failed
+  Turnstile verification — the existing `audit_logs` domain covers
+  sensitive *authorized* actions (club admin, match verification decisions),
+  and a bot-blocked attempt isn't one of those; revisit if abuse monitoring
+  becomes a real requirement.
+
+### Follow-up (2026-08-19): real credentials wired in, three real bugs found and fixed
+
+Real Supabase keys and a real Cloudflare Turnstile keypair were provided and wired into
+`apps/web/.env` (gitignored). Live-testing the Turnstile-gated register/login flow against
+the real backend (see docs/PROJECT-STATUS.md's established pattern of throwaway test
+accounts via the Admin API) surfaced three real, now-fixed bugs — none were visible against
+placeholder credentials:
+
+1. **Login never actually stayed signed in.** `serverSupabaseClient(event)`'s cookie
+   adapter does set the session cookie on the login response, but `@nuxtjs/supabase`'s
+   route guard reads a separate reactive `useSupabaseSession()` state that only updates via
+   `client.auth.onAuthStateChange` — which only fires from state-changing client calls like
+   `setSession()`, not from cookies existing or from `getSession()` re-reading them. Confirmed
+   by reading `@nuxtjs/supabase`'s own plugin source. **Fix**: `loginWithPassword` now
+   returns the real session tokens in the login response; `login.vue` calls
+   `supabase.auth.setSession(...)` with them before navigating. Verified live: login against
+   the real project now returns `200 Signed in`, `/api/v1/auth/session` succeeds off the
+   resulting cookie, and the reactive state updates so the post-login redirect no longer
+   bounces back to `/login`.
+
+2. **Every `apiError()`-based error across the whole app was showing the error *code*
+   instead of the friendly message.** `apiError()` never passed `message` to h3's
+   `createError()`, only `data.message` — so h3's `H3Error.message` defaulted to
+   `statusMessage` (our `code`). ofetch's client-side `FetchError.data` is the *whole*
+   parsed JSON error body, and the app-wide convention (`fetchError.data?.message`, used in
+   `create-club.vue`, `matches/submit.vue`, `profile/edit.vue`, and others) was reading that
+   top-level field — meaning every page using this established convention was silently
+   displaying strings like `"REGISTRATION_FAILED"` instead of the actual message, and had
+   been since the convention was introduced. **Fix**: `apiError()` now also passes `message`
+   to `createError()`. One-line, fully backward compatible (`data.code`/`data.message`
+   unchanged) — fixes the display for every existing page using the convention, not just
+   register/login. Confirmed via h3 and ofetch source (`h3`'s `createError`/`H3Error.toJSON`,
+   ofetch's `createFetchError`), not just guesswork.
+
+3. **The new "check your email" page never actually rendered.** It was placed at
+   `pages/register/check-email.vue`, sitting alongside `pages/register.vue` — Nuxt's
+   file-based router treats a page file and a same-named directory as parent+child nested
+   routes, requiring the parent to render a `<NuxtPage />` outlet for the child to show.
+   `register.vue` has no such outlet, so navigating there changed the URL correctly but kept
+   rendering `register.vue`'s own template underneath — exactly matching what live manual
+   testing showed ("stayed on registration" at the `/register/check-email?...` URL).
+   **Fix**: moved the page to `pages/check-email.vue` (a flat, non-nested route) and updated
+   `register.vue`'s redirect, `nuxt.config.ts`'s auth-guard exclude list, and the e2e test to
+   match. Verified live: the page now genuinely renders "Verification sent" and the given
+   email address at the URL.
+
+Also, per the user's request for clearer auth-error UX: added
+`server/domains/identity/services/auth-error-mapper.ts`, mapping Supabase Auth's stable
+`AuthError.code` (e.g. `user_already_exists`, `weak_password`, `email_address_invalid`,
+`over_email_send_rate_limit`, `invalid_credentials`, `email_not_confirmed`) to app-level
+codes and friendly copy — keyed on the stable code, not Supabase's message text, since the
+latter isn't a stable contract. Both `register.post.ts`/`login.post.ts` use it. Added
+`components/ui/Toast.vue` (fixed top-of-viewport banner, auto-dismiss, error/warning variant)
+replacing the inline red error box on `/register` and `/login`; "expected" outcomes
+(`EMAIL_ALREADY_REGISTERED`, `RATE_LIMITED`, `EMAIL_NOT_CONFIRMED`) render as an amber
+"warning" rather than a red "error".
+
+- **Tests**: `tests/unit/auth-error-mapper.spec.ts` (9 tests). `auth.service.spec.ts`'s
+  `registerWithPassword`/`loginWithPassword` tests updated for the added `code` field.
+  `tests/e2e/auth.spec.ts`'s check-email test updated for the new route and scoped its
+  "Log in" link check to `main` (the page and the site header both have one). Total: 257
+  unit tests, 22 e2e tests.
+- **Validated**: `typecheck`, `lint` (no new violations), `test:unit` (257/257), `build`,
+  `test:e2e` (22/22, reusing the user's own running dev server on port 3000 rather than
+  starting a conflicting one).
+- **A pre-existing, unrelated flaky test was observed and left alone**:
+  `rating.service.spec.ts`'s singles-match test asserts floating-point equality to 10
+  decimal places (`toBeCloseTo(x, 10)`) — too tight a tolerance for chained floating-point
+  arithmetic. Failed once, passed immediately after on identical code. Not touched — out of
+  scope for this pass; flagged here for whoever next touches the rating engine.
+- **Not fixed application-wide**: the `apiError()` fix (bug #2 above) corrects the
+  *mechanism*, but only `register.post.ts`/`login.post.ts` were audited for message
+  quality/UX in this pass. Other routes' `apiError()` calls will now correctly show their
+  existing message text (previously hidden), but nobody has reviewed whether that existing
+  text is itself good user-facing copy — worth a pass later.
+
+---
+
+## Platform Enhancement Plan (2026-08-19)
+
+Full plan: account switching (Player/Club mode), verified clubs (SuperAdmin-managed),
+tournament categories (predefined + custom), feed prioritization. See the saved plan
+(`platform-enhancements-plan` memory) for the original scope. Implemented in the plan's
+own stated order — database → backend → account switching/nav → UI pages → tournament
+categories — plus the user's specific added requirement: **switching into Player mode for
+the first time (a club-only account that never took the rating questionnaire) triggers the
+questionnaire before completing the switch.**
+
+### Key finding before writing any code
+`account_type` (player vs club, chosen during onboarding) is **not persisted anywhere** —
+`POST /api/v1/players/me/onboarding` validates it but never stores it, and both onboarding
+paths create the same `player_profiles` row regardless of which button was clicked. This
+meant account-mode switching needed no schema change — it's purely a client-side navigation
+concept (`composables/useAccountMode.ts`, cookie-backed via `useCookie` rather than the
+plan's plain `useState`, so the mode survives a full page reload). It also meant detecting
+"has this player taken the rating questionnaire yet" has to check `player_ratings`
+existence, not some account-type flag — which is exactly the mechanism the requested
+feature needed anyway.
+
+### Database (`018-platform-enhancements`, registered in the master changelog)
+- `clubs` gains `verification_status` (`unverified`/`pending`/`verified`/`suspended`/`revoked`),
+  `verification_requested_at`, `verified_at`, `verified_by_user_id`.
+- New minimal `platform_config` table (single row, `super_admin_id` nullable FK to `users`) —
+  deliberately just enough to gate SuperAdmin-only actions. `docs/30-SUPER-ADMIN-SPECIFICATION.md`'s
+  full branding/theming/feature-flag system built on the same table name is a separate,
+  much larger, later backlog item — not built here. **`super_admin_id` seeds as `NULL` — no
+  one can approve/reject club verification until an operator sets it via direct SQL once
+  they know the real admin's `users.id`.**
+- New `tournament_category_templates` (seeded: Novice/Beginner/Intermediate/Advanced/Expert/Pro/Open)
+  and `tournament_categories` tables; `category_id` added to `tournament_registrations` and
+  `bracket_matches` (nullable — a tournament with zero categories still works as a flat bracket).
+- RLS follows the established conventions exactly: lives in this same file (not `008-security`,
+  which is included *before* this file in the master changelog — a table this file creates
+  wouldn't exist yet if referenced from there); `tournament_categories`' visibility policy
+  mirrors `tournaments_select_visible` verbatim, one join deeper; `platform_config` gets RLS
+  enabled with **zero policies** (service-role only — the SuperAdmin check always runs server-side).
+- **NOT YET APPLIED to the live database** — this session has the Supabase anon/service-role
+  API keys but not the raw Postgres password Liquibase's JDBC connection needs (they're
+  different credentials). Confirmed live via e2e: the real backend correctly errors with
+  `column clubs.verification_status does not exist` until this migration runs. Needs either
+  the DB password (session-mode pooler connection, same as every prior migration in this
+  project) or the user to run `liquibase update` themselves from `database/liquibase/`.
+
+### Backend
+- **Club verification** — split into its own `ClubVerificationService`
+  (`server/domains/club/services/club-verification.service.ts`) rather than bolted onto
+  `ClubService`, specifically because `ClubService`'s factory is already called from ~10
+  existing controllers that have no reason to depend on the new `PlatformAdminService`.
+  Owner requests verification (`POST /api/v1/clubs/{clubId}/request-verification`); SuperAdmin
+  lists/approves/rejects (`GET /api/v1/admin/clubs/pending-verification`,
+  `POST /api/v1/admin/clubs/{clubId}/{approve,reject}-verification`); public listing
+  (`GET /api/v1/verified-clubs`). New minimal `platform` domain
+  (`platform-config.repository.ts` + `platform-admin.service.ts`) provides `isSuperAdmin(userId)`.
+- **Tournament categories** — new `server/domains/event/{dto,repositories,services}/tournament-category.*`
+  following the existing domain-file convention exactly. Organizer-only creation (from a
+  template or fully custom), reusing an `assertTournamentOrganizer` check mirroring
+  `EventService`'s existing pattern. `EventService.register()` gained an optional trailing
+  `categoryId` param (backward compatible — no existing call site needed to change) so a
+  category actually gets stored on the registration; the rating-eligibility check itself
+  lives in the registration controller, not `EventService`, for the same "don't force a new
+  dependency onto every existing call site" reason as the club-verification split.
+- **Feed prioritization** — `ActivityService` takes an optional `ClubRepository` (backward
+  compatible: omitted entirely, prioritization is a no-op and existing ordering is
+  untouched). Re-sorts the already-fetched page by (the player's own verified club > any
+  other verified club > everything else, recency as tiebreaker) rather than reordering
+  before pagination — PostgREST can't cleanly order by a joined table's column, and
+  re-fetching every matching row just to sort would change pagination semantics considerably.
+  **Known simplification, stated plainly**: prioritization only takes effect within a
+  page, not across the full result set.
+- **Rating re-submission guard** (the mechanism the requested feature depends on):
+  `POST /api/v1/rating/submit-assessment` now checks for an existing `player_ratings` row
+  before writing — previously it would silently overwrite one, including a rating already
+  adjusted by real match results. Returns `409 ALREADY_RATED`.
+
+### Account switching + the requested feature
+- `composables/useAccountMode.ts` — `accountMode` ('player'/'club') + `activeClubId`, both
+  cookie-backed.
+- `components/AccountSwitcher.vue` — only renders at all if the caller owns/admins at least
+  one club (plan's stated visibility rule). Switching to Player mode checks
+  `GET /api/v1/players/{id}/ratings`; if unrated, routes to
+  `/onboarding?flow=rate-only&redirect=/dashboard` instead of switching immediately.
+- `pages/onboarding.vue` gained the `rate-only` flow: skips the Player/Club prompt, jumps
+  straight to the questionnaire, and redirects to the `redirect` query param on completion
+  (calling `switchToPlayer()` first) instead of always going to `/dashboard`.
+- `layouts/default.vue` nav now branches on `accountMode` (Player: Feed/Dashboard/Matches/
+  Events/Community/Verified Clubs/Players/Achievements; Club: Dashboard/Feed/Ranking/
+  Matches/Events/Community/Players/Club Settings — "Community" reuses the existing
+  `/following` page, "Club Settings" reuses the existing club detail page's admin actions,
+  neither is a new page). `AccountSwitcher` sits above the bottom nav, matching the plan's
+  placement.
+
+### UI
+- `pages/verified-clubs.vue` + `components/VerifiedBadge.vue` (also shown on the club detail
+  page header and the club dashboard).
+- `pages/club/[clubId]/dashboard.vue` — new club-mode dashboard, built entirely from
+  already-existing endpoints (`GET clubs/{id}`, `.../members`, `.../matches`, `.../rankings`)
+  rather than new backend.
+- `pages/clubs/[clubId].vue` — owner-only "Request Verification" button/pending-state,
+  `VerifiedBadge` in the header.
+- `pages/admin/clubs/verification.vue` — minimal SuperAdmin review list (approve/reject).
+  Not linked from any nav (there's no SuperAdmin nav section — out of scope per the doc-30
+  note above); reachable only by URL, which is fine until `super_admin_id` is actually set.
+- `pages/create-event.vue` — auto-selects the hosting club and shows it as read-only text
+  instead of a dropdown when the caller owns/admins exactly one club (plan 4.3).
+
+### Not done in this pass (tournament categories UI)
+Backend for tournament categories is complete and tested, but the UI consumers are not
+built yet: tournament-creation category management, a category picker + eligibility
+feedback on the registration form, and category tabs on the bracket view. The backend
+endpoints (`POST`/`GET /api/v1/tournaments/{id}/categories`, `GET /api/v1/tournament-category-templates`)
+are ready for whoever picks this up next.
+
+### Tests
+`club-verification.service.spec.ts` (8), `tournament-category.service.spec.ts` (6), 3 new
+`ActivityService` prioritization tests, plus fixture updates across `club.service.spec.ts`,
+`event.service.spec.ts`, `bracket.service.spec.ts` for the new `category_id`/verification
+fields. Total: **273 unit tests**, all passing.
+
+### Validated
+`typecheck` (clean), `lint` (no new violations — every flagged issue traced to a specific
+pre-existing line that merely shifted), `test:unit` (273/273), `build` (clean production
+build), `test:e2e` (22/22, run against a fresh preview server since no dev server was up at
+the time). One e2e run's console output additionally confirmed, against the real live
+Supabase project, that the code correctly expects the not-yet-applied `verification_status`
+column — i.e., the moment the migration runs, this should work end-to-end without further
+changes.
+
+### Remaining work
+- [ ] Apply `018-platform-enhancements` migration to the live database (needs the Postgres
+      password, not the Supabase API keys already on hand)
+- [ ] Set `platform_config.super_admin_id` to a real user once the migration is applied
+- [ ] Live browser walkthrough of account switching + the rate-only questionnaire flow,
+      and of the tournament categories UI below, against the real database (both blocked
+      on the migration above)
+
+### Follow-up: tournament categories UI (2026-08-19, continued)
+
+Closes the one item explicitly left undone above. Backend was already complete; this
+added the three UI consumers the plan called for.
+
+- **`pages/tournaments/[tournamentId].vue` — substantially rewritten.** Previously this
+  page fetched *only* the bracket and registrations — there was no way to load the
+  tournament's own name/match_type, no organizer check, and no way to generate a bracket
+  from the UI at all (confirmed by grepping every page for `generate-bracket`: zero
+  matches, anywhere, before this pass). Plugged a real gap first: added
+  `GET /api/v1/tournaments/{tournamentId}` (a plain-by-id getter never existed — only
+  list-by-event and update did), used to resolve the tournament, then its event, then
+  compare `event.created_by_player_id` to the caller's own player id for the
+  organizer-only sections.
+- **Category management** (organizer-only, on this page rather than during tournament
+  creation — categories need a `tournament_id` to attach to, so "during setup" means
+  "before the tournament opens," not literally inside the creation form): add from a
+  template (already-used templates filtered out of the dropdown) or a fully custom
+  rating range, backed by the existing `POST /api/v1/tournaments/{id}/categories`.
+- **Registration category picker**: shows only when the tournament actually has
+  categories (a tournament with zero stays a single flat bracket, unchanged); submit is
+  disabled until one is picked. The existing server-side rating-eligibility check (added
+  in the earlier backend pass) surfaces its rejection message inline on failure.
+- **Bracket category tabs + generation**: tab per category (defaults to the first),
+  refetching the bracket scoped to `category_id` on tab change; "Generate Bracket" button
+  for the organizer, scoped to whichever tab is active. Required making bracket
+  generation itself category-aware server-side, which it wasn't yet:
+  - `BracketMatchRecord`/`Dto` gained `category_id`.
+  - `BracketRepository.findByTournamentId`/`deleteByTournamentId` gained an optional
+    `categoryId` param with three-way semantics (omitted = all matches regardless of
+    category; `null` = only uncategorized matches; a string = only that category) —
+    deliberately three-way so regenerating one category's bracket never wipes another
+    category's already-generated bracket in the same tournament.
+  - `BracketService.generateBracket`/`getBracket` thread `categoryId` through; the
+    single-elimination generator stamps it onto every match it creates.
+  - Both controllers (`bracket.get.ts` query param, `generate-bracket.post.ts` body field)
+    updated to accept it — omitted entirely on both, a tournament with no categories
+    behaves exactly as before.
+- **Tests**: 2 new `BracketService` tests (generates only from the given category's
+  registrations and stamps `category_id` on every created match; rejects a category
+  bracket with fewer than 2 registrations *in that category* even when the tournament
+  has plenty overall) plus fixture updates for the new field. Total: **275 unit tests**.
+- **Validated**: `typecheck`, `lint` (no new violations), `test:unit` (275/275), `build`,
+  `test:e2e` (22/22). Also smoke-tested the route directly against a built preview server
+  to confirm it doesn't 500 — it correctly redirects to `/login` when signed out (this
+  route was never in the public-route exclude list, before or after this change, so
+  that's existing behavior, not a regression).
+
+### Migration applied live (2026-08-19)
+`018-platform-enhancements`'s 13 changesets applied via the real Liquibase CLI (4.32.0,
+downloaded fresh, same session-mode pooler connection as every prior migration) — zero
+errors, `liquibase status` confirms up to date (161 total changesets). Verified live via
+REST: `clubs.verification_status`, `platform_config` (single seeded row), and all 7
+`tournament_category_templates` read back correctly. `platform_config.super_admin_id` set
+to `jeffreyjoyjaspe@gmail.com`'s `users.id` (a direct data update via the service-role
+client, not a Liquibase changeset — assigning a specific real person to a specific
+deployment is a runtime/operational decision, not a portable schema change; the same
+distinction this project has already drawn for test-account management).
+
+### Real bug found and fixed: `<Toast>` never actually rendered (2026-08-19)
+User report: logging in with real credentials showed no error and no login — same
+symptom for a second account, but Google OAuth login worked fine (a sign the bug was
+specific to the new email/password flow, not auth as a whole). Browser console showed
+the real cause: `[Vue warn]: Failed to resolve component: Toast`. `components/ui/Toast.vue`
+sits in a subdirectory, so Nuxt's default auto-import registers it as `<UiToast>`, not
+`<Toast>` — but `register.vue`/`login.vue` referenced `<Toast>`. It went uncaught because
+Toast was the *only* component in `components/ui/` actually used anywhere (confirmed by
+grepping every other `ui/` component — `Button`, `Modal`, `Skeleton`, `Input`, etc. — zero
+usages anywhere in the codebase); every other real error path in earlier live-testing
+this session happened to be a server-side rejection tested via API response inspection,
+never through this exact rendering path in a real browser. Login itself was working
+correctly the whole time — invalid credentials genuinely got rejected with
+`401 INVALID_CREDENTIALS`; the friendly message just never became visible.
+
+**Fix**: changed the template references to `<UiToast>` (matching every other component
+already in that directory, e.g. `<UiModal>`, `<UiSkeleton>`, confirmed by lint: moving
+`Toast.vue` to the top level to match `<Toast>` instead triggered
+`vue/multi-word-component-names`, since `@nuxt/eslint` already accounts for the directory
+prefix for single-word names in subdirectories — the fix that respects both the naming
+convention and the lint rule was keeping it in `ui/` and fixing the two call sites, not
+moving the file).
+
+**Verified live**: built a production bundle, ran it standalone, drove `/login` with
+Playwright using deliberately wrong credentials — screenshot confirms the banner now
+renders with the mapped friendly text ("Incorrect email or password."), and the earlier
+`Failed to resolve component` console warning is gone.
+
+### Three more real bugs found and fixed (2026-08-19, same session, user report)
+
+User report after the fix above: "confirm" splash gets stuck even when already signed
+in; the dashboard doesn't show the initial rank after answering the rating questionnaire;
+the new club dashboard says "Could not load this club's dashboard."
+
+1. **Club dashboard**: `GET /api/v1/clubs/{clubId}` returns the `ClubDto` directly (confirmed
+   by curling it against the real "Dink and Drink" club — plain JSON object, no wrapper),
+   but `pages/club/[clubId]/dashboard.vue` was written expecting it wrapped in `{ data }`
+   like the other three fetches on that page. `club` was always `null` even though the
+   fetch itself returned `200` — exactly the reported symptom. **Fix**: read the fetch
+   result directly, matching the endpoint's actual (correct, unchanged) shape.
+
+2. **Dashboard never shows the player's rank/rating** — a genuinely pre-existing gap,
+   not something this session's earlier work introduced (confirmed: `pages/dashboard.vue`
+   was never touched before this fix). It calls `GET /api/v1/players/me/ratings`, but
+   only `GET /api/v1/players/{playerId}/ratings` ever existed — no `me` variant. That
+   fetch has always 404'd, so `singlesRating`/`doublesRating`/the rank card silently sat
+   at their empty-state defaults. This is exactly what stood between the newly-built
+   rate-only questionnaire flow and actually seeing its result. **Fix**: added
+   `server/api/v1/players/me/ratings.get.ts`, mirroring the existing `{playerId}` variant's
+   shape exactly, resolving the caller's own player profile first.
+
+3. **`/confirm` can get stuck on the loading spinner forever** — it relied entirely on a
+   `watch(supabaseUser, ..., { immediate: true })`. `useSupabaseUser()` is a cached
+   reactive ref that only updates on a *new* `onAuthStateChange` event; if a visitor is
+   **already signed in** when landing on `/confirm` (or the ref simply hasn't caught up
+   yet at mount time), no new event ever fires, so the watcher never runs again and the
+   "Confirming your account…" spinner never resolves — matching "stuck even already on
+   sign on" exactly. **Fix**: replaced the passive watch with an active check —
+   `onMounted` now polls `supabase.auth.getUser()` (reads the live session directly, not
+   the cached ref) up to 10 times over 3 seconds, proceeding as soon as a user is found,
+   and surfacing the existing error message if it genuinely never resolves (e.g. an
+   invalid/expired link) instead of hanging silently.
+
+**Validated**: `typecheck`, `lint` (no new violations — same pre-existing `any` line,
+unchanged), `test:unit` (275/275), `build`. Live browser re-verification of these three
+specific fixes against the real database was not done this round — handed back for the
+user to test directly.
+
+### Follow-up, same user report: rating still didn't show, plus two more real bugs (2026-08-19)
+
+Checked the live database directly rather than guessing: `jeffreyjoyjaspe@gmail.com`,
+`ronahbiejacobjaspe@gmail.com`, and `jaspealrickwade@gmail.com` all have a
+`player_profiles` row but **zero** `player_ratings` rows. The user confirmed they *did*
+see the questionnaire's celebration screen (real rating number, real tier) for at least
+one of these — meaning the frontend genuinely believed the submission succeeded while
+the database write silently never happened. Found the actual cause:
+
+4. **The real bug**: `POST /api/v1/rating/submit-assessment` upserts into `player_ratings`
+   using the **user-scoped** Supabase client. `player_ratings` has RLS enabled with only
+   a `player_ratings_select_all` policy (008-security.changelog.xml) — no INSERT/UPDATE
+   grant for the `authenticated` role at all, by design (ratings are meant to be
+   system-managed, not directly writable by players). Postgres silently rejects the
+   upsert under RLS, and the endpoint **never checked the upsert's returned error** — so
+   it kept computing and returning a correct rating/tier response (hence the real
+   celebration screen) regardless of whether the row was actually written. This was a
+   pre-existing bug, not something this session's earlier work introduced. **Fix**: the
+   upsert now goes through `serverSupabaseServiceRole`, matching every other
+   RLS-bypassing write in this codebase, and its error is checked explicitly — a future
+   write failure will now surface as a real `500`, never silently.
+   - **Consequence for the three accounts above**: their "rating" was never real. They
+     need to redo the questionnaire now that the write actually persists — the
+     `ALREADY_RATED` guard won't block them since they still have no rating on record.
+
+5. **Club search**: `pages/clubs/index.vue` expected `{ clubs: [...] }`, but
+   `GET /api/v1/clubs/search` returns `{ data: [...] }` — and separately, that endpoint
+   deliberately 400s if `q`/`province`/`city` are all empty (it's a search, not a
+   listing), while the page fetched immediately on mount with everything empty. Together:
+   "Could not search clubs" on *every* visit to the page, before typing anything.
+   **Fix**: read the correct key, and only fetch once there's an actual query
+   (`immediate: false` + a watcher that calls `execute()`).
+
+6. **Player search**: identical bug, same fix, in `pages/players/index.vue` /
+   `GET /api/v1/players/search` (`{ players: [...] }` expected vs. actual `{ data: [...] }`,
+   same empty-query 400-on-mount).
+
+**Validated**: `typecheck`, `lint` (no new violations), `test:unit` (275/275), `build`.
+Not re-verified live this round (matching the prior entry) — handed back to the user.
+
+### Follow-up: post-login flow never re-prompted for a missing rating (2026-08-19)
+
+The RLS fix above makes new questionnaire submissions persist, but it did nothing for
+the three accounts whose earlier "successful" submission never actually wrote a row —
+on their next login they'd have landed straight on `/dashboard`, because both
+`pages/login.vue` and `pages/confirm.vue` only ever checked whether a `player_profiles`
+row existed (`GET /api/v1/players/me`) to decide between `/onboarding` and `/dashboard`.
+A profile without a rating was never distinguished from a profile with one, so there was
+no path back into the questionnaire short of manually navigating to `/onboarding`.
+
+**Fix**: centralized the post-auth routing decision in `pages/onboarding.vue`'s
+`onMounted`, which already had access to both checks:
+- no `player_profiles` row → account-type chooser (unchanged).
+- a profile row but `GET /api/v1/players/me/ratings` has no `singles` rating → sent
+  straight into the questionnaire (`accountType.value = 'player'; loadQuestions()`),
+  skipping the account-type chooser since the account type was already decided.
+- a profile row with a real rating → `/dashboard`.
+
+`pages/login.vue` and `pages/confirm.vue` were simplified to always
+`navigateTo('/onboarding')` after establishing the session, rather than each
+duplicating the profile/rating lookup — `/onboarding` is now the single source of
+truth for where a just-authenticated user belongs. This also fixed a pre-existing
+`no-empty` lint violation in `onboarding.vue`'s catch block, encountered while editing.
+
+**Validated**: `typecheck`, `lint` (clean), `test:unit` (275/275). Not yet re-verified
+live — the three affected accounts should now be prompted with the questionnaire on
+their next login instead of landing on the dashboard with a zeroed-out rating.
+
+### Follow-up: questionnaire now 500s instead of silently failing (2026-08-19)
+
+Retaking the questionnaire (via the fix above) surfaced a real second bug that the
+previous RLS/service-role fix had been masking: `submit-assessment.post.ts`'s upsert
+explicitly set `provisional: true` in the row payload, but `provisional` is a Postgres
+**generated column** (`GENERATED ALWAYS AS (matches_played < 5) STORED`, see
+`005-rating.changelog.xml` changeset `0002-player-ratings-provisional-column`) —
+Postgres rejects any write that names a generated column explicitly. Previously this
+never surfaced because the user-scoped client's write failed on the RLS check first
+(and that failure was swallowed, per the earlier bug); now that the write reaches
+Postgres via service-role, this was the next thing to fail, this time correctly
+surfaced as a `500 INTERNAL_ERROR` instead of silently. **Fix**: dropped `provisional`
+from the upsert payload — it's computed automatically from `matches_played`.
+
+Also checked `calculateInitialRating` (`question-bank.ts:445`) against the table's
+`ck_player_ratings_value_range` check (`rating_value` must be within `[2.000, 8.000]`):
+it maps into `[2.0, 6.0]` by construction, so no second constraint violation is lurking
+there.
+
+**Validated**: `typecheck`, `lint` (clean). Not yet re-verified live — next questionnaire
+submission should persist correctly.
+
+### Follow-up: player search never showed ratings (2026-08-20)
+
+User report: player search results at `/players` were missing ratings. Root cause in
+`player-profile.repository.ts`'s `search()`: the mapping from `player_profiles` rows to
+`PlayerSearchResultRow` **hardcoded** `singles_rating: null, doubles_rating: null` on
+every result — the ratings were never actually fetched, regardless of whether the
+player had one. **Fix**: after fetching the page of matching profiles, batch-fetch
+`player_ratings` (`player_id, rating_type, rating_value`) for those profile ids in one
+`.in('player_id', [...])` query and merge singles/doubles onto each result, instead of
+the previous per-result N+1-shaped alternative.
+
+Noted in passing, not yet fixed (not part of this report): `clubs/search.get.ts` has the
+same-shaped gap — `toClubSearchResultDto(row)` is called without its `memberCount`
+argument, so `member_count` is always `undefined` in club search results too. Flagging
+since it's the same bug class in the same area; can fix on request.
+
+**Validated**: `typecheck`, `lint` (clean), `test:unit` (275/275 — the existing
+`player-profile.service.spec.ts` mocks the repository interface directly, so it wasn't
+affected by this repository-internal change). Not yet re-verified live.

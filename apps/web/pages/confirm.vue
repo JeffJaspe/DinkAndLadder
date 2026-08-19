@@ -1,25 +1,34 @@
 <script setup lang="ts">
-const supabaseUser = useSupabaseUser()
+const supabase = useSupabaseClient()
 const errorMessage = ref('')
 
-watch(
-  supabaseUser,
-  async (user) => {
-    if (!user) return
-    try {
-      await $fetch('/api/v1/auth/session', { method: 'POST' })
-      const profileResponse = await $fetch('/api/v1/players/me', { ignoreResponseError: true })
-      if (!profileResponse || (profileResponse as any).statusCode === 404) {
-        await navigateTo('/onboarding')
-      } else {
-        await navigateTo('/dashboard')
-      }
-    } catch {
-      errorMessage.value = 'Could not finish signing you in. Try logging in directly.'
+async function finishSignIn() {
+  try {
+    await $fetch('/api/v1/auth/session', { method: 'POST' })
+    // See login.vue: /onboarding decides no-profile vs no-rating vs dashboard.
+    await navigateTo('/onboarding')
+  } catch {
+    errorMessage.value = 'Could not finish signing you in. Try logging in directly.'
+  }
+}
+
+onMounted(async () => {
+  // Actively check via getUser() (reads the live session, not a cached ref)
+  // rather than passively waiting on useSupabaseUser() to update — that ref
+  // only changes on a *new* auth event, so a visitor who's already signed in
+  // when landing here (or whose session simply takes a moment to process
+  // from the confirmation link) would otherwise see this spinner forever,
+  // since no new event ever fires to trigger a watcher.
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const { data } = await supabase.auth.getUser()
+    if (data.user) {
+      await finishSignIn()
+      return
     }
-  },
-  { immediate: true }
-)
+    await new Promise((resolve) => setTimeout(resolve, 300))
+  }
+  errorMessage.value = 'Could not finish signing you in. Try logging in directly.'
+})
 </script>
 
 <template>

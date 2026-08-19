@@ -1,6 +1,12 @@
 <script setup lang="ts">
-import type { TournamentRegistrationDto } from '~/server/domains/event/dto/tournament.dto'
+import type { TournamentDto, TournamentRegistrationDto } from '~/server/domains/event/dto/tournament.dto'
 import type { BracketDto } from '~/server/domains/event/dto/bracket.dto'
+import type {
+  TournamentCategoryDto,
+  TournamentCategoryTemplateDto
+} from '~/server/domains/event/dto/tournament-category.dto'
+import type { EventDto } from '~/server/domains/event/dto/event.dto'
+import type { PlayerProfileDto } from '~/server/domains/player/dto/player-profile.dto'
 
 interface RegistrationsResponse {
   registrations: TournamentRegistrationDto[]
@@ -9,17 +15,61 @@ interface RegistrationsResponse {
 const route = useRoute()
 const tournamentId = route.params.tournamentId as string
 
-const { data: bracket, pending: bracketPending, error: bracketError, refresh: refreshBracket } = await useFetch<BracketDto>(
-  `/api/v1/tournaments/${tournamentId}/bracket`
+const { data: tournament } = await useFetch<TournamentDto>(`/api/v1/tournaments/${tournamentId}`)
+const { data: myProfile } = await useFetch<PlayerProfileDto>('/api/v1/players/me')
+
+const eventUrl = computed(() => (tournament.value ? `/api/v1/events/${tournament.value.event_id}` : ''))
+const { data: eventData } = await useFetch<EventDto>(eventUrl, { immediate: !!tournament.value })
+
+const isOrganizer = computed(
+  () => !!myProfile.value && !!eventData.value && eventData.value.created_by_player_id === myProfile.value.id
 )
 
-const { data: registrationsData, pending: regPending, error: regError } = await useFetch<RegistrationsResponse>(
-  `/api/v1/tournaments/${tournamentId}/registrations`
+const { data: categoriesResponse, refresh: refreshCategories } = await useFetch<{
+  data: TournamentCategoryDto[]
+}>(`/api/v1/tournaments/${tournamentId}/categories`)
+const categories = computed(() => categoriesResponse.value?.data ?? [])
+
+const { data: templatesResponse } = await useFetch<{ data: TournamentCategoryTemplateDto[] }>(
+  '/api/v1/tournament-category-templates'
 )
+const availableTemplates = computed(() => {
+  const usedTemplateIds = new Set(categories.value.map((c) => c.template_id).filter(Boolean))
+  return (templatesResponse.value?.data ?? []).filter((t) => !usedTemplateIds.has(t.id))
+})
+
+const { data: registrationsData, pending: regPending, error: regError, refresh: refreshRegistrations } =
+  await useFetch<RegistrationsResponse>(`/api/v1/tournaments/${tournamentId}/registrations`)
+
+// Bracket tab: one per category, plus the plain flat bracket when no categories exist.
+const activeCategoryId = ref<string | null>(null)
+watch(
+  categories,
+  (cats) => {
+    if (cats.length && !cats.some((c) => c.id === activeCategoryId.value)) {
+      activeCategoryId.value = cats[0].id
+    }
+  },
+  { immediate: true }
+)
+
+const bracketQuery = computed(() =>
+  categories.value.length ? { category_id: activeCategoryId.value ?? '' } : {}
+)
+const {
+  data: bracket,
+  pending: bracketPending,
+  error: bracketError,
+  refresh: refreshBracket
+} = await useFetch<BracketDto>(`/api/v1/tournaments/${tournamentId}/bracket`, {
+  query: bracketQuery,
+  watch: [activeCategoryId]
+})
 
 const registering = ref(false)
 const registerError = ref('')
 const registerSuccess = ref(false)
+const selectedRegistrationCategoryId = ref('')
 
 const statusConfig: Record<string, { bg: string; text: string }> = {
   pending: { bg: 'bg-yellow-500/20', text: 'text-yellow-400' },
@@ -36,21 +86,107 @@ const matchStatusConfig: Record<string, { bg: string; border: string }> = {
   bye: { bg: 'bg-[#2E4540]', border: 'border-[#3A5750]' }
 }
 
+function categoryLabel(categoryId: string | null): string {
+  if (!categoryId) return 'Uncategorized'
+  return categories.value.find((c) => c.id === categoryId)?.name ?? 'Unknown category'
+}
+
 async function register() {
   registering.value = true
   registerError.value = ''
   try {
     await $fetch(`/api/v1/tournaments/${tournamentId}/registrations`, {
       method: 'POST',
-      body: {}
+      body: categories.value.length ? { category_id: selectedRegistrationCategoryId.value || null } : {}
     })
     registerSuccess.value = true
-    window.location.reload()
-  } catch (e: any) {
-    registerError.value = e?.data?.statusMessage || 'Registration failed.'
+    await refreshRegistrations()
+  } catch (err) {
+    const fetchError = err as { data?: { message?: string } }
+    registerError.value = fetchError.data?.message ?? 'Registration failed.'
   } finally {
     registering.value = false
   }
+}
+
+// --- Category management (organizer only) ---
+const selectedTemplateId = ref('')
+const addingCategory = ref(false)
+const categoryError = ref('')
+const showCustomCategoryForm = ref(false)
+const customCategory = reactive({ name: '', min_rating: '', max_rating: '' })
+
+async function addFromTemplate() {
+  if (!selectedTemplateId.value) return
+  categoryError.value = ''
+  addingCategory.value = true
+  try {
+    await $fetch(`/api/v1/tournaments/${tournamentId}/categories`, {
+      method: 'POST',
+      body: { template_id: selectedTemplateId.value }
+    })
+    selectedTemplateId.value = ''
+    await refreshCategories()
+  } catch (err) {
+    const fetchError = err as { data?: { message?: string } }
+    categoryError.value = fetchError.data?.message ?? 'Could not add category.'
+  } finally {
+    addingCategory.value = false
+  }
+}
+
+async function addCustomCategory() {
+  if (!customCategory.name) return
+  categoryError.value = ''
+  addingCategory.value = true
+  try {
+    await $fetch(`/api/v1/tournaments/${tournamentId}/categories`, {
+      method: 'POST',
+      body: {
+        name: customCategory.name,
+        min_rating: customCategory.min_rating ? Number(customCategory.min_rating) : null,
+        max_rating: customCategory.max_rating ? Number(customCategory.max_rating) : null
+      }
+    })
+    customCategory.name = ''
+    customCategory.min_rating = ''
+    customCategory.max_rating = ''
+    showCustomCategoryForm.value = false
+    await refreshCategories()
+  } catch (err) {
+    const fetchError = err as { data?: { message?: string } }
+    categoryError.value = fetchError.data?.message ?? 'Could not add category.'
+  } finally {
+    addingCategory.value = false
+  }
+}
+
+// --- Bracket generation (organizer only) ---
+const generating = ref(false)
+const generateError = ref('')
+
+async function generateBracket() {
+  generateError.value = ''
+  generating.value = true
+  try {
+    await $fetch(`/api/v1/tournaments/${tournamentId}/generate-bracket`, {
+      method: 'POST',
+      body: categories.value.length ? { category_id: activeCategoryId.value } : {}
+    })
+    await refreshBracket()
+  } catch (err) {
+    const fetchError = err as { data?: { message?: string } }
+    generateError.value = fetchError.data?.message ?? 'Could not generate bracket.'
+  } finally {
+    generating.value = false
+  }
+}
+
+function ratingRangeLabel(minRating: number | null, maxRating: number | null): string {
+  if (minRating == null && maxRating == null) return 'Any rating'
+  if (minRating == null) return `Up to ${maxRating}`
+  if (maxRating == null) return `${minRating}+`
+  return `${minRating}–${maxRating}`
 }
 </script>
 
@@ -59,8 +195,100 @@ async function register() {
     <div class="mx-auto max-w-4xl">
       <!-- Header -->
       <div class="mb-6">
-        <h1 class="text-2xl font-bold text-white">Tournament</h1>
+        <h1 class="text-2xl font-bold text-white">{{ tournament?.name ?? 'Tournament' }}</h1>
         <p class="mt-1 text-sm text-[#6B7B75]">View registrations and bracket</p>
+      </div>
+
+      <!-- Category Management (organizer only) -->
+      <div v-if="isOrganizer" class="mb-6 rounded-xl bg-[#1E2E2A] p-5">
+        <h2 class="mb-4 font-semibold text-white">Categories</h2>
+        <p class="mb-4 text-sm text-[#6B7B75]">
+          Optional — split this tournament into rating-based brackets. Leave empty for a
+          single flat bracket.
+        </p>
+
+        <ul v-if="categories.length" class="mb-4 space-y-2">
+          <li
+            v-for="cat in categories"
+            :key="cat.id"
+            class="flex items-center justify-between rounded-lg bg-[#0B0D09] px-3 py-2"
+          >
+            <span class="text-sm text-white">{{ cat.name }}</span>
+            <span class="text-xs text-[#6B7B75]">{{ ratingRangeLabel(cat.min_rating, cat.max_rating) }}</span>
+          </li>
+        </ul>
+
+        <div class="flex flex-wrap items-end gap-3">
+          <div v-if="availableTemplates.length">
+            <label class="mb-1.5 block text-xs text-[#A6ABA7]">Add from template</label>
+            <div class="flex gap-2">
+              <select
+                v-model="selectedTemplateId"
+                class="rounded-lg border border-[#3A5750] bg-[#0B0D09] px-3 py-2 text-sm text-white focus:border-[#4DB175] focus:outline-none"
+              >
+                <option value="">Select a template</option>
+                <option v-for="t in availableTemplates" :key="t.id" :value="t.id">
+                  {{ t.name }} ({{ ratingRangeLabel(t.min_rating, t.max_rating) }})
+                </option>
+              </select>
+              <button
+                type="button"
+                :disabled="!selectedTemplateId || addingCategory"
+                class="rounded-lg bg-[#4DB175] px-4 py-2 text-sm font-medium text-white hover:bg-[#5FC287] disabled:opacity-50"
+                @click="addFromTemplate"
+              >
+                Add
+              </button>
+            </div>
+          </div>
+          <button
+            type="button"
+            class="rounded-lg border border-[#3A5750] px-4 py-2 text-sm text-[#A6ABA7] hover:bg-[#2E4540]"
+            @click="showCustomCategoryForm = !showCustomCategoryForm"
+          >
+            {{ showCustomCategoryForm ? 'Cancel' : '+ Custom Category' }}
+          </button>
+        </div>
+
+        <div v-if="showCustomCategoryForm" class="mt-4 grid gap-3 rounded-lg bg-[#0B0D09] p-4 sm:grid-cols-3">
+          <div>
+            <label class="mb-1.5 block text-xs text-[#A6ABA7]">Name</label>
+            <input
+              v-model="customCategory.name"
+              type="text"
+              placeholder="e.g., 3.5-4.0"
+              class="w-full rounded-lg border border-[#3A5750] bg-[#1E2E2A] px-3 py-2 text-sm text-white placeholder-[#6B7B75] focus:border-[#4DB175] focus:outline-none"
+            />
+          </div>
+          <div>
+            <label class="mb-1.5 block text-xs text-[#A6ABA7]">Min Rating</label>
+            <input
+              v-model="customCategory.min_rating"
+              type="number"
+              step="0.1"
+              class="w-full rounded-lg border border-[#3A5750] bg-[#1E2E2A] px-3 py-2 text-sm text-white focus:border-[#4DB175] focus:outline-none"
+            />
+          </div>
+          <div>
+            <label class="mb-1.5 block text-xs text-[#A6ABA7]">Max Rating</label>
+            <input
+              v-model="customCategory.max_rating"
+              type="number"
+              step="0.1"
+              class="w-full rounded-lg border border-[#3A5750] bg-[#1E2E2A] px-3 py-2 text-sm text-white focus:border-[#4DB175] focus:outline-none"
+            />
+          </div>
+          <button
+            type="button"
+            :disabled="!customCategory.name || addingCategory"
+            class="col-span-full rounded-lg bg-[#4DB175] px-4 py-2 text-sm font-medium text-white hover:bg-[#5FC287] disabled:opacity-50"
+            @click="addCustomCategory"
+          >
+            Add Category
+          </button>
+        </div>
+
+        <p v-if="categoryError" class="mt-3 text-sm text-red-400">{{ categoryError }}</p>
       </div>
 
       <!-- Registration Section -->
@@ -94,6 +322,9 @@ async function register() {
                 {{ reg.player_id.charAt(0).toUpperCase() }}
               </div>
               <span class="text-sm text-white">{{ reg.player_id.slice(0, 8) }}...</span>
+              <span v-if="categories.length" class="rounded-full bg-[#2E4540] px-2 py-0.5 text-xs text-[#A6ABA7]">
+                {{ categoryLabel(reg.category_id) }}
+              </span>
             </div>
             <span
               class="rounded-md px-2 py-0.5 text-xs font-medium capitalize"
@@ -107,24 +338,64 @@ async function register() {
         <!-- Empty -->
         <p v-else class="text-[#6B7B75]">No registrations yet.</p>
 
-        <!-- Register Button -->
-        <div class="mt-4">
+        <!-- Register -->
+        <div class="mt-4 space-y-3">
+          <div v-if="categories.length">
+            <label class="mb-1.5 block text-sm text-[#A6ABA7]">Category</label>
+            <select
+              v-model="selectedRegistrationCategoryId"
+              class="w-full max-w-xs rounded-lg border border-[#3A5750] bg-[#0B0D09] px-4 py-2.5 text-sm text-white focus:border-[#4DB175] focus:outline-none"
+            >
+              <option value="">Select a category</option>
+              <option v-for="cat in categories" :key="cat.id" :value="cat.id">
+                {{ cat.name }} ({{ ratingRangeLabel(cat.min_rating, cat.max_rating) }})
+              </option>
+            </select>
+          </div>
           <button
             type="button"
-            :disabled="registering"
+            :disabled="registering || (categories.length > 0 && !selectedRegistrationCategoryId)"
             class="rounded-lg bg-[#4DB175] px-6 py-2.5 font-medium text-white hover:bg-[#5FC287] disabled:opacity-50"
             @click="register"
           >
             {{ registering ? 'Registering...' : 'Register for Tournament' }}
           </button>
-          <p v-if="registerError" class="mt-2 text-sm text-red-400">{{ registerError }}</p>
-          <p v-if="registerSuccess" class="mt-2 text-sm text-[#4DB175]">Successfully registered!</p>
+          <p v-if="registerError" class="text-sm text-red-400">{{ registerError }}</p>
+          <p v-if="registerSuccess" class="text-sm text-[#4DB175]">Successfully registered!</p>
         </div>
       </div>
 
       <!-- Bracket Section -->
       <div class="rounded-xl bg-[#1E2E2A] p-5">
-        <h2 class="mb-4 font-semibold text-white">Bracket</h2>
+        <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <h2 class="font-semibold text-white">Bracket</h2>
+          <button
+            v-if="isOrganizer"
+            type="button"
+            :disabled="generating"
+            class="rounded-lg border border-[#3A5750] px-4 py-2 text-sm text-[#A6ABA7] hover:bg-[#2E4540] disabled:opacity-50"
+            @click="generateBracket"
+          >
+            {{ generating ? 'Generating…' : 'Generate Bracket' }}
+          </button>
+        </div>
+        <p v-if="generateError" class="mb-4 text-sm text-red-400">{{ generateError }}</p>
+
+        <!-- Category Tabs -->
+        <div v-if="categories.length" class="mb-4 flex gap-2 overflow-x-auto">
+          <button
+            v-for="cat in categories"
+            :key="cat.id"
+            type="button"
+            class="flex-shrink-0 rounded-lg px-3 py-1.5 text-sm transition-colors"
+            :class="activeCategoryId === cat.id
+              ? 'bg-[#4DB175] text-white'
+              : 'bg-[#2E4540] text-[#A6ABA7] hover:text-white'"
+            @click="activeCategoryId = cat.id"
+          >
+            {{ cat.name }}
+          </button>
+        </div>
 
         <!-- Loading -->
         <div v-if="bracketPending" class="flex gap-6 overflow-x-auto py-4">

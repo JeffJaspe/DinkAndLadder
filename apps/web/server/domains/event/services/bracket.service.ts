@@ -15,8 +15,12 @@ export class BracketServiceError extends Error {
 }
 
 export interface BracketService {
-  getBracket(tournamentId: string): Promise<BracketDto>
-  generateBracket(playerId: string, tournamentId: string): Promise<BracketDto>
+  getBracket(tournamentId: string, categoryId?: string | null): Promise<BracketDto>
+  generateBracket(
+    playerId: string,
+    tournamentId: string,
+    categoryId?: string | null
+  ): Promise<BracketDto>
   updateBracketMatch(
     playerId: string,
     bracketMatchId: string,
@@ -54,22 +58,23 @@ export function createBracketService(
   }
 
   return {
-    async getBracket(tournamentId) {
+    async getBracket(tournamentId, categoryId) {
       const tournament = await tournaments.findById(tournamentId)
       if (!tournament) {
         throw new BracketServiceError(404, 'NOT_FOUND', 'Tournament not found.')
       }
 
-      const bracketMatches = await brackets.findByTournamentId(tournamentId)
+      const bracketMatches = await brackets.findByTournamentId(tournamentId, categoryId)
       const matchDtos = bracketMatches.map(toBracketMatchDto)
 
       return {
         tournament_id: tournamentId,
+        category_id: categoryId ?? null,
         rounds: groupByRound(matchDtos)
       }
     },
 
-    async generateBracket(playerId, tournamentId) {
+    async generateBracket(playerId, tournamentId, categoryId) {
       const tournament = await tournaments.findById(tournamentId)
       if (!tournament) {
         throw new BracketServiceError(404, 'NOT_FOUND', 'Tournament not found.')
@@ -85,9 +90,10 @@ export function createBracketService(
         )
       }
 
-      const confirmedRegs = (await registrations.findByTournamentId(tournamentId)).filter(
-        (r) => r.status === 'confirmed' || r.status === 'pending'
-      )
+      const allRegs = await registrations.findByTournamentId(tournamentId)
+      const confirmedRegs = allRegs
+        .filter((r) => r.status === 'confirmed' || r.status === 'pending')
+        .filter((r) => (categoryId === undefined ? true : r.category_id === categoryId))
 
       if (confirmedRegs.length < 2) {
         throw new BracketServiceError(
@@ -97,14 +103,21 @@ export function createBracketService(
         )
       }
 
-      await brackets.deleteByTournamentId(tournamentId)
+      // Only wipe this category's own bracket — other categories' brackets in the same
+      // tournament must survive regenerating one of them.
+      await brackets.deleteByTournamentId(tournamentId, categoryId)
 
-      const bracketMatches = generateSingleEliminationBracket(tournamentId, confirmedRegs.map((r) => r.id))
+      const bracketMatches = generateSingleEliminationBracket(
+        tournamentId,
+        confirmedRegs.map((r) => r.id),
+        categoryId ?? null
+      )
       const created = await brackets.createMany(bracketMatches)
       const matchDtos = created.map(toBracketMatchDto)
 
       return {
         tournament_id: tournamentId,
+        category_id: categoryId ?? null,
         rounds: groupByRound(matchDtos)
       }
     },
@@ -130,7 +143,8 @@ export function createBracketService(
 
 function generateSingleEliminationBracket(
   tournamentId: string,
-  registrationIds: string[]
+  registrationIds: string[],
+  categoryId: string | null = null
 ): Omit<import('../dto/bracket.dto').BracketMatchRecord, 'id' | 'created_at'>[] {
   const n = registrationIds.length
   const bracketSize = nextPowerOfTwo(n)
@@ -172,7 +186,8 @@ function generateSingleEliminationBracket(
       participant2_registration_id: participant2,
       winner_registration_id: status === 'bye' ? participant1 : null,
       status,
-      scheduled_at: null
+      scheduled_at: null,
+      category_id: categoryId
     })
   }
 
@@ -188,7 +203,8 @@ function generateSingleEliminationBracket(
         participant2_registration_id: null,
         winner_registration_id: null,
         status: 'pending',
-        scheduled_at: null
+        scheduled_at: null,
+        category_id: categoryId
       })
     }
   }

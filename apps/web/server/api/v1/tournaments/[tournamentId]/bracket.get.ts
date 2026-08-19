@@ -20,8 +20,13 @@ export default defineEventHandler(async (event) => {
   const eventRepo = createEventRepository(client)
   const service = createBracketService(bracketRepo, tournamentRepo, registrationRepo, eventRepo)
 
+  // Absent entirely -> all matches regardless of category (tournaments with no
+  // categories at all). Present -> that category's matches only.
+  const rawCategoryId = getQuery(event).category_id
+  const categoryId = typeof rawCategoryId === 'string' ? rawCategoryId : undefined
+
   try {
-    const bracket = await service.getBracket(tournamentId)
+    const bracket = await service.getBracket(tournamentId, categoryId)
     return bracket
   } catch (err) {
     if (err instanceof BracketServiceError) {

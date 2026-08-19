@@ -118,6 +118,7 @@ function makeRegistrationRecord(
     registered_at: '2026-08-01T00:00:00Z',
     confirmed_at: '2026-08-01T00:00:00Z',
     created_at: '2026-08-01T00:00:00Z',
+    category_id: null,
     ...overrides
   }
 }
@@ -135,6 +136,7 @@ function makeBracketMatchRecord(overrides?: Partial<BracketMatchRecord>): Bracke
     status: 'ready',
     scheduled_at: null,
     created_at: '2026-08-01T00:00:00Z',
+    category_id: null,
     ...overrides
   }
 }
@@ -299,6 +301,62 @@ describe('BracketService', () => {
       await expect(service.generateBracket('player-1', 'tournament-1')).rejects.toThrow(
         BracketServiceError
       )
+    })
+
+    it('only generates a bracket from registrations in the given category, ignoring others', async () => {
+      const event = makeEventRecord()
+      const tournament = makeTournamentRecord({ status: 'open' })
+      const registrations = [
+        makeRegistrationRecord('reg-1', 'player-1', { category_id: 'cat-novice' }),
+        makeRegistrationRecord('reg-2', 'player-2', { category_id: 'cat-novice' }),
+        makeRegistrationRecord('reg-3', 'player-3', { category_id: 'cat-open' })
+      ]
+
+      const bracketRepo = createFakeBracketRepository({
+        createMany: vi.fn().mockImplementation((matches) =>
+          Promise.resolve(matches.map((m: BracketMatchRecord, i: number) => ({ ...m, id: `bm-${i + 1}` })))
+        )
+      })
+      const tournamentRepo = createFakeTournamentRepository({ findById: vi.fn().mockResolvedValue(tournament) })
+      const registrationRepo = createFakeRegistrationRepository({
+        findByTournamentId: vi.fn().mockResolvedValue(registrations)
+      })
+      const eventRepo = createFakeEventRepository({ findById: vi.fn().mockResolvedValue(event) })
+
+      const service = createBracketService(bracketRepo, tournamentRepo, registrationRepo, eventRepo)
+      const result = await service.generateBracket('player-1', 'tournament-1', 'cat-novice')
+
+      expect(result.category_id).toBe('cat-novice')
+      expect(result.rounds[0].matches).toHaveLength(1)
+      expect(bracketRepo.deleteByTournamentId).toHaveBeenCalledWith('tournament-1', 'cat-novice')
+      const [insertedMatches] = (bracketRepo.createMany as ReturnType<typeof vi.fn>).mock.calls[0]
+      expect(insertedMatches.every((m: BracketMatchRecord) => m.category_id === 'cat-novice')).toBe(true)
+    })
+
+    it('rejects generating a category bracket with fewer than 2 registrations in that category', async () => {
+      const event = makeEventRecord()
+      const tournament = makeTournamentRecord({ status: 'open' })
+      const registrations = [
+        makeRegistrationRecord('reg-1', 'player-1', { category_id: 'cat-novice' }),
+        makeRegistrationRecord('reg-2', 'player-2', { category_id: 'cat-open' }),
+        makeRegistrationRecord('reg-3', 'player-3', { category_id: 'cat-open' })
+      ]
+      const tournamentRepo = createFakeTournamentRepository({ findById: vi.fn().mockResolvedValue(tournament) })
+      const registrationRepo = createFakeRegistrationRepository({
+        findByTournamentId: vi.fn().mockResolvedValue(registrations)
+      })
+      const eventRepo = createFakeEventRepository({ findById: vi.fn().mockResolvedValue(event) })
+
+      const service = createBracketService(
+        createFakeBracketRepository(),
+        tournamentRepo,
+        registrationRepo,
+        eventRepo
+      )
+
+      await expect(
+        service.generateBracket('player-1', 'tournament-1', 'cat-novice')
+      ).rejects.toThrow(BracketServiceError)
     })
   })
 

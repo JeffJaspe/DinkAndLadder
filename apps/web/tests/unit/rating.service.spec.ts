@@ -220,8 +220,10 @@ describe('rating.service applyMatchResult', () => {
     const byId = new Map(updates.map((u) => [u.player_id, u]))
     // matchDelta = 11/16 - 0.5 = 0.1875; singles has no teammate split (weight = 1), so each
     // player's delta is simply their own K-factor times the match delta.
-    expect(byId.get('x')!.rating_delta).toBeCloseTo(0.25 * 0.1875, 10)
-    expect(byId.get('y')!.rating_delta).toBeCloseTo(-0.05 * 0.1875, 10)
+    // precision 6, not 10 — matches the doubles case above; chained float ops (K-factor
+    // derivation, expected-share, matchDelta) don't reproduce to the last few ULPs.
+    expect(byId.get('x')!.rating_delta).toBeCloseTo(0.25 * 0.1875, 6)
+    expect(byId.get('y')!.rating_delta).toBeCloseTo(-0.05 * 0.1875, 6)
   })
 
   it('throws PLAYER_UNRATED when a participant has no player_ratings row at all', async () => {

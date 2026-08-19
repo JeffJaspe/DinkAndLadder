@@ -127,6 +127,7 @@ function makeRegistrationRecord(
     registered_at: '2026-08-01T00:00:00Z',
     confirmed_at: null,
     created_at: '2026-08-01T00:00:00Z',
+    category_id: null,
     ...overrides
   }
 }

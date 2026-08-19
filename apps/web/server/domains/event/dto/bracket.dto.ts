@@ -12,6 +12,7 @@ export interface BracketMatchRecord {
   status: BracketMatchStatus
   scheduled_at: string | null
   created_at: string
+  category_id: string | null
 }
 
 export interface BracketMatchDto {
@@ -25,6 +26,7 @@ export interface BracketMatchDto {
   winner_registration_id: string | null
   status: BracketMatchStatus
   scheduled_at: string | null
+  category_id: string | null
 }
 
 export function toBracketMatchDto(record: BracketMatchRecord): BracketMatchDto {
@@ -38,12 +40,14 @@ export function toBracketMatchDto(record: BracketMatchRecord): BracketMatchDto {
     participant2_registration_id: record.participant2_registration_id,
     winner_registration_id: record.winner_registration_id,
     status: record.status,
-    scheduled_at: record.scheduled_at
+    scheduled_at: record.scheduled_at,
+    category_id: record.category_id
   }
 }
 
 export interface BracketDto {
   tournament_id: string
+  category_id: string | null
   rounds: BracketRoundDto[]
 }
 

@@ -79,23 +79,50 @@ export function createPlayerProfileRepository(client: SupabaseClient): PlayerPro
 
       if (error) throw error
 
-      return (data ?? []).map((row: Record<string, unknown>) => ({
-        id: row.id as string,
-        user_id: '',
-        display_name: row.display_name as string,
-        first_name: null,
-        last_name: null,
-        bio: null,
-        province: row.province as string | null,
-        city: row.city as string | null,
-        dominant_hand: null,
-        preferred_position: null,
-        profile_visibility: row.profile_visibility as 'public' | 'private',
-        created_at: '',
-        updated_at: '',
-        singles_rating: null,
-        doubles_rating: null
-      })) as PlayerSearchResultRow[]
+      const rows = data ?? []
+      const playerIds = rows.map((row: Record<string, unknown>) => row.id as string)
+
+      // singles_rating/doubles_rating were previously hardcoded to null here —
+      // this was the "no rating shown in player search" bug. Batch-fetch the
+      // ratings for the page of results just returned, rather than N+1.
+      const ratingsByPlayer = new Map<string, { singles: number | null; doubles: number | null }>()
+      if (playerIds.length > 0) {
+        const { data: ratingRows, error: ratingsError } = await client
+          .from('player_ratings')
+          .select('player_id, rating_type, rating_value')
+          .in('player_id', playerIds)
+          .in('rating_type', ['singles', 'doubles'])
+
+        if (ratingsError) throw ratingsError
+
+        for (const r of ratingRows ?? []) {
+          const entry = ratingsByPlayer.get(r.player_id) ?? { singles: null, doubles: null }
+          if (r.rating_type === 'singles') entry.singles = r.rating_value
+          else if (r.rating_type === 'doubles') entry.doubles = r.rating_value
+          ratingsByPlayer.set(r.player_id, entry)
+        }
+      }
+
+      return rows.map((row: Record<string, unknown>) => {
+        const ratings = ratingsByPlayer.get(row.id as string)
+        return {
+          id: row.id as string,
+          user_id: '',
+          display_name: row.display_name as string,
+          first_name: null,
+          last_name: null,
+          bio: null,
+          province: row.province as string | null,
+          city: row.city as string | null,
+          dominant_hand: null,
+          preferred_position: null,
+          profile_visibility: row.profile_visibility as 'public' | 'private',
+          created_at: '',
+          updated_at: '',
+          singles_rating: ratings?.singles ?? null,
+          doubles_rating: ratings?.doubles ?? null
+        }
+      }) as PlayerSearchResultRow[]
     }
   }
 }

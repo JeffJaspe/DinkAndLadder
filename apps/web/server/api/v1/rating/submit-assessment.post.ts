@@ -1,6 +1,8 @@
-import { serverSupabaseClient, serverSupabaseUser } from '#supabase/server'
+import { serverSupabaseClient, serverSupabaseServiceRole, serverSupabaseUser } from '#supabase/server'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
 import { createPlayerProfileService } from '~/server/domains/player/services/player-profile.service'
+import { createRatingRepository } from '~/server/domains/rating/repositories/rating.repository'
+import { createRatingService } from '~/server/domains/rating/services/rating.service'
 import {
   QUESTION_BANK,
   calculateInitialRating,
@@ -46,8 +48,25 @@ export default defineEventHandler(async (event) => {
   const tier = getTierForRating(rating)
 
   const client = await serverSupabaseClient(event)
+  const profileRepository = createPlayerProfileRepository(client)
 
-  const profileService = createPlayerProfileService(createPlayerProfileRepository(client))
+  // Guard against re-submission: this upsert would otherwise silently overwrite an
+  // existing rating (possibly already adjusted by real match results). A player who
+  // already has one gets a clear conflict instead of a silent, invisible reset.
+  const existingProfile = await profileRepository.findByUserId(claims.sub)
+  if (existingProfile) {
+    const ratingService = createRatingService(createRatingRepository(client))
+    const existingRating = await ratingService.getRating(existingProfile.id, 'singles')
+    if (existingRating?.rating_value != null) {
+      throw apiError(
+        409,
+        'ALREADY_RATED',
+        'You already have an initial rating. The assessment can only be taken once.'
+      )
+    }
+  }
+
+  const profileService = createPlayerProfileService(profileRepository)
   const displayName = claims.email.split('@')[0]
   await profileService.saveOwnProfile(claims.sub, { display_name: displayName })
 
@@ -61,21 +80,34 @@ export default defineEventHandler(async (event) => {
     throw apiError(500, 'PROFILE_NOT_FOUND', 'Could not find player profile after creation.')
   }
 
+  // player_ratings has no INSERT/UPDATE RLS policy for the authenticated role (only
+  // player_ratings_select_all — see 008-security.changelog.xml) by design: ratings are
+  // system-managed, not directly writable by players. This upsert must go through
+  // service-role. Also check the error explicitly — the previous version silently
+  // discarded it, so the RLS rejection above never surfaced: the endpoint kept
+  // returning a computed "success" response (correct rating/tier, real celebration
+  // screen) while the actual row was never written.
+  const serviceClient = serverSupabaseServiceRole(event)
   const now = new Date().toISOString()
   for (const ratingType of ['singles', 'doubles'] as const) {
-    await client.from('player_ratings').upsert(
+    const { error: upsertError } = await serviceClient.from('player_ratings').upsert(
       {
         player_id: profile.id,
         rating_type: ratingType,
         rating_value: rating,
         confidence_score: 1.0,
         matches_played: 0,
-        provisional: true,
+        // provisional is a generated column (matches_played < 5) — Postgres
+        // rejects any write that names it explicitly.
         calculated_at: now,
         updated_at: now
       },
       { onConflict: 'player_id,rating_type' }
     )
+    if (upsertError) {
+      console.error('[POST /api/v1/rating/submit-assessment] player_ratings upsert failed:', upsertError)
+      throw apiError(500, 'INTERNAL_ERROR', 'Could not save your initial rating. Please try again.')
+    }
   }
 
   return {

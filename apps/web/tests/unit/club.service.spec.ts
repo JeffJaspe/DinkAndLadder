@@ -43,7 +43,11 @@ function createFakes() {
         visibility: input.visibility ?? 'public',
         status: 'active',
         created_by_user_id: createdByUserId,
-        created_at: now
+        created_at: now,
+        verification_status: 'unverified',
+        verification_requested_at: null,
+        verified_at: null,
+        verified_by_user_id: null
       }
       clubs.set(club.id, club)
       return club
@@ -57,6 +61,19 @@ function createFakes() {
     },
     async search() {
       return []
+    },
+    async updateVerification(clubId, patch) {
+      const existing = clubs.get(clubId)
+      if (!existing) throw new Error('not found')
+      const updated = { ...existing, ...patch }
+      clubs.set(clubId, updated)
+      return updated
+    },
+    async findPendingVerification() {
+      return [...clubs.values()].filter((c) => c.verification_status === 'pending')
+    },
+    async findVerifiedClubs() {
+      return [...clubs.values()].filter((c) => c.verification_status === 'verified')
     }
   }
 
