@@ -19,11 +19,14 @@ import { createAuditService } from '~/server/domains/audit/services/audit.servic
 import { createNotificationRepository } from '~/server/domains/notification/repositories/notification.repository'
 import { createNotificationService } from '~/server/domains/notification/services/notification.service'
 import type { NotificationType } from '~/server/domains/notification/dto/notification.dto'
+import { createActivityRepository } from '~/server/domains/activity/repositories/activity.repository'
+import { createActivityLogger } from '~/server/domains/activity/services/activity.service'
 import { apiError } from '~/server/utils/api-error'
 import type {
   MatchDto,
   RecordVerificationDecisionInput
 } from '~/server/domains/match/dto/match.dto'
+import type { RatingUpdateResult } from '~/server/domains/rating/dto/rating.dto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 function parseDecisionInput(body: unknown): RecordVerificationDecisionInput {
@@ -67,14 +70,16 @@ function parseDecisionInput(body: unknown): RecordVerificationDecisionInput {
  * whatever process seeds those ratings is also responsible for re-running this for any match
  * that failed here — applyMatchResult is idempotent (see hasTransactionsForMatch) so replaying
  * it is always safe.
+ *
+ * Returns rating updates for activity/notification logging, or empty array if calculation failed.
  */
-async function triggerRatingCalculation(match: MatchDto, client: SupabaseClient): Promise<void> {
+async function triggerRatingCalculation(match: MatchDto, client: SupabaseClient): Promise<RatingUpdateResult[]> {
   const service = createRatingService(createRatingRepository(client))
   const team1Points = match.scores.reduce((sum, s) => sum + s.team1_score, 0)
   const team2Points = match.scores.reduce((sum, s) => sum + s.team2_score, 0)
 
   try {
-    await service.applyMatchResult({
+    const updates = await service.applyMatchResult({
       match_id: match.id,
       rating_type: match.match_type,
       participants: match.participants.map((p) => ({
@@ -85,12 +90,14 @@ async function triggerRatingCalculation(match: MatchDto, client: SupabaseClient)
       team2_points: team2Points,
       played_at: match.played_at
     })
+    return updates ?? []
   } catch (err) {
     if (err instanceof RatingServiceError) {
       console.warn(`[match ${match.id}] rating calculation skipped: ${err.code} — ${err.message}`)
-      return
+      return []
     }
     console.error(`[match ${match.id}] rating calculation failed unexpectedly:`, err)
+    return []
   }
 }
 
@@ -138,8 +145,48 @@ export default defineEventHandler(async (event) => {
       match_status: match.status
     })
 
+    // Activity logger for feed
+    const activityLogger = createActivityLogger(createActivityRepository(serviceClient))
+
     if (match.status === 'verified') {
-      await triggerRatingCalculation(match, serviceClient)
+      // Log match verified activity for all participants
+      await Promise.all(
+        match.participants.map((p) =>
+          activityLogger.logMatchVerified(p.player_id, match.id, {
+            match_type: match.match_type,
+            opponent_ids: match.participants
+              .filter((o) => o.team_number !== p.team_number)
+              .map((o) => o.player_id)
+          })
+        )
+      )
+
+      // Trigger rating calculation and log rating changes
+      const ratingUpdates = await triggerRatingCalculation(match, serviceClient)
+
+      // Log rating changes as activities and send notifications
+      for (const update of ratingUpdates) {
+        await activityLogger.logRatingChanged(
+          update.player_id,
+          match.match_type,
+          update.old_rating,
+          update.new_rating
+        )
+
+        // Send rating.updated notification
+        const profile = await playerRepo.findById(update.player_id)
+        if (profile) {
+          const direction = update.rating_delta > 0 ? 'increased' : 'decreased'
+          await notificationService.notify({
+            user_id: profile.user_id,
+            type: 'rating.updated' as NotificationType,
+            title: 'Rating Updated',
+            body: `Your ${match.match_type} rating ${direction} from ${update.old_rating.toFixed(2)} to ${update.new_rating.toFixed(2)}.`,
+            reference_type: 'player_rating',
+            reference_id: update.player_id
+          })
+        }
+      }
     }
 
     const terminalStates = ['verified', 'rejected', 'disputed'] as const

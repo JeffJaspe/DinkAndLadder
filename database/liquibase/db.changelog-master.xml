@@ -23,5 +23,9 @@
     <include file="016-api-keys/016-api-keys.changelog.xml" relativeToChangelogFile="true"/>
     <include file="017-event-match-enhancement/017-event-match-enhancement.changelog.xml" relativeToChangelogFile="true"/>
     <include file="018-platform-enhancements/018-platform-enhancements.changelog.xml" relativeToChangelogFile="true"/>
+    <include file="019-partnerships/019-partnerships.changelog.xml" relativeToChangelogFile="true"/>
+    <include file="020-shoutout/020-shoutout.changelog.xml" relativeToChangelogFile="true"/>
+    <include file="021-badges/021-badges.changelog.xml" relativeToChangelogFile="true"/>
+    <include file="022-announcement-rls-fix/022-announcement-rls-fix.changelog.xml" relativeToChangelogFile="true"/>
 
 </databaseChangeLog>

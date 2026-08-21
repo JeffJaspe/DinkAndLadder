@@ -18,7 +18,7 @@ export interface ActivityService {
   createActivity(input: CreateActivityInput): Promise<ActivityDto>
   getPlayerActivities(playerId: string, limit: number, offset: number): Promise<ActivityDto[]>
   getPublicFeed(query: FeedQuery): Promise<ActivityDto[]>
-  getPersonalizedFeed(playerId: string, clubIds: string[], query: FeedQuery): Promise<ActivityDto[]>
+  getPersonalizedFeed(playerId: string, clubIds: string[], query: FeedQuery, circlePlayerIds?: string[]): Promise<ActivityDto[]>
 }
 
 export function createActivityService(
@@ -89,14 +89,16 @@ export function createActivityService(
       return prioritized.map(toActivityDto)
     },
 
-    async getPersonalizedFeed(playerId, clubIds, query) {
+    async getPersonalizedFeed(playerId, clubIds, query, circlePlayerIds = []) {
       const followingRecords = await relationships.findFollowing(playerId, 1000, 0)
       const followingPlayerIds = followingRecords.map((r) => r.to_player_id)
 
       followingPlayerIds.push(playerId)
 
+      const allPlayerIds = [...new Set([...followingPlayerIds, ...circlePlayerIds])]
+
       const records = await activities.findFollowingFeed(
-        followingPlayerIds,
+        allPlayerIds,
         clubIds,
         query.limit,
         query.offset,
@@ -203,6 +205,24 @@ export function createActivityLogger(activities: ActivityRepository) {
       } catch {
         // Best-effort logging
       }
+    },
+
+    async logShoutout(
+      actorPlayerId: string,
+      message: string
+    ): Promise<void> {
+      try {
+        await activities.create({
+          actor_player_id: actorPlayerId,
+          activity_type: 'social.shoutout',
+          visibility: 'public',
+          metadata: { message }
+        })
+      } catch {
+        // Best-effort logging
+      }
     }
   }
 }
+
+export type ActivityLogger = ReturnType<typeof createActivityLogger>

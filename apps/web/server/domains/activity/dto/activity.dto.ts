@@ -7,6 +7,7 @@ export type ActivityType =
   | 'club.member_joined'
   | 'club.announcement'
   | 'social.started_following'
+  | 'social.shoutout'
 
 export type ActivityVisibility = 'public' | 'followers' | 'club' | 'private'
 

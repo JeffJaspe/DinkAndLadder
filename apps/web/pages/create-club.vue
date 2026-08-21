@@ -1,17 +1,40 @@
 <script setup lang="ts">
 import type { ClubDto } from '~/server/domains/club/dto/club.dto'
 
+const {
+  provinces,
+  cities,
+  barangays,
+  selectedProvince,
+  selectedCity,
+  selectedBarangay,
+  provinceName,
+  cityName,
+  barangayName,
+  loadingProvinces,
+  loadingCities,
+  loadingBarangays,
+  loadProvinces,
+  selectProvince,
+  selectCity,
+  selectBarangay
+} = useLocationPicker()
+
 const form = reactive({
   name: '',
   slug: '',
   description: '',
-  province: '',
-  city: '',
+  courtName: '',
+  courtAddress: '',
   visibility: 'public' as 'public' | 'private'
 })
 
 const saving = ref(false)
 const errorMessage = ref('')
+
+onMounted(() => {
+  loadProvinces()
+})
 
 function slugify(value: string) {
   return value
@@ -29,14 +52,18 @@ async function handleCreate() {
   errorMessage.value = ''
   saving.value = true
   try {
+    const finalSlug = form.slug.trim() || slugify(form.name)
     const response = await $fetch<{ data: ClubDto }>('/api/v1/clubs', {
       method: 'POST',
       body: {
         name: form.name,
-        slug: form.slug,
+        slug: finalSlug,
         description: form.description || null,
-        province: form.province || null,
-        city: form.city || null,
+        province: provinceName.value || null,
+        city: cityName.value || null,
+        barangay: barangayName.value || null,
+        court_name: form.courtName || null,
+        court_address: form.courtAddress || null,
         visibility: form.visibility
       }
     })
@@ -48,19 +75,6 @@ async function handleCreate() {
     saving.value = false
   }
 }
-
-const provinces = [
-  'Metro Manila',
-  'Cebu',
-  'Davao',
-  'Laguna',
-  'Cavite',
-  'Bulacan',
-  'Pampanga',
-  'Rizal',
-  'Batangas',
-  'Quezon'
-]
 </script>
 
 <template>
@@ -90,12 +104,11 @@ const provinces = [
               />
             </div>
             <div>
-              <label class="mb-1.5 block text-sm text-[#A6ABA7]">Club URL Slug</label>
+              <label class="mb-1.5 block text-sm text-[#A6ABA7]">Club URL Slug <span class="text-[#6B7B75]">(optional)</span></label>
               <input
                 v-model="form.slug"
                 type="text"
-                required
-                placeholder="my-club"
+                placeholder="Auto-generated from name if empty"
                 class="w-full rounded-lg border border-[#3A5750] bg-[#0B0D09] px-4 py-2.5 text-white placeholder-[#6B7B75] focus:border-[#4DB175] focus:outline-none"
               />
               <p class="mt-1 text-xs text-[#6B7B75]">Used in your club's URL</p>
@@ -115,23 +128,67 @@ const provinces = [
         <!-- Location -->
         <div class="rounded-xl bg-[#1E2E2A] p-5">
           <h2 class="mb-4 font-semibold text-white">Location</h2>
-          <div class="grid gap-4 sm:grid-cols-2">
-            <div>
-              <label class="mb-1.5 block text-sm text-[#A6ABA7]">Province</label>
-              <select
-                v-model="form.province"
-                class="w-full rounded-lg border border-[#3A5750] bg-[#0B0D09] px-4 py-2.5 text-white focus:border-[#4DB175] focus:outline-none"
-              >
-                <option value="">Select province</option>
-                <option v-for="p in provinces" :key="p" :value="p">{{ p }}</option>
-              </select>
+          <div class="space-y-4">
+            <div class="grid gap-4 sm:grid-cols-2">
+              <div>
+                <label class="mb-1.5 block text-sm text-[#A6ABA7]">Province</label>
+                <select
+                  :value="selectedProvince"
+                  :disabled="loadingProvinces"
+                  class="w-full rounded-lg border border-[#3A5750] bg-[#0B0D09] px-4 py-2.5 text-white focus:border-[#4DB175] focus:outline-none disabled:opacity-50"
+                  @change="(e) => selectProvince((e.target as HTMLSelectElement).value)"
+                >
+                  <option value="">{{ loadingProvinces ? 'Loading...' : 'Select province' }}</option>
+                  <option v-for="p in provinces" :key="p.code" :value="p.code">{{ p.name }}</option>
+                </select>
+              </div>
+              <div>
+                <label class="mb-1.5 block text-sm text-[#A6ABA7]">City / Municipality</label>
+                <select
+                  :value="selectedCity"
+                  :disabled="!selectedProvince || loadingCities"
+                  class="w-full rounded-lg border border-[#3A5750] bg-[#0B0D09] px-4 py-2.5 text-white focus:border-[#4DB175] focus:outline-none disabled:opacity-50"
+                  @change="(e) => selectCity((e.target as HTMLSelectElement).value)"
+                >
+                  <option value="">{{ loadingCities ? 'Loading...' : 'Select city/municipality' }}</option>
+                  <option v-for="c in cities" :key="c.code" :value="c.code">{{ c.name }}</option>
+                </select>
+              </div>
             </div>
             <div>
-              <label class="mb-1.5 block text-sm text-[#A6ABA7]">City</label>
+              <label class="mb-1.5 block text-sm text-[#A6ABA7]">Barangay <span class="text-[#6B7B75]">(optional)</span></label>
+              <select
+                :value="selectedBarangay"
+                :disabled="!selectedCity || loadingBarangays"
+                class="w-full rounded-lg border border-[#3A5750] bg-[#0B0D09] px-4 py-2.5 text-white focus:border-[#4DB175] focus:outline-none disabled:opacity-50"
+                @change="(e) => selectBarangay((e.target as HTMLSelectElement).value)"
+              >
+                <option value="">{{ loadingBarangays ? 'Loading...' : 'Select barangay (optional)' }}</option>
+                <option v-for="b in barangays" :key="b.code" :value="b.code">{{ b.name }}</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- Court Details (Optional) -->
+        <div class="rounded-xl bg-[#1E2E2A] p-5">
+          <h2 class="mb-4 font-semibold text-white">Court Details <span class="text-sm font-normal text-[#6B7B75]">(optional)</span></h2>
+          <div class="space-y-4">
+            <div>
+              <label class="mb-1.5 block text-sm text-[#A6ABA7]">Court Name</label>
               <input
-                v-model="form.city"
+                v-model="form.courtName"
                 type="text"
-                placeholder="Enter city"
+                placeholder="e.g., Main Court, Sports Complex"
+                class="w-full rounded-lg border border-[#3A5750] bg-[#0B0D09] px-4 py-2.5 text-white placeholder-[#6B7B75] focus:border-[#4DB175] focus:outline-none"
+              />
+            </div>
+            <div>
+              <label class="mb-1.5 block text-sm text-[#A6ABA7]">Court Address</label>
+              <input
+                v-model="form.courtAddress"
+                type="text"
+                placeholder="Full address of your home court"
                 class="w-full rounded-lg border border-[#3A5750] bg-[#0B0D09] px-4 py-2.5 text-white placeholder-[#6B7B75] focus:border-[#4DB175] focus:outline-none"
               />
             </div>

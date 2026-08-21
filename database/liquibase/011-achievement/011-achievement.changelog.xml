@@ -165,4 +165,22 @@
         </rollback>
     </changeSet>
 
+    <!-- 0007: Tournament placement achievements -->
+    <changeSet id="0007-tournament-placement-achievements" author="claude">
+        <sql>
+            INSERT INTO achievement_definitions (key, category, tier, name, description, icon, criteria, points) VALUES
+            ('tournament_winner', 'event', 'gold', 'Tournament Winner', 'Win first place in a tournament', '🥇', '{"type":"tournament_placement","placement":1}', 100),
+            ('tournament_runner_up', 'event', 'silver', 'Runner Up', 'Win second place in a tournament', '🥈', '{"type":"tournament_placement","placement":2}', 50),
+            ('tournament_third', 'event', 'bronze', 'Third Place', 'Win third place in a tournament', '🥉', '{"type":"tournament_placement","placement":3}', 25),
+            ('multi_champion', 'event', 'platinum', 'Multi-Champion', 'Win first place in 5 tournaments', '🏆', '{"type":"count","entity":"tournament_wins","threshold":5}', 200),
+            ('open_play_leader', 'event', 'gold', 'Open Play Leader', 'Top the leaderboard in an open play session', '📊', '{"type":"exists","entity":"open_play_leader"}', 50);
+        </sql>
+        <rollback>
+            DELETE FROM achievement_definitions WHERE key IN (
+                'tournament_winner', 'tournament_runner_up', 'tournament_third',
+                'multi_champion', 'open_play_leader'
+            );
+        </rollback>
+    </changeSet>
+
 </databaseChangeLog>

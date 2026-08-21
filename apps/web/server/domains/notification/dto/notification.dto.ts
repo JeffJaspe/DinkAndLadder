@@ -8,12 +8,17 @@ export type NotificationType =
   | 'match.rejected'
   | 'match.disputed'
   | 'rating.updated'
+  | 'partner.request_received'
+  | 'partner.request_accepted'
+  | 'partner.request_declined'
 
 export type NotificationReferenceType =
   | 'club_membership'
   | 'match'
   | 'match_verification'
   | 'player_rating'
+  | 'partner_request'
+  | 'partnership'
 
 export interface NotificationRecord {
   id: string

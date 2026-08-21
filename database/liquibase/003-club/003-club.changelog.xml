@@ -129,4 +129,16 @@
         </createIndex>
     </changeSet>
 
+    <changeSet id="0007-clubs-add-location-court-fields" author="claude">
+        <preConditions onFail="MARK_RAN">
+            <not><columnExists tableName="clubs" columnName="barangay"/></not>
+        </preConditions>
+        <addColumn tableName="clubs">
+            <column name="barangay" type="text"/>
+            <column name="court_name" type="varchar(255)"/>
+            <column name="court_address" type="text"/>
+        </addColumn>
+        <comment>Add barangay for more specific location, and court details for clubs</comment>
+    </changeSet>
+
 </databaseChangeLog>

@@ -31,7 +31,7 @@ const redirectAfter = computed(() =>
   typeof route.query.redirect === 'string' ? route.query.redirect : '/dashboard'
 )
 
-const step = ref<'type' | 'questionnaire' | 'result' | 'club'>('type')
+const step = ref<'loading' | 'type' | 'questionnaire' | 'result' | 'club'>('loading')
 const accountType = ref<'player' | 'club' | null>(null)
 const loading = ref(false)
 
@@ -68,14 +68,18 @@ onMounted(async () => {
       })
       if (ratings && !(ratings as { statusCode?: number }).statusCode && ratings.singles) {
         await navigateTo('/dashboard')
+        return
       } else {
         accountType.value = 'player'
         await loadQuestions()
+        return
       }
     }
   } catch {
     // No profile yet — fall through to the account-type chooser below.
   }
+  // Only show account type chooser after confirming user needs onboarding
+  step.value = 'type'
 })
 
 function selectAccountType(type: 'player' | 'club') {
@@ -441,8 +445,8 @@ const categoryLabel = (category: string) => {
         </div>
       </div>
 
-      <!-- Loading State -->
-      <div v-else-if="loading" class="flex items-center justify-center py-12">
+      <!-- Loading State (initial check or action in progress) -->
+      <div v-else-if="step === 'loading' || loading" class="flex items-center justify-center py-12">
         <div class="h-12 w-12 animate-spin rounded-full border-4 border-[#4DB175] border-t-transparent" />
       </div>
     </div>

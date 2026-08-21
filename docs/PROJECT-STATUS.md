@@ -1177,3 +1177,277 @@ since it's the same bug class in the same area; can fix on request.
 **Validated**: `typecheck`, `lint` (clean), `test:unit` (275/275 — the existing
 `player-profile.service.spec.ts` mocks the repository interface directly, so it wasn't
 affected by this repository-internal change). Not yet re-verified live.
+
+### Follow-up: player profile page was almost entirely mock data (2026-08-20)
+
+User report ("bug on matches display on players... it link on all players view... it
+should only be link on each player's match and events") turned out, after
+clarification, to mean: the Matches/Stats tabs and header stats row on
+`pages/players/[playerId].vue` showed the exact same hardcoded numbers and fake match
+list regardless of which player's profile you opened — "124 matches / 68% win rate /
+84-40 / 8 titles", three fictional opponents (Mark Cruz, Carl Villanueva, James Yu), a
+`Math.random()`-driven rating chart, hardcoded "Favorite Shot: Dink" / "Playing Style:
+Defensive Baseline", and three hardcoded activity-feed entries. None of it was wired to
+any backend data, even though the real endpoints already existed:
+
+- Header stats row + Stats tab → `GET /api/v1/players/{playerId}/stats`
+  (`PlayerStatsDto` — real total/singles/doubles matches, win rate, W-L, rating trend,
+  tournaments, achievements count). This endpoint already 403s for non-public profiles,
+  so it's safe to call for any player.
+- Rating History chart → `GET /api/v1/players/{playerId}/rating-history` (real
+  `rating_transactions`-derived points), replacing the random bars with real ones,
+  floored at 20% height so a flat/short history still reads as a chart.
+- Activity tab → `GET /api/v1/players/{playerId}/activities` (real `ActivityDto` rows),
+  with a small local icon/text formatter mirroring `feed.vue`'s but matching this DTO's
+  actual `ActivityType` union (`achievement.earned`, `club.member_joined`, etc. — not the
+  slightly different set `feed.vue` uses).
+- Overview tab's two info boxes → the profile's real `dominant_hand` /
+  `preferred_position` (already fetched, just unused), replacing the two invented
+  fields.
+
+**Matches tab is the one exception, deliberately**: `matches_select_participant` RLS
+(008-security.changelog.xml) restricts raw match rows to participants only — there is no
+public policy for browsing a *different* player's individual match history (only
+aggregate stats, via the RPC-backed stats endpoint above, are exposed publicly). Inventing
+that policy wasn't this fix's call to make (see CLAUDE.md §7 on unresolved business
+rules), so the Matches tab now shows real data only for `isOwnProfile` (via the existing
+`/api/v1/players/me/matches`) and an honest "Match history is only visible to the player
+themselves" message otherwise — replacing fake data with nothing, rather than fake data
+with a fabricated privacy policy.
+
+**Validated**: `typecheck`, `lint` (clean), `test:unit` (275/275). Not yet re-verified
+live.
+
+---
+
+## Platform Enhancement Phase 1 Bug Fixes (2026-08-20)
+
+### Completed Fixes
+
+1. **Club membership display bug** — `pages/dashboard.vue` "My Clubs" section was showing
+   pending memberships as if the user was already a member. Fixed by filtering to only
+   `status === 'active'` memberships. Pending memberships continue to appear in the
+   "Pending Actions" section as designed.
+
+2. **Landing page flash when logged in** — visiting `/` while authenticated briefly showed
+   the public landing page before redirecting. Fixed by moving the redirect from `onMounted`
+   to synchronous setup code (`if (user.value) await navigateTo('/dashboard', { replace: true })`).
+
+3. **Club URL slug made optional** — `pages/create-club.vue` previously required the slug
+   field. Now auto-generates from club name if not provided.
+
+4. **Shout-out system updated** per new requirements:
+   - **Cannot delete** — `DELETE /api/v1/players/me/shoutout` now returns 400 explaining
+     shout-outs cannot be deleted (they expire automatically)
+   - **24-hour expiration** — automatically set on create/edit
+   - **Edit resets expiration** — `PUT /api/v1/players/me/shoutout` updates message and
+     resets the 24hr timer
+   - **Sorted by updated_at** — feed shows recently edited shout-outs first
+   - **Database schema** — added `updated_at` column to `player_shoutouts` table
+   - **UI** — removed delete button from Kitchen, added expiration countdown display
+
+5. **Activity logging verified** — was already implemented in
+   `POST /api/v1/matches/[matchId]/verification/decision.post.ts`:
+   - `logMatchVerified()` called for all participants when match status becomes `verified`
+   - `logRatingChanged()` called for each player after rating calculation
+   - `rating.updated` notifications sent to affected players
+
+### Files Changed
+
+- `apps/web/pages/dashboard.vue` — filter active clubs, shout-out edit UI
+- `apps/web/pages/index.vue` — synchronous redirect for logged-in users
+- `apps/web/pages/create-club.vue` — optional slug field
+- `apps/web/server/domains/shoutout/dto/shoutout.dto.ts` — added updated_at
+- `apps/web/server/domains/shoutout/repositories/shoutout.repository.ts` — update method, expiration filter
+- `apps/web/server/domains/shoutout/services/shoutout.service.ts` — 24hr expiration, no delete
+- `apps/web/server/api/v1/players/me/shoutout.put.ts` — NEW: edit endpoint
+- `apps/web/server/api/v1/players/me/shoutout.delete.ts` — now returns error
+- `database/liquibase/020-shoutout/020-shoutout.changelog.xml` — added updated_at column
+
+### Migrations NOT YET APPLIED
+
+The `020-shoutouts-add-updated-at` changeset needs to be applied via Liquibase.
+
+---
+
+## Badge Showcase System (2026-08-21)
+
+### Implemented
+
+Added badge showcase system per Phase 7 of the platform enhancement plan. Players can
+select one badge to prominently display on their profile.
+
+### Database
+
+- `database/liquibase/021-badges/021-badges.changelog.xml` — NEW:
+  - `player_badge_showcase` table (`player_id` PK, `selected_badge_id` varchar(50), `updated_at`)
+  - RLS policies: public read, owner insert/update
+  - Registered in `db.changelog-master.xml`
+
+### Domain
+
+- `apps/web/server/domains/badge/` — NEW domain:
+  - `dto/badge.dto.ts` — `BadgeShowcaseRecord`, `BadgeShowcaseDto`, `BadgeDefinition`,
+    `AVAILABLE_BADGES` (10 placeholder badges based on achievement keys: tournament_winner,
+    match_master, club_founder, etc.)
+  - `repositories/badge.repository.ts` — `findByPlayerId`, `upsert`
+  - `services/badge.service.ts` — `getShowcase`, `setSelectedBadge`, `getAvailableBadges`
+
+### API Endpoints
+
+- `GET /api/v1/players/me/badge` — get own showcase + available badges
+- `PUT /api/v1/players/me/badge` — set selected badge (or null to clear)
+- `GET /api/v1/players/{playerId}/badge` — get any player's selected badge (for profile display)
+
+### UI
+
+- `pages/dashboard.vue` (Kitchen):
+  - Added "My Badge" section with current badge display
+  - Badge selector shows all available badges
+  - Select/change/remove badge functionality
+  
+- `pages/players/[playerId].vue`:
+  - Badge icon displays next to player name in header
+  - Tooltip shows badge name on hover
+
+### Tests
+
+All existing tests pass. Total: 275 unit tests, 22 e2e tests.
+
+### Validated
+
+`typecheck` (clean), `lint` (no new violations), `test:unit` (275/275), `build` (clean).
+
+### Migration NOT YET APPLIED
+
+The `021-badges` changelog needs to be applied via Liquibase (`liquibase update` from
+`database/liquibase/`).
+
+### Remaining Phase 7 Work
+
+- [ ] Link badges to actual achievements (earn badge when achievement unlocked)
+- [ ] Achievement-based badge eligibility (only show badges you've earned)
+- [ ] Additional badge designs beyond placeholders
+
+---
+
+## Feed Scope Enhancement (2026-08-21)
+
+### Implemented
+
+Updated feed to include activity from "circle" (partners and opponents from match history)
+per the user's specified scope:
+- All activity for verified clubs (already implemented via prioritization)
+- Activity from your clubs and their members (already implemented)
+- Activity from your circle (partners and opponents) — NEW
+
+### Files Changed
+
+- `apps/web/server/api/v1/feed/index.get.ts`:
+  - Added `getCirclePlayerIds()` function to extract all partners/opponents from
+    `match_participants` table
+  - Pass circle player IDs to `getPersonalizedFeed()`
+
+- `apps/web/server/domains/activity/services/activity.service.ts`:
+  - Added optional `circlePlayerIds` parameter to `getPersonalizedFeed()`
+  - Merge circle player IDs with following player IDs for feed query
+
+### Tests
+
+All existing activity service tests pass (10/10).
+
+### Validated
+
+`typecheck` (clean), `test:unit` activity.service.spec.ts (10/10).
+
+---
+
+## Phase 5 (Kitchen + Shout-outs) Verification (2026-08-21)
+
+Phase 5 was already fully implemented in an earlier session. Verified all components are present:
+
+### Shout-out System
+- **Database**: `020-shoutout` changelog with `player_shoutouts` table
+- **Domain**: `apps/web/server/domains/shoutout/` (dto, repository, service)
+- **API Endpoints**:
+  - `GET /api/v1/players/me/shoutout` — get active shout-out
+  - `POST /api/v1/players/me/shoutout` — create (24hr expiration)
+  - `PUT /api/v1/players/me/shoutout` — edit (resets 24hr timer)
+  - `DELETE /api/v1/players/me/shoutout` — returns 400 (cannot delete)
+- **Features**:
+  - 24-hour auto-expiration (`expires_at`)
+  - Edit resets expiration timer (`updated_at` updated)
+  - Sorted by `updated_at` descending in feed
+  - Activity logging via `logShoutout()`
+
+### Kitchen (Dashboard)
+- Shout-out section with create/edit UI
+- Expiration countdown display
+- Quick-fill examples for new users
+- No delete button (per requirements)
+
+### Feed Display
+- Added `social.shoutout` to activity icons (📣)
+- Added shout-out text formatting: `shouts: "message"`
+
+### Files Verified
+- `server/domains/shoutout/services/shoutout.service.ts` — 24hr expiration, no delete
+- `server/domains/shoutout/repositories/shoutout.repository.ts` — `updated_at` sorting
+- `pages/dashboard.vue` — shout-out section UI
+- `pages/feed.vue` — shout-out display in feed
+
+---
+
+## Phase 8: Tournament Bracket Formats (2026-08-21)
+
+### Implemented
+
+Added bracket generation for all tournament formats:
+
+1. **Single Elimination** (already existed)
+   - Standard knockout bracket
+   - Byes for non-power-of-2 counts
+
+2. **Double Elimination** — NEW
+   - Winners bracket (rounds 1-N)
+   - Losers bracket (rounds 100+)
+   - Grand final (round 200)
+
+3. **Round Robin** — NEW
+   - Everyone plays everyone once
+   - Circle algorithm for scheduling
+   - All matches marked as 'ready'
+
+4. **Pool Play** — NEW
+   - Participants divided into pools
+   - Round robin within each pool (rounds 10+)
+   - Playoff bracket for top finishers (rounds 50+)
+
+### Files Changed
+
+- `apps/web/server/domains/event/services/bracket.service.ts`:
+  - `generateBracket()` now switches on tournament format
+  - Added `generateDoubleEliminationBracket()`
+  - Added `generateRoundRobinBracket()`
+  - Added `generatePoolPlayBracket()`
+
+### Tests
+
+- `tests/unit/bracket.service.spec.ts`: 3 new tests for each format
+- Total: **278 unit tests**, all passing
+
+### Bracket Round Encoding
+
+- Single Elimination: rounds 1, 2, 3... (finals = highest round)
+- Double Elimination:
+  - Winners bracket: rounds 1-N
+  - Losers bracket: rounds 101, 102, 103...
+  - Grand final: round 200
+- Round Robin: rounds 1, 2, 3... (one per scheduling round)
+- Pool Play:
+  - Pool matches: rounds 11, 12, 13... (one per pool)
+  - Playoffs: rounds 51, 52, 53...
+
+### Validated
+
+`typecheck` (clean), `test:unit` bracket.service.spec.ts (13/13), full suite (278/278).

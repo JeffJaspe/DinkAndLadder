@@ -38,6 +38,8 @@ const notAMember = ref(false)
 const joinMessage = ref('')
 const joinError = ref('')
 const joining = ref(false)
+const hasPendingRequest = ref(false)
+const membershipStatus = ref<string | null>(null)
 
 const announcements = ref<AnnouncementDto[]>([])
 const clubRankings = ref<ClubRankingEntry[]>([])
@@ -55,6 +57,19 @@ async function loadRoster() {
   } catch {
     roster.value = null
     notAMember.value = true
+  }
+}
+
+async function checkPendingRequest() {
+  try {
+    const response = await $fetch<{ pending: boolean; status: string | null }>(
+      `/api/v1/clubs/${clubId.value}/membership-requests`
+    )
+    hasPendingRequest.value = response.pending
+    membershipStatus.value = response.status
+  } catch {
+    hasPendingRequest.value = false
+    membershipStatus.value = null
   }
 }
 
@@ -120,6 +135,7 @@ onMounted(() => {
   loadClubRankings()
   loadClubMatches()
   loadClubEvents()
+  checkPendingRequest()
 })
 
 function formatScore(scores: ClubMatchSummary['scores']): string {
@@ -244,6 +260,14 @@ const publishedAnnouncements = computed(() =>
 const draftAnnouncements = computed(() =>
   announcements.value.filter(a => a.status === 'draft')
 )
+
+// Split roster into pending requests and active members for admin view
+const pendingRequests = computed(() =>
+  roster.value?.filter((m) => m.status === 'pending') ?? []
+)
+const activeMembers = computed(() =>
+  roster.value?.filter((m) => m.status === 'active') ?? []
+)
 </script>
 
 <template>
@@ -283,13 +307,29 @@ const draftAnnouncements = computed(() =>
               <div class="flex items-center gap-2">
                 <h1 class="text-2xl font-bold text-white">{{ club.name }}</h1>
                 <VerifiedBadge v-if="club.verification_status === 'verified'" />
+                <span
+                  v-if="club.visibility === 'private'"
+                  class="rounded-full bg-[#6B7B75]/20 px-2 py-0.5 text-xs font-medium text-[#6B7B75]"
+                >
+                  Private Club
+                </span>
               </div>
-              <p v-if="club.city || club.province" class="mt-1 text-[#6B7B75]">
-                {{ [club.city, club.province].filter(Boolean).join(', ') }}
+              <p v-if="club.city || club.province || club.barangay" class="mt-1 text-[#6B7B75]">
+                {{ [club.barangay, club.city, club.province].filter(Boolean).join(', ') }}
               </p>
               <p v-if="club.description" class="mt-3 text-[#A6ABA7]">
                 {{ club.description }}
               </p>
+
+              <!-- Court Details -->
+              <div v-if="club.court_name || club.court_address" class="mt-3 rounded-lg bg-[#0B0D09] p-3">
+                <p v-if="club.court_name" class="text-sm font-medium text-white">
+                  🏸 {{ club.court_name }}
+                </p>
+                <p v-if="club.court_address" class="mt-1 text-xs text-[#6B7B75]">
+                  📍 {{ club.court_address }}
+                </p>
+              </div>
 
               <!-- Verification status/action, owner only -->
               <div v-if="isOwner" class="mt-3">
@@ -563,17 +603,44 @@ const draftAnnouncements = computed(() =>
 
         <!-- Join CTA (Non-Members) -->
         <div v-if="notAMember" class="mb-6 rounded-xl bg-[#1E2E2A] p-6 text-center">
-          <h2 class="font-semibold text-white">Join This Club</h2>
-          <p class="mt-1 text-[#6B7B75]">Request membership to see member roster and announcements</p>
+          <h2 class="font-semibold text-white">
+            {{ club.visibility === 'private' ? 'Private Club' : 'Join This Club' }}
+          </h2>
+          <p class="mt-1 text-[#6B7B75]">
+            {{ club.visibility === 'private'
+              ? 'This is a private club. Request membership to access full details.'
+              : 'Request membership to see member roster and announcements' }}
+          </p>
+
+          <!-- Already has pending request -->
           <div
-            v-if="joinMessage"
+            v-if="hasPendingRequest"
+            class="mt-4 rounded-lg bg-amber-500/10 p-3 text-amber-400 ring-1 ring-amber-500/30"
+          >
+            Your membership request is pending approval.
+          </div>
+
+          <!-- Request was rejected -->
+          <div
+            v-else-if="membershipStatus === 'rejected'"
+            class="mt-4 rounded-lg bg-red-500/10 p-3 text-red-400 ring-1 ring-red-500/30"
+          >
+            Your membership request was declined. You may request again.
+          </div>
+
+          <!-- Success message after requesting -->
+          <div
+            v-else-if="joinMessage"
             class="mt-4 rounded-lg bg-[#4DB175]/10 p-3 text-[#4DB175] ring-1 ring-[#4DB175]/30"
           >
             {{ joinMessage }}
           </div>
+
           <p v-if="joinError" class="mt-4 text-sm text-red-400">{{ joinError }}</p>
+
+          <!-- Show join button only if no pending request and not just submitted -->
           <button
-            v-if="!joinMessage"
+            v-if="!hasPendingRequest && !joinMessage"
             :disabled="joining"
             class="mt-4 rounded-lg bg-[#4DB175] px-6 py-2.5 font-medium text-white hover:bg-[#5FC287] disabled:opacity-50"
             @click="handleJoin"
@@ -582,12 +649,58 @@ const draftAnnouncements = computed(() =>
           </button>
         </div>
 
-        <!-- Members List -->
-        <div v-else-if="roster" class="mb-6 rounded-xl bg-[#1E2E2A] p-5">
-          <h2 class="mb-4 font-semibold text-white">Members ({{ roster.length }})</h2>
+        <!-- Pending Requests Section (Admins Only) -->
+        <div
+          v-if="roster && isAdmin && pendingRequests.length > 0"
+          class="mb-6 rounded-xl bg-amber-500/10 p-5 ring-1 ring-amber-500/30"
+        >
+          <h2 class="mb-4 flex items-center gap-2 font-semibold text-amber-400">
+            <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            Pending Requests ({{ pendingRequests.length }})
+          </h2>
           <div class="space-y-2">
             <div
-              v-for="member in roster"
+              v-for="member in pendingRequests"
+              :key="member.id"
+              class="flex items-center justify-between rounded-lg bg-[#0B0D09] p-3"
+            >
+              <div class="flex items-center gap-3">
+                <div class="flex h-8 w-8 items-center justify-center rounded-full bg-[#2E4540] text-sm font-bold text-[#A6ABA7]">
+                  {{ member.display_name.charAt(0).toUpperCase() }}
+                </div>
+                <NuxtLink
+                  :to="`/players/${member.player_id}`"
+                  class="font-medium text-white hover:text-[#4DB175]"
+                >
+                  {{ member.display_name }}
+                </NuxtLink>
+              </div>
+              <div class="flex gap-2">
+                <button
+                  class="rounded-lg bg-[#4DB175] px-3 py-1 text-xs font-medium text-white hover:bg-[#5FC287]"
+                  @click="updateMember(member.player_id, { status: 'active' })"
+                >
+                  Approve
+                </button>
+                <button
+                  class="rounded-lg border border-red-400 px-3 py-1 text-xs font-medium text-red-400 hover:bg-red-400/10"
+                  @click="updateMember(member.player_id, { status: 'rejected' })"
+                >
+                  Reject
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Members List (Active Members Only) -->
+        <div v-if="roster" class="mb-6 rounded-xl bg-[#1E2E2A] p-5">
+          <h2 class="mb-4 font-semibold text-white">Members ({{ activeMembers.length }})</h2>
+          <div class="space-y-2">
+            <div
+              v-for="member in activeMembers"
               :key="member.id"
               class="flex items-center justify-between rounded-lg bg-[#0B0D09] p-3"
             >
@@ -610,22 +723,7 @@ const draftAnnouncements = computed(() =>
               </div>
 
               <div v-if="isAdmin && member.role !== 'OWNER' && member.player_id !== myProfile?.id" class="flex gap-2">
-                <template v-if="member.status === 'pending'">
-                  <button
-                    class="rounded-lg bg-[#4DB175] px-3 py-1 text-xs font-medium text-white hover:bg-[#5FC287]"
-                    @click="updateMember(member.player_id, { status: 'active' })"
-                  >
-                    Approve
-                  </button>
-                  <button
-                    class="rounded-lg border border-red-400 px-3 py-1 text-xs font-medium text-red-400 hover:bg-red-400/10"
-                    @click="updateMember(member.player_id, { status: 'rejected' })"
-                  >
-                    Reject
-                  </button>
-                </template>
                 <button
-                  v-if="member.status === 'active'"
                   class="rounded-lg border border-red-400 px-3 py-1 text-xs font-medium text-red-400 hover:bg-red-400/10"
                   @click="updateMember(member.player_id, { status: 'left' })"
                 >

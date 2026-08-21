@@ -2,7 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { ClubRecord, ClubSearchQuery, ClubVerificationStatus, CreateClubInput } from '../dto/club.dto'
 
 const CLUB_COLUMNS =
-  'id, name, slug, description, province, city, visibility, status, created_by_user_id, created_at, ' +
+  'id, name, slug, description, province, city, barangay, court_name, court_address, visibility, status, created_by_user_id, created_at, ' +
   'verification_status, verification_requested_at, verified_at, verified_by_user_id'
 
 export interface UpdateClubInput {
@@ -10,6 +10,9 @@ export interface UpdateClubInput {
   description?: string | null
   province?: string | null
   city?: string | null
+  barangay?: string | null
+  court_name?: string | null
+  court_address?: string | null
   visibility?: 'public' | 'private'
 }
 

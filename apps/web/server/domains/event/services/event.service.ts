@@ -94,6 +94,25 @@ export function createEventService(
   return {
     async createEvent(playerId, input) {
       await assertClubAdmin(playerId, input.club_id)
+
+      // Default registration_closes to start_date with time set to start of day
+      if (!input.registration_closes && input.start_date) {
+        input.registration_closes = `${input.start_date}T00:00:00.000Z`
+      }
+
+      // Validate registration_closes is not after start_date
+      if (input.registration_closes && input.start_date) {
+        const closesAt = new Date(input.registration_closes)
+        const startsAt = new Date(input.start_date)
+        if (closesAt > startsAt) {
+          throw new EventServiceError(
+            400,
+            'VALIDATION_ERROR',
+            'Registration close date cannot be after the event start date.'
+          )
+        }
+      }
+
       const event = await events.create(input, playerId)
       return toEventDto(event)
     },
@@ -104,7 +123,21 @@ export function createEventService(
     },
 
     async updateEvent(playerId, eventId, input) {
-      await assertEventOrganizer(playerId, eventId)
+      const existingEvent = await assertEventOrganizer(playerId, eventId)
+
+      // Validate registration_closes is not after start_date
+      const closesAt = input.registration_closes ?? existingEvent.registration_closes
+      const startsAt = input.start_date ?? existingEvent.start_date
+      if (closesAt && startsAt) {
+        if (new Date(closesAt) > new Date(startsAt)) {
+          throw new EventServiceError(
+            400,
+            'VALIDATION_ERROR',
+            'Registration close date cannot be after the event start date.'
+          )
+        }
+      }
+
       const event = await events.update(eventId, input)
       return toEventDto(event)
     },
@@ -173,6 +206,19 @@ export function createEventService(
           'REGISTRATION_CLOSED',
           'Registration for this tournament is not open.'
         )
+      }
+
+      // Check event-level registration deadline
+      const event = await events.findById(tournament.event_id)
+      if (event?.registration_closes) {
+        const closesAt = new Date(event.registration_closes)
+        if (new Date() > closesAt) {
+          throw new EventServiceError(
+            409,
+            'REGISTRATION_CLOSED',
+            'Registration for this event has closed.'
+          )
+        }
       }
 
       const existing = await registrations.findByTournamentAndPlayer(tournamentId, playerId)

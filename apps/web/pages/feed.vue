@@ -2,9 +2,9 @@
 interface Activity {
   id: string
   activity_type: string
-  actor_player_id: string
-  actor_display_name: string
-  payload: Record<string, unknown>
+  actor_player_id: string | null
+  actor_display_name?: string
+  metadata: Record<string, unknown> | null
   created_at: string
 }
 
@@ -17,6 +17,7 @@ function getActivityIcon(type: string): string {
     case 'match.verified': return '🎯'
     case 'rating.changed': return '📈'
     case 'social.started_following': return '👤'
+    case 'social.shoutout': return '📣'
     case 'achievement.unlocked': return '🏆'
     case 'club.joined': return '🏸'
     case 'tournament.registered': return '🎪'
@@ -25,20 +26,22 @@ function getActivityIcon(type: string): string {
 }
 
 function formatActivityText(activity: Activity): string {
-  const payload = activity.payload as Record<string, string>
+  const meta = (activity.metadata ?? {}) as Record<string, string>
   switch (activity.activity_type) {
     case 'match.verified':
-      return `played a match (${payload.match_type})`
+      return `played a match (${meta.match_type ?? 'singles'})`
     case 'rating.changed':
-      return `rating updated to ${payload.new_rating} (${payload.rating_type})`
+      return `rating updated to ${meta.new_rating ?? '?'} (${meta.rating_type ?? 'singles'})`
     case 'social.started_following':
-      return `started following ${payload.target_display_name}`
+      return `started following ${meta.target_display_name ?? 'someone'}`
+    case 'social.shoutout':
+      return meta.message ? `shouts: "${meta.message}"` : 'posted a shout-out'
     case 'achievement.unlocked':
-      return `unlocked achievement: ${payload.achievement_name}`
+      return `unlocked achievement: ${meta.achievement_name ?? 'New Achievement'}`
     case 'club.joined':
-      return `joined club ${payload.club_name}`
+      return `joined club ${meta.club_name ?? ''}`
     case 'tournament.registered':
-      return `registered for ${payload.tournament_name}`
+      return `registered for ${meta.tournament_name ?? 'a tournament'}`
     default:
       return activity.activity_type.replace('.', ' ')
   }
@@ -124,6 +127,7 @@ function formatTime(dateStr: string): string {
                 >
                   {{ activity.actor_display_name }}
                 </NuxtLink>
+                {{ ' ' }}
                 <span class="text-[#A6ABA7]">
                   {{ formatActivityText(activity) }}
                 </span>

@@ -9,6 +9,9 @@ export interface ClubRecord {
   description: string | null
   province: string | null
   city: string | null
+  barangay: string | null
+  court_name: string | null
+  court_address: string | null
   visibility: ClubVisibility
   status: ClubStatus
   created_by_user_id: string
@@ -26,6 +29,9 @@ export interface ClubDto {
   description: string | null
   province: string | null
   city: string | null
+  barangay: string | null
+  court_name: string | null
+  court_address: string | null
   visibility: ClubVisibility
   status: ClubStatus
   created_at: string
@@ -40,6 +46,9 @@ export interface CreateClubInput {
   description?: string | null
   province?: string | null
   city?: string | null
+  barangay?: string | null
+  court_name?: string | null
+  court_address?: string | null
   visibility?: ClubVisibility
 }
 
@@ -51,6 +60,9 @@ export function toClubDto(club: ClubRecord): ClubDto {
     description: club.description,
     province: club.province,
     city: club.city,
+    barangay: club.barangay,
+    court_name: club.court_name,
+    court_address: club.court_address,
     visibility: club.visibility,
     status: club.status,
     created_at: club.created_at,

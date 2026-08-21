@@ -358,6 +358,112 @@ describe('BracketService', () => {
         service.generateBracket('player-1', 'tournament-1', 'cat-novice')
       ).rejects.toThrow(BracketServiceError)
     })
+
+    it('generates double elimination bracket with winners and losers brackets', async () => {
+      const event = makeEventRecord()
+      const tournament = makeTournamentRecord({ status: 'open', format: 'double_elimination' })
+      const registrations = [
+        makeRegistrationRecord('reg-1', 'player-1'),
+        makeRegistrationRecord('reg-2', 'player-2'),
+        makeRegistrationRecord('reg-3', 'player-3'),
+        makeRegistrationRecord('reg-4', 'player-4')
+      ]
+
+      const createdMatches: BracketMatchRecord[] = []
+      const bracketRepo = createFakeBracketRepository({
+        createMany: vi.fn().mockImplementation((matches) => {
+          const result = matches.map((m: BracketMatchRecord, i: number) => ({ ...m, id: `bm-${i + 1}`, created_at: '2026-08-01T00:00:00Z' }))
+          createdMatches.push(...result)
+          return Promise.resolve(result)
+        })
+      })
+      const tournamentRepo = createFakeTournamentRepository({ findById: vi.fn().mockResolvedValue(tournament) })
+      const registrationRepo = createFakeRegistrationRepository({
+        findByTournamentId: vi.fn().mockResolvedValue(registrations)
+      })
+      const eventRepo = createFakeEventRepository({ findById: vi.fn().mockResolvedValue(event) })
+
+      const service = createBracketService(bracketRepo, tournamentRepo, registrationRepo, eventRepo)
+      await service.generateBracket('player-1', 'tournament-1')
+
+      const winnersMatches = createdMatches.filter(m => m.round < 100)
+      const losersMatches = createdMatches.filter(m => m.round >= 100 && m.round < 200)
+      const grandFinal = createdMatches.filter(m => m.round === 200)
+
+      expect(winnersMatches.length).toBeGreaterThan(0)
+      expect(losersMatches.length).toBeGreaterThan(0)
+      expect(grandFinal).toHaveLength(1)
+    })
+
+    it('generates round robin bracket where everyone plays everyone', async () => {
+      const event = makeEventRecord()
+      const tournament = makeTournamentRecord({ status: 'open', format: 'round_robin' })
+      const registrations = [
+        makeRegistrationRecord('reg-1', 'player-1'),
+        makeRegistrationRecord('reg-2', 'player-2'),
+        makeRegistrationRecord('reg-3', 'player-3'),
+        makeRegistrationRecord('reg-4', 'player-4')
+      ]
+
+      const createdMatches: BracketMatchRecord[] = []
+      const bracketRepo = createFakeBracketRepository({
+        createMany: vi.fn().mockImplementation((matches) => {
+          const result = matches.map((m: BracketMatchRecord, i: number) => ({ ...m, id: `bm-${i + 1}`, created_at: '2026-08-01T00:00:00Z' }))
+          createdMatches.push(...result)
+          return Promise.resolve(result)
+        })
+      })
+      const tournamentRepo = createFakeTournamentRepository({ findById: vi.fn().mockResolvedValue(tournament) })
+      const registrationRepo = createFakeRegistrationRepository({
+        findByTournamentId: vi.fn().mockResolvedValue(registrations)
+      })
+      const eventRepo = createFakeEventRepository({ findById: vi.fn().mockResolvedValue(event) })
+
+      const service = createBracketService(bracketRepo, tournamentRepo, registrationRepo, eventRepo)
+      await service.generateBracket('player-1', 'tournament-1')
+
+      // 4 players: each plays 3 others = 4*3/2 = 6 matches
+      expect(createdMatches).toHaveLength(6)
+
+      // All matches should have both participants assigned (ready status)
+      expect(createdMatches.every(m => m.status === 'ready')).toBe(true)
+      expect(createdMatches.every(m => m.participant1_registration_id && m.participant2_registration_id)).toBe(true)
+    })
+
+    it('generates pool play bracket with pools and playoffs', async () => {
+      const event = makeEventRecord()
+      const tournament = makeTournamentRecord({ status: 'open', format: 'pool_play' })
+      const registrations = Array.from({ length: 8 }, (_, i) =>
+        makeRegistrationRecord(`reg-${i + 1}`, `player-${i + 1}`)
+      )
+
+      const createdMatches: BracketMatchRecord[] = []
+      const bracketRepo = createFakeBracketRepository({
+        createMany: vi.fn().mockImplementation((matches) => {
+          const result = matches.map((m: BracketMatchRecord, i: number) => ({ ...m, id: `bm-${i + 1}`, created_at: '2026-08-01T00:00:00Z' }))
+          createdMatches.push(...result)
+          return Promise.resolve(result)
+        })
+      })
+      const tournamentRepo = createFakeTournamentRepository({ findById: vi.fn().mockResolvedValue(tournament) })
+      const registrationRepo = createFakeRegistrationRepository({
+        findByTournamentId: vi.fn().mockResolvedValue(registrations)
+      })
+      const eventRepo = createFakeEventRepository({ findById: vi.fn().mockResolvedValue(event) })
+
+      const service = createBracketService(bracketRepo, tournamentRepo, registrationRepo, eventRepo)
+      await service.generateBracket('player-1', 'tournament-1')
+
+      // Pool matches (rounds 10-19) and playoff matches (rounds 50+)
+      const poolMatches = createdMatches.filter(m => m.round >= 10 && m.round < 50)
+      const playoffMatches = createdMatches.filter(m => m.round >= 50)
+
+      expect(poolMatches.length).toBeGreaterThan(0)
+      expect(playoffMatches.length).toBeGreaterThan(0)
+
+      // Pool matches should have participants assigned
+      expect(poolMatches.every(m => m.participant1_registration_id && m.participant2_registration_id)).toBe(true)
+    })
   })
 
   describe('updateBracketMatch', () => {

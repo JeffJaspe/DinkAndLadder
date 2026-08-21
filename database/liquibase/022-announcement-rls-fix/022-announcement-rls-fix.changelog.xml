@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <!-- ═══════════════════════════════════════════════════════════════════════
+         022-announcement-rls-fix: Add INSERT/UPDATE/DELETE policies for club admins
+         ═══════════════════════════════════════════════════════════════════════ -->
+
+    <!-- Add INSERT policy for club admins (OWNER, ADMIN, MODERATOR) -->
+    <changeSet id="022-announcements-insert-policy" author="claude">
+        <sql>
+            CREATE POLICY announcements_insert_admin ON club_announcements
+                FOR INSERT
+                WITH CHECK (
+                    EXISTS (
+                        SELECT 1 FROM club_memberships cm
+                        JOIN player_profiles pp ON pp.id = cm.player_id
+                        WHERE cm.club_id = club_announcements.club_id
+                          AND pp.user_id = auth.uid()
+                          AND cm.status = 'active'
+                          AND cm.role IN ('OWNER', 'ADMIN', 'MODERATOR')
+                    )
+                    AND author_player_id IN (SELECT id FROM player_profiles WHERE user_id = auth.uid())
+                );
+        </sql>
+        <rollback>
+            DROP POLICY IF EXISTS announcements_insert_admin ON club_announcements;
+        </rollback>
+    </changeSet>
+
+    <!-- Add UPDATE policy for club admins -->
+    <changeSet id="022-announcements-update-policy" author="claude">
+        <sql>
+            CREATE POLICY announcements_update_admin ON club_announcements
+                FOR UPDATE
+                USING (
+                    EXISTS (
+                        SELECT 1 FROM club_memberships cm
+                        JOIN player_profiles pp ON pp.id = cm.player_id
+                        WHERE cm.club_id = club_announcements.club_id
+                          AND pp.user_id = auth.uid()
+                          AND cm.status = 'active'
+                          AND cm.role IN ('OWNER', 'ADMIN', 'MODERATOR')
+                    )
+                )
+                WITH CHECK (
+                    EXISTS (
+                        SELECT 1 FROM club_memberships cm
+                        JOIN player_profiles pp ON pp.id = cm.player_id
+                        WHERE cm.club_id = club_announcements.club_id
+                          AND pp.user_id = auth.uid()
+                          AND cm.status = 'active'
+                          AND cm.role IN ('OWNER', 'ADMIN', 'MODERATOR')
+                    )
+                );
+        </sql>
+        <rollback>
+            DROP POLICY IF EXISTS announcements_update_admin ON club_announcements;
+        </rollback>
+    </changeSet>
+
+    <!-- Add DELETE policy for club admins -->
+    <changeSet id="022-announcements-delete-policy" author="claude">
+        <sql>
+            CREATE POLICY announcements_delete_admin ON club_announcements
+                FOR DELETE
+                USING (
+                    EXISTS (
+                        SELECT 1 FROM club_memberships cm
+                        JOIN player_profiles pp ON pp.id = cm.player_id
+                        WHERE cm.club_id = club_announcements.club_id
+                          AND pp.user_id = auth.uid()
+                          AND cm.status = 'active'
+                          AND cm.role IN ('OWNER', 'ADMIN')
+                    )
+                );
+        </sql>
+        <rollback>
+            DROP POLICY IF EXISTS announcements_delete_admin ON club_announcements;
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

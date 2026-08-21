@@ -1,8 +1,10 @@
-import { serverSupabaseClient, serverSupabaseUser } from '#supabase/server'
+import { serverSupabaseClient, serverSupabaseServiceRole, serverSupabaseUser } from '#supabase/server'
 import { createClubMembershipRepository } from '~/server/domains/club/repositories/club-membership.repository'
 import { createClubRepository } from '~/server/domains/club/repositories/club.repository'
 import { createClubService, ClubServiceError } from '~/server/domains/club/services/club.service'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
+import { createNotificationRepository } from '~/server/domains/notification/repositories/notification.repository'
+import { createNotificationService } from '~/server/domains/notification/services/notification.service'
 import { apiError } from '~/server/utils/api-error'
 
 /**
@@ -37,6 +39,45 @@ export default defineEventHandler(async (event) => {
 
   try {
     const membership = await service.requestToJoin(clubId, playerProfile.id)
+
+    // Notify club admins about the new membership request (best-effort)
+    const serviceClient = serverSupabaseServiceRole(event)
+    const clubRepo = createClubRepository(serviceClient)
+    const membershipRepo = createClubMembershipRepository(serviceClient)
+    const playerRepo = createPlayerProfileRepository(serviceClient)
+    const notificationService = createNotificationService(
+      createNotificationRepository(serviceClient)
+    )
+
+    const club = await clubRepo.findById(clubId)
+    if (club) {
+      // Get all active admins (OWNER and ADMIN roles)
+      const roster = await membershipRepo.listByClub(clubId)
+      const admins = roster.filter(
+        (m) => ['OWNER', 'ADMIN'].includes(m.role) && m.status === 'active'
+      )
+
+      // Send notification to each admin
+      const adminNotifications = await Promise.all(
+        admins.map(async (admin) => {
+          const adminProfile = await playerRepo.findById(admin.player_id)
+          if (!adminProfile) return null
+          return {
+            user_id: adminProfile.user_id,
+            type: 'club.membership_request' as const,
+            title: 'New Membership Request',
+            body: `${playerProfile.display_name} has requested to join ${club.name}.`,
+            reference_type: 'club_membership' as const,
+            reference_id: membership.id
+          }
+        })
+      )
+
+      await notificationService.notifyMany(
+        adminNotifications.filter((n): n is NonNullable<typeof n> => n !== null)
+      )
+    }
+
     return { data: membership, message: 'Membership requested', request_id: crypto.randomUUID() }
   } catch (err) {
     if (err instanceof ClubServiceError) throw apiError(err.status, err.code, err.message)
