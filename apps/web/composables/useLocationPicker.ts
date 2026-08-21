@@ -17,7 +17,16 @@ interface Barangay {
   cityCode: string
 }
 
-const PSGC_BASE = 'https://psgc.gitlab.io/api'
+// Use local proxy endpoints to avoid CORS issues with external PSGC API
+const LOCATIONS_BASE = '/api/v1/locations'
+
+// NCR is a region, not a province, but we include it for convenience
+const NCR_CODE = '130000000'
+const NCR_ENTRY: Province = {
+  code: NCR_CODE,
+  name: 'NCR (National Capital Region)',
+  regionCode: NCR_CODE
+}
 
 export function useLocationPicker() {
   const provinces = ref<Province[]>([])
@@ -51,14 +60,19 @@ export function useLocationPicker() {
     if (provinces.value.length > 0) return
     loadingProvinces.value = true
     try {
-      const data = await $fetch<Array<{ code: string; name: string; regionCode: string }>>(
-        `${PSGC_BASE}/provinces/`
+      const response = await $fetch<Array<{ code: string; name: string; regionCode: string }> | string>(
+        `${LOCATIONS_BASE}/provinces`
       )
-      provinces.value = data.map(p => ({
-        code: p.code,
-        name: p.name,
-        regionCode: p.regionCode
-      })).sort((a, b) => a.name.localeCompare(b.name))
+      const data = typeof response === 'string' ? JSON.parse(response) : response
+      if (data && Array.isArray(data)) {
+        const sorted = data.map(p => ({
+          code: p.code,
+          name: p.name,
+          regionCode: p.regionCode
+        })).sort((a, b) => a.name.localeCompare(b.name))
+        // Add NCR at the top since it's commonly selected
+        provinces.value = [NCR_ENTRY, ...sorted]
+      }
     } catch (err) {
       console.error('Failed to load provinces:', err)
     } finally {
@@ -73,15 +87,20 @@ export function useLocationPicker() {
     }
     loadingCities.value = true
     try {
-      const data = await $fetch<Array<{ code: string; name: string; provinceCode: string; isCity: boolean }>>(
-        `${PSGC_BASE}/provinces/${provinceCode}/cities-municipalities/`
-      )
-      cities.value = data.map(c => ({
-        code: c.code,
-        name: c.name,
-        provinceCode: c.provinceCode,
-        isCity: c.isCity
-      })).sort((a, b) => a.name.localeCompare(b.name))
+      // NCR is a region, not a province - use region endpoint
+      const endpoint = provinceCode === NCR_CODE
+        ? `${LOCATIONS_BASE}/cities?region=${provinceCode}`
+        : `${LOCATIONS_BASE}/cities?province=${provinceCode}`
+      const response = await $fetch<Array<{ code: string; name: string; provinceCode?: string; regionCode?: string; isCity: boolean }> | string>(endpoint)
+      const data = typeof response === 'string' ? JSON.parse(response) : response
+      if (data && Array.isArray(data)) {
+        cities.value = data.map(c => ({
+          code: c.code,
+          name: c.name,
+          provinceCode: c.provinceCode || c.regionCode || provinceCode,
+          isCity: c.isCity
+        })).sort((a, b) => a.name.localeCompare(b.name))
+      }
     } catch (err) {
       console.error('Failed to load cities:', err)
       cities.value = []
@@ -97,14 +116,17 @@ export function useLocationPicker() {
     }
     loadingBarangays.value = true
     try {
-      const data = await $fetch<Array<{ code: string; name: string }>>(
-        `${PSGC_BASE}/cities-municipalities/${cityCode}/barangays/`
+      const response = await $fetch<Array<{ code: string; name: string }> | string>(
+        `${LOCATIONS_BASE}/barangays?city=${cityCode}`
       )
-      barangays.value = data.map(b => ({
-        code: b.code,
-        name: b.name,
-        cityCode
-      })).sort((a, b) => a.name.localeCompare(b.name))
+      const data = typeof response === 'string' ? JSON.parse(response) : response
+      if (data && Array.isArray(data)) {
+        barangays.value = data.map(b => ({
+          code: b.code,
+          name: b.name,
+          cityCode
+        })).sort((a, b) => a.name.localeCompare(b.name))
+      }
     } catch (err) {
       console.error('Failed to load barangays:', err)
       barangays.value = []

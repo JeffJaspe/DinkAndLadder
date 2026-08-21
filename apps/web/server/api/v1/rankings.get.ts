@@ -39,6 +39,7 @@ export default defineEventHandler(async (event) => {
     rating_type: rawQuery.rating_type,
     province: typeof rawQuery.province === 'string' ? rawQuery.province : undefined,
     city: typeof rawQuery.city === 'string' ? rawQuery.city : undefined,
+    barangay: typeof rawQuery.barangay === 'string' ? rawQuery.barangay : undefined,
     limit,
     offset
   }

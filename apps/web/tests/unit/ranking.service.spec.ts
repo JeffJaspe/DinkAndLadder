@@ -13,6 +13,7 @@ function makeRow(
     provisional: false,
     province: null,
     city: null,
+    barangay: null,
     ...overrides
   }
 }

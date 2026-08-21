@@ -4,6 +4,7 @@ export interface RankingQuery {
   rating_type: RatingType
   province?: string
   city?: string
+  barangay?: string
   limit: number
   offset: number
 }
@@ -18,6 +19,7 @@ export interface RankingRow {
   provisional: boolean
   province: string | null
   city: string | null
+  barangay: string | null
 }
 
 export interface RankingEntryDto {
@@ -31,6 +33,7 @@ export interface RankingEntryDto {
   provisional: boolean
   province: string | null
   city: string | null
+  barangay: string | null
 }
 
 export function toRankingEntryDto(
@@ -48,6 +51,7 @@ export function toRankingEntryDto(
     matches_played: row.matches_played,
     provisional: row.provisional,
     province: row.province,
-    city: row.city
+    city: row.city,
+    barangay: row.barangay
   }
 }

@@ -12,6 +12,12 @@ const { data: myProfile } = await useFetch<PlayerProfileDto>('/api/v1/players/me
   server: false
 })
 
+const { data: adminStatus } = await useFetch<{ is_superadmin: boolean }>('/api/v1/me/is-superadmin', {
+  server: false
+})
+
+const isSuperAdmin = computed(() => adminStatus.value?.is_superadmin ?? false)
+
 async function handleLogout() {
   await supabase.auth.signOut()
   await navigateTo('/login')
@@ -26,6 +32,7 @@ const playerNavItems = [
   { name: 'Events', href: '/events', icon: 'events' },
   { name: 'Partners', href: '/partners', icon: 'partners' },
   { name: 'Community', href: '/community', icon: 'community' },
+  { name: 'My Clubs', href: '/my-clubs', icon: 'clubs' },
   { name: 'Verified Clubs', href: '/verified-clubs', icon: 'verified' },
   { name: 'Players', href: '/players', icon: 'players' },
   { name: 'Achievements', href: '/achievements', icon: 'achievements' }
@@ -37,7 +44,6 @@ const clubNavItems = computed(() => [
   { name: 'Ranking', href: '/rankings', icon: 'rankings' },
   { name: 'Matches', href: '/matches/submit', icon: 'matches' },
   { name: 'Events', href: '/events', icon: 'events' },
-  { name: 'Partners', href: '/partners', icon: 'partners' },
   { name: 'Community', href: '/community', icon: 'community' },
   { name: 'Players', href: '/players', icon: 'players' },
   {
@@ -49,10 +55,13 @@ const clubNavItems = computed(() => [
 
 const navItems = computed(() => (accountMode.value === 'club' ? clubNavItems.value : playerNavItems))
 
-const bottomNavItems = [
-  { name: 'Notifications', href: '/notifications', icon: 'notifications' },
-  { name: 'Settings', href: '/settings', icon: 'settings' }
-]
+const bottomNavItems = computed(() => {
+  const items = [{ name: 'Notifications', href: '/notifications', icon: 'notifications' }]
+  if (isSuperAdmin.value) {
+    items.push({ name: 'Settings', href: '/settings', icon: 'settings' })
+  }
+  return items
+})
 
 const mobileNavItems = [
   { name: 'Home', href: '/dashboard', icon: 'home' },

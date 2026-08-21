@@ -188,6 +188,30 @@ function ratingRangeLabel(minRating: number | null, maxRating: number | null): s
   if (maxRating == null) return `${minRating}+`
   return `${minRating}–${maxRating}`
 }
+
+// Generate empty bracket preview based on max_participants
+const emptyBracketRounds = computed(() => {
+  if (bracket.value?.rounds.length) return []
+  const maxP = tournament.value?.max_participants ?? 8
+  const numRounds = Math.ceil(Math.log2(maxP))
+  const rounds = []
+  for (let r = 1; r <= numRounds; r++) {
+    const matchesInRound = Math.pow(2, numRounds - r)
+    const matches = []
+    for (let m = 0; m < matchesInRound; m++) {
+      matches.push({
+        id: `preview-${r}-${m}`,
+        round: r,
+        match_number: m + 1,
+        participant1: null,
+        participant2: null,
+        status: 'pending'
+      })
+    }
+    rounds.push({ round: r, name: r === numRounds ? 'Final' : r === numRounds - 1 ? 'Semi-Finals' : `Round ${r}`, matches })
+  }
+  return rounds
+})
 </script>
 
 <template>
@@ -463,8 +487,46 @@ function ratingRangeLabel(minRating: number | null, maxRating: number | null): s
           </div>
         </div>
 
-        <!-- Empty -->
-        <p v-else class="text-[#6B7B75]">Bracket not generated yet.</p>
+        <!-- Empty Bracket Preview (before generation) -->
+        <div v-else-if="emptyBracketRounds.length" class="overflow-x-auto">
+          <p class="mb-4 text-sm text-[#6B7B75]">
+            Bracket preview ({{ tournament?.max_participants ?? 8 }} players) — Click "Generate Bracket" to assign players
+          </p>
+          <div class="flex gap-6 pb-4">
+            <div v-for="round in emptyBracketRounds" :key="round.round" class="min-w-[220px] flex-shrink-0">
+              <h3 class="mb-3 text-sm font-medium text-[#A6ABA7]">
+                {{ round.name }}
+              </h3>
+              <div class="space-y-3">
+                <div
+                  v-for="match in round.matches"
+                  :key="match.id"
+                  class="rounded-lg border border-dashed border-[#3A5750] bg-[#2E4540]/30 p-3"
+                >
+                  <!-- Participant 1 -->
+                  <div class="flex items-center justify-between rounded-md bg-[#0B0D09]/50 px-2 py-1">
+                    <span class="text-sm text-[#6B7B75]">TBD</span>
+                  </div>
+
+                  <div class="my-1 text-center text-xs text-[#6B7B75]">vs</div>
+
+                  <!-- Participant 2 -->
+                  <div class="flex items-center justify-between rounded-md bg-[#0B0D09]/50 px-2 py-1">
+                    <span class="text-sm text-[#6B7B75]">TBD</span>
+                  </div>
+
+                  <!-- Match Number -->
+                  <div class="mt-2 text-center">
+                    <span class="text-xs text-[#6B7B75]">Match {{ match.match_number }}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- No bracket possible -->
+        <p v-else class="text-[#6B7B75]">Configure tournament settings to see bracket preview.</p>
       </div>
 
       <!-- Back Link -->

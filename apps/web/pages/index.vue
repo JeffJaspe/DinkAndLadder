@@ -171,7 +171,7 @@ const stats = computed(() => ({
           <h2 class="mb-8 text-center text-2xl font-bold text-white">How It Works</h2>
           <div class="grid gap-6 sm:grid-cols-4">
             <div class="text-center"><div class="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-[#4DB175] to-[#3a9d5e] text-xl font-bold text-white shadow-lg shadow-[#4DB175]/20">1</div><h4 class="font-semibold text-white">Sign Up Free</h4><p class="mt-1 text-sm text-[#6B7B75]">Create your profile</p></div>
-            <div class="text-center"><div class="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-[#4DB175] to-[#3a9d5e] text-xl font-bold text-white shadow-lg shadow-[#4DB175]/20">2</div><h4 class="font-semibold text-white">Find Events</h4><p class="mt-1 text-sm text-[#6B7B75]">Browse tournaments</p></div>
+            <div class="text-center"><div class="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-[#4DB175] to-[#3a9d5e] text-xl font-bold text-white shadow-lg shadow-[#4DB175]/20">2</div><h4 class="font-semibold text-white">Find Events</h4><p class="mt-1 text-sm text-[#6B7B75]">Browse tournaments & Open Play</p></div>
             <div class="text-center"><div class="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-[#4DB175] to-[#3a9d5e] text-xl font-bold text-white shadow-lg shadow-[#4DB175]/20">3</div><h4 class="font-semibold text-white">Play & Record</h4><p class="mt-1 text-sm text-[#6B7B75]">Submit results</p></div>
             <div class="text-center"><div class="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-[#4DB175] to-[#3a9d5e] text-xl font-bold text-white shadow-lg shadow-[#4DB175]/20">4</div><h4 class="font-semibold text-white">Climb Rankings</h4><p class="mt-1 text-sm text-[#6B7B75]">Watch rating rise</p></div>
           </div>
@@ -278,7 +278,7 @@ const stats = computed(() => ({
     <footer class="relative mt-12 bg-[#0a0c08] px-4 py-8">
       <div class="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 sm:flex-row">
         <div class="flex items-center gap-2"><div class="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-[#4DB175] to-[#3a9d5e] text-xs font-bold text-white">D</div><span class="text-sm font-medium text-white">DinkAndLadder</span></div>
-        <p class="text-xs text-[#6B7B75]">© 2024 · Philippine Pickleball Rating Platform</p>
+        <p class="text-xs text-[#6B7B75]">© 2026 Jeff Jaspe. All Rights Reserved.</p>
       </div>
     </footer>
   </div>

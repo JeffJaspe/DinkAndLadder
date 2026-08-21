@@ -27,7 +27,7 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 403, statusMessage: 'Player profile required.' })
   }
 
-  const body = await readBody<Omit<CreateTournamentInput, 'event_id'>>(event)
+  const body = await readBody<Omit<CreateTournamentInput, 'event_id'> & { auto_join?: boolean }>(event)
   if (!body.name || !body.match_type) {
     throw createError({
       statusCode: 400,
@@ -35,8 +35,9 @@ export default defineEventHandler(async (event) => {
     })
   }
 
+  const { auto_join, ...tournamentData } = body
   const input: CreateTournamentInput = {
-    ...body,
+    ...tournamentData,
     event_id: eventId
   }
 
@@ -48,6 +49,17 @@ export default defineEventHandler(async (event) => {
 
   try {
     const tournament = await service.createTournament(profile.id, input)
+
+    if (auto_join) {
+      const registration = await registrationRepo.create(
+        tournament.id,
+        profile.id,
+        null,
+        null
+      )
+      await registrationRepo.updateStatus(registration.id, 'confirmed')
+    }
+
     return tournament
   } catch (err) {
     if (err instanceof EventServiceError) {

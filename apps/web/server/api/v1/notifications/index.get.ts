@@ -32,7 +32,7 @@ export default defineEventHandler(async (event) => {
   try {
     const notifications = await service.list(claims.sub, query)
     return {
-      data: notifications,
+      notifications: notifications,
       request_id: crypto.randomUUID()
     }
   } catch (err) {

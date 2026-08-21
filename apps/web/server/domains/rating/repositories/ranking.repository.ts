@@ -11,6 +11,7 @@ interface RankingJoinRow {
     display_name: string
     province: string | null
     city: string | null
+    barangay: string | null
   } | null
 }
 
@@ -28,7 +29,7 @@ export function createRankingRepository(client: SupabaseClient): RankingReposito
       let builder = client
         .from('player_ratings')
         .select(
-          'player_id, rating_value, confidence_score, matches_played, provisional, player_profiles!inner(display_name, province, city)'
+          'player_id, rating_value, confidence_score, matches_played, provisional, player_profiles!inner(display_name, province, city, barangay)'
         )
         .eq('rating_type', query.rating_type)
         .not('rating_value', 'is', null)
@@ -39,6 +40,9 @@ export function createRankingRepository(client: SupabaseClient): RankingReposito
       }
       if (query.city) {
         builder = builder.eq('player_profiles.city', query.city)
+      }
+      if (query.barangay) {
+        builder = builder.eq('player_profiles.barangay', query.barangay)
       }
 
       const { data, error } = await builder
@@ -64,7 +68,8 @@ export function createRankingRepository(client: SupabaseClient): RankingReposito
           matches_played: row.matches_played,
           provisional: row.provisional,
           province: row.player_profiles.province,
-          city: row.player_profiles.city
+          city: row.player_profiles.city,
+          barangay: row.player_profiles.barangay
         }))
     }
   }

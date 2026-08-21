@@ -22,12 +22,13 @@ export default defineEventHandler(async (event) => {
     q: typeof rawQuery.q === 'string' && rawQuery.q.trim() ? rawQuery.q.trim() : undefined,
     province: typeof rawQuery.province === 'string' && rawQuery.province.trim() ? rawQuery.province.trim() : undefined,
     city: typeof rawQuery.city === 'string' && rawQuery.city.trim() ? rawQuery.city.trim() : undefined,
+    barangay: typeof rawQuery.barangay === 'string' && rawQuery.barangay.trim() ? rawQuery.barangay.trim() : undefined,
     limit: Math.min(parsePositiveInt(rawQuery.limit, DEFAULT_LIMIT), MAX_LIMIT),
     offset: parsePositiveInt(rawQuery.offset, 0)
   }
 
-  if (!query.q && !query.province && !query.city) {
-    throw apiError(400, 'VALIDATION_ERROR', 'Provide at least one of: q, province, or city.')
+  if (!query.q && !query.province && !query.city && !query.barangay) {
+    throw apiError(400, 'VALIDATION_ERROR', 'Provide at least one of: q, province, city, or barangay.')
   }
 
   const client = await serverSupabaseClient(event)

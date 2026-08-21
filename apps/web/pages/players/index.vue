@@ -2,24 +2,52 @@
 import type { PlayerSearchResultDto } from '~/server/domains/player/dto/player-profile.dto'
 
 const search = ref('')
-const province = ref('')
-const city = ref('')
 
-// Same two bugs as clubs/index.vue: the endpoint 400s if q/province/city are all
-// empty, so don't fetch until there's something to search on; and it returns
-// `{ data: [...] }`, not `{ players: [...] }`.
+const {
+  provinces,
+  cities,
+  barangays,
+  selectedProvince,
+  selectedCity,
+  selectedBarangay,
+  provinceName,
+  cityName,
+  barangayName,
+  loadingProvinces,
+  loadingCities,
+  loadingBarangays,
+  loadProvinces,
+  selectProvince,
+  selectCity,
+  selectBarangay
+} = useLocationPicker()
+
+onMounted(() => {
+  loadProvinces()
+})
+
 const { data, pending, error, execute } = await useFetch<{ data: PlayerSearchResultDto[] }>(
   '/api/v1/players/search',
   {
-    query: { q: search, province, city, limit: 50 },
+    query: computed(() => ({
+      q: search.value || undefined,
+      province: provinceName.value || undefined,
+      city: cityName.value || undefined,
+      barangay: barangayName.value || undefined,
+      limit: 50
+    })),
     immediate: false
   }
 )
 
+const hasSearchCriteria = computed(() =>
+  !!(search.value || provinceName.value || cityName.value || barangayName.value)
+)
+
 watch(
-  [search, province, city],
+  [search, provinceName, cityName, barangayName],
   () => {
-    if (search.value || province.value || city.value) {
+    if (hasSearchCriteria.value) {
       execute()
     } else {
       data.value = null
@@ -38,8 +66,8 @@ watch(
     </div>
 
     <!-- Search & Filters -->
-    <div class="mb-6 flex flex-col gap-3 sm:flex-row">
-      <div class="relative flex-1">
+    <div class="mb-6 space-y-3">
+      <div class="relative">
         <input
           v-model="search"
           type="search"
@@ -51,15 +79,35 @@ watch(
         </svg>
       </div>
 
-      <select
-        v-model="province"
-        class="rounded-lg border border-[#3A5750] bg-[#1E2E2A] px-4 py-2.5 text-white focus:border-[#4DB175] focus:outline-none"
-      >
-        <option value="">All Provinces</option>
-        <option value="Metro Manila">Metro Manila</option>
-        <option value="Cebu">Cebu</option>
-        <option value="Davao">Davao</option>
-      </select>
+      <div class="grid gap-2 sm:grid-cols-3">
+        <select
+          :value="selectedProvince"
+          :disabled="loadingProvinces"
+          class="rounded-lg border border-[#3A5750] bg-[#1E2E2A] px-4 py-2.5 text-white focus:border-[#4DB175] focus:outline-none disabled:opacity-50"
+          @change="selectProvince(($event.target as HTMLSelectElement).value)"
+        >
+          <option value="">{{ loadingProvinces ? 'Loading...' : 'All Provinces' }}</option>
+          <option v-for="p in provinces" :key="p.code" :value="p.code">{{ p.name }}</option>
+        </select>
+        <select
+          :value="selectedCity"
+          :disabled="!selectedProvince || loadingCities"
+          class="rounded-lg border border-[#3A5750] bg-[#1E2E2A] px-4 py-2.5 text-white focus:border-[#4DB175] focus:outline-none disabled:opacity-50"
+          @change="selectCity(($event.target as HTMLSelectElement).value)"
+        >
+          <option value="">{{ loadingCities ? 'Loading...' : (selectedProvince ? 'All Cities' : 'Select province') }}</option>
+          <option v-for="c in cities" :key="c.code" :value="c.code">{{ c.name }}</option>
+        </select>
+        <select
+          :value="selectedBarangay"
+          :disabled="!selectedCity || loadingBarangays"
+          class="rounded-lg border border-[#3A5750] bg-[#1E2E2A] px-4 py-2.5 text-white focus:border-[#4DB175] focus:outline-none disabled:opacity-50"
+          @change="selectBarangay(($event.target as HTMLSelectElement).value)"
+        >
+          <option value="">{{ loadingBarangays ? 'Loading...' : (selectedCity ? 'All Barangays' : 'Select city') }}</option>
+          <option v-for="b in barangays" :key="b.code" :value="b.code">{{ b.name }}</option>
+        </select>
+      </div>
     </div>
 
     <!-- Loading -->
@@ -68,18 +116,18 @@ watch(
     </div>
 
     <!-- Error -->
-    <div v-else-if="error" class="rounded-xl bg-red-500/10 p-6 text-center">
+    <div v-else-if="error && hasSearchCriteria" class="rounded-xl bg-red-500/10 p-6 text-center">
       <p class="text-red-400">Could not search players. Please try again.</p>
     </div>
 
-    <!-- Empty -->
-    <div v-else-if="!data?.data.length" class="rounded-xl bg-[#1E2E2A] p-12 text-center">
+    <!-- Empty / Start searching -->
+    <div v-else-if="!data?.data?.length" class="rounded-xl bg-[#1E2E2A] p-12 text-center">
       <p class="text-4xl">👥</p>
       <h3 class="mt-4 text-lg font-semibold text-white">
-        {{ search ? 'No players found' : 'Start searching' }}
+        {{ hasSearchCriteria ? 'No players found' : 'Start searching' }}
       </h3>
       <p class="mt-2 text-sm text-[#6B7B75]">
-        {{ search ? `No players match '${search}'` : 'Enter a name to find players' }}
+        {{ hasSearchCriteria ? 'No players match your search criteria' : 'Enter a name or select a location to find players' }}
       </p>
     </div>
 

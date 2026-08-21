@@ -6,6 +6,24 @@ interface MineResponse {
   items: MyClubMembershipDto[]
 }
 
+const {
+  provinces,
+  cities,
+  selectedProvince,
+  selectedCity,
+  provinceName,
+  cityName,
+  loadingProvinces,
+  loadingCities,
+  loadProvinces,
+  selectProvince,
+  selectCity
+} = useLocationPicker()
+
+onMounted(() => {
+  loadProvinces()
+})
+
 const eventTypes: { value: EventType; label: string; description: string; ranked: boolean }[] = [
   { value: 'open_casual', label: 'Open Casual', description: 'Open to anyone, no rating impact', ranked: false },
   { value: 'open_ranked', label: 'Open Ranked', description: 'Open to anyone, affects ratings', ranked: true },
@@ -20,8 +38,6 @@ const form = reactive({
   description: '',
   event_type: 'open_casual' as EventType,
   venue: '',
-  province: '',
-  city: '',
   start_date: '',
   end_date: '',
   registration_opens: '',
@@ -61,19 +77,6 @@ watch(
 
 const selectedEventType = computed(() => eventTypes.find(t => t.value === form.event_type))
 
-const provinces = [
-  'Metro Manila',
-  'Cebu',
-  'Davao',
-  'Laguna',
-  'Cavite',
-  'Bulacan',
-  'Pampanga',
-  'Rizal',
-  'Batangas',
-  'Quezon'
-]
-
 async function submit() {
   if (!form.club_id || !form.name || !form.start_date || !form.end_date) {
     errorMessage.value = 'Club, name, start date, and end date are required.'
@@ -91,8 +94,8 @@ async function submit() {
         description: form.description || null,
         event_type: form.event_type,
         venue: form.venue || null,
-        province: form.province || null,
-        city: form.city || null,
+        province: provinceName.value || null,
+        city: cityName.value || null,
         start_date: form.start_date,
         end_date: form.end_date,
         registration_opens: form.registration_opens || null,
@@ -427,21 +430,26 @@ async function submit() {
               <div>
                 <label class="mb-1.5 block text-sm text-[#A6ABA7]">Province</label>
                 <select
-                  v-model="form.province"
-                  class="w-full rounded-lg border border-[#3A5750] bg-[#0B0D09] px-4 py-2.5 text-white focus:border-[#4DB175] focus:outline-none"
+                  :value="selectedProvince"
+                  :disabled="loadingProvinces"
+                  class="w-full rounded-lg border border-[#3A5750] bg-[#0B0D09] px-4 py-2.5 text-white focus:border-[#4DB175] focus:outline-none disabled:opacity-50"
+                  @change="selectProvince(($event.target as HTMLSelectElement).value)"
                 >
-                  <option value="">Select province</option>
-                  <option v-for="p in provinces" :key="p" :value="p">{{ p }}</option>
+                  <option value="">{{ loadingProvinces ? 'Loading...' : 'Select province' }}</option>
+                  <option v-for="p in provinces" :key="p.code" :value="p.code">{{ p.name }}</option>
                 </select>
               </div>
               <div>
                 <label class="mb-1.5 block text-sm text-[#A6ABA7]">City</label>
-                <input
-                  v-model="form.city"
-                  type="text"
-                  placeholder="Enter city"
-                  class="w-full rounded-lg border border-[#3A5750] bg-[#0B0D09] px-4 py-2.5 text-white placeholder-[#6B7B75] focus:border-[#4DB175] focus:outline-none"
-                />
+                <select
+                  :value="selectedCity"
+                  :disabled="!selectedProvince || loadingCities"
+                  class="w-full rounded-lg border border-[#3A5750] bg-[#0B0D09] px-4 py-2.5 text-white focus:border-[#4DB175] focus:outline-none disabled:opacity-50"
+                  @change="selectCity(($event.target as HTMLSelectElement).value)"
+                >
+                  <option value="">{{ loadingCities ? 'Loading...' : (selectedProvince ? 'Select city' : 'Select province first') }}</option>
+                  <option v-for="c in cities" :key="c.code" :value="c.code">{{ c.name }}</option>
+                </select>
               </div>
             </div>
           </div>

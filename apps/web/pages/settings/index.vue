@@ -1,4 +1,8 @@
 <script setup lang="ts">
+definePageMeta({
+  middleware: ['super-admin']
+})
+
 const settingsLinks = [
   {
     title: 'Profile',

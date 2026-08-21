@@ -58,4 +58,13 @@
         </rollback>
     </changeSet>
 
+    <changeSet id="0003-add-barangay-column" author="player-profiles">
+        <addColumn tableName="player_profiles">
+            <column name="barangay" type="text"/>
+        </addColumn>
+        <rollback>
+            <dropColumn tableName="player_profiles" columnName="barangay"/>
+        </rollback>
+    </changeSet>
+
 </databaseChangeLog>

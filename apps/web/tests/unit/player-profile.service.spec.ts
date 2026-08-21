@@ -33,6 +33,7 @@ function createFakePlayerProfileRepository(
         bio: input.bio ?? existing?.bio ?? null,
         province: input.province ?? existing?.province ?? null,
         city: input.city ?? existing?.city ?? null,
+        barangay: input.barangay ?? existing?.barangay ?? null,
         dominant_hand: input.dominant_hand ?? existing?.dominant_hand ?? null,
         preferred_position: input.preferred_position ?? existing?.preferred_position ?? null,
         profile_visibility: input.profile_visibility ?? existing?.profile_visibility ?? 'public',

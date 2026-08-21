@@ -6,6 +6,16 @@ const province = ref('')
 const searchQuery = ref('')
 
 const {
+  provinces,
+  loadingProvinces,
+  loadProvinces
+} = useLocationPicker()
+
+onMounted(() => {
+  loadProvinces()
+})
+
+const {
   data: response,
   pending,
   error
@@ -54,12 +64,11 @@ const restOfRankings = computed(() => filteredRankings.value.slice(3))
       <!-- Province Filter -->
       <select
         v-model="province"
-        class="rounded-lg border border-[#3A5750] bg-[#1E2E2A] px-4 py-2 text-sm text-white focus:border-[#4DB175] focus:outline-none"
+        :disabled="loadingProvinces"
+        class="rounded-lg border border-[#3A5750] bg-[#1E2E2A] px-4 py-2 text-sm text-white focus:border-[#4DB175] focus:outline-none disabled:opacity-50"
       >
-        <option value="">All Regions</option>
-        <option value="Metro Manila">Metro Manila</option>
-        <option value="Cebu">Cebu</option>
-        <option value="Davao">Davao</option>
+        <option value="">{{ loadingProvinces ? 'Loading...' : 'All Provinces' }}</option>
+        <option v-for="p in provinces" :key="p.code" :value="p.name">{{ p.name }}</option>
       </select>
 
       <!-- Search -->
@@ -110,6 +119,13 @@ const restOfRankings = computed(() => filteredRankings.value.slice(3))
     <div v-else class="space-y-6">
       <!-- Podium (Top 3) -->
       <div v-if="topThree.length >= 3" class="rounded-xl bg-[#1E2E2A] p-6">
+        <div class="mb-4 text-center">
+          <h2 class="text-lg font-bold text-white">
+            🏆 Top 3 {{ ratingType === 'singles' ? 'Singles' : 'Doubles' }}
+            <span v-if="province" class="text-[#4DB175]">in {{ province }}</span>
+            <span v-else class="text-[#6B7B75]">Nationwide</span>
+          </h2>
+        </div>
         <div class="flex items-end justify-center gap-4">
           <!-- 2nd Place -->
           <NuxtLink

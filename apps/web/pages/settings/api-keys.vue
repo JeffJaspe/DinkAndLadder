@@ -1,4 +1,8 @@
 <script setup lang="ts">
+definePageMeta({
+  middleware: ['super-admin']
+})
+
 interface ApiKey {
   id: string
   name: string

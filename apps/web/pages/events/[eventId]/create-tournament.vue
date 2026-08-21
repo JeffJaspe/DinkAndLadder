@@ -8,14 +8,16 @@ const form = reactive({
   format: 'single_elimination' as 'single_elimination' | 'double_elimination' | 'round_robin' | 'swiss',
   match_type: 'singles' as 'singles' | 'doubles',
   max_participants: 32,
-  min_rating: '',
-  max_rating: '',
-  registration_opens: '',
-  registration_closes: ''
+  min_rating: null as number | null,
+  max_rating: null as number | null
 })
 
 const submitting = ref(false)
 const errorMessage = ref('')
+const selectedTemplate = ref('')
+const showCustomRating = ref(false)
+const customMinRating = ref<number | ''>('')
+const customMaxRating = ref<number | ''>('')
 
 const formats = [
   { value: 'single_elimination', label: 'Single Elimination' },
@@ -26,9 +28,57 @@ const formats = [
 
 const participantOptions = [8, 16, 32, 64, 128]
 
+const ratingTemplates = [
+  { value: 'novice', label: 'Novice', description: 'Up to 2.5', min: null, max: 2.5 },
+  { value: 'intermediate', label: 'Intermediate', description: '2.5 - 3.5', min: 2.5, max: 3.5 },
+  { value: 'advanced', label: 'Advanced', description: '3.5 - 4.5', min: 3.5, max: 4.5 },
+  { value: 'expert', label: 'Expert', description: '4.5 - 5.5', min: 4.5, max: 5.5 },
+  { value: 'pro', label: 'Pro', description: '5.5+', min: 5.5, max: null },
+  { value: 'open', label: 'Open', description: 'All skill levels', min: null, max: null }
+]
+
+const ratingOptions = [2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 5.5, 6.0, 6.5, 7.0, 7.5, 8.0]
+
+const currentRatingDisplay = computed(() => {
+  if (form.min_rating === null && form.max_rating === null) {
+    return null
+  }
+  if (form.min_rating !== null && form.max_rating !== null) {
+    return `${form.min_rating.toFixed(1)} - ${form.max_rating.toFixed(1)}`
+  }
+  if (form.min_rating !== null) {
+    return `${form.min_rating.toFixed(1)}+`
+  }
+  return `Up to ${form.max_rating!.toFixed(1)}`
+})
+
+function applyTemplate() {
+  if (!selectedTemplate.value) return
+  const template = ratingTemplates.find(t => t.value === selectedTemplate.value)
+  if (template) {
+    form.min_rating = template.min
+    form.max_rating = template.max
+    showCustomRating.value = false
+  }
+  selectedTemplate.value = ''
+}
+
+function applyCustomRating() {
+  form.min_rating = customMinRating.value === '' ? null : customMinRating.value
+  form.max_rating = customMaxRating.value === '' ? null : customMaxRating.value
+  showCustomRating.value = false
+  customMinRating.value = ''
+  customMaxRating.value = ''
+}
+
+function clearRating() {
+  form.min_rating = null
+  form.max_rating = null
+}
+
 async function submit() {
   if (!form.name) {
-    errorMessage.value = 'Tournament name is required.'
+    errorMessage.value = 'Category name is required.'
     return
   }
   errorMessage.value = ''
@@ -42,10 +92,9 @@ async function submit() {
         format: form.format,
         match_type: form.match_type,
         max_participants: form.max_participants,
-        min_rating: form.min_rating ? Number(form.min_rating) : null,
-        max_rating: form.max_rating ? Number(form.max_rating) : null,
-        registration_opens: form.registration_opens || null,
-        registration_closes: form.registration_closes || null
+        min_rating: form.min_rating,
+        max_rating: form.max_rating,
+        auto_join: true
       }
     })
     router.push(`/tournaments/${created.id}`)
@@ -68,18 +117,18 @@ async function submit() {
           </svg>
           Back to Event
         </NuxtLink>
-        <h1 class="text-2xl font-bold text-white">Create Tournament</h1>
-        <p class="mt-1 text-sm text-[#6B7B75]">Add a new tournament to this event</p>
+        <h1 class="text-2xl font-bold text-white">Create Category</h1>
+        <p class="mt-1 text-sm text-[#6B7B75]">Add a new category to this event</p>
       </div>
 
       <!-- Form -->
       <form class="space-y-6" @submit.prevent="submit">
         <!-- Basic Info -->
         <div class="rounded-xl bg-[#1E2E2A] p-5">
-          <h2 class="mb-4 font-semibold text-white">Tournament Details</h2>
+          <h2 class="mb-4 font-semibold text-white">Category Details</h2>
           <div class="space-y-4">
             <div>
-              <label class="mb-1.5 block text-sm text-[#A6ABA7]">Tournament Name</label>
+              <label class="mb-1.5 block text-sm text-[#A6ABA7]">Category Name</label>
               <input
                 v-model="form.name"
                 type="text"
@@ -123,55 +172,110 @@ async function submit() {
           </div>
         </div>
 
-        <!-- Rating Restrictions -->
+        <!-- Rating Bracket -->
         <div class="rounded-xl bg-[#1E2E2A] p-5">
-          <h2 class="mb-4 font-semibold text-white">Rating Restrictions (Optional)</h2>
-          <p class="mb-4 text-sm text-[#6B7B75]">Leave blank for open registration</p>
-          <div class="grid gap-4 sm:grid-cols-2">
+          <h2 class="mb-2 font-semibold text-white">Rating Bracket</h2>
+          <p class="mb-4 text-sm text-[#6B7B75]">
+            Optional — set a rating-based restriction for this category. Leave empty for open registration.
+          </p>
+
+          <!-- Current Rating Display -->
+          <div v-if="currentRatingDisplay" class="mb-4 flex items-center justify-between rounded-lg bg-[#0B0D09] p-3">
             <div>
-              <label class="mb-1.5 block text-sm text-[#A6ABA7]">Minimum Rating</label>
-              <input
-                v-model="form.min_rating"
-                type="number"
-                min="0"
-                placeholder="e.g., 1500"
-                class="w-full rounded-lg border border-[#3A5750] bg-[#0B0D09] px-4 py-2.5 text-white placeholder-[#6B7B75] focus:border-[#4DB175] focus:outline-none"
-              />
+              <p class="text-sm text-[#A6ABA7]">Current bracket</p>
+              <p class="font-medium text-white">{{ currentRatingDisplay }}</p>
             </div>
-            <div>
-              <label class="mb-1.5 block text-sm text-[#A6ABA7]">Maximum Rating</label>
-              <input
-                v-model="form.max_rating"
-                type="number"
-                min="0"
-                placeholder="e.g., 2000"
-                class="w-full rounded-lg border border-[#3A5750] bg-[#0B0D09] px-4 py-2.5 text-white placeholder-[#6B7B75] focus:border-[#4DB175] focus:outline-none"
-              />
+            <button
+              type="button"
+              class="rounded-lg px-3 py-1.5 text-sm text-red-400 hover:bg-red-500/10"
+              @click="clearRating"
+            >
+              Remove
+            </button>
+          </div>
+
+          <!-- Template Selection -->
+          <div v-if="!showCustomRating" class="space-y-3">
+            <div class="flex gap-2">
+              <select
+                v-model="selectedTemplate"
+                class="flex-1 rounded-lg border border-[#3A5750] bg-[#0B0D09] px-4 py-2.5 text-white focus:border-[#4DB175] focus:outline-none"
+              >
+                <option value="">Select a template</option>
+                <option v-for="t in ratingTemplates" :key="t.value" :value="t.value">
+                  {{ t.label }} ({{ t.description }})
+                </option>
+              </select>
+              <button
+                type="button"
+                :disabled="!selectedTemplate"
+                class="rounded-lg bg-[#4DB175] px-4 py-2.5 font-medium text-white hover:bg-[#5FC287] disabled:opacity-50"
+                @click="applyTemplate"
+              >
+                Add
+              </button>
+            </div>
+
+            <button
+              type="button"
+              class="flex items-center gap-2 text-sm text-[#4DB175] hover:text-[#5FC287]"
+              @click="showCustomRating = true"
+            >
+              <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+              </svg>
+              Custom Rating Range
+            </button>
+          </div>
+
+          <!-- Custom Rating Input -->
+          <div v-else class="space-y-3">
+            <div class="grid gap-3 sm:grid-cols-2">
+              <div>
+                <label class="mb-1.5 block text-sm text-[#A6ABA7]">Minimum Rating</label>
+                <select
+                  v-model="customMinRating"
+                  class="w-full rounded-lg border border-[#3A5750] bg-[#0B0D09] px-4 py-2.5 text-white focus:border-[#4DB175] focus:outline-none"
+                >
+                  <option value="">No minimum</option>
+                  <option v-for="r in ratingOptions" :key="r" :value="r">{{ r.toFixed(1) }}</option>
+                </select>
+              </div>
+              <div>
+                <label class="mb-1.5 block text-sm text-[#A6ABA7]">Maximum Rating</label>
+                <select
+                  v-model="customMaxRating"
+                  class="w-full rounded-lg border border-[#3A5750] bg-[#0B0D09] px-4 py-2.5 text-white focus:border-[#4DB175] focus:outline-none"
+                >
+                  <option value="">No maximum</option>
+                  <option v-for="r in ratingOptions" :key="r" :value="r">{{ r.toFixed(1) }}</option>
+                </select>
+              </div>
+            </div>
+            <div class="flex gap-2">
+              <button
+                type="button"
+                class="rounded-lg border border-[#3A5750] px-4 py-2 text-sm text-[#A6ABA7] hover:bg-[#2E4540]"
+                @click="showCustomRating = false"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                class="rounded-lg bg-[#4DB175] px-4 py-2 text-sm font-medium text-white hover:bg-[#5FC287]"
+                @click="applyCustomRating"
+              >
+                Apply
+              </button>
             </div>
           </div>
         </div>
 
-        <!-- Registration Period -->
-        <div class="rounded-xl bg-[#1E2E2A] p-5">
-          <h2 class="mb-4 font-semibold text-white">Registration Period (Optional)</h2>
-          <div class="grid gap-4 sm:grid-cols-2">
-            <div>
-              <label class="mb-1.5 block text-sm text-[#A6ABA7]">Registration Opens</label>
-              <input
-                v-model="form.registration_opens"
-                type="datetime-local"
-                class="w-full rounded-lg border border-[#3A5750] bg-[#0B0D09] px-4 py-2.5 text-white focus:border-[#4DB175] focus:outline-none"
-              />
-            </div>
-            <div>
-              <label class="mb-1.5 block text-sm text-[#A6ABA7]">Registration Closes</label>
-              <input
-                v-model="form.registration_closes"
-                type="datetime-local"
-                class="w-full rounded-lg border border-[#3A5750] bg-[#0B0D09] px-4 py-2.5 text-white focus:border-[#4DB175] focus:outline-none"
-              />
-            </div>
-          </div>
+        <!-- Auto-join notice -->
+        <div class="rounded-lg bg-[#4DB175]/10 p-4">
+          <p class="text-sm text-[#4DB175]">
+            You will be automatically registered as a participant when you create this category.
+          </p>
         </div>
 
         <!-- Error -->
@@ -192,7 +296,7 @@ async function submit() {
             :disabled="submitting"
             class="flex-1 rounded-xl bg-[#4DB175] py-3 font-medium text-white hover:bg-[#5FC287] disabled:opacity-50"
           >
-            {{ submitting ? 'Creating...' : 'Create Tournament' }}
+            {{ submitting ? 'Creating...' : 'Create Category' }}
           </button>
         </div>
       </form>

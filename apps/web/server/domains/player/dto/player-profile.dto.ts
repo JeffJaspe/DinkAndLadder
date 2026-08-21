@@ -9,6 +9,7 @@ export interface PlayerProfileRecord {
   bio: string | null
   province: string | null
   city: string | null
+  barangay: string | null
   dominant_hand: string | null
   preferred_position: string | null
   profile_visibility: ProfileVisibility
@@ -24,6 +25,7 @@ export interface PlayerProfileDto {
   bio: string | null
   province: string | null
   city: string | null
+  barangay: string | null
   dominant_hand: string | null
   preferred_position: string | null
   profile_visibility: ProfileVisibility
@@ -37,6 +39,7 @@ export interface UpdatePlayerProfileInput {
   bio?: string | null
   province?: string | null
   city?: string | null
+  barangay?: string | null
   dominant_hand?: string | null
   preferred_position?: string | null
   profile_visibility?: ProfileVisibility
@@ -51,6 +54,7 @@ export function toPlayerProfileDto(profile: PlayerProfileRecord): PlayerProfileD
     bio: profile.bio,
     province: profile.province,
     city: profile.city,
+    barangay: profile.barangay,
     dominant_hand: profile.dominant_hand,
     preferred_position: profile.preferred_position,
     profile_visibility: profile.profile_visibility,
@@ -62,6 +66,7 @@ export interface PlayerSearchQuery {
   q?: string
   province?: string
   city?: string
+  barangay?: string
   limit: number
   offset: number
 }
@@ -76,6 +81,7 @@ export interface PlayerSearchResultDto {
   display_name: string
   province: string | null
   city: string | null
+  barangay: string | null
   singles_rating: number | null
   doubles_rating: number | null
 }
@@ -86,6 +92,7 @@ export function toPlayerSearchResultDto(row: PlayerSearchResultRow): PlayerSearc
     display_name: row.display_name,
     province: row.province,
     city: row.city,
+    barangay: row.barangay,
     singles_rating: row.singles_rating ?? null,
     doubles_rating: row.doubles_rating ?? null
   }

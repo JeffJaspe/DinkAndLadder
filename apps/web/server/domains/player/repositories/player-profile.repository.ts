@@ -7,7 +7,7 @@ import type {
 } from '../dto/player-profile.dto'
 
 const PROFILE_COLUMNS =
-  'id, user_id, display_name, first_name, last_name, bio, province, city, ' +
+  'id, user_id, display_name, first_name, last_name, bio, province, city, barangay, ' +
   'dominant_hand, preferred_position, profile_visibility, created_at, updated_at'
 
 export interface PlayerProfileRepository {
@@ -58,7 +58,7 @@ export function createPlayerProfileRepository(client: SupabaseClient): PlayerPro
     async search(query) {
       let builder = client
         .from('player_profiles')
-        .select('id, display_name, province, city, profile_visibility')
+        .select('id, display_name, province, city, barangay, profile_visibility')
         .eq('profile_visibility', 'public')
 
       if (query.q) {
@@ -69,6 +69,9 @@ export function createPlayerProfileRepository(client: SupabaseClient): PlayerPro
       }
       if (query.city) {
         builder = builder.eq('city', query.city)
+      }
+      if (query.barangay) {
+        builder = builder.eq('barangay', query.barangay)
       }
 
       builder = builder
@@ -114,6 +117,7 @@ export function createPlayerProfileRepository(client: SupabaseClient): PlayerPro
           bio: null,
           province: row.province as string | null,
           city: row.city as string | null,
+          barangay: row.barangay as string | null,
           dominant_hand: null,
           preferred_position: null,
           profile_visibility: row.profile_visibility as 'public' | 'private',

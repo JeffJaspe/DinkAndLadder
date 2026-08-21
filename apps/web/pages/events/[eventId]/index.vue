@@ -238,6 +238,21 @@ function formatDateRange(start: string, end: string): string {
 function formatScore(scores: { team1_score: number; team2_score: number }[]): string {
   return scores.map(s => `${s.team1_score}-${s.team2_score}`).join(', ')
 }
+
+const publishing = ref(false)
+
+async function handlePublishEvent() {
+  if (!confirm('Publish this event? It will become visible to all players.')) return
+  publishing.value = true
+  try {
+    await $fetch(`/api/v1/events/${eventId}/publish`, { method: 'POST' })
+    await refreshEvent()
+  } catch (err: any) {
+    alert(err.data?.message || 'Failed to publish event')
+  } finally {
+    publishing.value = false
+  }
+}
 </script>
 
 <template>
@@ -292,6 +307,16 @@ function formatScore(scores: { team1_score: number; team2_score: number }[]): st
               >
                 {{ event.status.replace('_', ' ') }}
               </span>
+
+              <!-- Publish Button for Draft Events -->
+              <button
+                v-if="isOrganizer && event.status === 'draft'"
+                :disabled="publishing"
+                class="rounded-lg bg-[#4DB175] px-4 py-2 text-sm font-medium text-white hover:bg-[#5FC287] disabled:opacity-50"
+                @click="handlePublishEvent"
+              >
+                {{ publishing ? 'Publishing...' : 'Publish Event' }}
+              </button>
 
               <!-- Registration Actions -->
               <template v-if="event.status === 'published' || event.status === 'active'">
@@ -359,13 +384,14 @@ function formatScore(scores: { team1_score: number; team2_score: number }[]): st
             <div class="mb-4 flex items-center justify-between">
               <h2 class="text-lg font-semibold text-white">Tournaments</h2>
               <NuxtLink
+                v-if="isOrganizer"
                 :to="`/events/${eventId}/create-tournament`"
                 class="inline-flex items-center gap-2 rounded-lg bg-[#4DB175] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#5FC287]"
               >
                 <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
                 </svg>
-                Add Tournament
+                Add Category
               </NuxtLink>
             </div>
 
@@ -421,6 +447,9 @@ function formatScore(scores: { team1_score: number; team2_score: number }[]): st
             <p class="text-[#A6ABA7]">
               This event has matchmaking queue enabled with {{ event.queue_courts }} court(s).
               Mode: <span class="capitalize">{{ event.queue_mode.replace('_', ' ') }}</span>
+            </p>
+            <p class="mt-2 text-sm text-[#6B7B75]">
+              Auto-matching coming soon. Currently, the organizer assigns matches manually.
             </p>
           </div>
         </div>
