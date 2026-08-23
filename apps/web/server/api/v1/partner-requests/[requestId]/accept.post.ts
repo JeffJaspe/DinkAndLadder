@@ -2,7 +2,10 @@ import { serverSupabaseServiceRole, serverSupabaseUser } from '#supabase/server'
 import { createPartnershipRepository } from '~/server/domains/partnership/repositories/partnership.repository'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
 import { createRatingRepository } from '~/server/domains/rating/repositories/rating.repository'
-import { createPartnershipService, PartnershipServiceError } from '~/server/domains/partnership/services/partnership.service'
+import {
+  createPartnershipService,
+  PartnershipServiceError
+} from '~/server/domains/partnership/services/partnership.service'
 import { createNotificationRepository } from '~/server/domains/notification/repositories/notification.repository'
 import { createNotificationService } from '~/server/domains/notification/services/notification.service'
 import { apiError } from '~/server/utils/api-error'
@@ -43,9 +46,7 @@ export default defineEventHandler(async (event) => {
     if (request) {
       const requesterProfile = await playerRepo.findById(request.from_player_id)
       if (requesterProfile) {
-        const notificationService = createNotificationService(
-          createNotificationRepository(client)
-        )
+        const notificationService = createNotificationService(createNotificationRepository(client))
         await notificationService.notify({
           user_id: requesterProfile.user_id,
           type: 'partner.request_accepted',

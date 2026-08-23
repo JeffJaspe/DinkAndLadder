@@ -17,7 +17,8 @@ export default defineEventHandler(async (event) => {
 
   let query = userClient
     .from('matches')
-    .select(`
+    .select(
+      `
       id,
       match_type,
       status,
@@ -41,7 +42,8 @@ export default defineEventHandler(async (event) => {
         team1_score,
         team2_score
       )
-    `)
+    `
+    )
     .eq('event_id', eventId)
     .order('played_at', { ascending: false })
     .range(offset, offset + limit - 1)

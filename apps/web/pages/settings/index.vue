@@ -5,7 +5,7 @@ import type { IconName } from '~/utils/icons'
 
 useHead({ title: 'Settings' })
 
-const settingsLinks: { title: string, description: string, href: string, icon: IconName }[] = [
+const settingsLinks: { title: string; description: string; href: string; icon: IconName }[] = [
   {
     title: 'Profile',
     description: 'Edit your display name, bio, and preferences',
@@ -28,7 +28,7 @@ const settingsLinks: { title: string, description: string, href: string, icon: I
  */
 const { preference, resolvedTheme, setTheme } = useTheme()
 
-const THEME_OPTIONS: { value: ThemePreference, label: string, icon: IconName, hint: string }[] = [
+const THEME_OPTIONS: { value: ThemePreference; label: string; icon: IconName; hint: string }[] = [
   { value: 'light', label: 'Light', icon: 'sun', hint: 'Always light' },
   { value: 'dark', label: 'Dark', icon: 'moon', hint: 'Always dark' },
   { value: 'system', label: 'System', icon: 'settings', hint: 'Match your device' }
@@ -45,7 +45,7 @@ const THEME_OPTIONS: { value: ThemePreference, label: string, icon: IconName, hi
           Appearance
         </h2>
 
-        <div class="rounded-card border border-border bg-surface p-4">
+        <div class="rounded-card border border-border bg-surface p-4 shadow-card">
           <div class="grid gap-2 sm:grid-cols-3" role="radiogroup" aria-label="Theme">
             <button
               v-for="option in THEME_OPTIONS"
@@ -54,9 +54,11 @@ const THEME_OPTIONS: { value: ThemePreference, label: string, icon: IconName, hi
               role="radio"
               :aria-checked="preference === option.value"
               class="flex flex-col items-center gap-1.5 rounded-button border p-3 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-              :class="preference === option.value
-                ? 'border-primary bg-primary-soft text-primary'
-                : 'border-border text-fg-secondary hover:border-border-strong hover:bg-surface-2 hover:text-fg'"
+              :class="
+                preference === option.value
+                  ? 'border-primary bg-primary-soft text-primary'
+                  : 'border-border text-fg-secondary hover:border-border-strong hover:bg-surface-2 hover:text-fg'
+              "
               @click="setTheme(option.value)"
             >
               <UiIcon :name="option.icon" size="h-5 w-5" />
@@ -66,8 +68,8 @@ const THEME_OPTIONS: { value: ThemePreference, label: string, icon: IconName, hi
           </div>
 
           <p class="mt-3 text-caption text-fg-muted">
-            Currently showing <strong class="text-fg">{{ resolvedTheme }}</strong>.
-            Your choice is saved to this browser and applies the moment a page loads.
+            Currently showing <strong class="text-fg">{{ resolvedTheme }}</strong
+            >. Your choice is saved to this browser and applies the moment a page loads.
           </p>
         </div>
       </section>
@@ -82,9 +84,11 @@ const THEME_OPTIONS: { value: ThemePreference, label: string, icon: IconName, hi
             v-for="link in settingsLinks"
             :key="link.href"
             :to="link.href"
-            class="flex items-center gap-4 rounded-card border border-border bg-surface p-4 transition-colors hover:bg-surface-2"
+            class="flex items-center gap-4 rounded-card border border-border bg-surface p-4 transition-colors hover:bg-surface-2 shadow-card hover:shadow-card-hover"
           >
-            <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-button bg-surface-2 text-fg-secondary">
+            <span
+              class="flex h-10 w-10 shrink-0 items-center justify-center rounded-button bg-surface-2 text-fg-secondary"
+            >
               <UiIcon :name="link.icon" />
             </span>
             <span class="flex-1">

@@ -24,20 +24,35 @@ const { accountMode, activeClubId } = useAccountMode()
 
 const sidebarOpen = ref(false)
 
+// Every nav link in the drawer closes it on click, but the account switcher
+// navigates from inside its own component (navigateTo, after an async check),
+// so a click handler here would fire before the route actually changed — and on
+// the "no club yet" path it changes to /create-club, not to the link's href.
+// Closing on the settled route covers both, and any future in-drawer navigation.
+watch(
+  () => route.fullPath,
+  () => {
+    sidebarOpen.value = false
+  }
+)
+
 const { data: myProfile } = await useFetch<PlayerProfileDto>('/api/v1/players/me', {
   server: false
 })
 
-const { data: adminStatus } = await useFetch<{ is_superadmin: boolean }>('/api/v1/me/is-superadmin', {
-  server: false
-})
+const { data: adminStatus } = await useFetch<{ is_superadmin: boolean }>(
+  '/api/v1/me/is-superadmin',
+  {
+    server: false
+  }
+)
 
 // Powers the sidebar user card. Deliberately not blocking: the shell must
 // render even if the rating service is down.
-const { data: myRatings } = await useFetch<{ singles: PlayerRatingDto | null; doubles: PlayerRatingDto | null }>(
-  '/api/v1/players/me/ratings',
-  { server: false }
-)
+const { data: myRatings } = await useFetch<{
+  singles: PlayerRatingDto | null
+  doubles: PlayerRatingDto | null
+}>('/api/v1/players/me/ratings', { server: false })
 
 const isSuperAdmin = computed(() => adminStatus.value?.is_superadmin ?? false)
 
@@ -46,9 +61,15 @@ const displayName = computed(
 )
 
 const singlesRating = computed(() => myRatings.value?.singles?.rating_value ?? null)
-const tier = computed(() => (singlesRating.value === null ? null : tierForRating(singlesRating.value)))
+const tier = computed(() =>
+  singlesRating.value === null ? null : tierForRating(singlesRating.value)
+)
 
-interface NavItem { name: string, href: string, icon: IconName }
+interface NavItem {
+  name: string
+  href: string
+  icon: IconName
+}
 
 // Player vs Club account mode changes what the sidebar nav shows — see
 // composables/useAccountMode.ts and components/AccountSwitcher.vue.
@@ -61,13 +82,17 @@ const playerNavItems: NavItem[] = [
   { name: 'Partners', href: '/partners', icon: 'players' },
   { name: 'Community', href: '/community', icon: 'chat' },
   { name: 'My Clubs', href: '/my-clubs', icon: 'clubs' },
-  { name: 'Verified Clubs', href: '/verified-clubs', icon: 'verified' },
+  { name: 'Discover Clubs', href: '/clubs', icon: 'clubs' },
   { name: 'Players', href: '/players', icon: 'user' },
   { name: 'Achievements', href: '/achievements', icon: 'achievements' }
 ]
 
 const clubNavItems = computed<NavItem[]>(() => [
-  { name: 'Kitchen', href: activeClubId.value ? `/club/${activeClubId.value}/dashboard` : '/dashboard', icon: 'dashboard' },
+  {
+    name: 'Kitchen',
+    href: activeClubId.value ? `/club/${activeClubId.value}/dashboard` : '/dashboard',
+    icon: 'dashboard'
+  },
   { name: 'Feed', href: '/feed', icon: 'feed' },
   { name: 'Ranking', href: '/rankings', icon: 'rankings' },
   { name: 'Matches', href: '/matches', icon: 'matches' },
@@ -81,7 +106,9 @@ const clubNavItems = computed<NavItem[]>(() => [
   }
 ])
 
-const navItems = computed(() => (accountMode.value === 'club' ? clubNavItems.value : playerNavItems))
+const navItems = computed(() =>
+  accountMode.value === 'club' ? clubNavItems.value : playerNavItems
+)
 
 // Settings is ordinary per-user configuration and is shown to everyone. The
 // super-admin flag gates the one genuinely platform-wide screen instead.
@@ -95,6 +122,9 @@ const bottomNavItems = computed<NavItem[]>(() => {
   ]
   if (isSuperAdmin.value) {
     items.push({ name: 'Club Verification', href: '/admin/clubs/verification', icon: 'verified' })
+    items.push({ name: 'Platform Features', href: '/admin/features', icon: 'settings' })
+    items.push({ name: 'Platform Theme', href: '/admin/theme', icon: 'star' })
+    items.push({ name: 'Platform Branding', href: '/admin/branding', icon: 'edit' })
   }
   return items
 })
@@ -126,8 +156,7 @@ async function handleLogout() {
     >
       <div class="flex h-full flex-col">
         <NuxtLink to="/dashboard" class="flex h-14 items-center gap-2 border-b border-border px-4">
-          <span class="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-body-2 font-bold text-on-primary">D</span>
-          <span class="text-body-2 font-semibold text-fg">DinkAndLadder</span>
+          <UiBrandMark />
         </NuxtLink>
 
         <nav class="flex-1 space-y-0.5 overflow-y-auto px-2 py-3">
@@ -136,9 +165,11 @@ async function handleLogout() {
             :key="item.href"
             :to="item.href"
             class="flex items-center gap-3 rounded-button px-3 py-2 text-body-2 transition-colors"
-            :class="isActive(item.href)
-              ? 'bg-primary-soft text-primary'
-              : 'text-fg-secondary hover:bg-surface-2 hover:text-fg'"
+            :class="
+              isActive(item.href)
+                ? 'bg-primary-soft text-primary'
+                : 'text-fg-secondary hover:bg-surface-2 hover:text-fg'
+            "
             :aria-current="isActive(item.href) ? 'page' : undefined"
           >
             <UiIcon :name="item.icon" />
@@ -152,15 +183,28 @@ async function handleLogout() {
             :key="item.href"
             :to="item.href"
             class="flex items-center gap-3 rounded-button px-3 py-2 text-body-2 transition-colors"
-            :class="isActive(item.href)
-              ? 'bg-primary-soft text-primary'
-              : 'text-fg-secondary hover:bg-surface-2 hover:text-fg'"
+            :class="
+              isActive(item.href)
+                ? 'bg-primary-soft text-primary'
+                : 'text-fg-secondary hover:bg-surface-2 hover:text-fg'
+            "
             :aria-current="isActive(item.href) ? 'page' : undefined"
           >
             <UiIcon :name="item.icon" />
             {{ item.name }}
           </NuxtLink>
         </nav>
+
+        <!-- Account switcher — the only way into club mode.
+             Its mount point was dropped by the theme pass (d985f6c) when the
+             sidebar's three blocks were merged into a single <nav>; the
+             component itself survived and was even retokenised in that same
+             commit, so only this wrapper went missing. It renders its menu
+             upward (`bottom-full`), which is why it belongs at the foot of the
+             sidebar rather than inline in the nav list. -->
+        <div class="border-t border-border px-2 py-3">
+          <AccountSwitcher />
+        </div>
 
         <!-- User card. The mockup pins identity and current rating to every
              screen — seeing your standing is the loop the product runs on. -->
@@ -173,8 +217,12 @@ async function handleLogout() {
             <span class="min-w-0 flex-1">
               <span class="block truncate text-body-2 font-medium text-fg">{{ displayName }}</span>
               <span v-if="singlesRating !== null" class="flex items-baseline gap-1.5">
-                <span class="text-body-2 font-semibold tabular-nums text-fg">{{ formatRating(singlesRating) }}</span>
-                <span v-if="tier" class="text-caption" :class="tier.textClass">{{ tier.name }}</span>
+                <span class="text-body-2 font-semibold tabular-nums text-fg">{{
+                  formatRating(singlesRating)
+                }}</span>
+                <span v-if="tier" class="text-caption" :class="tier.textClass">{{
+                  tier.name
+                }}</span>
               </span>
               <span v-else class="block text-caption text-fg-muted">Unrated</span>
             </span>
@@ -200,8 +248,12 @@ async function handleLogout() {
         <div class="absolute inset-0 bg-black/60" @click="sidebarOpen = false" />
         <aside class="absolute left-0 top-0 flex h-full w-64 flex-col bg-canvas">
           <div class="flex h-14 shrink-0 items-center justify-between border-b border-border px-4">
-            <span class="font-semibold text-fg">DinkAndLadder</span>
-            <button class="rounded p-2 text-fg-muted hover:text-fg" aria-label="Close menu" @click="sidebarOpen = false">
+            <UiBrandMark />
+            <button
+              class="rounded p-2 text-fg-muted hover:text-fg"
+              aria-label="Close menu"
+              @click="sidebarOpen = false"
+            >
               <UiIcon name="x" :stroke-width="2" />
             </button>
           </div>
@@ -212,15 +264,26 @@ async function handleLogout() {
               :key="item.href"
               :to="item.href"
               class="flex items-center gap-3 rounded-button px-3 py-2.5 text-body-2 transition-colors"
-              :class="isActive(item.href)
-                ? 'bg-primary-soft text-primary'
-                : 'text-fg-secondary hover:bg-surface-2 hover:text-fg'"
+              :class="
+                isActive(item.href)
+                  ? 'bg-primary-soft text-primary'
+                  : 'text-fg-secondary hover:bg-surface-2 hover:text-fg'
+              "
               @click="sidebarOpen = false"
             >
               <UiIcon :name="item.icon" />
               {{ item.name }}
             </NuxtLink>
           </nav>
+
+          <!-- Account switcher, mobile. The desktop sidebar is not a fallback
+               here: this is a mobile-first product, and club mode was
+               previously unreachable on a phone entirely. Same component, so
+               the two stay in step; its menu opens upward, which is why it
+               sits in the drawer's footer rather than above the nav list. -->
+          <div class="shrink-0 border-t border-border px-3 pb-1 pt-3">
+            <AccountSwitcher />
+          </div>
 
           <div class="shrink-0 border-t border-border p-3">
             <div class="mb-2 flex items-center justify-between px-1">
@@ -244,14 +307,21 @@ async function handleLogout() {
       v-if="user"
       class="fixed left-0 right-0 top-0 z-30 flex h-14 items-center justify-between border-b border-border bg-canvas px-4 lg:hidden"
     >
-      <button class="rounded-button p-2 text-fg-muted hover:bg-surface-2 hover:text-fg" aria-label="Open menu" @click="sidebarOpen = true">
+      <button
+        class="rounded-button p-2 text-fg-muted hover:bg-surface-2 hover:text-fg"
+        aria-label="Open menu"
+        @click="sidebarOpen = true"
+      >
         <UiIcon name="menu" :stroke-width="2" />
       </button>
       <NuxtLink to="/dashboard" class="flex items-center gap-2">
-        <span class="flex h-7 w-7 items-center justify-center rounded-lg bg-primary text-caption font-bold text-on-primary">D</span>
-        <span class="text-body-2 font-semibold text-fg">DinkAndLadder</span>
+        <UiBrandMark size="sm" />
       </NuxtLink>
-      <NuxtLink to="/notifications" class="rounded-button p-2 text-fg-muted hover:bg-surface-2 hover:text-fg" aria-label="Notifications">
+      <NuxtLink
+        to="/notifications"
+        class="rounded-button p-2 text-fg-muted hover:bg-surface-2 hover:text-fg"
+        aria-label="Notifications"
+      >
         <UiIcon name="bell" />
       </NuxtLink>
     </header>
@@ -293,8 +363,7 @@ async function handleLogout() {
       class="fixed left-0 right-0 top-0 z-30 flex h-14 items-center justify-between border-b border-border bg-canvas px-4 lg:px-8"
     >
       <NuxtLink to="/" class="flex items-center gap-2">
-        <span class="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-body-2 font-bold text-on-primary">D</span>
-        <span class="font-semibold text-fg">DinkAndLadder</span>
+        <UiBrandMark />
       </NuxtLink>
       <div class="flex items-center gap-2">
         <UiThemeToggle size="sm" />

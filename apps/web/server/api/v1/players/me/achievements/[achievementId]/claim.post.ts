@@ -1,6 +1,9 @@
 import { serverSupabaseClient, serverSupabaseUser } from '#supabase/server'
 import { createAchievementRepository } from '~/server/domains/achievement/repositories/achievement.repository'
-import { createAchievementService, AchievementServiceError } from '~/server/domains/achievement/services/achievement.service'
+import {
+  createAchievementService,
+  AchievementServiceError
+} from '~/server/domains/achievement/services/achievement.service'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
 
 export default defineEventHandler(async (event) => {

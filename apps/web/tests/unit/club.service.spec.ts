@@ -372,6 +372,98 @@ describe('ClubService', () => {
   })
 })
 
+describe('ClubService — moderator join-request review', () => {
+  let fakes: ReturnType<typeof createFakes>
+
+  beforeEach(() => {
+    fakes = createFakes()
+  })
+
+  function service() {
+    return createClubService(fakes.clubRepository, fakes.membershipRepository)
+  }
+
+  /** Club with an owner and an active MODERATOR, plus a pending applicant. */
+  async function seedWithModerator() {
+    const svc = service()
+    const club = await svc.createClub('user-owner', 'player-owner', {
+      name: 'Manila Dinkers',
+      slug: 'manila-dinkers'
+    })
+    await svc.requestToJoin(club.id, 'player-mod')
+    await svc.updateMember('player-owner', club.id, 'player-mod', { status: 'active' })
+    await svc.updateMember('player-owner', club.id, 'player-mod', { role: 'MODERATOR' })
+    await svc.requestToJoin(club.id, 'player-applicant')
+    return { svc, club }
+  }
+
+  it('lets a moderator admit a pending applicant', async () => {
+    const { svc, club } = await seedWithModerator()
+
+    const approved = await svc.updateMember('player-mod', club.id, 'player-applicant', {
+      status: 'active'
+    })
+
+    expect(approved.status).toBe('active')
+    expect(approved.joined_at).not.toBeNull()
+  })
+
+  it('lets a moderator turn a pending applicant away', async () => {
+    const { svc, club } = await seedWithModerator()
+
+    const rejected = await svc.updateMember('player-mod', club.id, 'player-applicant', {
+      status: 'rejected'
+    })
+
+    expect(rejected.status).toBe('rejected')
+  })
+
+  it('does not let a moderator change any role', async () => {
+    const { svc, club } = await seedWithModerator()
+    await svc.updateMember('player-owner', club.id, 'player-applicant', { status: 'active' })
+
+    await expect(
+      svc.updateMember('player-mod', club.id, 'player-applicant', { role: 'ADMIN' })
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    await expect(
+      svc.updateMember('player-mod', club.id, 'player-applicant', { role: 'MEMBER' })
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+  })
+
+  it('does not let a moderator remove an existing member', async () => {
+    // The applicant is active by now, so this is a removal, not a review —
+    // even though it is still just a status change.
+    const { svc, club } = await seedWithModerator()
+    await svc.updateMember('player-owner', club.id, 'player-applicant', { status: 'active' })
+
+    await expect(
+      svc.updateMember('player-mod', club.id, 'player-applicant', { status: 'left' })
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+  })
+
+  it('gates on the target being pending, not merely on the status value', async () => {
+    // The same input that is a legitimate review of a pending applicant is not
+    // a review once they are active — so the permission must turn on the
+    // target's state, not on `status: 'active'` appearing in the body.
+    const { svc, club } = await seedWithModerator()
+    await svc.updateMember('player-owner', club.id, 'player-applicant', { status: 'active' })
+
+    await expect(
+      svc.updateMember('player-mod', club.id, 'player-applicant', { status: 'active' })
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+  })
+
+  it('still refuses a plain member reviewing a request', async () => {
+    const { svc, club } = await seedWithModerator()
+    await svc.requestToJoin(club.id, 'player-plain')
+    await svc.updateMember('player-owner', club.id, 'player-plain', { status: 'active' })
+
+    await expect(
+      svc.updateMember('player-plain', club.id, 'player-applicant', { status: 'active' })
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+  })
+})
+
 describe('ClubServiceError', () => {
   it('carries the http status alongside the machine-readable code', () => {
     const err = new ClubServiceError(403, 'FORBIDDEN', 'nope')

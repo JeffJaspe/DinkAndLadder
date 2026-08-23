@@ -9,11 +9,7 @@ export type AuditEventType =
   | 'rating.correction'
 
 export type AuditTargetType =
-  | 'club_membership'
-  | 'match'
-  | 'match_verification'
-  | 'player_profile'
-  | 'player_rating'
+  'club_membership' | 'match' | 'match_verification' | 'player_profile' | 'player_rating'
 
 export interface AuditLogInput {
   event_type: AuditEventType

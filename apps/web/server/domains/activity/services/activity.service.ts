@@ -1,7 +1,12 @@
 import type { ActivityRepository } from '../repositories/activity.repository'
 import type { RelationshipRepository } from '../../social/repositories/relationship.repository'
 import type { ClubRepository } from '../../club/repositories/club.repository'
-import type { ActivityDto, ActivityRecord, CreateActivityInput, FeedQuery } from '../dto/activity.dto'
+import type {
+  ActivityDto,
+  ActivityRecord,
+  CreateActivityInput,
+  FeedQuery
+} from '../dto/activity.dto'
 import { toActivityDto } from '../dto/activity.dto'
 
 export class ActivityServiceError extends Error {
@@ -18,7 +23,12 @@ export interface ActivityService {
   createActivity(input: CreateActivityInput): Promise<ActivityDto>
   getPlayerActivities(playerId: string, limit: number, offset: number): Promise<ActivityDto[]>
   getPublicFeed(query: FeedQuery): Promise<ActivityDto[]>
-  getPersonalizedFeed(playerId: string, clubIds: string[], query: FeedQuery, circlePlayerIds?: string[]): Promise<ActivityDto[]>
+  getPersonalizedFeed(
+    playerId: string,
+    clubIds: string[],
+    query: FeedQuery,
+    circlePlayerIds?: string[]
+  ): Promise<ActivityDto[]>
 }
 
 export function createActivityService(
@@ -39,7 +49,9 @@ export function createActivityService(
     memberClubIds: string[]
   ): Promise<ActivityRecord[]> {
     if (!clubs) return records
-    const clubIds = [...new Set(records.map((r) => r.actor_club_id).filter((id): id is string => !!id))]
+    const clubIds = [
+      ...new Set(records.map((r) => r.actor_club_id).filter((id): id is string => !!id))
+    ]
     if (clubIds.length === 0) return records
 
     const memberSet = new Set(memberClubIds)
@@ -151,10 +163,7 @@ export function createActivityLogger(activities: ActivityRepository) {
       }
     },
 
-    async logStartedFollowing(
-      actorPlayerId: string,
-      followedPlayerId: string
-    ): Promise<void> {
+    async logStartedFollowing(actorPlayerId: string, followedPlayerId: string): Promise<void> {
       try {
         await activities.create({
           actor_player_id: actorPlayerId,
@@ -189,10 +198,7 @@ export function createActivityLogger(activities: ActivityRepository) {
       }
     },
 
-    async logClubMemberJoined(
-      actorPlayerId: string,
-      clubId: string
-    ): Promise<void> {
+    async logClubMemberJoined(actorPlayerId: string, clubId: string): Promise<void> {
       try {
         await activities.create({
           actor_player_id: actorPlayerId,
@@ -207,10 +213,7 @@ export function createActivityLogger(activities: ActivityRepository) {
       }
     },
 
-    async logShoutout(
-      actorPlayerId: string,
-      message: string
-    ): Promise<void> {
+    async logShoutout(actorPlayerId: string, message: string): Promise<void> {
       try {
         await activities.create({
           actor_player_id: actorPlayerId,

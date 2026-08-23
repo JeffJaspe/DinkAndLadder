@@ -1,14 +1,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import type {
-  EventRegistrationRecord,
-  EventRegistrationStatus
-} from '../dto/event.dto'
+import type { EventRegistrationRecord, EventRegistrationStatus } from '../dto/event.dto'
 
 export interface EventRegistrationRepository {
-  findByEventAndPlayer(
-    eventId: string,
-    playerId: string
-  ): Promise<EventRegistrationRecord | null>
+  findByEventAndPlayer(eventId: string, playerId: string): Promise<EventRegistrationRecord | null>
   findByEvent(
     eventId: string,
     status?: EventRegistrationStatus[]
@@ -26,15 +20,24 @@ export interface EventRegistrationRepository {
     eventIds: string[],
     status?: EventRegistrationStatus[]
   ): Promise<Map<string, number>>
+  /**
+   * Which of `eventIds` this player holds a registration for.
+   *
+   * Answers "am I in this one?" for a whole listing in a single round trip.
+   * Withdrawn rows are excluded by the caller's status filter, so a player who
+   * withdrew reads as not registered.
+   */
+  findRegisteredEventIds(
+    playerId: string,
+    eventIds: string[],
+    status?: EventRegistrationStatus[]
+  ): Promise<Set<string>>
   create(data: {
     event_id: string
     player_id: string
     status?: EventRegistrationStatus
   }): Promise<EventRegistrationRecord>
-  updateStatus(
-    id: string,
-    status: EventRegistrationStatus
-  ): Promise<EventRegistrationRecord | null>
+  updateStatus(id: string, status: EventRegistrationStatus): Promise<EventRegistrationRecord | null>
   checkIn(id: string): Promise<EventRegistrationRecord | null>
   withdraw(id: string): Promise<EventRegistrationRecord | null>
 }
@@ -58,10 +61,7 @@ export function createEventRegistrationRepository(
     },
 
     async findByEvent(eventId, status) {
-      let query = client
-        .from('event_registrations')
-        .select('*')
-        .eq('event_id', eventId)
+      let query = client.from('event_registrations').select('*').eq('event_id', eventId)
 
       if (status && status.length > 0) {
         query = query.in('status', status)
@@ -95,10 +95,7 @@ export function createEventRegistrationRepository(
       // Rows are fetched and tallied in application code because Supabase's
       // REST layer has no GROUP BY. Only the event_id column is selected, so
       // the payload stays small even for a busy event.
-      let query = client
-        .from('event_registrations')
-        .select('event_id')
-        .in('event_id', eventIds)
+      let query = client.from('event_registrations').select('event_id').in('event_id', eventIds)
 
       if (status && status.length > 0) {
         query = query.in('status', status)
@@ -114,6 +111,32 @@ export function createEventRegistrationRepository(
         counts.set(row.event_id, (counts.get(row.event_id) ?? 0) + 1)
       }
       return counts
+    },
+
+    async findRegisteredEventIds(playerId, eventIds, status) {
+      const ids = new Set<string>()
+      if (!eventIds.length) return ids
+
+      let query = client
+        .from('event_registrations')
+        .select('event_id')
+        .eq('player_id', playerId)
+        .in('event_id', eventIds)
+
+      if (status && status.length > 0) {
+        query = query.in('status', status)
+      }
+
+      const { data, error } = await query
+
+      if (error) {
+        throw new Error(`Failed to load player registrations: ${error.message}`)
+      }
+
+      for (const row of (data ?? []) as { event_id: string }[]) {
+        ids.add(row.event_id)
+      }
+      return ids
     },
 
     async countByEvent(eventId, status) {

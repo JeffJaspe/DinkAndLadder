@@ -1,0 +1,26 @@
+# Line endings
+#
+# Git normalizes text files to LF in the index, but with core.autocrlf=true —
+# the Windows default, and what this machine is set to — it checks them back
+# out as CRLF. Prettier's `endOfLine` default is "lf", so it then reports every
+# file in the repo as unformatted: 209 of them, none for a reason anyone could
+# see in a diff. Formatting the files does not fix that on its own, because the
+# next clone re-introduces CRLF.
+#
+# Pinning the working tree to LF makes `format:check` give the same answer on a
+# Windows dev machine and on Linux CI. It changes no committed content — the
+# index was already LF.
+* text=auto eol=lf
+
+# Binary files, never converted.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+*.pdf binary

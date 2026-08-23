@@ -10,7 +10,11 @@ import type {
 
 export interface AnalyticsService {
   getPlayerStats(playerId: string): Promise<PlayerStatsDto>
-  getRatingHistory(playerId: string, ratingType: 'singles' | 'doubles', days?: number): Promise<RatingHistoryPointDto[]>
+  getRatingHistory(
+    playerId: string,
+    ratingType: 'singles' | 'doubles',
+    days?: number
+  ): Promise<RatingHistoryPointDto[]>
   getPlayerInsights(playerId: string): Promise<PlayerInsightsDto>
   getClubStats(clubId: string): Promise<ClubStatsDto>
 }
@@ -43,16 +47,24 @@ export function createAnalyticsService(client: SupabaseClient): AnalyticsService
       ] = await Promise.all([
         client.rpc('get_player_match_stats', { p_player_id: playerId }).single(),
         client.from('player_ratings').select('rating_type, rating_value').eq('player_id', playerId),
-        client.from('rating_transactions')
+        client
+          .from('rating_transactions')
           .select('new_rating, rating_type, created_at')
           .eq('player_id', playerId)
           .order('created_at', { ascending: false })
           .limit(10),
-        client.from('club_memberships').select('id').eq('player_id', playerId).eq('status', 'active'),
+        client
+          .from('club_memberships')
+          .select('id')
+          .eq('player_id', playerId)
+          .eq('status', 'active'),
         client.from('tournament_registrations').select('id').eq('player_id', playerId),
         relationships.countFollowers(playerId),
         relationships.countFollowing(playerId),
-        client.from('player_achievements').select('achievement_id, achievements(points)').eq('player_id', playerId)
+        client
+          .from('player_achievements')
+          .select('achievement_id, achievements(points)')
+          .eq('player_id', playerId)
       ])
 
       // Surface query failures instead of silently reporting zeros — a swallowed
@@ -70,8 +82,10 @@ export function createAnalyticsService(client: SupabaseClient): AnalyticsService
         }
       }
 
-      const singlesRating = ratings.data?.find(r => r.rating_type === 'singles')?.rating_value ?? null
-      const doublesRating = ratings.data?.find(r => r.rating_type === 'doubles')?.rating_value ?? null
+      const singlesRating =
+        ratings.data?.find((r) => r.rating_type === 'singles')?.rating_value ?? null
+      const doublesRating =
+        ratings.data?.find((r) => r.rating_type === 'doubles')?.rating_value ?? null
 
       const recentRatings = ratingHistory.data ?? []
       let trend: RatingTrend = 'stable'
@@ -84,7 +98,8 @@ export function createAnalyticsService(client: SupabaseClient): AnalyticsService
 
       const achievementRows = achievements.data ?? []
       const totalPoints = achievementRows.reduce((sum, a) => {
-        const pts = (a as unknown as { achievements: { points: number } | null }).achievements?.points ?? 0
+        const pts =
+          (a as unknown as { achievements: { points: number } | null }).achievements?.points ?? 0
         return sum + pts
       }, 0)
 
@@ -133,7 +148,7 @@ export function createAnalyticsService(client: SupabaseClient): AnalyticsService
 
       if (error) throw error
 
-      return (data ?? []).map(row => ({
+      return (data ?? []).map((row) => ({
         date: row.created_at,
         rating_value: row.new_rating,
         rating_type: row.rating_type as 'singles' | 'doubles',
@@ -203,30 +218,29 @@ export function createAnalyticsService(client: SupabaseClient): AnalyticsService
       const thirtyDaysAgo = daysAgo(30)
 
       const [members, newMembers, events, announcements, tournaments] = await Promise.all([
-        client.from('club_memberships')
+        client
+          .from('club_memberships')
           .select('id, player_id, joined_at')
           .eq('club_id', clubId)
           .eq('status', 'active'),
-        client.from('club_memberships')
+        client
+          .from('club_memberships')
           .select('id')
           .eq('club_id', clubId)
           .eq('status', 'active')
           .gte('joined_at', thirtyDaysAgo),
-        client.from('events')
-          .select('id')
-          .eq('club_id', clubId),
-        client.from('club_announcements')
+        client.from('events').select('id').eq('club_id', clubId),
+        client
+          .from('club_announcements')
           .select('id')
           .eq('club_id', clubId)
           .gte('created_at', thirtyDaysAgo),
         // tournaments_hosted was hardcoded to 0; tournaments hang off events,
         // so this counts them through the club's own events.
-        client.from('tournaments')
-          .select('id, events!inner(club_id)')
-          .eq('events.club_id', clubId)
+        client.from('tournaments').select('id, events!inner(club_id)').eq('events.club_id', clubId)
       ])
 
-      const memberIds = (members.data ?? []).map(m => m.player_id)
+      const memberIds = (members.data ?? []).map((m) => m.player_id)
 
       // Skip the query entirely for a club with no members. It previously sent
       // the literal 'none' into an `in(...)` on a uuid column, which Postgres

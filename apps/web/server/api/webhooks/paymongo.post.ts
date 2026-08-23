@@ -13,9 +13,5 @@ import { apiError } from '~/server/utils/api-error'
  * 501 keeps events queued upstream until the payments domain is promoted.
  */
 export default defineEventHandler(() => {
-  throw apiError(
-    501,
-    'NOT_IMPLEMENTED',
-    'Payment processing is not enabled on this deployment.'
-  )
+  throw apiError(501, 'NOT_IMPLEMENTED', 'Payment processing is not enabled on this deployment.')
 })

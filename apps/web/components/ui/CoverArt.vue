@@ -54,7 +54,10 @@ const gradient = computed(() => GRADIENTS[hash(props.name) % GRADIENTS.length])
 const monogram = computed(() => {
   const words = props.name.trim().split(/\s+/).filter(Boolean)
   if (!words.length) return '?'
-  return words.slice(0, 2).map((w) => w[0]!.toUpperCase()).join('')
+  return words
+    .slice(0, 2)
+    .map((w) => w[0]!.toUpperCase())
+    .join('')
 })
 
 const failed = ref(false)
@@ -75,14 +78,15 @@ const HEIGHT = { banner: 'h-40 sm:h-56', card: 'h-28' } as const
       class="h-full w-full object-cover"
       loading="lazy"
       @error="failed = true"
-    >
+    />
     <!-- Decorative: the name is always rendered as real text beside this. -->
     <span
       v-else
       class="font-display font-bold text-on-accent/70"
       :class="variant === 'banner' ? 'text-5xl' : 'text-2xl'"
       aria-hidden="true"
-    >{{ monogram }}</span>
+      >{{ monogram }}</span
+    >
 
     <slot />
   </div>

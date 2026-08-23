@@ -1,8 +1,5 @@
 import type { AchievementRepository } from '../repositories/achievement.repository'
-import type {
-  AchievementDefinitionDto,
-  PlayerAchievementDto
-} from '../dto/achievement.dto'
+import type { AchievementDefinitionDto, PlayerAchievementDto } from '../dto/achievement.dto'
 import { toAchievementDefinitionDto } from '../dto/achievement.dto'
 
 export class AchievementServiceError extends Error {
@@ -90,16 +87,16 @@ export function createAchievementUnlocker(achievements: AchievementRepository) {
     async checkMatchMilestones(playerId: string, matchCount: number): Promise<string[]> {
       const unlocked: string[] = []
 
-      if (matchCount >= 1 && await this.checkAndUnlock(playerId, 'first_match')) {
+      if (matchCount >= 1 && (await this.checkAndUnlock(playerId, 'first_match'))) {
         unlocked.push('first_match')
       }
-      if (matchCount >= 10 && await this.checkAndUnlock(playerId, 'regular_player')) {
+      if (matchCount >= 10 && (await this.checkAndUnlock(playerId, 'regular_player'))) {
         unlocked.push('regular_player')
       }
-      if (matchCount >= 50 && await this.checkAndUnlock(playerId, 'dedicated_player')) {
+      if (matchCount >= 50 && (await this.checkAndUnlock(playerId, 'dedicated_player'))) {
         unlocked.push('dedicated_player')
       }
-      if (matchCount >= 100 && await this.checkAndUnlock(playerId, 'match_master')) {
+      if (matchCount >= 100 && (await this.checkAndUnlock(playerId, 'match_master'))) {
         unlocked.push('match_master')
       }
 
@@ -109,13 +106,13 @@ export function createAchievementUnlocker(achievements: AchievementRepository) {
     async checkWinMilestones(playerId: string, winCount: number): Promise<string[]> {
       const unlocked: string[] = []
 
-      if (winCount >= 1 && await this.checkAndUnlock(playerId, 'first_victory')) {
+      if (winCount >= 1 && (await this.checkAndUnlock(playerId, 'first_victory'))) {
         unlocked.push('first_victory')
       }
-      if (winCount >= 10 && await this.checkAndUnlock(playerId, 'winner')) {
+      if (winCount >= 10 && (await this.checkAndUnlock(playerId, 'winner'))) {
         unlocked.push('winner')
       }
-      if (winCount >= 50 && await this.checkAndUnlock(playerId, 'champion')) {
+      if (winCount >= 50 && (await this.checkAndUnlock(playerId, 'champion'))) {
         unlocked.push('champion')
       }
 
@@ -129,13 +126,13 @@ export function createAchievementUnlocker(achievements: AchievementRepository) {
         if (await this.checkAndUnlock(playerId, 'rated_player')) {
           unlocked.push('rated_player')
         }
-        if (rating >= 3.5 && await this.checkAndUnlock(playerId, 'rising_star')) {
+        if (rating >= 3.5 && (await this.checkAndUnlock(playerId, 'rising_star'))) {
           unlocked.push('rising_star')
         }
-        if (rating >= 4.0 && await this.checkAndUnlock(playerId, 'skilled_player')) {
+        if (rating >= 4.0 && (await this.checkAndUnlock(playerId, 'skilled_player'))) {
           unlocked.push('skilled_player')
         }
-        if (rating >= 4.5 && await this.checkAndUnlock(playerId, 'elite_player')) {
+        if (rating >= 4.5 && (await this.checkAndUnlock(playerId, 'elite_player'))) {
           unlocked.push('elite_player')
         }
       }
@@ -146,7 +143,7 @@ export function createAchievementUnlocker(achievements: AchievementRepository) {
     async checkSocialMilestones(playerId: string, followerCount: number): Promise<string[]> {
       const unlocked: string[] = []
 
-      if (followerCount >= 5 && await this.checkAndUnlock(playerId, 'social_butterfly')) {
+      if (followerCount >= 5 && (await this.checkAndUnlock(playerId, 'social_butterfly'))) {
         unlocked.push('social_butterfly')
       }
 
@@ -159,20 +156,23 @@ export function createAchievementUnlocker(achievements: AchievementRepository) {
       if (await this.checkAndUnlock(playerId, 'community_member')) {
         unlocked.push('community_member')
       }
-      if (isCreator && await this.checkAndUnlock(playerId, 'club_founder')) {
+      if (isCreator && (await this.checkAndUnlock(playerId, 'club_founder'))) {
         unlocked.push('club_founder')
       }
 
       return unlocked
     },
 
-    async checkTournamentMilestones(playerId: string, registrationCount: number): Promise<string[]> {
+    async checkTournamentMilestones(
+      playerId: string,
+      registrationCount: number
+    ): Promise<string[]> {
       const unlocked: string[] = []
 
-      if (registrationCount >= 1 && await this.checkAndUnlock(playerId, 'tournament_debut')) {
+      if (registrationCount >= 1 && (await this.checkAndUnlock(playerId, 'tournament_debut'))) {
         unlocked.push('tournament_debut')
       }
-      if (registrationCount >= 5 && await this.checkAndUnlock(playerId, 'competitor')) {
+      if (registrationCount >= 5 && (await this.checkAndUnlock(playerId, 'competitor'))) {
         unlocked.push('competitor')
       }
 

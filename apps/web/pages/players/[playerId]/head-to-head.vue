@@ -28,16 +28,22 @@ const {
   data: statsData,
   pending,
   error
-} = await useFetch<{ data: HeadToHeadStats }>(() => `/api/v1/players/me/head-to-head/${playerId.value}`)
+} = await useFetch<{ data: HeadToHeadStats }>(
+  () => `/api/v1/players/me/head-to-head/${playerId.value}`
+)
 
 const stats = computed(() => statsData.value?.data)
 
 function formatScore(match: HeadToHeadMatch): string {
-  return match.scores.map(s => `${s.team1_score}-${s.team2_score}`).join(', ')
+  return match.scores.map((s) => `${s.team1_score}-${s.team2_score}`).join(', ')
 }
 
 function formatDate(dateStr: string): string {
-  return new Date(dateStr).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+  return new Date(dateStr).toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric'
+  })
 }
 </script>
 
@@ -45,9 +51,17 @@ function formatDate(dateStr: string): string {
   <div class="min-h-screen bg-canvas p-4 lg:p-6">
     <div class="page-shell">
       <!-- Back Button -->
-      <NuxtLink to="/community" class="inline-flex items-center gap-2 text-sm text-fg-muted hover:text-fg">
+      <NuxtLink
+        to="/community"
+        class="inline-flex items-center gap-2 text-sm text-fg-muted hover:text-fg"
+      >
         <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            d="M15 19l-7-7 7-7"
+          />
         </svg>
         Back to Community
       </NuxtLink>
@@ -59,9 +73,12 @@ function formatDate(dateStr: string): string {
       </div>
 
       <!-- Error -->
-      <div v-else-if="error" class="mt-6 rounded-xl bg-surface p-8 text-center">
+      <div v-else-if="error" class="mt-6 rounded-xl bg-surface p-8 text-center shadow-card">
         <p class="text-red-400">Could not load head-to-head stats.</p>
-        <NuxtLink :to="`/players/${playerId}`" class="mt-4 inline-block text-sm text-primary hover:underline">
+        <NuxtLink
+          :to="`/players/${playerId}`"
+          class="mt-4 inline-block text-sm text-primary hover:underline"
+        >
           View Player Profile
         </NuxtLink>
       </div>
@@ -69,14 +86,19 @@ function formatDate(dateStr: string): string {
       <!-- Content -->
       <div v-else-if="stats" class="mt-6 space-y-6">
         <!-- Header -->
-        <div class="rounded-xl bg-surface p-6">
+        <div class="rounded-xl bg-surface p-6 shadow-card">
           <div class="flex items-center gap-4">
-            <div class="flex h-16 w-16 items-center justify-center rounded-full bg-surface-2 text-2xl font-bold text-fg-secondary">
+            <div
+              class="flex h-16 w-16 items-center justify-center rounded-full bg-surface-2 text-2xl font-bold text-fg-secondary"
+            >
               {{ stats.opponent.display_name.charAt(0).toUpperCase() }}
             </div>
             <div>
               <p class="text-sm text-fg-muted">Head-to-Head vs</p>
-              <NuxtLink :to="`/players/${stats.opponent.id}`" class="text-xl font-bold text-fg hover:text-primary">
+              <NuxtLink
+                :to="`/players/${stats.opponent.id}`"
+                class="text-xl font-bold text-fg hover:text-primary"
+              >
                 {{ stats.opponent.display_name }}
               </NuxtLink>
             </div>
@@ -100,7 +122,7 @@ function formatDate(dateStr: string): string {
         </div>
 
         <!-- Match History -->
-        <div class="rounded-xl bg-surface p-5">
+        <div class="rounded-xl bg-surface p-5 shadow-card">
           <h3 class="mb-4 text-sm font-medium text-fg-secondary">Match History</h3>
 
           <div v-if="stats.matches.length === 0" class="py-6 text-center text-sm text-fg-muted">

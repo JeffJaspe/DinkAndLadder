@@ -35,11 +35,13 @@ export default defineEventHandler(async (event) => {
   // Find all matches this player participated in
   const { data: myParticipations, error: partError } = await client
     .from('match_participants')
-    .select(`
+    .select(
+      `
       match_id,
       team_number,
       matches!inner(id, played_at, status)
-    `)
+    `
+    )
     .eq('player_id', profile.id)
     .eq('matches.status', 'verified')
 
@@ -72,12 +74,14 @@ export default defineEventHandler(async (event) => {
   // Get all participants in these matches
   const { data: allParticipants, error: allError } = await client
     .from('match_participants')
-    .select(`
+    .select(
+      `
       match_id,
       player_id,
       team_number,
       player_profiles!inner(id, display_name)
-    `)
+    `
+    )
     .in('match_id', matchIds)
     .neq('player_id', profile.id)
 
@@ -97,7 +101,9 @@ export default defineEventHandler(async (event) => {
 
   const matchResults = new Map<string, { winnedTeam: number | null }>()
   for (const matchId of matchIds) {
-    const matchScores = ((scores ?? []) as unknown as MatchScoreRow[]).filter((s) => s.match_id === matchId)
+    const matchScores = ((scores ?? []) as unknown as MatchScoreRow[]).filter(
+      (s) => s.match_id === matchId
+    )
     let team1Sets = 0
     let team2Sets = 0
     for (const s of matchScores) {
@@ -110,9 +116,12 @@ export default defineEventHandler(async (event) => {
 
   // Group by player and relationship type
   const partnersMap = new Map<string, { displayName: string; matches: string[] }>()
-  const opponentsMap = new Map<string, { displayName: string; matches: string[]; wins: number; losses: number }>()
+  const opponentsMap = new Map<
+    string,
+    { displayName: string; matches: string[]; wins: number; losses: number }
+  >()
 
-  for (const p of ((allParticipants ?? []) as unknown as OtherParticipantRow[])) {
+  for (const p of (allParticipants ?? []) as unknown as OtherParticipantRow[]) {
     const myTeam = myTeamByMatch.get(p.match_id)
     const displayName = p.player_profiles?.display_name ?? 'Unknown'
     const playedAt = myParts.find((m) => m.match_id === p.match_id)?.matches?.played_at

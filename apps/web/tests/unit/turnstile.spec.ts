@@ -30,7 +30,9 @@ describe('verifyTurnstileToken', () => {
   })
 
   it('returns failure with error codes when Cloudflare rejects the token', async () => {
-    const fetcher = vi.fn().mockResolvedValue({ success: false, 'error-codes': ['timeout-or-duplicate'] })
+    const fetcher = vi
+      .fn()
+      .mockResolvedValue({ success: false, 'error-codes': ['timeout-or-duplicate'] })
 
     const result = await verifyTurnstileToken(fetcher, 'secret', 'token-123')
 

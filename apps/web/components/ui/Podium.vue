@@ -80,8 +80,7 @@ const PLACES = [
 ] as const
 
 const entryFor = (rank: number) => props.entries[rank - 1] ?? null
-const tierFor = (entry: PodiumEntry) =>
-  entry.rating === null ? null : tierForRating(entry.rating)
+const tierFor = (entry: PodiumEntry) => (entry.rating === null ? null : tierForRating(entry.rating))
 </script>
 
 <template>
@@ -99,7 +98,9 @@ const tierFor = (entry: PodiumEntry) =>
           class="group flex w-full flex-col items-center gap-1.5 px-1 pb-2 text-center transition-transform hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
           @click="emit('select', entryFor(place.rank)!)"
         >
-          <span class="line-clamp-2 w-full text-caption font-semibold leading-tight text-fg sm:text-body-2">
+          <span
+            class="line-clamp-2 w-full text-caption font-semibold leading-tight text-fg sm:text-body-2"
+          >
             {{ entryFor(place.rank)!.name }}
           </span>
 
@@ -132,7 +133,8 @@ const tierFor = (entry: PodiumEntry) =>
           <span
             v-if="highlightId && entryFor(place.rank)!.id === highlightId"
             class="rounded-pill bg-primary-soft px-2 py-0.5 text-caption font-medium text-primary"
-          >You</span>
+            >You</span
+          >
         </button>
 
         <!-- The block -->
@@ -147,7 +149,8 @@ const tierFor = (entry: PodiumEntry) =>
             <span
               class="font-display text-4xl font-bold leading-none text-plinth-numeral/90 sm:text-5xl"
               aria-hidden="true"
-            >{{ place.rank }}</span>
+              >{{ place.rank }}</span
+            >
           </div>
         </div>
       </template>

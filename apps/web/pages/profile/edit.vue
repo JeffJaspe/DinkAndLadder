@@ -30,9 +30,11 @@ onMounted(() => {
   loadProvinces()
 })
 
-const { data: authInfo } = await useFetch<{ provider: string; providers: string[]; created_at: string }>(
-  '/api/v1/me/auth-info'
-)
+const { data: authInfo } = await useFetch<{
+  provider: string
+  providers: string[]
+  created_at: string
+}>('/api/v1/me/auth-info')
 
 const authMethodLabel = computed(() => {
   const provider = authInfo.value?.provider
@@ -150,7 +152,9 @@ async function handleSave() {
       }
     })
     savedMessage.value = 'Profile saved successfully!'
-    setTimeout(() => { savedMessage.value = '' }, 3000)
+    setTimeout(() => {
+      savedMessage.value = ''
+    }, 3000)
   } catch (err) {
     const fetchError = err as { data?: { message?: string } }
     errorMessage.value = fetchError.data?.message ?? 'Could not save your profile.'
@@ -158,7 +162,6 @@ async function handleSave() {
     saving.value = false
   }
 }
-
 </script>
 
 <template>
@@ -187,18 +190,44 @@ async function handleSave() {
       <!-- Form -->
       <form v-else class="space-y-6" @submit.prevent="handleSave">
         <!-- Account Info -->
-        <div class="rounded-xl bg-surface p-5">
+        <div class="rounded-xl bg-surface p-5 shadow-card">
           <h2 class="mb-4 font-semibold text-fg">Account</h2>
           <div class="flex items-center gap-3">
-            <div class="flex h-10 w-10 items-center justify-center rounded-lg" :class="authInfo?.provider === 'google' ? 'bg-white' : 'bg-primary'">
+            <div
+              class="flex h-10 w-10 items-center justify-center rounded-lg"
+              :class="authInfo?.provider === 'google' ? 'bg-white' : 'bg-primary'"
+            >
               <svg v-if="authInfo?.provider === 'google'" class="h-5 w-5" viewBox="0 0 24 24">
-                <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-                <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
-                <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+                <path
+                  fill="#4285F4"
+                  d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                />
+                <path
+                  fill="#34A853"
+                  d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                />
+                <path
+                  fill="#FBBC05"
+                  d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
+                />
+                <path
+                  fill="#EA4335"
+                  d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
+                />
               </svg>
-              <svg v-else class="h-5 w-5 text-fg" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+              <svg
+                v-else
+                class="h-5 w-5 text-fg"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
+                />
               </svg>
             </div>
             <div>
@@ -211,7 +240,7 @@ async function handleSave() {
         </div>
 
         <!-- Basic Info -->
-        <div class="rounded-xl bg-surface p-5">
+        <div class="rounded-xl bg-surface p-5 shadow-card">
           <h2 class="mb-4 font-semibold text-fg">Basic Information</h2>
           <div class="space-y-4">
             <div>
@@ -257,7 +286,7 @@ async function handleSave() {
         </div>
 
         <!-- Location -->
-        <div class="rounded-xl bg-surface p-5">
+        <div class="rounded-xl bg-surface p-5 shadow-card">
           <h2 class="mb-4 font-semibold text-fg">Location</h2>
           <div class="grid gap-4 sm:grid-cols-3">
             <div>
@@ -280,7 +309,15 @@ async function handleSave() {
                 class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg focus:border-primary focus:outline-none disabled:opacity-50"
                 @change="onCityChange(($event.target as HTMLSelectElement).value)"
               >
-                <option value="">{{ loadingCities ? 'Loading...' : (selectedProvince ? 'Select city' : 'Select province first') }}</option>
+                <option value="">
+                  {{
+                    loadingCities
+                      ? 'Loading...'
+                      : selectedProvince
+                        ? 'Select city'
+                        : 'Select province first'
+                  }}
+                </option>
                 <option v-for="c in cities" :key="c.code" :value="c.code">{{ c.name }}</option>
               </select>
             </div>
@@ -292,7 +329,15 @@ async function handleSave() {
                 class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg focus:border-primary focus:outline-none disabled:opacity-50"
                 @change="onBarangayChange(($event.target as HTMLSelectElement).value)"
               >
-                <option value="">{{ loadingBarangays ? 'Loading...' : (selectedCity ? 'Select barangay' : 'Select city first') }}</option>
+                <option value="">
+                  {{
+                    loadingBarangays
+                      ? 'Loading...'
+                      : selectedCity
+                        ? 'Select barangay'
+                        : 'Select city first'
+                  }}
+                </option>
                 <option v-for="b in barangays" :key="b.code" :value="b.code">{{ b.name }}</option>
               </select>
             </div>
@@ -300,7 +345,7 @@ async function handleSave() {
         </div>
 
         <!-- Play Style -->
-        <div class="rounded-xl bg-surface p-5">
+        <div class="rounded-xl bg-surface p-5 shadow-card">
           <h2 class="mb-4 font-semibold text-fg">Play Style</h2>
           <div class="grid gap-4 sm:grid-cols-2">
             <div>
@@ -331,14 +376,16 @@ async function handleSave() {
         </div>
 
         <!-- Privacy -->
-        <div class="rounded-xl bg-surface p-5">
+        <div class="rounded-xl bg-surface p-5 shadow-card">
           <h2 class="mb-4 font-semibold text-fg">Privacy</h2>
           <div class="space-y-3">
             <label
               class="flex cursor-pointer items-start gap-4 rounded-lg border-2 p-4 transition-all"
-              :class="form.profile_visibility === 'public'
-                ? 'border-primary bg-primary/5'
-                : 'border-border-strong hover:border-primary/50'"
+              :class="
+                form.profile_visibility === 'public'
+                  ? 'border-primary bg-primary/5'
+                  : 'border-border-strong hover:border-primary/50'
+              "
             >
               <input
                 v-model="form.profile_visibility"
@@ -348,16 +395,16 @@ async function handleSave() {
               />
               <div>
                 <span class="font-medium text-fg">Public Profile</span>
-                <p class="mt-0.5 text-sm text-fg-muted">
-                  Anyone can view your profile and stats
-                </p>
+                <p class="mt-0.5 text-sm text-fg-muted">Anyone can view your profile and stats</p>
               </div>
             </label>
             <label
               class="flex cursor-pointer items-start gap-4 rounded-lg border-2 p-4 transition-all"
-              :class="form.profile_visibility === 'private'
-                ? 'border-primary bg-primary/5'
-                : 'border-border-strong hover:border-primary/50'"
+              :class="
+                form.profile_visibility === 'private'
+                  ? 'border-primary bg-primary/5'
+                  : 'border-border-strong hover:border-primary/50'
+              "
             >
               <input
                 v-model="form.profile_visibility"
@@ -367,9 +414,7 @@ async function handleSave() {
               />
               <div>
                 <span class="font-medium text-fg">Private Profile</span>
-                <p class="mt-0.5 text-sm text-fg-muted">
-                  Only followers can view your profile
-                </p>
+                <p class="mt-0.5 text-sm text-fg-muted">Only followers can view your profile</p>
               </div>
             </label>
           </div>

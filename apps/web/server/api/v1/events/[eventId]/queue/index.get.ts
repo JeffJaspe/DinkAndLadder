@@ -15,7 +15,8 @@ export default defineEventHandler(async (event) => {
 
   const { data: rows, error } = await userClient
     .from('event_queue')
-    .select(`
+    .select(
+      `
       id,
       event_id,
       player_id,
@@ -34,7 +35,8 @@ export default defineEventHandler(async (event) => {
         display_name,
         player_ratings (rating_type, rating_value)
       )
-    `)
+    `
+    )
     .eq('event_id', eventId)
     .in('status', ['waiting', 'matched', 'playing'])
     .order('joined_at', { ascending: true })

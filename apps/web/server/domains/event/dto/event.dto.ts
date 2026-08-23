@@ -1,18 +1,8 @@
-export type EventStatus =
-  | 'draft'
-  | 'published'
-  | 'active'
-  | 'completed'
-  | 'cancelled'
+export type EventStatus = 'draft' | 'published' | 'active' | 'completed' | 'cancelled'
 
 export type EventVisibility = 'public' | 'registered_only' | 'private'
 
-export type EventType =
-  | 'open_casual'
-  | 'open_ranked'
-  | 'club_casual'
-  | 'club_ranked'
-  | 'tournament'
+export type EventType = 'open_casual' | 'open_ranked' | 'club_casual' | 'club_ranked' | 'tournament'
 
 export type QueueMode = 'first_come' | 'rating_based' | 'random'
 
@@ -67,6 +57,12 @@ export interface EventDto {
    * the UI must not collapse them, and this is deliberately not defaulted.
    */
   registered_count?: number
+  /**
+   * Whether the caller already holds a live registration for this event.
+   * Undefined when the request could not identify a caller — "unknown" is not
+   * "no", and a card must not tell a signed-out visitor they are not signed up.
+   */
+  viewer_registered?: boolean
   queue_enabled: boolean
   queue_courts: number
   queue_mode: QueueMode
@@ -159,6 +155,12 @@ export interface EventSearchQuery {
    * boundary; this only widens what the query asks for.
    */
   include_drafts_for_player_id?: string
+  /**
+   * When set, each result carries whether this player is already registered for
+   * it. Kept separate from include_drafts_for_player_id: they answer different
+   * questions, and a caller may want one without the other.
+   */
+  viewer_player_id?: string
   limit: number
   offset: number
 }

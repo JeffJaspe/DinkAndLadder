@@ -7,6 +7,16 @@ export interface PartnershipRecord {
   created_at: string
 }
 
+/**
+ * A player's chosen duo. One row per player — `player_id` is the primary key,
+ * so changing your duo is an upsert rather than a delete-then-insert.
+ */
+export interface DefaultPartnerRecord {
+  player_id: string
+  partner_id: string
+  updated_at: string
+}
+
 export interface PartnerRequestRecord {
   id: string
   from_player_id: string
@@ -25,6 +35,8 @@ export interface PartnerDto {
   singles_rating: number | null
   doubles_rating: number | null
   partnered_since: string
+  /** True for the one partner the player has marked as their default duo. */
+  is_default: boolean
 }
 
 export interface PartnerRequestDto {

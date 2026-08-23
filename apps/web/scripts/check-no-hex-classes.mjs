@@ -29,7 +29,8 @@ const HEX_CLASS = new RegExp(`\\b(?:${PREFIXES})-\\[#[0-9A-Fa-f]{3,8}\\]`, 'g')
  * mode) would be unreadable. Anywhere else it defeats the theme.
  */
 const WHITE = /\btext-white\b/
-const WHITE_OK = /(?:bg|from|via|to)-(?:danger[a-z-]*|red-\d|rose-\d|indigo-\d|purple-\d|\[#ff[0-9a-f]{4}\])/i
+const WHITE_OK =
+  /(?:bg|from|via|to)-(?:danger[a-z-]*|red-\d|rose-\d|indigo-\d|purple-\d|\[#ff[0-9a-f]{4}\])/i
 
 function collect(dir, out = []) {
   for (const name of readdirSync(dir)) {
@@ -56,7 +57,9 @@ for (const file of files) {
       violations.push(`${rel}:${i + 1}  ${hit}  — use a token from assets/css/tokens.css`)
     }
     if (WHITE.test(line) && !WHITE_OK.test(line)) {
-      violations.push(`${rel}:${i + 1}  text-white  — use text-fg, text-on-primary or text-on-accent`)
+      violations.push(
+        `${rel}:${i + 1}  text-white  — use text-fg, text-on-primary or text-on-accent`
+      )
     }
   })
 }

@@ -22,11 +22,14 @@ export function createBadgeRepository(supabase: SupabaseClient): BadgeRepository
     async upsert(playerId: string, badgeId: string | null): Promise<BadgeShowcaseRecord> {
       const { data, error } = await supabase
         .from('player_badge_showcase')
-        .upsert({
-          player_id: playerId,
-          selected_badge_id: badgeId,
-          updated_at: new Date().toISOString()
-        }, { onConflict: 'player_id' })
+        .upsert(
+          {
+            player_id: playerId,
+            selected_badge_id: badgeId,
+            updated_at: new Date().toISOString()
+          },
+          { onConflict: 'player_id' }
+        )
         .select()
         .single()
 

@@ -74,7 +74,14 @@ export function createAuditService(repository: AuditRepository): AuditService {
           : action === 'reject'
             ? 'club.membership_reject'
             : 'club.membership_remove'
-      await logEvent(eventType, actorUserId, actorPlayerId, 'club_membership', membershipId, payload)
+      await logEvent(
+        eventType,
+        actorUserId,
+        actorPlayerId,
+        'club_membership',
+        membershipId,
+        payload
+      )
     },
 
     async logMatchVerificationDecision(actorUserId, actorPlayerId, matchId, payload) {

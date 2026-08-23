@@ -39,11 +39,11 @@ export interface PasswordAuthError {
 
 export interface PasswordAuthClient {
   auth: {
-    signUp(params: { email: string; password: string }): Promise<{ error: PasswordAuthError | null }>
-    signInWithPassword(params: {
+    signUp(params: {
       email: string
       password: string
-    }): Promise<{
+    }): Promise<{ error: PasswordAuthError | null }>
+    signInWithPassword(params: { email: string; password: string }): Promise<{
       data: { session: AuthSession | null }
       error: PasswordAuthError | null
     }>

@@ -1,10 +1,18 @@
-import { serverSupabaseClient, serverSupabaseServiceRole, serverSupabaseUser } from '#supabase/server'
+import {
+  serverSupabaseClient,
+  serverSupabaseServiceRole,
+  serverSupabaseUser
+} from '#supabase/server'
+import { createClubMembershipRepository } from '~/server/domains/club/repositories/club-membership.repository'
 import { createEventRepository } from '~/server/domains/event/repositories/event.repository'
 import {
   createTournamentRepository,
   createTournamentRegistrationRepository
 } from '~/server/domains/event/repositories/tournament.repository'
-import { createEventService, EventServiceError } from '~/server/domains/event/services/event.service'
+import {
+  createEventService,
+  EventServiceError
+} from '~/server/domains/event/services/event.service'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
 
 interface UpdateRegistrationStatusInput {
@@ -42,10 +50,18 @@ export default defineEventHandler(async (event) => {
   const eventRepo = createEventRepository(serviceClient)
   const tournamentRepo = createTournamentRepository(serviceClient)
   const registrationRepo = createTournamentRegistrationRepository(serviceClient)
-  const service = createEventService(eventRepo, tournamentRepo, registrationRepo)
+  // The membership repo is what lets the hosting club's staff — not only the
+  // event creator — review registrations. Without it the service silently
+  // degrades to organizer-only, which is what it used to do.
+  const membershipRepo = createClubMembershipRepository(serviceClient)
+  const service = createEventService(eventRepo, tournamentRepo, registrationRepo, membershipRepo)
 
   try {
-    const registration = await service.updateRegistrationStatus(profile.id, registrationId, body.status)
+    const registration = await service.updateRegistrationStatus(
+      profile.id,
+      registrationId,
+      body.status
+    )
     return registration
   } catch (err) {
     if (err instanceof EventServiceError) {

@@ -88,7 +88,7 @@ export function createRankingRepository(client: SupabaseClient): RankingReposito
 
       if (error) throw error
 
-      for (const row of (data ?? []) as { player_id: string, rating_delta: number | null }[]) {
+      for (const row of (data ?? []) as { player_id: string; rating_delta: number | null }[]) {
         if (row.rating_delta === null) continue
         deltas.set(row.player_id, (deltas.get(row.player_id) ?? 0) + row.rating_delta)
       }

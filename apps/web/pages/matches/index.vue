@@ -20,8 +20,8 @@ interface MatchSummary {
   match_type: 'singles' | 'doubles'
   status: string
   played_at: string
-  participants: Array<{ player_id: string, team_number: 1 | 2, display_name: string }>
-  scores: Array<{ set_number: number, team1_score: number, team2_score: number }>
+  participants: Array<{ player_id: string; team_number: 1 | 2; display_name: string }>
+  scores: Array<{ set_number: number; team1_score: number; team2_score: number }>
 }
 
 const route = useRoute()
@@ -40,7 +40,9 @@ const { data, pending, error, refresh } = await useFetch<{ data: MatchSummary[] 
   { query: { limit: 50 }, server: false }
 )
 
-const { data: myProfile } = await useFetch<PlayerProfileDto>('/api/v1/players/me', { server: false })
+const { data: myProfile } = await useFetch<PlayerProfileDto>('/api/v1/players/me', {
+  server: false
+})
 
 const matches = computed(() => data.value?.data ?? [])
 
@@ -51,7 +53,11 @@ const matches = computed(() => data.value?.data ?? [])
  */
 const FILTERS = [
   { value: 'all', label: 'All', matches: () => true },
-  { value: 'pending', label: 'Pending', matches: (m: MatchSummary) => m.status === 'submitted' || m.status === 'pending_verification' },
+  {
+    value: 'pending',
+    label: 'Pending',
+    matches: (m: MatchSummary) => m.status === 'submitted' || m.status === 'pending_verification'
+  },
   { value: 'verified', label: 'Verified', matches: (m: MatchSummary) => m.status === 'verified' },
   { value: 'disputed', label: 'Disputed', matches: (m: MatchSummary) => m.status === 'disputed' }
 ]
@@ -69,7 +75,7 @@ const visible = computed(() => {
   return matches.value.filter(filter.matches)
 })
 
-const STATUS_PILL: Record<string, { label: string, klass: string }> = {
+const STATUS_PILL: Record<string, { label: string; klass: string }> = {
   submitted: { label: 'Pending', klass: 'bg-warning/15 text-warning' },
   pending_verification: { label: 'Pending', klass: 'bg-warning/15 text-warning' },
   verified: { label: 'Verified', klass: 'bg-success/15 text-success' },
@@ -111,7 +117,9 @@ function relative(iso: string): string {
     <header class="mb-5 flex flex-wrap items-center justify-between gap-3">
       <div>
         <h1 class="font-display text-heading-1 text-fg">Matches</h1>
-        <p class="mt-1 text-body-2 text-fg-secondary">Your match history and anything awaiting a decision.</p>
+        <p class="mt-1 text-body-2 text-fg-secondary">
+          Your match history and anything awaiting a decision.
+        </p>
       </div>
       <UiButton to="/matches/submit" size="sm">
         <UiIcon name="plus" size="h-4 w-4" :stroke-width="2.5" />
@@ -154,15 +162,18 @@ function relative(iso: string): string {
       <li v-for="match in visible" :key="match.id">
         <NuxtLink
           :to="`/matches/${match.id}`"
-          class="flex items-center gap-3 rounded-card border border-border bg-surface p-4 transition-colors hover:bg-surface-2"
+          class="flex items-center gap-3 rounded-card border border-border bg-surface p-4 transition-colors hover:bg-surface-2 shadow-card hover:shadow-card-hover"
         >
           <UiAvatar :name="opponents(match)" size="md" />
 
           <div class="min-w-0 flex-1">
             <p class="truncate text-body-2 font-medium text-fg">vs {{ opponents(match) }}</p>
-            <p class="text-caption tabular-nums text-fg-secondary">{{ score(match) || 'No score recorded' }}</p>
+            <p class="text-caption tabular-nums text-fg-secondary">
+              {{ score(match) || 'No score recorded' }}
+            </p>
             <p class="text-caption text-fg-muted">
-              {{ match.match_type === 'singles' ? 'Singles' : 'Doubles' }} · {{ relative(match.played_at) }}
+              {{ match.match_type === 'singles' ? 'Singles' : 'Doubles' }} ·
+              {{ relative(match.played_at) }}
             </p>
           </div>
 

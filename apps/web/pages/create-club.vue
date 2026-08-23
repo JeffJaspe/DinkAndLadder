@@ -95,7 +95,7 @@ async function handleCreate() {
       <!-- Form -->
       <form class="space-y-6" @submit.prevent="handleCreate">
         <!-- Basic Info -->
-        <div class="rounded-xl bg-surface p-5">
+        <div class="rounded-xl bg-surface p-5 shadow-card">
           <h2 class="mb-4 font-semibold text-fg">Basic Information</h2>
           <div class="space-y-4">
             <div>
@@ -110,7 +110,9 @@ async function handleCreate() {
               />
             </div>
             <div>
-              <label class="mb-1.5 block text-sm text-fg-secondary">Club URL Slug <span class="text-fg-muted">(optional)</span></label>
+              <label class="mb-1.5 block text-sm text-fg-secondary"
+                >Club URL Slug <span class="text-fg-muted">(optional)</span></label
+              >
               <input
                 v-model="form.slug"
                 type="text"
@@ -132,7 +134,7 @@ async function handleCreate() {
         </div>
 
         <!-- Location -->
-        <div class="rounded-xl bg-surface p-5">
+        <div class="rounded-xl bg-surface p-5 shadow-card">
           <h2 class="mb-4 font-semibold text-fg">Location</h2>
           <div class="space-y-4">
             <div class="grid gap-4 sm:grid-cols-2">
@@ -144,7 +146,9 @@ async function handleCreate() {
                   class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg focus:border-primary focus:outline-none disabled:opacity-50"
                   @change="(e) => selectProvince((e.target as HTMLSelectElement).value)"
                 >
-                  <option value="">{{ loadingProvinces ? 'Loading...' : 'Select province' }}</option>
+                  <option value="">
+                    {{ loadingProvinces ? 'Loading...' : 'Select province' }}
+                  </option>
                   <option v-for="p in provinces" :key="p.code" :value="p.code">{{ p.name }}</option>
                 </select>
               </div>
@@ -156,20 +160,26 @@ async function handleCreate() {
                   class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg focus:border-primary focus:outline-none disabled:opacity-50"
                   @change="(e) => selectCity((e.target as HTMLSelectElement).value)"
                 >
-                  <option value="">{{ loadingCities ? 'Loading...' : 'Select city/municipality' }}</option>
+                  <option value="">
+                    {{ loadingCities ? 'Loading...' : 'Select city/municipality' }}
+                  </option>
                   <option v-for="c in cities" :key="c.code" :value="c.code">{{ c.name }}</option>
                 </select>
               </div>
             </div>
             <div>
-              <label class="mb-1.5 block text-sm text-fg-secondary">Barangay <span class="text-fg-muted">(optional)</span></label>
+              <label class="mb-1.5 block text-sm text-fg-secondary"
+                >Barangay <span class="text-fg-muted">(optional)</span></label
+              >
               <select
                 :value="selectedBarangay"
                 :disabled="!selectedCity || loadingBarangays"
                 class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg focus:border-primary focus:outline-none disabled:opacity-50"
                 @change="(e) => selectBarangay((e.target as HTMLSelectElement).value)"
               >
-                <option value="">{{ loadingBarangays ? 'Loading...' : 'Select barangay (optional)' }}</option>
+                <option value="">
+                  {{ loadingBarangays ? 'Loading...' : 'Select barangay (optional)' }}
+                </option>
                 <option v-for="b in barangays" :key="b.code" :value="b.code">{{ b.name }}</option>
               </select>
             </div>
@@ -177,8 +187,10 @@ async function handleCreate() {
         </div>
 
         <!-- Court Details (Optional) -->
-        <div class="rounded-xl bg-surface p-5">
-          <h2 class="mb-4 font-semibold text-fg">Court Details <span class="text-sm font-normal text-fg-muted">(optional)</span></h2>
+        <div class="rounded-xl bg-surface p-5 shadow-card">
+          <h2 class="mb-4 font-semibold text-fg">
+            Court Details <span class="text-sm font-normal text-fg-muted">(optional)</span>
+          </h2>
           <div class="space-y-4">
             <div>
               <label class="mb-1.5 block text-sm text-fg-secondary">Court Name</label>
@@ -202,14 +214,16 @@ async function handleCreate() {
         </div>
 
         <!-- Visibility -->
-        <div class="rounded-xl bg-surface p-5">
+        <div class="rounded-xl bg-surface p-5 shadow-card">
           <h2 class="mb-4 font-semibold text-fg">Club Visibility</h2>
           <div class="space-y-3">
             <label
               class="flex cursor-pointer items-start gap-4 rounded-lg border-2 p-4 transition-all"
-              :class="form.visibility === 'public'
-                ? 'border-primary bg-primary/5'
-                : 'border-border-strong hover:border-primary/50'"
+              :class="
+                form.visibility === 'public'
+                  ? 'border-primary bg-primary/5'
+                  : 'border-border-strong hover:border-primary/50'
+              "
             >
               <input
                 v-model="form.visibility"
@@ -219,16 +233,16 @@ async function handleCreate() {
               />
               <div>
                 <span class="font-medium text-fg">Public</span>
-                <p class="mt-0.5 text-sm text-fg-muted">
-                  Anyone can find and join your club
-                </p>
+                <p class="mt-0.5 text-sm text-fg-muted">Anyone can find and join your club</p>
               </div>
             </label>
             <label
               class="flex cursor-pointer items-start gap-4 rounded-lg border-2 p-4 transition-all"
-              :class="form.visibility === 'private'
-                ? 'border-primary bg-primary/5'
-                : 'border-border-strong hover:border-primary/50'"
+              :class="
+                form.visibility === 'private'
+                  ? 'border-primary bg-primary/5'
+                  : 'border-border-strong hover:border-primary/50'
+              "
             >
               <input
                 v-model="form.visibility"
@@ -238,9 +252,7 @@ async function handleCreate() {
               />
               <div>
                 <span class="font-medium text-fg">Private</span>
-                <p class="mt-0.5 text-sm text-fg-muted">
-                  Members must be approved to join
-                </p>
+                <p class="mt-0.5 text-sm text-fg-muted">Members must be approved to join</p>
               </div>
             </label>
           </div>

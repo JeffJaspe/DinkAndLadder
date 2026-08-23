@@ -13,8 +13,8 @@ export default defineEventHandler(async (event) => {
   const memberships = await membershipRepo.listOwnWithClub(playerId)
 
   const items = memberships
-    .filter(m => m.status === 'active')
-    .map(m => ({
+    .filter((m) => m.status === 'active')
+    .map((m) => ({
       club: {
         id: m.club.id,
         name: m.club.name,

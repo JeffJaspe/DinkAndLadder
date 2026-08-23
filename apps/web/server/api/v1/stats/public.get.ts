@@ -8,7 +8,10 @@ export default defineEventHandler(async (event) => {
     client.from('player_profiles').select('id', { count: 'exact', head: true }),
     client.from('matches').select('id', { count: 'exact', head: true }).eq('status', 'verified'),
     client.from('clubs').select('id', { count: 'exact', head: true }),
-    client.from('events').select('id', { count: 'exact', head: true }).in('status', ['published', 'completed'])
+    client
+      .from('events')
+      .select('id', { count: 'exact', head: true })
+      .in('status', ['published', 'completed'])
   ])
 
   return {

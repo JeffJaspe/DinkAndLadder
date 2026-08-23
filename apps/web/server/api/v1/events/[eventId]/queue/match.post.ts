@@ -30,7 +30,9 @@ export default defineEventHandler(async (event) => {
     throw apiError(400, 'VALIDATION_ERROR', 'Event ID is required.')
   }
 
-  const body = await readBody<{ queue_id_1?: string; queue_id_2?: string; court_number?: number }>(event)
+  const body = await readBody<{ queue_id_1?: string; queue_id_2?: string; court_number?: number }>(
+    event
+  )
   if (typeof body?.queue_id_1 !== 'string' || typeof body?.queue_id_2 !== 'string') {
     throw apiError(400, 'VALIDATION_ERROR', 'queue_id_1 and queue_id_2 are required.')
   }

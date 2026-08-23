@@ -71,9 +71,5 @@ const dimensions = computed(() => {
       }"
     />
   </div>
-  <div
-    v-else
-    :class="[baseClass, variantClasses]"
-    :style="dimensions"
-  />
+  <div v-else :class="[baseClass, variantClasses]" :style="dimensions" />
 </template>

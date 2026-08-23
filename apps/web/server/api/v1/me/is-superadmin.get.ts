@@ -1,4 +1,4 @@
-import { serverSupabaseClient, serverSupabaseUser } from '#supabase/server'
+import { serverSupabaseServiceRole, serverSupabaseUser } from '#supabase/server'
 import { createPlatformConfigRepository } from '~/server/domains/platform/repositories/platform-config.repository'
 import { createPlatformAdminService } from '~/server/domains/platform/services/platform-admin.service'
 
@@ -8,7 +8,11 @@ export default defineEventHandler(async (event) => {
     return { is_superadmin: false }
   }
 
-  const client = await serverSupabaseClient(event)
+  // Service role, not the caller's client: platform_config has RLS enabled with
+  // zero policies (018), so a user-scoped read returns no rows and every caller —
+  // the real SuperAdmin included — came back as false, silently hiding /admin.
+  // The identity being checked still comes from the verified session, never the body.
+  const client = serverSupabaseServiceRole(event)
   const service = createPlatformAdminService(createPlatformConfigRepository(client))
 
   const isSuperAdmin = await service.isSuperAdmin(claims.sub)

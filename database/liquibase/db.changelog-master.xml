@@ -27,5 +27,10 @@
     <include file="020-shoutout/020-shoutout.changelog.xml" relativeToChangelogFile="true"/>
     <include file="021-badges/021-badges.changelog.xml" relativeToChangelogFile="true"/>
     <include file="022-announcement-rls-fix/022-announcement-rls-fix.changelog.xml" relativeToChangelogFile="true"/>
+    <include file="023-platform-feature-flags/023-platform-feature-flags.changelog.xml" relativeToChangelogFile="true"/>
+    <include file="024-platform-theme/024-platform-theme.changelog.xml" relativeToChangelogFile="true"/>
+    <include file="025-platform-branding/025-platform-branding.changelog.xml" relativeToChangelogFile="true"/>
+    <include file="026-platform-hero/026-platform-hero.changelog.xml" relativeToChangelogFile="true"/>
+    <include file="027-default-partner/027-default-partner.changelog.xml" relativeToChangelogFile="true"/>
 
 </databaseChangeLog>

@@ -78,6 +78,8 @@ export interface ClubSearchQuery {
   city?: string
   limit: number
   offset: number
+  /** Narrow to platform-verified clubs (verification_status = 'verified'). */
+  verified?: boolean
 }
 
 export interface ClubSearchResultDto {
@@ -91,10 +93,7 @@ export interface ClubSearchResultDto {
   member_count?: number
 }
 
-export function toClubSearchResultDto(
-  club: ClubRecord,
-  memberCount?: number
-): ClubSearchResultDto {
+export function toClubSearchResultDto(club: ClubRecord, memberCount?: number): ClubSearchResultDto {
   return {
     id: club.id,
     name: club.name,

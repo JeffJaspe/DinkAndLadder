@@ -25,11 +25,36 @@ onMounted(() => {
 })
 
 const eventTypes: { value: EventType; label: string; description: string; ranked: boolean }[] = [
-  { value: 'open_casual', label: 'Open Casual', description: 'Open to anyone, no rating impact', ranked: false },
-  { value: 'open_ranked', label: 'Open Ranked', description: 'Open to anyone, affects ratings', ranked: true },
-  { value: 'club_casual', label: 'Club Casual', description: 'Club members only, no rating impact', ranked: false },
-  { value: 'club_ranked', label: 'Club Ranked', description: 'Club members only, affects ratings', ranked: true },
-  { value: 'tournament', label: 'Tournament', description: 'Organized brackets, organizer inputs scores', ranked: true }
+  {
+    value: 'open_casual',
+    label: 'Open Casual',
+    description: 'Open to anyone, no rating impact',
+    ranked: false
+  },
+  {
+    value: 'open_ranked',
+    label: 'Open Ranked',
+    description: 'Open to anyone, affects ratings',
+    ranked: true
+  },
+  {
+    value: 'club_casual',
+    label: 'Club Casual',
+    description: 'Club members only, no rating impact',
+    ranked: false
+  },
+  {
+    value: 'club_ranked',
+    label: 'Club Ranked',
+    description: 'Club members only, affects ratings',
+    ranked: true
+  },
+  {
+    value: 'tournament',
+    label: 'Tournament',
+    description: 'Organized brackets, organizer inputs scores',
+    ranked: true
+  }
 ]
 
 const form = reactive({
@@ -54,12 +79,16 @@ const submitting = ref(false)
 const errorMessage = ref('')
 const router = useRouter()
 
-const { data: clubsData, pending: clubsPending, error: clubsError } = await useFetch<MineResponse>('/api/v1/clubs/mine')
+const {
+  data: clubsData,
+  pending: clubsPending,
+  error: clubsError
+} = await useFetch<MineResponse>('/api/v1/clubs/mine')
 
 const adminClubs = computed(() => {
   if (!clubsData.value?.items) return []
-  return clubsData.value.items.filter(m =>
-    m.status === 'active' && (m.role === 'OWNER' || m.role === 'ADMIN')
+  return clubsData.value.items.filter(
+    (m) => m.status === 'active' && (m.role === 'OWNER' || m.role === 'ADMIN')
   )
 })
 
@@ -75,7 +104,7 @@ watch(
   { immediate: true }
 )
 
-const selectedEventType = computed(() => eventTypes.find(t => t.value === form.event_type))
+const selectedEventType = computed(() => eventTypes.find((t) => t.value === form.event_type))
 
 async function submit() {
   if (!form.club_id || !form.name || !form.start_date || !form.end_date) {
@@ -124,12 +153,16 @@ async function submit() {
       <!-- Header -->
       <div class="mb-6">
         <h1 class="text-2xl font-bold text-fg">Create Event</h1>
-        <p class="mt-1 text-sm text-fg-muted">Organize open play, ranked sessions, or tournaments</p>
+        <p class="mt-1 text-sm text-fg-muted">
+          Organize open play, ranked sessions, or tournaments
+        </p>
       </div>
 
       <!-- Loading clubs -->
-      <div v-if="clubsPending" class="rounded-xl bg-surface p-8 text-center">
-        <div class="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+      <div v-if="clubsPending" class="rounded-xl bg-surface p-8 text-center shadow-card">
+        <div
+          class="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent"
+        />
         <p class="mt-4 text-fg-muted">Loading your clubs...</p>
       </div>
 
@@ -142,10 +175,17 @@ async function submit() {
       </div>
 
       <!-- No admin clubs -->
-      <div v-else-if="!adminClubs.length" class="rounded-xl bg-surface p-8 text-center">
-        <div class="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-surface-2">
+      <div v-else-if="!adminClubs.length" class="rounded-xl bg-surface p-8 text-center shadow-card">
+        <div
+          class="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-surface-2"
+        >
           <svg class="h-8 w-8 text-fg-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.5"
+              d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"
+            />
           </svg>
         </div>
         <h2 class="text-lg font-semibold text-fg">No Clubs to Manage</h2>
@@ -171,7 +211,7 @@ async function submit() {
       <!-- Form -->
       <form v-else class="space-y-6" @submit.prevent="submit">
         <!-- Basic Info -->
-        <div class="rounded-xl bg-surface p-5">
+        <div class="rounded-xl bg-surface p-5 shadow-card">
           <h2 class="mb-4 font-semibold text-fg">Basic Information</h2>
           <div class="space-y-4">
             <div>
@@ -193,7 +233,9 @@ async function submit() {
                   {{ m.club.name }} ({{ m.role }})
                 </option>
               </select>
-              <p class="mt-1 text-xs text-fg-muted">Only clubs where you are an owner or admin are shown</p>
+              <p class="mt-1 text-xs text-fg-muted">
+                Only clubs where you are an owner or admin are shown
+              </p>
             </div>
             <div>
               <label class="mb-1.5 block text-sm text-fg-secondary">Event Name</label>
@@ -218,16 +260,18 @@ async function submit() {
         </div>
 
         <!-- Event Type -->
-        <div class="rounded-xl bg-surface p-5">
+        <div class="rounded-xl bg-surface p-5 shadow-card">
           <h2 class="mb-4 font-semibold text-fg">Event Type</h2>
           <div class="grid gap-3 sm:grid-cols-2">
             <label
               v-for="t in eventTypes"
               :key="t.value"
               class="flex cursor-pointer items-start gap-3 rounded-lg border-2 p-4 transition-all"
-              :class="form.event_type === t.value
-                ? 'border-primary bg-primary/5'
-                : 'border-border-strong hover:border-primary/50'"
+              :class="
+                form.event_type === t.value
+                  ? 'border-primary bg-primary/5'
+                  : 'border-border-strong hover:border-primary/50'
+              "
             >
               <input
                 v-model="form.event_type"
@@ -249,13 +293,16 @@ async function submit() {
               </div>
             </label>
           </div>
-          <div v-if="selectedEventType?.ranked" class="mt-3 rounded-lg bg-accent/10 p-3 text-sm text-accent">
+          <div
+            v-if="selectedEventType?.ranked"
+            class="mt-3 rounded-lg bg-accent/10 p-3 text-sm text-accent"
+          >
             Matches in this event will affect player ratings.
           </div>
         </div>
 
         <!-- Schedule -->
-        <div class="rounded-xl bg-surface p-5">
+        <div class="rounded-xl bg-surface p-5 shadow-card">
           <h2 class="mb-4 font-semibold text-fg">Schedule</h2>
           <div class="space-y-4">
             <div class="grid gap-4 sm:grid-cols-2">
@@ -300,7 +347,7 @@ async function submit() {
         </div>
 
         <!-- Capacity & Fees -->
-        <div class="rounded-xl bg-surface p-5">
+        <div class="rounded-xl bg-surface p-5 shadow-card">
           <h2 class="mb-4 font-semibold text-fg">Capacity & Fees</h2>
           <div class="grid gap-4 sm:grid-cols-2">
             <div>
@@ -328,15 +375,19 @@ async function submit() {
         </div>
 
         <!-- Queue Mode -->
-        <div class="rounded-xl bg-surface p-5">
+        <div class="rounded-xl bg-surface p-5 shadow-card">
           <div class="mb-4 flex items-center justify-between">
             <div>
               <h2 class="font-semibold text-fg">Match Queue</h2>
-              <p class="mt-0.5 text-sm text-fg-muted">Optional matchmaking system for players at the event</p>
+              <p class="mt-0.5 text-sm text-fg-muted">
+                Optional matchmaking system for players at the event
+              </p>
             </div>
             <label class="relative inline-flex cursor-pointer items-center">
               <input v-model="form.queue_enabled" type="checkbox" class="peer sr-only" />
-              <div class="h-6 w-11 rounded-full bg-surface-3 transition-colors peer-checked:bg-primary after:absolute after:left-0.5 after:top-0.5 after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-all after:content-[''] peer-checked:after:translate-x-full" />
+              <div
+                class="h-6 w-11 rounded-full bg-surface-3 transition-colors peer-checked:bg-primary after:absolute after:left-0.5 after:top-0.5 after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-all after:content-[''] peer-checked:after:translate-x-full"
+              />
             </label>
           </div>
 
@@ -344,9 +395,11 @@ async function submit() {
             <div class="space-y-3">
               <label
                 class="flex cursor-pointer items-start gap-4 rounded-lg border-2 p-4 transition-all"
-                :class="form.queue_mode === 'first_come'
-                  ? 'border-primary bg-primary/5'
-                  : 'border-border-strong hover:border-primary/50'"
+                :class="
+                  form.queue_mode === 'first_come'
+                    ? 'border-primary bg-primary/5'
+                    : 'border-border-strong hover:border-primary/50'
+                "
               >
                 <input
                   v-model="form.queue_mode"
@@ -363,9 +416,11 @@ async function submit() {
               </label>
               <label
                 class="flex cursor-pointer items-start gap-4 rounded-lg border-2 p-4 transition-all"
-                :class="form.queue_mode === 'rating_based'
-                  ? 'border-primary bg-primary/5'
-                  : 'border-border-strong hover:border-primary/50'"
+                :class="
+                  form.queue_mode === 'rating_based'
+                    ? 'border-primary bg-primary/5'
+                    : 'border-border-strong hover:border-primary/50'
+                "
               >
                 <input
                   v-model="form.queue_mode"
@@ -382,9 +437,11 @@ async function submit() {
               </label>
               <label
                 class="flex cursor-pointer items-start gap-4 rounded-lg border-2 p-4 transition-all"
-                :class="form.queue_mode === 'random'
-                  ? 'border-primary bg-primary/5'
-                  : 'border-border-strong hover:border-primary/50'"
+                :class="
+                  form.queue_mode === 'random'
+                    ? 'border-primary bg-primary/5'
+                    : 'border-border-strong hover:border-primary/50'
+                "
               >
                 <input
                   v-model="form.queue_mode"
@@ -414,7 +471,7 @@ async function submit() {
         </div>
 
         <!-- Location -->
-        <div class="rounded-xl bg-surface p-5">
+        <div class="rounded-xl bg-surface p-5 shadow-card">
           <h2 class="mb-4 font-semibold text-fg">Location</h2>
           <div class="space-y-4">
             <div>
@@ -435,7 +492,9 @@ async function submit() {
                   class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg focus:border-primary focus:outline-none disabled:opacity-50"
                   @change="selectProvince(($event.target as HTMLSelectElement).value)"
                 >
-                  <option value="">{{ loadingProvinces ? 'Loading...' : 'Select province' }}</option>
+                  <option value="">
+                    {{ loadingProvinces ? 'Loading...' : 'Select province' }}
+                  </option>
                   <option v-for="p in provinces" :key="p.code" :value="p.code">{{ p.name }}</option>
                 </select>
               </div>
@@ -447,7 +506,15 @@ async function submit() {
                   class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg focus:border-primary focus:outline-none disabled:opacity-50"
                   @change="selectCity(($event.target as HTMLSelectElement).value)"
                 >
-                  <option value="">{{ loadingCities ? 'Loading...' : (selectedProvince ? 'Select city' : 'Select province first') }}</option>
+                  <option value="">
+                    {{
+                      loadingCities
+                        ? 'Loading...'
+                        : selectedProvince
+                          ? 'Select city'
+                          : 'Select province first'
+                    }}
+                  </option>
                   <option v-for="c in cities" :key="c.code" :value="c.code">{{ c.name }}</option>
                 </select>
               </div>
@@ -456,14 +523,16 @@ async function submit() {
         </div>
 
         <!-- Visibility -->
-        <div class="rounded-xl bg-surface p-5">
+        <div class="rounded-xl bg-surface p-5 shadow-card">
           <h2 class="mb-4 font-semibold text-fg">Visibility</h2>
           <div class="space-y-3">
             <label
               class="flex cursor-pointer items-start gap-4 rounded-lg border-2 p-4 transition-all"
-              :class="form.visibility === 'public'
-                ? 'border-primary bg-primary/5'
-                : 'border-border-strong hover:border-primary/50'"
+              :class="
+                form.visibility === 'public'
+                  ? 'border-primary bg-primary/5'
+                  : 'border-border-strong hover:border-primary/50'
+              "
             >
               <input
                 v-model="form.visibility"
@@ -480,9 +549,11 @@ async function submit() {
             </label>
             <label
               class="flex cursor-pointer items-start gap-4 rounded-lg border-2 p-4 transition-all"
-              :class="form.visibility === 'registered_only'
-                ? 'border-primary bg-primary/5'
-                : 'border-border-strong hover:border-primary/50'"
+              :class="
+                form.visibility === 'registered_only'
+                  ? 'border-primary bg-primary/5'
+                  : 'border-border-strong hover:border-primary/50'
+              "
             >
               <input
                 v-model="form.visibility"
@@ -499,9 +570,11 @@ async function submit() {
             </label>
             <label
               class="flex cursor-pointer items-start gap-4 rounded-lg border-2 p-4 transition-all"
-              :class="form.visibility === 'private'
-                ? 'border-primary bg-primary/5'
-                : 'border-border-strong hover:border-primary/50'"
+              :class="
+                form.visibility === 'private'
+                  ? 'border-primary bg-primary/5'
+                  : 'border-border-strong hover:border-primary/50'
+              "
             >
               <input
                 v-model="form.visibility"

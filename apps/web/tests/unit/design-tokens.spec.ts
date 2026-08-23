@@ -62,7 +62,12 @@ const CONTRAST_PAIRS: Array<{ fg: string; bg: string; min: number; why: string }
   { fg: 'fg', bg: 'surface', min: 4.5, why: 'body copy on a card' },
   { fg: 'fg-secondary', bg: 'canvas', min: 4.5, why: 'secondary copy on the page' },
   { fg: 'fg-secondary', bg: 'surface', min: 4.5, why: 'secondary copy on a card' },
-  { fg: 'fg-muted', bg: 'canvas', min: 4.5, why: '12px captions — the mockup uses these at caption size' },
+  {
+    fg: 'fg-muted',
+    bg: 'canvas',
+    min: 4.5,
+    why: '12px captions — the mockup uses these at caption size'
+  },
   { fg: 'fg-muted', bg: 'surface', min: 4.5, why: '12px captions on a card' },
   // surface-2 is not just a fill: it carries the tab count pills, the Draft
   // status pill, segmented-control tracks and every nav hover state. Omitting
@@ -74,13 +79,28 @@ const CONTRAST_PAIRS: Array<{ fg: string; bg: string; min: number; why: string }
   // rankings row sit on it, and the row carries status colours too. It was the
   // raw primary in dark mode, which made that row 1.0:1.
   { fg: 'fg', bg: 'primary-soft', min: 4.5, why: 'text in the highlighted rankings row' },
-  { fg: 'primary', bg: 'primary-soft', min: 4.5, why: 'the active nav item labels itself in brand' },
-  { fg: 'fg-secondary', bg: 'primary-soft', min: 4.5, why: 'secondary cells in the highlighted row' },
+  {
+    fg: 'primary',
+    bg: 'primary-soft',
+    min: 4.5,
+    why: 'the active nav item labels itself in brand'
+  },
+  {
+    fg: 'fg-secondary',
+    bg: 'primary-soft',
+    min: 4.5,
+    why: 'secondary cells in the highlighted row'
+  },
   { fg: 'danger', bg: 'primary-soft', min: 4.5, why: 'a losing trend inside the highlighted row' },
   { fg: 'primary', bg: 'canvas', min: 4.5, why: 'brand-coloured links and stat numbers' },
   { fg: 'primary', bg: 'surface', min: 4.5, why: 'brand-coloured text on a card' },
   { fg: 'on-primary', bg: 'primary', min: 4.5, why: 'button labels on the brand fill' },
-  { fg: 'on-accent', bg: 'accent', min: 4.5, why: 'text on the accent fill (highlighted rank row)' },
+  {
+    fg: 'on-accent',
+    bg: 'accent',
+    min: 4.5,
+    why: 'text on the accent fill (highlighted rank row)'
+  },
   { fg: 'danger', bg: 'canvas', min: 4.5, why: 'Disputed status and the Dispute action' },
   { fg: 'danger', bg: 'surface', min: 4.5, why: 'Disputed status on a card' },
   { fg: 'warning', bg: 'canvas', min: 4.5, why: 'Pending status text' },
@@ -115,26 +135,25 @@ describe('design tokens', () => {
     ] as const) {
       for (const [name, rgb] of Object.entries(tokens)) {
         for (const channel of rgb) {
-          expect(channel, `${theme} --dnl-${name} has an out-of-range channel`).toBeGreaterThanOrEqual(0)
-          expect(channel, `${theme} --dnl-${name} has an out-of-range channel`).toBeLessThanOrEqual(255)
+          expect(
+            channel,
+            `${theme} --dnl-${name} has an out-of-range channel`
+          ).toBeGreaterThanOrEqual(0)
+          expect(channel, `${theme} --dnl-${name} has an out-of-range channel`).toBeLessThanOrEqual(
+            255
+          )
         }
       }
     }
   })
 
-  it.each(CONTRAST_PAIRS)(
-    'light: $fg on $bg meets $min:1 ($why)',
-    ({ fg, bg, min }) => {
-      expect(contrast(light[fg], light[bg])).toBeGreaterThanOrEqual(min)
-    }
-  )
+  it.each(CONTRAST_PAIRS)('light: $fg on $bg meets $min:1 ($why)', ({ fg, bg, min }) => {
+    expect(contrast(light[fg], light[bg])).toBeGreaterThanOrEqual(min)
+  })
 
-  it.each(CONTRAST_PAIRS)(
-    'dark: $fg on $bg meets $min:1 ($why)',
-    ({ fg, bg, min }) => {
-      expect(contrast(dark[fg], dark[bg])).toBeGreaterThanOrEqual(min)
-    }
-  )
+  it.each(CONTRAST_PAIRS)('dark: $fg on $bg meets $min:1 ($why)', ({ fg, bg, min }) => {
+    expect(contrast(dark[fg], dark[bg])).toBeGreaterThanOrEqual(min)
+  })
 
   it('sets color-scheme per theme so native controls follow', () => {
     expect(TOKENS_CSS).toMatch(/:root\s*\{[^}]*color-scheme:\s*light/)

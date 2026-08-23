@@ -1,6 +1,11 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { escapeLikePattern } from '../../shared/escape-like'
-import type { ClubRecord, ClubSearchQuery, ClubVerificationStatus, CreateClubInput } from '../dto/club.dto'
+import type {
+  ClubRecord,
+  ClubSearchQuery,
+  ClubVerificationStatus,
+  CreateClubInput
+} from '../dto/club.dto'
 
 const CLUB_COLUMNS =
   'id, name, slug, description, province, city, barangay, court_name, court_address, visibility, status, created_by_user_id, created_at, ' +
@@ -97,6 +102,9 @@ export function createClubRepository(client: SupabaseClient): ClubRepository {
       }
       if (query.city) {
         builder = builder.eq('city', query.city)
+      }
+      if (query.verified) {
+        builder = builder.eq('verification_status', 'verified')
       }
 
       builder = builder

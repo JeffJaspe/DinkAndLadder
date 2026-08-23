@@ -25,7 +25,9 @@ export interface RelationshipService {
   getStats(playerId: string): Promise<{ followers: number; following: number }>
 }
 
-export function createRelationshipService(relationships: RelationshipRepository): RelationshipService {
+export function createRelationshipService(
+  relationships: RelationshipRepository
+): RelationshipService {
   return {
     async follow(fromPlayerId, toPlayerId) {
       if (fromPlayerId === toPlayerId) {
@@ -39,7 +41,11 @@ export function createRelationshipService(relationships: RelationshipRepository)
 
       const existing = await relationships.findByFromAndTo(fromPlayerId, toPlayerId, 'follow')
       if (existing) {
-        throw new RelationshipServiceError(409, 'ALREADY_FOLLOWING', 'You are already following this player.')
+        throw new RelationshipServiceError(
+          409,
+          'ALREADY_FOLLOWING',
+          'You are already following this player.'
+        )
       }
 
       const record = await relationships.create(fromPlayerId, toPlayerId, 'follow', 'active')
@@ -49,7 +55,11 @@ export function createRelationshipService(relationships: RelationshipRepository)
     async unfollow(fromPlayerId, toPlayerId) {
       const existing = await relationships.findByFromAndTo(fromPlayerId, toPlayerId, 'follow')
       if (!existing) {
-        throw new RelationshipServiceError(404, 'NOT_FOLLOWING', 'You are not following this player.')
+        throw new RelationshipServiceError(
+          404,
+          'NOT_FOLLOWING',
+          'You are not following this player.'
+        )
       }
 
       await relationships.delete(existing.id)
@@ -62,7 +72,11 @@ export function createRelationshipService(relationships: RelationshipRepository)
 
       const existingBlock = await relationships.findByFromAndTo(fromPlayerId, toPlayerId, 'block')
       if (existingBlock) {
-        throw new RelationshipServiceError(409, 'ALREADY_BLOCKED', 'You have already blocked this player.')
+        throw new RelationshipServiceError(
+          409,
+          'ALREADY_BLOCKED',
+          'You have already blocked this player.'
+        )
       }
 
       const existingFollow = await relationships.findByFromAndTo(fromPlayerId, toPlayerId, 'follow')

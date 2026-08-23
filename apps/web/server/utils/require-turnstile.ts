@@ -1,6 +1,6 @@
 import type { H3Event } from 'h3'
-import { getRequestIP } from 'h3'
 import { verifyTurnstileToken, type TurnstileFetcher } from './turnstile'
+import { getClientIp } from './client-ip'
 import { apiError } from './api-error'
 
 /**
@@ -16,7 +16,7 @@ import { apiError } from './api-error'
  * misconfiguration and the request fails rather than proceeding unprotected.
  */
 export async function requireTurnstile(event: H3Event, token: string | undefined): Promise<void> {
-  const { turnstileSecretKey } = useRuntimeConfig(event)
+  const { turnstileSecretKey, trustProxyHeaders } = useRuntimeConfig(event)
 
   if (!turnstileSecretKey) {
     if (import.meta.dev) {
@@ -42,7 +42,7 @@ export async function requireTurnstile(event: H3Event, token: string | undefined
     fetchJson,
     turnstileSecretKey,
     token,
-    getRequestIP(event)
+    getClientIp(event, trustProxyHeaders === true)
   )
 
   if (!verification.success) {

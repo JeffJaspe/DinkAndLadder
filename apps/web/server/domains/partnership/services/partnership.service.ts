@@ -19,7 +19,14 @@ export interface PartnershipService {
   isPartner(playerId: string, otherPlayerId: string): Promise<boolean>
   removePartner(playerId: string, partnerPlayerId: string): Promise<void>
 
-  sendRequest(fromPlayerId: string, toPlayerId: string, message?: string): Promise<PartnerRequestDto>
+  getDefaultPartnerId(playerId: string): Promise<string | null>
+  setDefaultPartner(playerId: string, partnerPlayerId: string | null): Promise<string | null>
+
+  sendRequest(
+    fromPlayerId: string,
+    toPlayerId: string,
+    message?: string
+  ): Promise<PartnerRequestDto>
   acceptRequest(playerId: string, requestId: string): Promise<PartnerDto>
   declineRequest(playerId: string, requestId: string): Promise<void>
   cancelRequest(playerId: string, requestId: string): Promise<void>
@@ -39,7 +46,8 @@ export function createPartnershipService(
 ): PartnershipService {
   async function enrichPartner(
     partnerId: string,
-    partneredSince: string
+    partneredSince: string,
+    isDefault = false
   ): Promise<PartnerDto | null> {
     const profile = await players.findById(partnerId)
     if (!profile) return null
@@ -61,11 +69,15 @@ export function createPartnershipService(
       city: profile.city,
       singles_rating: singlesRating,
       doubles_rating: doublesRating,
-      partnered_since: partneredSince
+      partnered_since: partneredSince,
+      is_default: isDefault
     }
   }
 
-  async function enrichRequest(request: PartnerRequestDto, otherPlayerId: string): Promise<PartnerRequestDto> {
+  async function enrichRequest(
+    request: PartnerRequestDto,
+    otherPlayerId: string
+  ): Promise<PartnerRequestDto> {
     const profile = await players.findById(otherPlayerId)
     if (profile) {
       let rating: number | null = null
@@ -85,13 +97,22 @@ export function createPartnershipService(
   return {
     async getPartners(playerId) {
       const records = await partnerships.findPartners(playerId)
+      const defaultRow = await partnerships.findDefaultPartner(playerId)
       const partners: PartnerDto[] = []
 
       for (const record of records) {
         const partnerId = record.player1_id === playerId ? record.player2_id : record.player1_id
-        const partner = await enrichPartner(partnerId, record.created_at)
+        const partner = await enrichPartner(
+          partnerId,
+          record.created_at,
+          partnerId === defaultRow?.partner_id
+        )
         if (partner) partners.push(partner)
       }
+
+      // The duo leads the list — it is the one every doubles picker pre-selects,
+      // so it is also the one the reader is looking for first.
+      partners.sort((a, b) => Number(b.is_default) - Number(a.is_default))
 
       return partners
     },
@@ -107,11 +128,70 @@ export function createPartnershipService(
         throw new PartnershipServiceError(404, 'NOT_FOUND', 'Partnership not found.')
       }
       await partnerships.deletePartnership(partnership.id)
+
+      // Dropping the partnership must drop the duo with it. The FK only
+      // cascades when the *profile* is deleted, so without this the pickers
+      // would keep pre-selecting someone who is no longer a partner.
+      // Both directions: either player may have had the other as their duo.
+      const [mine, theirs] = await Promise.all([
+        partnerships.findDefaultPartner(playerId),
+        partnerships.findDefaultPartner(partnerPlayerId)
+      ])
+      const clears: Promise<void>[] = []
+      if (mine?.partner_id === partnerPlayerId)
+        clears.push(partnerships.clearDefaultPartner(playerId))
+      if (theirs?.partner_id === playerId) {
+        clears.push(partnerships.clearDefaultPartner(partnerPlayerId))
+      }
+      await Promise.all(clears)
+    },
+
+    async getDefaultPartnerId(playerId) {
+      const row = await partnerships.findDefaultPartner(playerId)
+      return row?.partner_id ?? null
+    },
+
+    /**
+     * Set or clear the duo. Passing null clears it.
+     *
+     * The target must already be a confirmed partner — this is a preference
+     * over an existing relationship, never a way to create one, and letting an
+     * arbitrary id through would pre-fill doubles pickers with a stranger.
+     */
+    async setDefaultPartner(playerId, partnerPlayerId) {
+      if (partnerPlayerId === null) {
+        await partnerships.clearDefaultPartner(playerId)
+        return null
+      }
+
+      if (partnerPlayerId === playerId) {
+        throw new PartnershipServiceError(
+          400,
+          'INVALID_REQUEST',
+          'You cannot set yourself as your duo.'
+        )
+      }
+
+      const partnership = await partnerships.findPartnershipBetween(playerId, partnerPlayerId)
+      if (!partnership) {
+        throw new PartnershipServiceError(
+          409,
+          'NOT_A_PARTNER',
+          'You can only set a confirmed partner as your duo.'
+        )
+      }
+
+      const row = await partnerships.upsertDefaultPartner(playerId, partnerPlayerId)
+      return row.partner_id
     },
 
     async sendRequest(fromPlayerId, toPlayerId, message) {
       if (fromPlayerId === toPlayerId) {
-        throw new PartnershipServiceError(400, 'INVALID_REQUEST', 'Cannot send a partner request to yourself.')
+        throw new PartnershipServiceError(
+          400,
+          'INVALID_REQUEST',
+          'Cannot send a partner request to yourself.'
+        )
       }
 
       // Check if already partners
@@ -123,7 +203,11 @@ export function createPartnershipService(
       // Check if a pending request already exists (in either direction)
       const outgoing = await partnerships.findRequestBetween(fromPlayerId, toPlayerId)
       if (outgoing) {
-        throw new PartnershipServiceError(409, 'REQUEST_EXISTS', 'A pending request already exists.')
+        throw new PartnershipServiceError(
+          409,
+          'REQUEST_EXISTS',
+          'A pending request already exists.'
+        )
       }
 
       const incoming = await partnerships.findRequestBetween(toPlayerId, fromPlayerId)
@@ -146,11 +230,19 @@ export function createPartnershipService(
       }
 
       if (request.to_player_id !== playerId) {
-        throw new PartnershipServiceError(403, 'FORBIDDEN', 'You can only accept requests sent to you.')
+        throw new PartnershipServiceError(
+          403,
+          'FORBIDDEN',
+          'You can only accept requests sent to you.'
+        )
       }
 
       if (request.status !== 'pending') {
-        throw new PartnershipServiceError(409, 'INVALID_STATE', `Request is already ${request.status}.`)
+        throw new PartnershipServiceError(
+          409,
+          'INVALID_STATE',
+          `Request is already ${request.status}.`
+        )
       }
 
       // Update request status
@@ -174,11 +266,19 @@ export function createPartnershipService(
       }
 
       if (request.to_player_id !== playerId) {
-        throw new PartnershipServiceError(403, 'FORBIDDEN', 'You can only decline requests sent to you.')
+        throw new PartnershipServiceError(
+          403,
+          'FORBIDDEN',
+          'You can only decline requests sent to you.'
+        )
       }
 
       if (request.status !== 'pending') {
-        throw new PartnershipServiceError(409, 'INVALID_STATE', `Request is already ${request.status}.`)
+        throw new PartnershipServiceError(
+          409,
+          'INVALID_STATE',
+          `Request is already ${request.status}.`
+        )
       }
 
       await partnerships.updateRequestStatus(requestId, 'declined')
@@ -191,11 +291,19 @@ export function createPartnershipService(
       }
 
       if (request.from_player_id !== playerId) {
-        throw new PartnershipServiceError(403, 'FORBIDDEN', 'You can only cancel requests you sent.')
+        throw new PartnershipServiceError(
+          403,
+          'FORBIDDEN',
+          'You can only cancel requests you sent.'
+        )
       }
 
       if (request.status !== 'pending') {
-        throw new PartnershipServiceError(409, 'INVALID_STATE', `Request is already ${request.status}.`)
+        throw new PartnershipServiceError(
+          409,
+          'INVALID_STATE',
+          `Request is already ${request.status}.`
+        )
       }
 
       await partnerships.updateRequestStatus(requestId, 'cancelled')

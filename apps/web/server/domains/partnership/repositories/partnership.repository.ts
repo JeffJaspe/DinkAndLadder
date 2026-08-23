@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type {
+  DefaultPartnerRecord,
   PartnershipRecord,
   PartnerRequestRecord,
   PartnerRequestStatus
@@ -18,8 +19,17 @@ export interface PartnershipRepository {
   findPendingRequestsFrom(playerId: string): Promise<PartnerRequestRecord[]>
   findRequestBetween(fromPlayerId: string, toPlayerId: string): Promise<PartnerRequestRecord | null>
   findRequestById(id: string): Promise<PartnerRequestRecord | null>
-  createRequest(fromPlayerId: string, toPlayerId: string, message?: string): Promise<PartnerRequestRecord>
+  createRequest(
+    fromPlayerId: string,
+    toPlayerId: string,
+    message?: string
+  ): Promise<PartnerRequestRecord>
   updateRequestStatus(id: string, status: PartnerRequestStatus): Promise<PartnerRequestRecord>
+
+  // Default duo
+  findDefaultPartner(playerId: string): Promise<DefaultPartnerRecord | null>
+  upsertDefaultPartner(playerId: string, partnerId: string): Promise<DefaultPartnerRecord>
+  clearDefaultPartner(playerId: string): Promise<void>
 }
 
 export function createPartnershipRepository(client: SupabaseClient): PartnershipRepository {
@@ -155,6 +165,42 @@ export function createPartnershipRepository(client: SupabaseClient): Partnership
 
       if (error) throw error
       return data as PartnerRequestRecord
+    },
+
+    async findDefaultPartner(playerId) {
+      const { data, error } = await client
+        .from('player_default_partners')
+        .select('*')
+        .eq('player_id', playerId)
+        .maybeSingle()
+
+      if (error) throw error
+      return data as DefaultPartnerRecord | null
+    },
+
+    // player_id is the primary key, so an upsert is what "change your duo"
+    // means — there is never a second row to clean up first.
+    async upsertDefaultPartner(playerId, partnerId) {
+      const { data, error } = await client
+        .from('player_default_partners')
+        .upsert(
+          { player_id: playerId, partner_id: partnerId, updated_at: new Date().toISOString() },
+          { onConflict: 'player_id' }
+        )
+        .select()
+        .single()
+
+      if (error) throw error
+      return data as DefaultPartnerRecord
+    },
+
+    async clearDefaultPartner(playerId) {
+      const { error } = await client
+        .from('player_default_partners')
+        .delete()
+        .eq('player_id', playerId)
+
+      if (error) throw error
     }
   }
 }

@@ -267,7 +267,15 @@ deferred — none block the MVP. IDs match the audit report.
       `014-analytics.changelog.xml` and is currently unused.
 
 ### Security (low severity)
-- [ ] F-11 — `getRequestIP` is called without `{ xForwardedFor: true }`, so
+- [x] F-11 — DONE (2026-08-23): the deploy-topology question is now answered by
+      configuration instead of by a hardcoded guess. `server/utils/trust-proxy.ts`
+      resolves whether `X-Forwarded-For` may be believed —
+      `TRUST_PROXY_HEADERS` when set, Vercel auto-detected otherwise, untrusted
+      everywhere else — and it is surfaced as `runtimeConfig.trustProxyHeaders`
+      (overridable at runtime as `NUXT_TRUST_PROXY_HEADERS`).
+      `server/utils/client-ip.ts` reads the header only when that is true.
+      11 tests. Original note:  `getRequestIP` is called without
+      `{ xForwardedFor: true }`, so
       Turnstile receives the proxy's IP. Decide based on the deploy topology —
       trusting the header when not behind a proxy makes it spoofable.
 - [x] F-12 — DONE (2026-08-22): shared escapeLikePattern in server/domains/shared, applied to player and club search, 5 tests. Original note:  `%` and `_` are not escaped before reaching `ilike` in the player
@@ -336,3 +344,246 @@ deferred — none block the MVP. IDs match the audit report.
       Side effect while it stands: the events list cannot be verified in a
       headless browser, so the capacity bar added on 2026-08-23 is covered by
       unit tests and a live API check rather than a screenshot.
+
+### Opened and closed by the 2026-08-23 card-elevation pass
+
+All three were reported as open on 2026-08-23 and resolved the same day.
+
+- [x] **The light-theme axe e2e failures were Nuxt DevTools — DONE (2026-08-23).**
+      `tests/e2e/theme.spec.ts` reported one serious `color-contrast` violation
+      in light mode on `/`, `/rankings`, `/login` and `/register`. The node was
+      `nuxt-devtools-frame .nuxt-devtools-label-secondary` — the dev toolbar's
+      timing pill, #888888 on #FFFFFF at 9.6px, 3.54:1. No app element involved.
+
+      **Root cause, corrected:** this was not a repo defect. `playwright.config.ts`
+      starts `pnpm run preview` (a production build, no devtools) but sets
+      `reuseExistingServer: !process.env.CI`, so whenever a `pnpm dev` server
+      happens to be listening on :3000 the whole suite silently runs against
+      *that* instead — devtools toolbar included. The earlier note in this file
+      claiming it reproduced "on a clean `main`" was measured with a stray dev
+      server still running, which is why stashing the changes did not clear it.
+      With :3000 free, all 39 e2e tests passed before any fix was made.
+
+      Fixed anyway, because a suite whose result depends on what the developer
+      left running is not trustworthy: the axe scan now carries
+      `.exclude('nuxt-devtools-frame')`. Verified both ways — 39/39 against
+      `preview`, and 8/8 axe tests against a deliberately started dev server,
+      which is the case that used to produce the four failures.
+
+- [x] **`prettier --check` red repo-wide — DONE (2026-08-23).** 209 files failed
+      on a clean `main`; `apps/web` now reports "All matched files use Prettier
+      code style."
+
+      Two independent causes, and fixing either alone would have left it red:
+
+      1. **Real formatting debt.** The repo had never been formatted
+         consistently — genuine reflows, not cosmetic noise (`watch(...)` bodies
+         inlined, `{ a: string, b: number }` where Prettier writes `;`, long
+         chains unwrapped). `prettier --write .` fixed these.
+      2. **Line endings.** `core.autocrlf=true` checks files out as CRLF while
+         Prettier's `endOfLine` default is `lf`, so *every* file fails on a
+         fresh clone regardless of its content. Confirmed by taking a passing
+         file, converting it to CRLF, and watching the check fail. A new
+         root `.gitattributes` pins the working tree to `eol=lf`, which changes
+         no committed content — the index was already LF.
+
+      `types/database.types.ts` was added to `.prettierignore`: it is generated
+      by `supabase gen types`, so formatting it only creates a diff against the
+      next regeneration.
+
+- [x] **`pages/dev/components.vue` Prettier/Vue deadlock — DONE (2026-08-23).**
+      Prettier split `@confirm="destructiveModalOpen = false; toast.info(…)"`
+      across lines and dropped the `;`, which the Vue compiler then rejected
+      (`Error parsing JavaScript expression: Unexpected token, expected ","`)
+      and the build failed; re-adding the `;` was formatted straight back out.
+      Extracted to a named `confirmDestructive()` in the script block, which is
+      the one form both tools accept. It was the only multi-statement inline
+      handler in the codebase — checked, not assumed.
+
+### Opened by the 2026-08-23 sidebar regression
+
+- [ ] **The mobile drawer has no account switcher.** Club mode is reachable only
+      from the desktop sidebar. This predates the `d985f6c` regression — the
+      switcher was desktop-only before it too — so it was left alone rather than
+      widening a restoration into a new feature. On a phone there is currently
+      no way to enter club mode at all.
+
+- [ ] **Nothing guards a component being orphaned.** `AccountSwitcher.vue` sat
+      unmounted from `d985f6c` until it was reported, while still compiling,
+      still passing lint, and still being referenced by four code comments.
+      `components/EmptyState.vue` and `components/ui/EmptyState.vue` are in the
+      same state today (F-33). A lint rule or a build-time check for components
+      that nothing renders would have caught both.
+
+### Opened by the 2026-08-23 account-mode pass
+
+- [x] **Account switcher on mobile — DONE (2026-08-23).** Club mode was
+      unreachable on a phone; the switcher now renders in the mobile drawer's
+      footer as well as the desktop sidebar, and the drawer closes on the
+      settled route so the switcher's own async navigation closes it too.
+- [x] **Drafts hidden from player mode — DONE (2026-08-23).** Filtered from the
+      events list, dropped from the status filter, filter reset on mode change,
+      and a deep-linked draft renders an explanatory panel instead of an error.
+- [x] **Event modification confined to club mode — DONE (2026-08-23).**
+      `canManageEvent` / `canManageTournament` / `canManageAnnouncements` =
+      role or ownership AND `isClubMode`. Player mode keeps register, the player
+      list, the bracket, the matches, the rankings. "Publish" no longer appears
+      in player mode anywhere.
+
+- [ ] **Should club member management follow the same mode rule?** Announcement
+      authoring is now club-mode-gated, but member approvals, role changes and
+      club verification on `pages/clubs/[clubId].vue` still go by role alone. It
+      is the same shape of inconsistency the event work just removed. Left as a
+      question because it decides who can act on a pending join request — a
+      product call, not a styling one.
+
+- [ ] **The mode gates are client-side only.** `canManageEvent` hides controls;
+      it does not stop the corresponding API call. The endpoints still authorise
+      by ownership alone, so a request made outside the UI in player mode would
+      still succeed. That is no worse than before this pass — the gate is a UI
+      affordance, and ownership remains the real boundary — but if account mode
+      is meant to be a genuine permission rather than a navigation concept, it
+      has to reach the service layer. Note that no DB column backs account mode
+      today (see `useAccountMode`'s header comment), so this would need one.
+
+### Opened by the 2026-08-23 club-roles pass
+
+- [x] **Role-change UI — DONE (2026-08-23).** The API and permission matrix
+      existed since `003-club`; nothing ever called them, so every member was a
+      MEMBER for life. Member rows now carry a role control mirroring
+      `ClubService.updateMember`, with 12 tests pinning the mirror.
+- [x] **Option C club-hat split — DONE (2026-08-23).** Approvals work in both
+      hats; roles, removals, verification and club create-actions need it.
+- [x] **Acting-as-the-wrong-club hole — DONE (2026-08-23).** All club-hat gates
+      now require `activeClubId` to be the club on screen, not merely club mode.
+
+- [ ] **MODERATOR grants nothing.** It can now be assigned, and carries no
+      permissions — `ClubService` says so explicitly. Either give it powers
+      (announcements is the natural fit; `isStaff` already includes MODERATOR) or
+      remove it from the assignable list. Assigning a role that does nothing
+      implies authority that does not exist.
+
+- [ ] **No ownership transfer.** The OWNER row is unmodifiable by anyone,
+      including the owner, so a club cannot change hands and an owner cannot
+      leave. Fine while clubs are new; it becomes a support burden the first time
+      someone abandons one.
+
+### Opened by the 2026-08-23 moderator-permissions pass
+
+- [x] **MODERATOR now carries permissions — DONE (2026-08-23).** Reviews club
+      join requests (`APPROVAL_ROLES` in club.service.ts) and event
+      registrations (`assertCanReviewRegistrations` in event.service.ts).
+      Announcements already admitted the role. Supersedes the "MODERATOR grants
+      nothing" item above.
+- [x] **Registration approval UI — DONE (2026-08-23).** `PATCH
+      /api/v1/registrations/{id}` had no caller; the tournament page showed a
+      pending count with no way to act on it. Approve/Reject added per entry.
+
+- [ ] **`waitlisted` has no UI.** The endpoint accepts it, nothing offers it, and
+      `bracket.service.ts` does not consider it when seeding. Either build the
+      waitlist properly (what promotes someone off it, and when) or drop the
+      status from the endpoint's accepted values so it cannot be set into a
+      state nothing understands.
+- [ ] **Moderator powers are UI + service, never RLS.** Both new permissions are
+      enforced in the service layer over the service-role client, consistent with
+      how club writes already work — but it means the permission matrix lives in
+      TypeScript, not in the database. Worth a look during the next security
+      review pass alongside F-29.
+
+### Opened by the 2026-08-23 discovery / duo / rankings pass
+
+- [x] **`027-default-partner` applied — DONE (2026-08-23).** All four
+      changesets ran against the live Supabase project; `status` reports up to
+      date at 199 total. Connection had to go through the session pooler
+      (`aws-0-ap-northeast-1.pooler.supabase.com:5432`, user `postgres.<ref>`)
+      because `db.<ref>.supabase.co` is IPv6-only — see PROJECT-STATUS for the
+      detail. The README's "direct connection" instructions do not work from an
+      IPv4-only machine and are worth amending.
+- [ ] **Rollback for `027-default-partner` is untested.** Every changeset has an
+      explicit `<rollback>`, but exercising it means dropping and recreating the
+      table on the live database. Safe while the table is empty; do it before it
+      holds anything.
+- [ ] **`database/liquibase/README.md` documents a connection that cannot work
+      here.** It says to use the direct host; that is IPv6-only. Add the session
+      pooler form, and the warning that the transaction pooler (6543) is not
+      usable for Liquibase.
+- [ ] **Duo pre-fills are client-side only.** The server does not consult a
+      player's duo when a doubles request arrives without a partner; it still
+      returns `PARTNER_REQUIRED`. That is deliberate — the decision taken was
+      pre-fill only, so no player is entered into anything without acting — but
+      it means a non-web client gets no benefit from the setting.
+- [ ] **`GET /api/v1/verified-clubs` now has no caller.** `/verified-clubs`
+      redirects to `/clubs?verified=1` and the directory filters through
+      `clubs/search`. The endpoint and `ClubService.listVerifiedClubs` are left
+      in place (public, harmless, and a plausible mobile-client dependency), but
+      they are dead from the web app's point of view — worth deleting if the
+      Flutter client does not want them.
+- [ ] **`clubs/search` and `players/search` are unbounded browses now.** Both
+      dropped their "supply at least one filter" 400 so "All Provinces" lists
+      everyone. Results are still capped at `MAX_LIMIT` (100) and still
+      restricted to public+active rows, but neither endpoint paginates in the
+      UI — the pages request `limit: 50` and stop there. A directory that grows
+      past 50 needs real paging, the way `/rankings` already has it.
+- [ ] **`pages/community.vue` still has a hand-rolled podium** (lines ~253–353):
+      emoji crown, `Math.round()` on ratings, and no podium at all below three
+      players. It was excluded from this pass by choice. Swapping it to
+      `RankingBoard` is now a two-line change.
+- [ ] **`components/cards/PlayerCard.vue` appears orphaned.** It is the only
+      `UiRankBadge` consumer and no page renders it. Either wire it into the
+      players directory (which currently rounds ratings with `Math.round` and
+      shows no rank) or delete it.
+
+## Scale Readiness (plan: docs/34-SCALE-READINESS-PLAN.md)
+
+Found while sizing the Supabase Free plan for a 10k-user first month. None of
+these are bugs at the current volume (5 profiles, 8 matches) and none can be
+caught by the existing test suite — a sequential scan of 5 rows and of 200,000
+rows are the same code and the same green test.
+
+### Phase 1 — one migration, do before the next deploy
+
+- [ ] **`028-scale-indexes`.** 13 tables have no index beyond their PK. The seven
+      that matter:
+      1. `player_profiles (user_id)` — looked up on essentially every
+         authenticated request; currently a full scan each time.
+      2. `player_ratings (rating_type, rating_value DESC) WHERE rating_value IS NOT NULL`
+         — the rankings query scans ~200k rows, sorts them all, and keeps 50.
+         This is the single highest-value index in the schema.
+      3. `player_ratings (player_id, rating_type)`
+      4. `player_profiles USING gin (display_name gin_trgm_ops)` + `CREATE EXTENSION pg_trgm`
+         — `ilike '%x%'` cannot use a B-tree at all.
+      5. `player_profiles (province, city)`
+      6. `match_scores (match_id)` — missing FK index
+      7. `player_profiles (profile_visibility)` partial on `'public'`
+      Use `<sql>` (Liquibase's `<createIndex>` cannot express partial, DESC or
+      `gin_trgm_ops`), and `CREATE INDEX CONCURRENTLY` with
+      `runInTransaction="false"`.
+
+### Phase 2 — application
+
+- [ ] Debounce the player search (~300 ms). No debounce today: `useFetch` with a
+      reactive query refetches on **every keystroke**, each one a full scan.
+- [ ] Minimum 2-character search query.
+- [ ] Bound `getCirclePlayerIds` (F-27) — unbounded `.in()` exceeds the URL limit
+      at scale. Correctness, not just speed.
+- [ ] Consolidate the club page's six on-mount `$fetch` calls (largest measured
+      egress item).
+- [ ] Consolidate the dashboard's six.
+- [ ] Keyset pagination for rankings — `OFFSET 10000` still scans and sorts
+      10,050 rows. Not urgent until the ladder is that deep.
+
+### Phase 3 — needs a product decision
+
+- [ ] Retention policy for `activities`, `notifications`,
+      `notification_deliveries`, `audit_logs`. Nothing prunes today. How long
+      should a notification stay readable?
+- [ ] Accept `rating_transactions` growth (one row per player per match, forever,
+      unprunable without destroying rating history) or design a rollup.
+
+### Verification — none of the above is meaningful without this
+
+- [ ] Seed a realistic dataset (50k profiles, 100k ratings, 20k matches) —
+      scale up the existing "Dummy Data Seeding" item.
+- [ ] `EXPLAIN ANALYZE` the three named queries before and after Phase 1.
+- [ ] Enable `pg_stat_statements` and rank by total time — it will probably
+      surface something not on this list.

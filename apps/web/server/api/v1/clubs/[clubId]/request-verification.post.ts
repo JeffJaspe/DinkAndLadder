@@ -42,7 +42,8 @@ export default defineEventHandler(async (event) => {
     const club = await service.requestVerification(playerProfile.id, clubId)
     return { data: club, message: 'Verification requested', request_id: crypto.randomUUID() }
   } catch (err) {
-    if (err instanceof ClubVerificationServiceError) throw apiError(err.status, err.code, err.message)
+    if (err instanceof ClubVerificationServiceError)
+      throw apiError(err.status, err.code, err.message)
     console.error(`[POST /api/v1/clubs/${clubId}/request-verification] failed:`, err)
     throw apiError(500, 'INTERNAL_ERROR', 'Could not request verification.')
   }

@@ -43,7 +43,11 @@ const srLabel = computed(() =>
     class="inline-flex items-center font-medium tabular-nums"
     :class="[TONE[direction], size === 'sm' ? 'gap-0.5 text-caption' : 'gap-1 text-body-2']"
   >
-    <UiIcon :name="ICON[direction]" :size="size === 'sm' ? 'h-3 w-3' : 'h-4 w-4'" :stroke-width="2.5" />
+    <UiIcon
+      :name="ICON[direction]"
+      :size="size === 'sm' ? 'h-3 w-3' : 'h-4 w-4'"
+      :stroke-width="2.5"
+    />
     <span class="sr-only">{{ srLabel }}</span>
     <span v-if="showValue">{{ formatRatingDelta(value) }}</span>
     <span v-if="suffix" class="font-normal text-fg-muted">{{ suffix }}</span>

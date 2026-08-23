@@ -1,4 +1,8 @@
-import { serverSupabaseClient, serverSupabaseServiceRole, serverSupabaseUser } from '#supabase/server'
+import {
+  serverSupabaseClient,
+  serverSupabaseServiceRole,
+  serverSupabaseUser
+} from '#supabase/server'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
 import { createPlayerProfileService } from '~/server/domains/player/services/player-profile.service'
 import { PlayerProfileValidationError } from '~/server/domains/player/dto/player-profile.dto'
@@ -118,7 +122,10 @@ export default defineEventHandler(async (event) => {
       { onConflict: 'player_id,rating_type' }
     )
     if (upsertError) {
-      console.error('[POST /api/v1/rating/submit-assessment] player_ratings upsert failed:', upsertError)
+      console.error(
+        '[POST /api/v1/rating/submit-assessment] player_ratings upsert failed:',
+        upsertError
+      )
       throw apiError(500, 'INTERNAL_ERROR', 'Could not save your initial rating. Please try again.')
     }
   }

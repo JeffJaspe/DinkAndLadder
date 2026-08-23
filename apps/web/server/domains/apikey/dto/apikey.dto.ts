@@ -69,7 +69,9 @@ export interface WebhookSubscriptionDto {
   created_at: string
 }
 
-export function toWebhookSubscriptionDto(record: WebhookSubscriptionRecord): WebhookSubscriptionDto {
+export function toWebhookSubscriptionDto(
+  record: WebhookSubscriptionRecord
+): WebhookSubscriptionDto {
   return {
     id: record.id,
     url: record.url,

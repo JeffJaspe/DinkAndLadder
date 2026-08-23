@@ -5,7 +5,10 @@ export interface ShoutoutRepository {
   findActiveByPlayerId(playerId: string): Promise<ShoutoutRecord | null>
   findActiveWithPlayer(limit?: number): Promise<Array<ShoutoutRecord & { display_name: string }>>
   create(data: { player_id: string; message: string; expires_at: string }): Promise<ShoutoutRecord>
-  update(playerId: string, data: { message: string; expires_at: string }): Promise<ShoutoutRecord | null>
+  update(
+    playerId: string,
+    data: { message: string; expires_at: string }
+  ): Promise<ShoutoutRecord | null>
   deactivate(playerId: string): Promise<void>
 }
 
@@ -31,10 +34,12 @@ export function createShoutoutRepository(client: SupabaseClient): ShoutoutReposi
     async findActiveWithPlayer(limit = 20) {
       const { data, error } = await client
         .from('player_shoutouts')
-        .select(`
+        .select(
+          `
           *,
           player_profiles!inner(id, display_name)
-        `)
+        `
+        )
         .eq('is_active', true)
         .gt('expires_at', new Date().toISOString())
         .order('updated_at', { ascending: false })
@@ -44,12 +49,10 @@ export function createShoutoutRepository(client: SupabaseClient): ShoutoutReposi
 
       // Drop the embedded profile off the result — the DTO carries the flat
       // display_name, not the join.
-      return ((data ?? []) as unknown as ShoutoutJoinRow[]).map(
-        ({ player_profiles, ...row }) => ({
-          ...row,
-          display_name: player_profiles?.display_name ?? 'Unknown'
-        })
-      )
+      return ((data ?? []) as unknown as ShoutoutJoinRow[]).map(({ player_profiles, ...row }) => ({
+        ...row,
+        display_name: player_profiles?.display_name ?? 'Unknown'
+      }))
     },
 
     async create(data) {

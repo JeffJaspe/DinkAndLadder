@@ -73,7 +73,10 @@ function parseDecisionInput(body: unknown): RecordVerificationDecisionInput {
  *
  * Returns rating updates for activity/notification logging, or empty array if calculation failed.
  */
-async function triggerRatingCalculation(match: MatchDto, client: SupabaseClient): Promise<RatingUpdateResult[]> {
+async function triggerRatingCalculation(
+  match: MatchDto,
+  client: SupabaseClient
+): Promise<RatingUpdateResult[]> {
   const service = createRatingService(createRatingRepository(client))
   const team1Points = match.scores.reduce((sum, s) => sum + s.team1_score, 0)
   const team2Points = match.scores.reduce((sum, s) => sum + s.team2_score, 0)
@@ -132,9 +135,7 @@ export default defineEventHandler(async (event) => {
   const serviceClient = serverSupabaseServiceRole(event)
   const service = createMatchService(createMatchRepository(serviceClient))
   const auditService = createAuditService(createAuditRepository(serviceClient))
-  const notificationService = createNotificationService(
-    createNotificationRepository(serviceClient)
-  )
+  const notificationService = createNotificationService(createNotificationRepository(serviceClient))
   const playerRepo = createPlayerProfileRepository(serviceClient)
 
   try {

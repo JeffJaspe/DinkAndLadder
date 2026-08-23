@@ -30,7 +30,9 @@ async function handleReset() {
       <!-- Logo -->
       <div class="mb-8 text-center">
         <NuxtLink to="/" class="inline-flex items-center gap-2">
-          <div class="flex h-12 w-12 items-center justify-center rounded-xl bg-primary text-xl font-bold text-on-primary">
+          <div
+            class="flex h-12 w-12 items-center justify-center rounded-xl bg-primary text-xl font-bold text-on-primary"
+          >
             D
           </div>
         </NuxtLink>
@@ -39,9 +41,12 @@ async function handleReset() {
       </div>
 
       <!-- Card -->
-      <div class="rounded-xl bg-surface p-6">
+      <div class="rounded-xl bg-surface p-6 shadow-card">
         <!-- Success Message -->
-        <div v-if="successMessage" class="mb-4 rounded-lg bg-primary/10 px-4 py-3 text-sm text-primary">
+        <div
+          v-if="successMessage"
+          class="mb-4 rounded-lg bg-primary/10 px-4 py-3 text-sm text-primary"
+        >
           {{ successMessage }}
         </div>
 

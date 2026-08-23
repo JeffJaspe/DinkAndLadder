@@ -5,7 +5,8 @@ const eventId = route.params.eventId as string
 
 const form = reactive({
   name: '',
-  format: 'single_elimination' as 'single_elimination' | 'double_elimination' | 'round_robin' | 'swiss',
+  format: 'single_elimination' as
+    'single_elimination' | 'double_elimination' | 'round_robin' | 'swiss',
   match_type: 'singles' as 'singles' | 'doubles',
   min_rating: null as number | null,
   max_rating: null as number | null
@@ -24,7 +25,6 @@ const formats = [
   { value: 'round_robin', label: 'Round Robin' },
   { value: 'swiss', label: 'Swiss System' }
 ]
-
 
 const ratingTemplates = [
   { value: 'novice', label: 'Novice', description: 'Up to 2.5', min: null, max: 2.5 },
@@ -52,7 +52,7 @@ const currentRatingDisplay = computed(() => {
 
 function applyTemplate() {
   if (!selectedTemplate.value) return
-  const template = ratingTemplates.find(t => t.value === selectedTemplate.value)
+  const template = ratingTemplates.find((t) => t.value === selectedTemplate.value)
   if (template) {
     form.min_rating = template.min
     form.max_rating = template.max
@@ -108,9 +108,17 @@ async function submit() {
     <div class="mx-auto max-w-2xl">
       <!-- Header -->
       <div class="mb-6">
-        <NuxtLink :to="`/events/${eventId}`" class="mb-4 inline-flex items-center gap-2 text-sm text-fg-muted hover:text-fg">
+        <NuxtLink
+          :to="`/events/${eventId}`"
+          class="mb-4 inline-flex items-center gap-2 text-sm text-fg-muted hover:text-fg"
+        >
           <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M15 19l-7-7 7-7"
+            />
           </svg>
           Back to Event
         </NuxtLink>
@@ -121,7 +129,7 @@ async function submit() {
       <!-- Form -->
       <form class="space-y-6" @submit.prevent="submit">
         <!-- Basic Info -->
-        <div class="rounded-xl bg-surface p-5">
+        <div class="rounded-xl bg-surface p-5 shadow-card">
           <h2 class="mb-4 font-semibold text-fg">Category Details</h2>
           <div class="space-y-4">
             <div>
@@ -142,7 +150,9 @@ async function submit() {
                   v-model="form.format"
                   class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg focus:border-primary focus:outline-none"
                 >
-                  <option v-for="f in formats" :key="f.value" :value="f.value">{{ f.label }}</option>
+                  <option v-for="f in formats" :key="f.value" :value="f.value">
+                    {{ f.label }}
+                  </option>
                 </select>
               </div>
               <div>
@@ -156,19 +166,22 @@ async function submit() {
                 </select>
               </div>
             </div>
-
           </div>
         </div>
 
         <!-- Rating Bracket -->
-        <div class="rounded-xl bg-surface p-5">
+        <div class="rounded-xl bg-surface p-5 shadow-card">
           <h2 class="mb-2 font-semibold text-fg">Rating Bracket</h2>
           <p class="mb-4 text-sm text-fg-muted">
-            Optional — set a rating-based restriction for this category. Leave empty for open registration.
+            Optional — set a rating-based restriction for this category. Leave empty for open
+            registration.
           </p>
 
           <!-- Current Rating Display -->
-          <div v-if="currentRatingDisplay" class="mb-4 flex items-center justify-between rounded-lg bg-canvas p-3">
+          <div
+            v-if="currentRatingDisplay"
+            class="mb-4 flex items-center justify-between rounded-lg bg-canvas p-3"
+          >
             <div>
               <p class="text-sm text-fg-secondary">Current bracket</p>
               <p class="font-medium text-fg">{{ currentRatingDisplay }}</p>
@@ -210,7 +223,12 @@ async function submit() {
               @click="showCustomRating = true"
             >
               <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M12 4v16m8-8H4"
+                />
               </svg>
               Custom Rating Range
             </button>

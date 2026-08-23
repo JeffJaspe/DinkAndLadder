@@ -39,7 +39,8 @@ export default defineEventHandler(async (event) => {
 
   const { data: matches, error } = await client
     .from('matches')
-    .select(`
+    .select(
+      `
       id,
       match_type,
       status,
@@ -53,7 +54,8 @@ export default defineEventHandler(async (event) => {
         player_profiles!inner (id, display_name)
       ),
       match_scores (set_number, team1_score, team2_score)
-    `)
+    `
+    )
     .in('id', matchIds)
     .order('played_at', { ascending: false })
     .limit(limit)

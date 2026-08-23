@@ -62,10 +62,17 @@ function onKeydown(event: KeyboardEvent) {
   const index = props.tabs.findIndex((t) => t.value === active.value)
   const last = props.tabs.length - 1
   const next =
-    event.key === 'Home' ? 0
-      : event.key === 'End' ? last
-        : event.key === 'ArrowLeft' ? (index <= 0 ? last : index - 1)
-          : (index >= last ? 0 : index + 1)
+    event.key === 'Home'
+      ? 0
+      : event.key === 'End'
+        ? last
+        : event.key === 'ArrowLeft'
+          ? index <= 0
+            ? last
+            : index - 1
+          : index >= last
+            ? 0
+            : index + 1
 
   select(props.tabs[next]!.value)
 }
@@ -85,16 +92,19 @@ function onKeydown(event: KeyboardEvent) {
       :aria-selected="tab.value === active"
       :tabindex="tab.value === active ? 0 : -1"
       class="relative shrink-0 whitespace-nowrap border-b-2 px-4 py-2.5 text-body-2 font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-      :class="tab.value === active
-        ? 'border-primary text-primary'
-        : 'border-transparent text-fg-secondary hover:border-border-strong hover:text-fg'"
+      :class="
+        tab.value === active
+          ? 'border-primary text-primary'
+          : 'border-transparent text-fg-secondary hover:border-border-strong hover:text-fg'
+      "
       @click="select(tab.value)"
     >
       {{ tab.label }}
       <span
         v-if="tab.count !== null && tab.count !== undefined"
         class="ml-1.5 rounded-pill bg-surface-2 px-1.5 py-0.5 text-caption text-fg-muted"
-      >{{ tab.count }}</span>
+        >{{ tab.count }}</span
+      >
     </button>
   </div>
 </template>

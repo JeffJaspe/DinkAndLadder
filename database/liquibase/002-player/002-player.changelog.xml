@@ -58,7 +58,16 @@
         </rollback>
     </changeSet>
 
+    <!-- Guarded: this column reached the live database outside Liquibase, so the
+         plain addColumn failed there ("column barangay already exists") and blocked
+         every later changeset. MARK_RAN records it as applied where the column is
+         already present, while a fresh database still gets it created. -->
     <changeSet id="0003-add-barangay-column" author="player-profiles">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <columnExists tableName="player_profiles" columnName="barangay"/>
+            </not>
+        </preConditions>
         <addColumn tableName="player_profiles">
             <column name="barangay" type="text"/>
         </addColumn>

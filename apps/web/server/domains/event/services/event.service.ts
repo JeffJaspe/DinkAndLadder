@@ -57,9 +57,7 @@ export interface EventService {
   ): Promise<TournamentRegistrationDto>
   getRegistrations(tournamentId: string): Promise<TournamentRegistrationDto[]>
   /** Same list with player names resolved, for screens that show who entered. */
-  getRegistrationsWithPlayers(
-    tournamentId: string
-  ): Promise<TournamentRegistrationWithPlayerDto[]>
+  getRegistrationsWithPlayers(tournamentId: string): Promise<TournamentRegistrationWithPlayerDto[]>
   withdrawRegistration(playerId: string, registrationId: string): Promise<TournamentRegistrationDto>
   updateRegistrationStatus(
     playerId: string,
@@ -87,9 +85,57 @@ export function createEventService(
       throw new EventServiceError(404, 'NOT_FOUND', 'Event not found.')
     }
     if (event.created_by_player_id !== playerId) {
-      throw new EventServiceError(403, 'FORBIDDEN', 'Only the event organizer can modify this event.')
+      throw new EventServiceError(
+        403,
+        'FORBIDDEN',
+        'Only the event organizer can modify this event.'
+      )
     }
     return event
+  }
+
+  /**
+   * Who may admit or turn away a tournament registration.
+   *
+   * The event's creator always may. Beyond that it falls to the hosting club's
+   * staff — owner, admin or moderator — because a pending registration is a
+   * person waiting, and tying that queue to one individual means it stalls
+   * whenever they are unavailable. This mirrors the club-side rule for join
+   * requests (see ClubService's APPROVAL_ROLES): reviewing a queue is the
+   * routine work a moderator is for.
+   *
+   * Nothing else about the event moves with it — editing, publishing, cancelling
+   * and deleting all remain the organiser's alone via assertEventOrganizer.
+   *
+   * Degrades to organiser-only rather than throwing when the membership
+   * repository was not supplied, so callers constructed without it keep the
+   * behaviour they had instead of failing closed on a 500.
+   */
+  async function assertCanReviewRegistrations(playerId: string, eventId: string) {
+    const event = await events.findById(eventId)
+    if (!event) {
+      throw new EventServiceError(404, 'NOT_FOUND', 'Event not found.')
+    }
+    if (event.created_by_player_id === playerId) {
+      return event
+    }
+
+    if (memberships && event.club_id) {
+      const membership = await memberships.findByClubAndPlayer(event.club_id, playerId)
+      if (
+        membership &&
+        membership.status === 'active' &&
+        ['OWNER', 'ADMIN', 'MODERATOR'].includes(membership.role)
+      ) {
+        return event
+      }
+    }
+
+    throw new EventServiceError(
+      403,
+      'FORBIDDEN',
+      'Only the organizer or the hosting club’s staff can review registrations.'
+    )
   }
 
   async function assertClubAdmin(playerId: string, clubId: string) {
@@ -98,10 +144,18 @@ export function createEventService(
     }
     const membership = await memberships.findByClubAndPlayer(clubId, playerId)
     if (!membership || membership.status !== 'active') {
-      throw new EventServiceError(403, 'NOT_CLUB_MEMBER', 'You must be an active member of this club.')
+      throw new EventServiceError(
+        403,
+        'NOT_CLUB_MEMBER',
+        'You must be an active member of this club.'
+      )
     }
     if (membership.role !== 'OWNER' && membership.role !== 'ADMIN') {
-      throw new EventServiceError(403, 'NOT_CLUB_ADMIN', 'Only club owners or admins can create events.')
+      throw new EventServiceError(
+        403,
+        'NOT_CLUB_ADMIN',
+        'Only club owners or admins can create events.'
+      )
     }
     return membership
   }
@@ -215,18 +269,38 @@ export function createEventService(
       const records = await events.search(query)
       const dtos = records.map(toEventDto)
 
-      // Capacity is only meaningful for events that declare a limit, so the
-      // count is skipped entirely when none of them do.
-      if (!eventRegistrations || !dtos.some((e) => e.max_participants !== null)) {
+      if (!eventRegistrations || !dtos.length) {
         return dtos
       }
 
-      const counts = await eventRegistrations.countByEvents(
-        dtos.map((e) => e.id),
-        SLOT_OCCUPYING_STATUSES
-      )
+      const eventIds = dtos.map((e) => e.id)
 
-      return dtos.map((e) => ({ ...e, registered_count: counts.get(e.id) ?? 0 }))
+      // Capacity is only meaningful for events that declare a limit, so the
+      // count is skipped entirely when none of them do.
+      const counts = dtos.some((e) => e.max_participants !== null)
+        ? await eventRegistrations.countByEvents(eventIds, SLOT_OCCUPYING_STATUSES)
+        : null
+
+      // "You are in this one" is per-caller, so it is only asked for when the
+      // request identified one. For everyone else the field stays undefined
+      // rather than false.
+      const mine = query.viewer_player_id
+        ? await eventRegistrations.findRegisteredEventIds(
+            query.viewer_player_id,
+            eventIds,
+            SLOT_OCCUPYING_STATUSES
+          )
+        : null
+
+      if (!counts && !mine) {
+        return dtos
+      }
+
+      return dtos.map((e) => ({
+        ...e,
+        ...(counts ? { registered_count: counts.get(e.id) ?? 0 } : {}),
+        ...(mine ? { viewer_registered: mine.has(e.id) } : {})
+      }))
     },
 
     async createTournament(playerId, input) {
@@ -338,7 +412,11 @@ export function createEventService(
         )
       }
       if (registration.status === 'withdrawn') {
-        throw new EventServiceError(409, 'ALREADY_WITHDRAWN', 'This registration is already withdrawn.')
+        throw new EventServiceError(
+          409,
+          'ALREADY_WITHDRAWN',
+          'This registration is already withdrawn.'
+        )
       }
       const updated = await registrations.updateStatus(registrationId, 'withdrawn')
       return toTournamentRegistrationDto(updated)
@@ -355,7 +433,7 @@ export function createEventService(
         throw new EventServiceError(404, 'NOT_FOUND', 'Tournament not found.')
       }
 
-      await assertEventOrganizer(playerId, tournament.event_id)
+      await assertCanReviewRegistrations(playerId, tournament.event_id)
 
       if (registration.status === 'withdrawn') {
         throw new EventServiceError(409, 'INVALID_STATE', 'Cannot update a withdrawn registration.')

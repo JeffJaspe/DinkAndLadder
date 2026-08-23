@@ -111,7 +111,9 @@ function selectAccountType(type: 'player' | 'club') {
 async function loadQuestions() {
   loading.value = true
   try {
-    const response = await $fetch<{ data: AssessmentQuestion[] }>('/api/v1/rating/assessment-questions')
+    const response = await $fetch<{ data: AssessmentQuestion[] }>(
+      '/api/v1/rating/assessment-questions'
+    )
     questions.value = response.data
     currentQuestionIndex.value = 0
     answers.value = {}
@@ -218,7 +220,9 @@ const categoryLabel = (category: string) => {
     <div class="w-full max-w-lg">
       <!-- Logo -->
       <div class="mb-8 text-center">
-        <div class="mx-auto flex h-14 w-14 items-center justify-center rounded-xl bg-primary text-2xl font-bold text-on-primary">
+        <div
+          class="mx-auto flex h-14 w-14 items-center justify-center rounded-xl bg-primary text-2xl font-bold text-on-primary"
+        >
           D
         </div>
       </div>
@@ -230,10 +234,8 @@ const categoryLabel = (category: string) => {
           <p class="mt-2 text-fg-muted">First, what should we call you?</p>
         </div>
 
-        <div class="rounded-xl bg-surface p-5">
-          <label for="display-name" class="block text-sm font-medium text-fg">
-            Display name
-          </label>
+        <div class="rounded-xl bg-surface p-5 shadow-card">
+          <label for="display-name" class="block text-sm font-medium text-fg"> Display name </label>
           <input
             id="display-name"
             v-model="displayName"
@@ -243,13 +245,13 @@ const categoryLabel = (category: string) => {
             placeholder="e.g. Jeff J."
             class="mt-2 w-full rounded-lg border border-border-strong bg-canvas px-3 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none"
             @input="displayNameError = ''"
-          >
+          />
           <p v-if="displayNameError" class="mt-2 text-sm text-red-400">
             {{ displayNameError }}
           </p>
           <p v-else class="mt-2 text-xs text-fg-muted">
-            This is shown publicly on your profile, in rankings and in search. You can change it
-            any time in Settings.
+            This is shown publicly on your profile, in rankings and in search. You can change it any
+            time in Settings.
           </p>
         </div>
 
@@ -259,10 +261,12 @@ const categoryLabel = (category: string) => {
           <button
             type="button"
             :disabled="loading"
-            class="group rounded-xl border-2 border-border-strong bg-surface p-6 text-left transition-all hover:border-primary hover:bg-surface-2 disabled:opacity-50"
+            class="group rounded-xl border-2 border-border-strong bg-surface p-6 text-left transition-all hover:border-primary hover:bg-surface-2 disabled:opacity-50 shadow-card hover:shadow-card-hover"
             @click="selectAccountType('player')"
           >
-            <div class="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-primary/20 text-2xl">
+            <div
+              class="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-primary/20 text-2xl"
+            >
               🏓
             </div>
             <h3 class="text-lg font-semibold text-fg">I'm a Player</h3>
@@ -273,10 +277,12 @@ const categoryLabel = (category: string) => {
 
           <button
             type="button"
-            class="group rounded-xl border-2 border-border-strong bg-surface p-6 text-left transition-all hover:border-primary hover:bg-surface-2"
+            class="group rounded-xl border-2 border-border-strong bg-surface p-6 text-left transition-all hover:border-primary hover:bg-surface-2 shadow-card hover:shadow-card-hover"
             @click="selectAccountType('club')"
           >
-            <div class="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-warning-fill/20 text-2xl">
+            <div
+              class="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-warning-fill/20 text-2xl"
+            >
               🏆
             </div>
             <h3 class="text-lg font-semibold text-fg">I'm a Club Organizer</h3>
@@ -296,7 +302,9 @@ const categoryLabel = (category: string) => {
         <!-- Progress Bar -->
         <div class="space-y-2">
           <div class="flex items-center justify-between text-sm">
-            <span class="text-fg-muted">Question {{ currentQuestionIndex + 1 }} of {{ questions.length }}</span>
+            <span class="text-fg-muted"
+              >Question {{ currentQuestionIndex + 1 }} of {{ questions.length }}</span
+            >
             <span class="rounded-full bg-primary/20 px-3 py-1 text-xs text-primary">
               {{ categoryLabel(currentQuestion.category) }}
             </span>
@@ -310,7 +318,7 @@ const categoryLabel = (category: string) => {
         </div>
 
         <!-- Question Card -->
-        <div class="rounded-xl bg-surface p-6">
+        <div class="rounded-xl bg-surface p-6 shadow-card">
           <h2 class="mb-6 text-lg font-semibold text-fg">
             {{ currentQuestion.question }}
           </h2>
@@ -346,7 +354,7 @@ const categoryLabel = (category: string) => {
       <div v-else-if="step === 'result' && ratingResult" class="space-y-6">
         <!-- Celebration Modal -->
         <div
-          class="relative overflow-hidden rounded-xl bg-surface p-8 text-center"
+          class="relative overflow-hidden rounded-xl bg-surface p-8 text-center shadow-card"
           :class="{ 'animate-celebration': showCelebration }"
         >
           <!-- Confetti Effect -->
@@ -362,7 +370,10 @@ const categoryLabel = (category: string) => {
           >
             <div
               class="flex h-28 w-28 flex-col items-center justify-center rounded-full"
-              :style="{ backgroundColor: `${ratingResult.tier.color}30`, border: `3px solid ${ratingResult.tier.color}` }"
+              :style="{
+                backgroundColor: `${ratingResult.tier.color}30`,
+                border: `3px solid ${ratingResult.tier.color}`
+              }"
             >
               <span class="text-4xl">{{ tierEmoji }}</span>
             </div>
@@ -381,10 +392,7 @@ const categoryLabel = (category: string) => {
           </p>
 
           <!-- Rating Display -->
-          <div
-            class="mb-4 space-y-2"
-            :class="{ 'animate-scale-in': showCelebration }"
-          >
+          <div class="mb-4 space-y-2" :class="{ 'animate-scale-in': showCelebration }">
             <div class="text-6xl font-bold" :style="{ color: ratingResult.tier.color }">
               {{ ratingResult.rating.toFixed(2) }}
             </div>
@@ -407,7 +415,9 @@ const categoryLabel = (category: string) => {
               <span>Your Rating</span>
               <span>8.0</span>
             </div>
-            <div class="relative h-3 overflow-hidden rounded-full bg-gradient-to-r from-fg-muted via-primary to-warning-fill">
+            <div
+              class="relative h-3 overflow-hidden rounded-full bg-gradient-to-r from-fg-muted via-primary to-warning-fill"
+            >
               <div
                 class="absolute top-0 h-full w-1 bg-white shadow-lg"
                 :style="{ left: `${((ratingResult.rating - 2) / 6) * 100}%` }"
@@ -437,10 +447,12 @@ const categoryLabel = (category: string) => {
           <p class="mt-2 text-fg-muted">Set up your club and start organizing events</p>
         </div>
 
-        <div class="rounded-xl bg-surface p-6">
+        <div class="rounded-xl bg-surface p-6 shadow-card">
           <div class="space-y-4">
             <div class="flex items-start gap-3">
-              <div class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-primary/20 text-sm text-primary">
+              <div
+                class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-primary/20 text-sm text-primary"
+              >
                 1
               </div>
               <div>
@@ -449,7 +461,9 @@ const categoryLabel = (category: string) => {
               </div>
             </div>
             <div class="flex items-start gap-3">
-              <div class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-primary/20 text-sm text-primary">
+              <div
+                class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-primary/20 text-sm text-primary"
+              >
                 2
               </div>
               <div>
@@ -458,7 +472,9 @@ const categoryLabel = (category: string) => {
               </div>
             </div>
             <div class="flex items-start gap-3">
-              <div class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-primary/20 text-sm text-primary">
+              <div
+                class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-primary/20 text-sm text-primary"
+              >
                 3
               </div>
               <div>
@@ -489,7 +505,9 @@ const categoryLabel = (category: string) => {
 
       <!-- Loading State (initial check or action in progress) -->
       <div v-else-if="step === 'loading' || loading" class="flex items-center justify-center py-12">
-        <div class="h-12 w-12 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+        <div
+          class="h-12 w-12 animate-spin rounded-full border-4 border-primary border-t-transparent"
+        />
       </div>
     </div>
   </div>

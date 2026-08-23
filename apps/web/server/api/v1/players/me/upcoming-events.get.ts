@@ -18,7 +18,8 @@ export default defineEventHandler(async (event) => {
 
   const { data, error } = await client
     .from('event_registrations')
-    .select(`
+    .select(
+      `
       status,
       events!inner (
         id,
@@ -30,7 +31,8 @@ export default defineEventHandler(async (event) => {
         end_date,
         status
       )
-    `)
+    `
+    )
     .eq('player_id', playerProfile.id)
     .neq('status', 'withdrawn')
     .gte('events.end_date', today)

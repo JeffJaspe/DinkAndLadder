@@ -1,7 +1,15 @@
 import { describe, it, expect, vi } from 'vitest'
-import { createAchievementService, createAchievementUnlocker, AchievementServiceError } from '../../server/domains/achievement/services/achievement.service'
+import {
+  createAchievementService,
+  createAchievementUnlocker,
+  AchievementServiceError
+} from '../../server/domains/achievement/services/achievement.service'
 import type { AchievementRepository } from '../../server/domains/achievement/repositories/achievement.repository'
-import type { AchievementDefinitionRecord, PlayerAchievementRecord, PlayerAchievementWithDefinition } from '../../server/domains/achievement/dto/achievement.dto'
+import type {
+  AchievementDefinitionRecord,
+  PlayerAchievementRecord,
+  PlayerAchievementWithDefinition
+} from '../../server/domains/achievement/dto/achievement.dto'
 
 function createFakeRepository(overrides?: Partial<AchievementRepository>): AchievementRepository {
   return {
@@ -17,7 +25,9 @@ function createFakeRepository(overrides?: Partial<AchievementRepository>): Achie
   }
 }
 
-function makeDefinitionRecord(overrides?: Partial<AchievementDefinitionRecord>): AchievementDefinitionRecord {
+function makeDefinitionRecord(
+  overrides?: Partial<AchievementDefinitionRecord>
+): AchievementDefinitionRecord {
   return {
     id: 'achievement-1',
     key: 'first_match',
@@ -34,7 +44,9 @@ function makeDefinitionRecord(overrides?: Partial<AchievementDefinitionRecord>):
   }
 }
 
-function makePlayerAchievementRecord(overrides?: Partial<PlayerAchievementRecord>): PlayerAchievementRecord {
+function makePlayerAchievementRecord(
+  overrides?: Partial<PlayerAchievementRecord>
+): PlayerAchievementRecord {
   return {
     id: 'player-achievement-1',
     player_id: 'player-1',
@@ -50,7 +62,10 @@ function makePlayerAchievementRecord(overrides?: Partial<PlayerAchievementRecord
 describe('AchievementService', () => {
   describe('getAllDefinitions', () => {
     it('returns all active definitions', async () => {
-      const definitions = [makeDefinitionRecord(), makeDefinitionRecord({ id: 'achievement-2', key: 'winner' })]
+      const definitions = [
+        makeDefinitionRecord(),
+        makeDefinitionRecord({ id: 'achievement-2', key: 'winner' })
+      ]
       const repo = createFakeRepository({
         findAllDefinitions: vi.fn().mockResolvedValue(definitions)
       })
@@ -103,7 +118,9 @@ describe('AchievementService', () => {
       const repo = createFakeRepository()
       const service = createAchievementService(repo)
 
-      await expect(service.claimAchievement('player-1', 'achievement-1')).rejects.toThrow(AchievementServiceError)
+      await expect(service.claimAchievement('player-1', 'achievement-1')).rejects.toThrow(
+        AchievementServiceError
+      )
     })
 
     it('throws when already claimed', async () => {
@@ -113,7 +130,9 @@ describe('AchievementService', () => {
       })
       const service = createAchievementService(repo)
 
-      await expect(service.claimAchievement('player-1', 'achievement-1')).rejects.toThrow(AchievementServiceError)
+      await expect(service.claimAchievement('player-1', 'achievement-1')).rejects.toThrow(
+        AchievementServiceError
+      )
     })
   })
 

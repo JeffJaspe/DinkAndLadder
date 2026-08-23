@@ -22,7 +22,10 @@ export default defineEventHandler(async (event) => {
     .eq('status', 'pending')
 
   if (verificationError) {
-    console.error('[GET /api/v1/players/me/pending-actions] verifications failed:', verificationError)
+    console.error(
+      '[GET /api/v1/players/me/pending-actions] verifications failed:',
+      verificationError
+    )
     throw apiError(500, 'INTERNAL_ERROR', 'Could not load your pending actions.')
   }
 
@@ -31,12 +34,14 @@ export default defineEventHandler(async (event) => {
     matches?: { match_type?: string; played_at?: string } | null
   }
 
-  const pendingVerifications = ((verificationRows ?? []) as unknown as VerificationJoinRow[]).map((r) => ({
-    type: 'match_verification' as const,
-    match_id: r.match_id,
-    match_type: r.matches?.match_type,
-    played_at: r.matches?.played_at
-  }))
+  const pendingVerifications = ((verificationRows ?? []) as unknown as VerificationJoinRow[]).map(
+    (r) => ({
+      type: 'match_verification' as const,
+      match_id: r.match_id,
+      match_type: r.matches?.match_type,
+      played_at: r.matches?.played_at
+    })
+  )
 
   const memberships = await createClubMembershipRepository(client).listOwnWithClub(playerProfile.id)
   const pendingMemberships = memberships

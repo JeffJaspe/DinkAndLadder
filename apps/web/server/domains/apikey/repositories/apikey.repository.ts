@@ -1,8 +1,10 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { ApiKeyRecord, ApiKeyPermission, WebhookSubscriptionRecord } from '../dto/apikey.dto'
 
-const KEY_COLUMNS = 'id, player_id, key_hash, key_prefix, name, permissions, last_used_at, expires_at, is_active, created_at'
-const WEBHOOK_COLUMNS = 'id, player_id, url, secret, events, is_active, last_triggered_at, failure_count, created_at'
+const KEY_COLUMNS =
+  'id, player_id, key_hash, key_prefix, name, permissions, last_used_at, expires_at, is_active, created_at'
+const WEBHOOK_COLUMNS =
+  'id, player_id, url, secret, events, is_active, last_triggered_at, failure_count, created_at'
 
 export interface ApiKeyRepository {
   listByPlayer(playerId: string): Promise<ApiKeyRecord[]>
@@ -80,19 +82,13 @@ export function createApiKeyRepository(client: SupabaseClient): ApiKeyRepository
     },
 
     async deactivate(id) {
-      const { error } = await client
-        .from('api_keys')
-        .update({ is_active: false })
-        .eq('id', id)
+      const { error } = await client.from('api_keys').update({ is_active: false }).eq('id', id)
 
       if (error) throw error
     },
 
     async delete(id) {
-      const { error } = await client
-        .from('api_keys')
-        .delete()
-        .eq('id', id)
+      const { error } = await client.from('api_keys').delete().eq('id', id)
 
       if (error) throw error
     }
@@ -191,10 +187,7 @@ export function createWebhookRepository(client: SupabaseClient): WebhookReposito
     },
 
     async delete(id) {
-      const { error } = await client
-        .from('webhook_subscriptions')
-        .delete()
-        .eq('id', id)
+      const { error } = await client.from('webhook_subscriptions').delete().eq('id', id)
 
       if (error) throw error
     }

@@ -18,7 +18,14 @@ interface MatchSummary {
 }
 
 interface UpcomingEventEntry {
-  event: { id: string; name: string; venue: string | null; city: string | null; start_date: string; end_date: string }
+  event: {
+    id: string
+    name: string
+    venue: string | null
+    city: string | null
+    start_date: string
+    end_date: string
+  }
   registration_status: string
 }
 
@@ -57,16 +64,33 @@ interface BadgeResponse {
 
 const { data: currentUser, pending, error } = await useFetch<UserDto>('/api/v1/auth/me')
 const { data: myProfile } = await useFetch<PlayerProfileDto>('/api/v1/players/me')
-const { data: ratingsData } = await useFetch<{ singles?: { rating_value: number }; doubles?: { rating_value: number } }>('/api/v1/players/me/ratings')
+const { data: ratingsData } = await useFetch<{
+  singles?: { rating_value: number }
+  doubles?: { rating_value: number }
+}>('/api/v1/players/me/ratings')
 const { data: myClubsData } = await useFetch<{ items: MyClubMembershipDto[] }>('/api/v1/clubs/mine')
 
 // Filter to only show active memberships in My Clubs section (pending shown separately in Pending Actions)
-const myActiveClubs = computed(() => myClubsData.value?.items.filter(m => m.status === 'active') ?? [])
-const { data: recentMatches } = await useFetch<{ data: MatchSummary[] }>('/api/v1/players/me/matches?limit=5')
-const { data: upcomingEvents } = await useFetch<{ data: UpcomingEventEntry[] }>('/api/v1/players/me/upcoming-events')
-const { data: pendingActions } = await useFetch<{ data: PendingActionsResponse }>('/api/v1/players/me/pending-actions')
-const { data: myShoutout, refresh: refreshShoutout } = await useFetch<{ data: ShoutoutDto | null }>('/api/v1/players/me/shoutout', { server: false })
-const { data: badgeData, refresh: refreshBadge } = await useFetch<{ data: BadgeResponse }>('/api/v1/players/me/badge', { server: false })
+const myActiveClubs = computed(
+  () => myClubsData.value?.items.filter((m) => m.status === 'active') ?? []
+)
+const { data: recentMatches } = await useFetch<{ data: MatchSummary[] }>(
+  '/api/v1/players/me/matches?limit=5'
+)
+const { data: upcomingEvents } = await useFetch<{ data: UpcomingEventEntry[] }>(
+  '/api/v1/players/me/upcoming-events'
+)
+const { data: pendingActions } = await useFetch<{ data: PendingActionsResponse }>(
+  '/api/v1/players/me/pending-actions'
+)
+const { data: myShoutout, refresh: refreshShoutout } = await useFetch<{ data: ShoutoutDto | null }>(
+  '/api/v1/players/me/shoutout',
+  { server: false }
+)
+const { data: badgeData, refresh: refreshBadge } = await useFetch<{ data: BadgeResponse }>(
+  '/api/v1/players/me/badge',
+  { server: false }
+)
 
 const supabase = useSupabaseClient()
 
@@ -76,7 +100,7 @@ const badgeSaving = ref(false)
 const selectedBadge = computed(() => {
   if (!badgeData.value?.data?.showcase?.selectedBadgeId) return null
   return badgeData.value.data.availableBadges.find(
-    b => b.id === badgeData.value!.data.showcase!.selectedBadgeId
+    (b) => b.id === badgeData.value!.data.showcase!.selectedBadgeId
   )
 })
 
@@ -147,7 +171,9 @@ async function handleLogout() {
 const activeRatingType = ref<'singles' | 'doubles'>('singles')
 const singlesRating = computed(() => ratingsData.value?.singles?.rating_value ?? 0)
 const doublesRating = computed(() => ratingsData.value?.doubles?.rating_value ?? 0)
-const displayRating = computed(() => activeRatingType.value === 'singles' ? singlesRating.value : doublesRating.value)
+const displayRating = computed(() =>
+  activeRatingType.value === 'singles' ? singlesRating.value : doublesRating.value
+)
 
 // Same nine bands the rating domain defines. This page previously carried its
 // own five-tier table (Professional/Advanced/Intermediate/Beginner/Novice at
@@ -168,13 +194,16 @@ const { data: rankingData } = await useFetch<{ data: RankingEntryDto[] }>('/api/
 
 const myRankEntry = computed(() => {
   if (!myProfile.value || !rankingData.value?.data) return null
-  return rankingData.value.data.find(r => r.player_id === myProfile.value!.id) ?? null
+  return rankingData.value.data.find((r) => r.player_id === myProfile.value!.id) ?? null
 })
 
-const { data: historyData } = await useFetch<{ data: RatingTransactionDto[] }>('/api/v1/players/me/rating-history', {
-  query: { type: activeRatingType },
-  watch: [activeRatingType]
-})
+const { data: historyData } = await useFetch<{ data: RatingTransactionDto[] }>(
+  '/api/v1/players/me/rating-history',
+  {
+    query: { type: activeRatingType },
+    watch: [activeRatingType]
+  }
+)
 
 const ratingHistoryChronological = computed(() => [...(historyData.value?.data ?? [])].reverse())
 
@@ -220,22 +249,22 @@ const chartPoints = computed(() => {
 })
 
 function getOpponentNames(match: MatchSummary): string {
-  const myTeam = match.participants.find(p => p.player_id === myProfile.value?.id)?.team_number
-  const opponents = match.participants.filter(p => p.team_number !== myTeam)
-  return opponents.map(p => p.display_name).join(' & ') || 'Unknown'
+  const myTeam = match.participants.find((p) => p.player_id === myProfile.value?.id)?.team_number
+  const opponents = match.participants.filter((p) => p.team_number !== myTeam)
+  return opponents.map((p) => p.display_name).join(' & ') || 'Unknown'
 }
 
 function didIWin(match: MatchSummary): boolean | null {
-  const myTeam = match.participants.find(p => p.player_id === myProfile.value?.id)?.team_number
+  const myTeam = match.participants.find((p) => p.player_id === myProfile.value?.id)?.team_number
   if (!myTeam || match.scores.length === 0) return null
-  const mySets = match.scores.filter(s =>
+  const mySets = match.scores.filter((s) =>
     myTeam === 1 ? s.team1_score > s.team2_score : s.team2_score > s.team1_score
   ).length
   return mySets > match.scores.length / 2
 }
 
 function formatScore(match: MatchSummary): string {
-  return match.scores.map(s => `${s.team1_score}-${s.team2_score}`).join(', ')
+  return match.scores.map((s) => `${s.team1_score}-${s.team2_score}`).join(', ')
 }
 
 function formatRelativeTime(dateStr: string): string {
@@ -291,7 +320,7 @@ function formatEventDate(dateStr: string): string {
       </div>
 
       <!-- Shout-out Section -->
-      <div class="rounded-xl bg-surface p-5">
+      <div class="rounded-xl bg-surface p-5 shadow-card">
         <div class="mb-3 flex items-center justify-between">
           <span class="text-xs font-medium uppercase tracking-wider text-fg-muted">SHOUT-OUT</span>
           <button
@@ -310,7 +339,10 @@ function formatEventDate(dateStr: string): string {
             <p class="text-fg">"{{ myShoutout.data.message }}"</p>
             <div class="mt-1 flex items-center gap-3 text-xs text-fg-muted">
               <span>Posted {{ formatRelativeTime(myShoutout.data.created_at) }}</span>
-              <span v-if="shoutoutExpiresIn" class="rounded-full bg-primary/10 px-2 py-0.5 text-primary">
+              <span
+                v-if="shoutoutExpiresIn"
+                class="rounded-full bg-primary/10 px-2 py-0.5 text-primary"
+              >
                 {{ shoutoutExpiresIn }}
               </span>
             </div>
@@ -333,7 +365,7 @@ function formatEventDate(dateStr: string): string {
               :disabled="shoutoutSaving || !shoutoutInput.trim()"
               @click="saveShoutout"
             >
-              {{ shoutoutSaving ? '...' : (shoutoutEditing ? 'Update' : 'Post') }}
+              {{ shoutoutSaving ? '...' : shoutoutEditing ? 'Update' : 'Post' }}
             </button>
             <button
               v-if="shoutoutEditing"
@@ -360,20 +392,28 @@ function formatEventDate(dateStr: string): string {
       <!-- Rating & Rank Row -->
       <div class="grid gap-4 sm:grid-cols-2">
         <!-- Rating Card -->
-        <div class="rounded-xl bg-surface p-5">
+        <div class="rounded-xl bg-surface p-5 shadow-card">
           <div class="mb-3 flex items-center justify-between">
             <span class="text-xs font-medium uppercase tracking-wider text-fg-muted">RATING</span>
             <div class="flex gap-1">
               <button
                 class="rounded-md px-3 py-1 text-xs font-medium"
-                :class="activeRatingType === 'singles' ? 'bg-primary/20 text-primary' : 'text-fg-muted hover:bg-surface-2'"
+                :class="
+                  activeRatingType === 'singles'
+                    ? 'bg-primary/20 text-primary'
+                    : 'text-fg-muted hover:bg-surface-2'
+                "
                 @click="activeRatingType = 'singles'"
               >
                 Singles
               </button>
               <button
                 class="rounded-md px-3 py-1 text-xs font-medium"
-                :class="activeRatingType === 'doubles' ? 'bg-primary/20 text-primary' : 'text-fg-muted hover:bg-surface-2'"
+                :class="
+                  activeRatingType === 'doubles'
+                    ? 'bg-primary/20 text-primary'
+                    : 'text-fg-muted hover:bg-surface-2'
+                "
                 @click="activeRatingType = 'doubles'"
               >
                 Doubles
@@ -389,14 +429,16 @@ function formatEventDate(dateStr: string): string {
         </div>
 
         <!-- Rank Card -->
-        <div class="rounded-xl bg-surface p-5">
+        <div class="rounded-xl bg-surface p-5 shadow-card">
           <div class="mb-3">
             <span class="text-xs font-medium uppercase tracking-wider text-fg-muted">RANK</span>
           </div>
           <div v-if="myRankEntry" class="flex items-baseline gap-3">
             <span class="text-5xl font-bold text-fg">#{{ myRankEntry.rank }}</span>
             <div>
-              <p class="text-sm text-fg-secondary">{{ myProfile?.city || myProfile?.province || 'Overall' }}</p>
+              <p class="text-sm text-fg-secondary">
+                {{ myProfile?.city || myProfile?.province || 'Overall' }}
+              </p>
               <p class="text-xs text-primary">of top {{ rankingData?.data.length }} tracked</p>
             </div>
           </div>
@@ -407,7 +449,7 @@ function formatEventDate(dateStr: string): string {
       </div>
 
       <!-- Rating Progress -->
-      <div class="rounded-card border border-border bg-surface p-5">
+      <div class="rounded-card border border-border bg-surface p-5 shadow-card">
         <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
           <span class="text-body-2 font-medium text-fg">Rating Progress</span>
           <UiSegmented
@@ -425,8 +467,10 @@ function formatEventDate(dateStr: string): string {
       </div>
 
       <!-- Pending Actions -->
-      <div v-if="pendingActions?.data.total" class="rounded-xl bg-surface p-5">
-        <span class="text-sm font-medium text-fg-secondary">Pending Actions ({{ pendingActions.data.total }})</span>
+      <div v-if="pendingActions?.data.total" class="rounded-xl bg-surface p-5 shadow-card">
+        <span class="text-sm font-medium text-fg-secondary"
+          >Pending Actions ({{ pendingActions.data.total }})</span
+        >
         <div class="mt-3 space-y-2">
           <NuxtLink
             v-for="v in pendingActions.data.pending_verifications"
@@ -454,12 +498,14 @@ function formatEventDate(dateStr: string): string {
       </div>
 
       <!-- Recent Matches -->
-      <div class="rounded-xl bg-surface p-5">
+      <div class="rounded-xl bg-surface p-5 shadow-card">
         <div class="mb-4 flex items-center justify-between">
           <span class="text-sm font-medium text-fg-secondary">My Recent Matches</span>
         </div>
         <div v-if="!recentMatches?.data.length" class="py-4 text-center text-sm text-fg-muted">
-          No matches yet — <NuxtLink to="/events" class="text-primary hover:underline">find an event</NuxtLink> to get started.
+          No matches yet —
+          <NuxtLink to="/events" class="text-primary hover:underline">find an event</NuxtLink> to
+          get started.
         </div>
         <div v-else class="space-y-2">
           <NuxtLink
@@ -482,7 +528,7 @@ function formatEventDate(dateStr: string): string {
       </div>
 
       <!-- Upcoming Events -->
-      <div class="rounded-xl bg-surface p-5">
+      <div class="rounded-xl bg-surface p-5 shadow-card">
         <div class="mb-4 flex items-center justify-between">
           <span class="text-sm font-medium text-fg-secondary">My Upcoming Events</span>
           <NuxtLink to="/events" class="text-xs text-primary hover:underline">Find more →</NuxtLink>
@@ -500,7 +546,9 @@ function formatEventDate(dateStr: string): string {
             <span class="text-base">📅</span>
             <span class="flex-1 text-sm text-fg-secondary">
               {{ entry.event.name }}
-              <span class="text-fg-muted">{{ [entry.event.venue, entry.event.city].filter(Boolean).join(', ') }}</span>
+              <span class="text-fg-muted">{{
+                [entry.event.venue, entry.event.city].filter(Boolean).join(', ')
+              }}</span>
             </span>
             <span class="text-xs text-fg-muted">{{ formatEventDate(entry.event.start_date) }}</span>
           </NuxtLink>
@@ -508,10 +556,12 @@ function formatEventDate(dateStr: string): string {
       </div>
 
       <!-- My Clubs -->
-      <div class="rounded-xl bg-surface p-5">
+      <div class="rounded-xl bg-surface p-5 shadow-card">
         <div class="mb-4 flex items-center justify-between">
           <span class="text-sm font-medium text-fg-secondary">My Clubs</span>
-          <NuxtLink to="/my-clubs" class="text-xs text-primary hover:underline">View all →</NuxtLink>
+          <NuxtLink to="/my-clubs" class="text-xs text-primary hover:underline"
+            >View all →</NuxtLink
+          >
         </div>
         <div v-if="!myActiveClubs.length" class="py-4 text-center text-sm text-fg-muted">
           You haven't joined a club yet.
@@ -525,20 +575,22 @@ function formatEventDate(dateStr: string): string {
           >
             <span class="text-base">🏸</span>
             <span class="flex-1 text-sm text-fg-secondary">{{ membership.club.name }}</span>
-            <span class="text-xs capitalize text-fg-muted">{{ membership.role.toLowerCase() }}</span>
+            <span class="text-xs capitalize text-fg-muted">{{
+              membership.role.toLowerCase()
+            }}</span>
           </NuxtLink>
         </div>
       </div>
 
       <!-- Badge Showcase -->
-      <div class="rounded-xl bg-surface p-5">
+      <div class="rounded-xl bg-surface p-5 shadow-card">
         <div class="mb-4 flex items-center justify-between">
           <span class="text-sm font-medium text-fg-secondary">My Badge</span>
           <button
             class="text-xs text-primary hover:underline"
             @click="badgeSelectorOpen = !badgeSelectorOpen"
           >
-            {{ badgeSelectorOpen ? 'Cancel' : (selectedBadge ? 'Change' : 'Select') }}
+            {{ badgeSelectorOpen ? 'Cancel' : selectedBadge ? 'Change' : 'Select' }}
           </button>
         </div>
 
@@ -571,9 +623,11 @@ function formatEventDate(dateStr: string): string {
             v-for="badge in badgeData?.data?.availableBadges"
             :key="badge.id"
             class="flex w-full items-center gap-3 rounded-lg p-3 transition-colors"
-            :class="badge.id === selectedBadge?.id
-              ? 'bg-primary/20 ring-1 ring-primary'
-              : 'bg-surface-2/50 hover:bg-surface-2'"
+            :class="
+              badge.id === selectedBadge?.id
+                ? 'bg-primary/20 ring-1 ring-primary'
+                : 'bg-surface-2/50 hover:bg-surface-2'
+            "
             :disabled="badgeSaving"
             @click="selectBadge(badge.id)"
           >
@@ -594,37 +648,57 @@ function formatEventDate(dateStr: string): string {
           class="flex items-center gap-3 rounded-xl bg-primary p-4 text-on-primary transition-colors hover:bg-primary-hover"
         >
           <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"
+            />
           </svg>
           <span class="text-sm font-medium">My Clubs</span>
         </NuxtLink>
 
         <NuxtLink
           to="/rankings"
-          class="flex items-center gap-3 rounded-xl bg-surface p-4 transition-colors hover:bg-surface-2"
+          class="flex items-center gap-3 rounded-xl bg-surface p-4 transition-colors hover:bg-surface-2 shadow-card hover:shadow-card-hover"
         >
           <svg class="h-5 w-5 text-fg-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.5"
+              d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
+            />
           </svg>
           <span class="text-sm font-medium text-fg-secondary">Rankings</span>
         </NuxtLink>
 
         <NuxtLink
           to="/events"
-          class="flex items-center gap-3 rounded-xl bg-surface p-4 transition-colors hover:bg-surface-2"
+          class="flex items-center gap-3 rounded-xl bg-surface p-4 transition-colors hover:bg-surface-2 shadow-card hover:shadow-card-hover"
         >
           <svg class="h-5 w-5 text-fg-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.5"
+              d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
+            />
           </svg>
           <span class="text-sm font-medium text-fg-secondary">Events</span>
         </NuxtLink>
 
         <NuxtLink
           to="/players"
-          class="flex items-center gap-3 rounded-xl bg-surface p-4 transition-colors hover:bg-surface-2"
+          class="flex items-center gap-3 rounded-xl bg-surface p-4 transition-colors hover:bg-surface-2 shadow-card hover:shadow-card-hover"
         >
           <svg class="h-5 w-5 text-fg-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="1.5"
+              d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+            />
           </svg>
           <span class="text-sm font-medium text-fg-secondary">Find Players</span>
         </NuxtLink>

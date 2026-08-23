@@ -71,10 +71,7 @@ export function createNotificationRepository(client: SupabaseClient): Notificati
     },
 
     async list(userId, query) {
-      let builder = client
-        .from('notifications')
-        .select(NOTIFICATION_COLUMNS)
-        .eq('user_id', userId)
+      let builder = client.from('notifications').select(NOTIFICATION_COLUMNS).eq('user_id', userId)
 
       if (query.unread_only) {
         builder = builder.is('read_at', null)

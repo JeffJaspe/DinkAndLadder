@@ -102,7 +102,9 @@ describe('registerWithPassword / loginWithPassword', () => {
   it('registerWithPassword surfaces the provider error message and code', async () => {
     const client = {
       auth: {
-        signUp: vi.fn().mockResolvedValue({ error: { message: 'User already registered', code: 'user_already_exists' } }),
+        signUp: vi.fn().mockResolvedValue({
+          error: { message: 'User already registered', code: 'user_already_exists' }
+        }),
         signInWithPassword: vi.fn()
       }
     }

@@ -46,7 +46,9 @@ const errorConfig = computed(() => {
       <!-- Logo -->
       <div class="mb-8">
         <NuxtLink to="/" class="inline-flex items-center gap-2">
-          <div class="flex h-12 w-12 items-center justify-center rounded-xl bg-primary text-xl font-bold text-on-primary">
+          <div
+            class="flex h-12 w-12 items-center justify-center rounded-xl bg-primary text-xl font-bold text-on-primary"
+          >
             D
           </div>
         </NuxtLink>
@@ -85,15 +87,9 @@ const errorConfig = computed(() => {
 
       <!-- Additional Links -->
       <div class="mt-6 flex justify-center gap-6 text-sm">
-        <NuxtLink to="/" class="text-fg-muted hover:text-primary">
-          Home
-        </NuxtLink>
-        <NuxtLink to="/dashboard" class="text-fg-muted hover:text-primary">
-          Dashboard
-        </NuxtLink>
-        <NuxtLink to="/clubs" class="text-fg-muted hover:text-primary">
-          Clubs
-        </NuxtLink>
+        <NuxtLink to="/" class="text-fg-muted hover:text-primary"> Home </NuxtLink>
+        <NuxtLink to="/dashboard" class="text-fg-muted hover:text-primary"> Dashboard </NuxtLink>
+        <NuxtLink to="/clubs" class="text-fg-muted hover:text-primary"> Clubs </NuxtLink>
       </div>
     </div>
   </div>

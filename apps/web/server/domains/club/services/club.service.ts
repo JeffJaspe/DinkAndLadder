@@ -26,6 +26,19 @@ export class ClubServiceError extends Error {
 
 const ADMIN_ROLES: ClubRole[] = ['OWNER', 'ADMIN']
 
+/**
+ * Who may act on a pending join request.
+ *
+ * Wider than ADMIN_ROLES by one role, and deliberately so (product decision,
+ * 2026-08-23): letting someone into the club is the one membership action with
+ * a person waiting on the other end of it, and moderators exist to absorb
+ * exactly that kind of routine queue. It stays narrow in every other direction —
+ * a MODERATOR may admit or turn away someone who asked to join, and may not
+ * change anyone's role, remove anyone, or touch a membership that is not
+ * pending. Those remain ADMIN_ROLES.
+ */
+const APPROVAL_ROLES: ClubRole[] = ['OWNER', 'ADMIN', 'MODERATOR']
+
 export interface ClubService {
   createClub(userId: string, playerId: string, input: CreateClubInput): Promise<ClubDto>
   getClub(clubId: string): Promise<ClubDto | null>
@@ -47,8 +60,10 @@ export interface ClubService {
  *  - OWNER: approve/reject requests, promote/demote MEMBER/MODERATOR/ADMIN, remove anyone but itself.
  *  - ADMIN: approve/reject requests, promote/demote between MEMBER and MODERATOR only, remove
  *           MEMBER/MODERATOR. Cannot touch OWNER or other ADMIN rows, cannot grant ADMIN.
- *  - MODERATOR: recognized as a role; carries no additional permissions in this pass — the spec
- *    doesn't define what a moderator can do beyond membership, and nothing here invents it.
+ *  - MODERATOR: approve/reject PENDING join requests, and nothing else here — no role changes,
+ *    no removals, no acting on a membership that is not pending. Also publishes announcements
+ *    (see announcement.service.ts, which already admitted the role). Granted 2026-08-23 on the
+ *    product's instruction; before that the role was recognised but carried no permissions.
  *  - MEMBER: no admin capabilities; can only leave (see leaveClub, not updateMember).
  * Admin-side removal reuses status 'left' rather than a separate 'removed' value — same terminal
  * state either way; splitting voluntary-leave from kicked is a product decision for later.
@@ -167,11 +182,27 @@ export function createClubService(
       }
 
       const acting = await getActiveMembership(clubId, actingPlayerId)
-      if (!acting || !ADMIN_ROLES.includes(acting.role)) {
+
+      /**
+       * Reviewing a join request is the one action a MODERATOR may take here.
+       * It is recognised narrowly: the target must actually be pending, and the
+       * only status changes allowed are admitting or turning them away. A
+       * request to change a role, remove a member, or reinstate someone who has
+       * already left is not a review, whatever its status field says.
+       */
+      const isJoinRequestReview =
+        target.status === 'pending' &&
+        !input.role &&
+        (input.status === 'active' || input.status === 'rejected')
+
+      const permitted = isJoinRequestReview ? APPROVAL_ROLES : ADMIN_ROLES
+      if (!acting || !permitted.includes(acting.role)) {
         throw new ClubServiceError(
           403,
           'FORBIDDEN',
-          'Only the club owner or an admin can manage members.'
+          isJoinRequestReview
+            ? 'Only the club owner, an admin or a moderator can review join requests.'
+            : 'Only the club owner or an admin can manage members.'
         )
       }
 

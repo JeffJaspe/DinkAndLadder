@@ -26,7 +26,8 @@ export default defineEventHandler(async (event) => {
     const clubs = await service.listPendingVerification(claims.sub)
     return { data: clubs, request_id: crypto.randomUUID() }
   } catch (err) {
-    if (err instanceof ClubVerificationServiceError) throw apiError(err.status, err.code, err.message)
+    if (err instanceof ClubVerificationServiceError)
+      throw apiError(err.status, err.code, err.message)
     console.error('[GET /api/v1/admin/clubs/pending-verification] failed:', err)
     throw apiError(500, 'INTERNAL_ERROR', 'Could not list pending club verifications.')
   }

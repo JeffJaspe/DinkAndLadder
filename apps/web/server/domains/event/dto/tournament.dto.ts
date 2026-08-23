@@ -1,8 +1,5 @@
 export type TournamentFormat =
-  | 'single_elimination'
-  | 'double_elimination'
-  | 'round_robin'
-  | 'pool_play'
+  'single_elimination' | 'double_elimination' | 'round_robin' | 'pool_play'
 
 export type TournamentMatchType = 'singles' | 'doubles'
 

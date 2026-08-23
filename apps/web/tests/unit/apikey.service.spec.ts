@@ -70,7 +70,10 @@ describe('ApiKeyService', () => {
       vi.mocked(repo.create).mockResolvedValue(createdKey)
 
       const service = createApiKeyService(repo)
-      const result = await service.createKey('player-1', { name: 'My API Key', permissions: ['read'] })
+      const result = await service.createKey('player-1', {
+        name: 'My API Key',
+        permissions: ['read']
+      })
 
       expect(repo.create).toHaveBeenCalledWith({
         player_id: 'player-1',
@@ -91,9 +94,7 @@ describe('ApiKeyService', () => {
       const service = createApiKeyService(repo)
       await service.createKey('player-1', { name: 'Test' })
 
-      expect(repo.create).toHaveBeenCalledWith(
-        expect.objectContaining({ permissions: ['read'] })
-      )
+      expect(repo.create).toHaveBeenCalledWith(expect.objectContaining({ permissions: ['read'] }))
     })
   })
 
@@ -115,9 +116,7 @@ describe('ApiKeyService', () => {
 
       const service = createApiKeyService(repo)
 
-      await expect(
-        service.revokeKey('player-1', 'nonexistent')
-      ).rejects.toThrow(ApiKeyServiceError)
+      await expect(service.revokeKey('player-1', 'nonexistent')).rejects.toThrow(ApiKeyServiceError)
     })
 
     it('should throw if key belongs to another player', async () => {
@@ -126,9 +125,7 @@ describe('ApiKeyService', () => {
 
       const service = createApiKeyService(repo)
 
-      await expect(
-        service.revokeKey('player-1', 'key-1')
-      ).rejects.toThrow(ApiKeyServiceError)
+      await expect(service.revokeKey('player-1', 'key-1')).rejects.toThrow(ApiKeyServiceError)
     })
   })
 

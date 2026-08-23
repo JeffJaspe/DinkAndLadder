@@ -15,20 +15,32 @@ function parsePositiveInt(value: unknown, fallback: number): number {
   return Number.isNaN(parsed) || parsed < 0 ? fallback : parsed
 }
 
+/**
+ * Public player directory.
+ *
+ * An unfiltered call is deliberately allowed: "All Provinces" with an empty
+ * search box means "show me everyone", and it used to 400 here, which is what
+ * made the page render an empty state instead of a directory. The result set
+ * is still bounded by MAX_LIMIT and the repository restricts to
+ * profile_visibility = 'public', so browsing exposes nothing a search did not.
+ */
 export default defineEventHandler(async (event) => {
   const rawQuery = getQuery(event)
 
   const query: PlayerSearchQuery = {
     q: typeof rawQuery.q === 'string' && rawQuery.q.trim() ? rawQuery.q.trim() : undefined,
-    province: typeof rawQuery.province === 'string' && rawQuery.province.trim() ? rawQuery.province.trim() : undefined,
-    city: typeof rawQuery.city === 'string' && rawQuery.city.trim() ? rawQuery.city.trim() : undefined,
-    barangay: typeof rawQuery.barangay === 'string' && rawQuery.barangay.trim() ? rawQuery.barangay.trim() : undefined,
+    province:
+      typeof rawQuery.province === 'string' && rawQuery.province.trim()
+        ? rawQuery.province.trim()
+        : undefined,
+    city:
+      typeof rawQuery.city === 'string' && rawQuery.city.trim() ? rawQuery.city.trim() : undefined,
+    barangay:
+      typeof rawQuery.barangay === 'string' && rawQuery.barangay.trim()
+        ? rawQuery.barangay.trim()
+        : undefined,
     limit: Math.min(parsePositiveInt(rawQuery.limit, DEFAULT_LIMIT), MAX_LIMIT),
     offset: parsePositiveInt(rawQuery.offset, 0)
-  }
-
-  if (!query.q && !query.province && !query.city && !query.barangay) {
-    throw apiError(400, 'VALIDATION_ERROR', 'Provide at least one of: q, province, city, or barangay.')
   }
 
   const client = await serverSupabaseClient(event)

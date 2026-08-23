@@ -11,9 +11,13 @@ export interface PlatformConfigRepository {
 
 /**
  * Single-row table — see database/liquibase/018-platform-enhancements. Deliberately
- * minimal: only what's needed to gate SuperAdmin-only actions (club verification) for
- * this pass. docs/30-SUPER-ADMIN-SPECIFICATION.md's full branding/theming/feature-flag
- * system is a separate, later backlog item, not built here.
+ * minimal: only what's needed to answer "is this user the SuperAdmin". Feature flags
+ * are their own table with their own repository; branding and theming from
+ * docs/30-SUPER-ADMIN-SPECIFICATION.md are not built yet.
+ *
+ * RLS is enabled here with zero policies, so every caller must be constructed with
+ * the service-role client — a user-scoped client sees no rows and every check
+ * silently answers "not the SuperAdmin".
  */
 export function createPlatformConfigRepository(client: SupabaseClient): PlatformConfigRepository {
   return {

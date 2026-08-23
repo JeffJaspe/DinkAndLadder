@@ -20,7 +20,11 @@ export default defineEventHandler(async (event) => {
   const client = await serverSupabaseClient(event)
   const profile = await createPlayerProfileRepository(client).findByUserId(claims.sub)
   if (!profile) {
-    throw apiError(404, 'NOT_FOUND', 'No player profile yet — save one with PATCH /api/v1/players/me.')
+    throw apiError(
+      404,
+      'NOT_FOUND',
+      'No player profile yet — save one with PATCH /api/v1/players/me.'
+    )
   }
 
   const service = createRatingService(createRatingRepository(client))

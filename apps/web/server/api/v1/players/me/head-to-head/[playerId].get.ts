@@ -61,11 +61,20 @@ export default defineEventHandler(async (event) => {
     .eq('player_id', opponentPlayerId)
 
   if (!myParticipations || !opponentParticipations) {
-    return { data: { opponent: { id: opponentPlayerId, display_name: opponentProfile.display_name }, total_matches: 0, wins: 0, losses: 0, draws: 0, matches: [] } }
+    return {
+      data: {
+        opponent: { id: opponentPlayerId, display_name: opponentProfile.display_name },
+        total_matches: 0,
+        wins: 0,
+        losses: 0,
+        draws: 0,
+        matches: []
+      }
+    }
   }
 
   // Find common matches
-  const myMatchMap = new Map(myParticipations.map(p => [p.match_id, p.team_number]))
+  const myMatchMap = new Map(myParticipations.map((p) => [p.match_id, p.team_number]))
   const commonMatchIds: string[] = []
   const opponentTeamByMatch = new Map<string, number>()
 
@@ -77,7 +86,16 @@ export default defineEventHandler(async (event) => {
   }
 
   if (commonMatchIds.length === 0) {
-    return { data: { opponent: { id: opponentPlayerId, display_name: opponentProfile.display_name }, total_matches: 0, wins: 0, losses: 0, draws: 0, matches: [] } }
+    return {
+      data: {
+        opponent: { id: opponentPlayerId, display_name: opponentProfile.display_name },
+        total_matches: 0,
+        wins: 0,
+        losses: 0,
+        draws: 0,
+        matches: []
+      }
+    }
   }
 
   // Get match details
@@ -89,22 +107,39 @@ export default defineEventHandler(async (event) => {
     .order('played_at', { ascending: false })
 
   if (!matchDetails || matchDetails.length === 0) {
-    return { data: { opponent: { id: opponentPlayerId, display_name: opponentProfile.display_name }, total_matches: 0, wins: 0, losses: 0, draws: 0, matches: [] } }
+    return {
+      data: {
+        opponent: { id: opponentPlayerId, display_name: opponentProfile.display_name },
+        total_matches: 0,
+        wins: 0,
+        losses: 0,
+        draws: 0,
+        matches: []
+      }
+    }
   }
 
   // Get scores for all matches
   const { data: allScores } = await client
     .from('match_scores')
     .select('match_id, set_number, team1_score, team2_score')
-    .in('match_id', matchDetails.map(m => m.id))
+    .in(
+      'match_id',
+      matchDetails.map((m) => m.id)
+    )
     .order('set_number', { ascending: true })
 
-  const scoresByMatch = new Map<string, Array<{ set_number: number; team1_score: number; team2_score: number }>>()
+  const scoresByMatch = new Map<
+    string,
+    Array<{ set_number: number; team1_score: number; team2_score: number }>
+  >()
   for (const s of allScores ?? []) {
     if (!scoresByMatch.has(s.match_id)) {
       scoresByMatch.set(s.match_id, [])
     }
-    scoresByMatch.get(s.match_id)!.push({ set_number: s.set_number, team1_score: s.team1_score, team2_score: s.team2_score })
+    scoresByMatch
+      .get(s.match_id)!
+      .push({ set_number: s.set_number, team1_score: s.team1_score, team2_score: s.team2_score })
   }
 
   // Calculate results

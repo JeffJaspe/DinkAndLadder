@@ -162,7 +162,11 @@ describe('TournamentCategoryService', () => {
   })
 
   function createService() {
-    return createTournamentCategoryService(categoryRepository, tournamentRepository, eventRepository)
+    return createTournamentCategoryService(
+      categoryRepository,
+      tournamentRepository,
+      eventRepository
+    )
   }
 
   /**
@@ -252,7 +256,7 @@ describe('TournamentCategoryService', () => {
     const result = await service.listTemplates()
     expect(result.map((t) => t.name)).toEqual(['Novice', 'Open'])
   })
-describe('updateCategory', () => {
+  describe('updateCategory', () => {
     it('renames a category for the organizer', async () => {
       const service = createService()
       const cat = await service.createCustom('player-organizer', 'tournament-1', { name: 'Old' })
@@ -271,7 +275,9 @@ describe('updateCategory', () => {
       const cat = await service.createCustom('player-organizer', 'tournament-1', { name: 'Open' })
 
       await expect(
-        createServiceWithRegistrations(0, cat.id).updateCategory('intruder', cat.id, { name: 'Mine' })
+        createServiceWithRegistrations(0, cat.id).updateCategory('intruder', cat.id, {
+          name: 'Mine'
+        })
       ).rejects.toThrow(/Only the event organizer/)
     })
 

@@ -33,7 +33,10 @@ const SIZES = {
 const initials = computed(() => {
   const parts = (props.name ?? '').trim().split(/\s+/).filter(Boolean)
   if (!parts.length) return '?'
-  return parts.slice(0, 2).map((p) => p[0]!.toUpperCase()).join('')
+  return parts
+    .slice(0, 2)
+    .map((p) => p[0]!.toUpperCase())
+    .join('')
 })
 
 /**
@@ -85,7 +88,7 @@ const showImage = computed(() => Boolean(props.src) && !failed.value)
       class="h-full w-full object-cover"
       loading="lazy"
       @error="failed = true"
-    >
+    />
     <!-- aria-hidden: the name is always rendered as text next to the avatar in
          every place this is used, so announcing initials would just be noise. -->
     <span v-else aria-hidden="true">{{ initials }}</span>

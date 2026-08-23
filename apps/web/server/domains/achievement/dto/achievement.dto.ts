@@ -33,7 +33,9 @@ export interface AchievementDefinitionDto {
   points: number
 }
 
-export function toAchievementDefinitionDto(record: AchievementDefinitionRecord): AchievementDefinitionDto {
+export function toAchievementDefinitionDto(
+  record: AchievementDefinitionRecord
+): AchievementDefinitionDto {
   return {
     id: record.id,
     key: record.key,

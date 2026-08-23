@@ -39,8 +39,16 @@ describe('UiIcon', () => {
   })
 
   it('draws a real circle for glyphs that need one', () => {
-    expect(mount(UiIcon, { props: { name: 'sun' } }).find('circle').exists()).toBe(true)
-    expect(mount(UiIcon, { props: { name: 'moon' } }).find('circle').exists()).toBe(false)
+    expect(
+      mount(UiIcon, { props: { name: 'sun' } })
+        .find('circle')
+        .exists()
+    ).toBe(true)
+    expect(
+      mount(UiIcon, { props: { name: 'moon' } })
+        .find('circle')
+        .exists()
+    ).toBe(false)
   })
 })
 
@@ -68,7 +76,9 @@ describe('UiButton', () => {
   it('styles danger as an outline, not a solid fill', () => {
     // Disputing a match is legitimate but must not be the easiest-looking
     // action on the page.
-    const cls = mount(UiButton, { props: { variant: 'danger' }, global }).classes().join(' ')
+    const cls = mount(UiButton, { props: { variant: 'danger' }, global })
+      .classes()
+      .join(' ')
     expect(cls).toContain('border-danger')
     // A hover wash is fine; a solid resting fill is what must not be there.
     expect(cls).not.toMatch(/(^|\s)bg-danger(\s|$)/)
@@ -87,8 +97,12 @@ describe('UiAvatar', () => {
   })
 
   it('gives the same name the same tint every time', () => {
-    const a = mount(UiAvatar, { props: { name: 'Maria Santos' } }).classes().join(' ')
-    const b = mount(UiAvatar, { props: { name: 'Maria Santos' } }).classes().join(' ')
+    const a = mount(UiAvatar, { props: { name: 'Maria Santos' } })
+      .classes()
+      .join(' ')
+    const b = mount(UiAvatar, { props: { name: 'Maria Santos' } })
+      .classes()
+      .join(' ')
     expect(a).toBe(b)
   })
 
@@ -118,7 +132,9 @@ describe('UiRatingBadge', () => {
   })
 
   it('flags a provisional rating', () => {
-    expect(mount(UiRatingBadge, { props: { rating: 3.2, provisional: true } }).text()).toContain('provisional')
+    expect(mount(UiRatingBadge, { props: { rating: 3.2, provisional: true } }).text()).toContain(
+      'provisional'
+    )
   })
 })
 

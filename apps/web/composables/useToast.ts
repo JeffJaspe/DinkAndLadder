@@ -61,6 +61,8 @@ export function useToast() {
     success: (message: string, timeout?: number) => push('success', message, timeout),
     error: (message: string, timeout?: number) => push('error', message, timeout),
     info: (message: string, timeout?: number) => push('info', message, timeout),
-    clear: () => { toasts.value = [] }
+    clear: () => {
+      toasts.value = []
+    }
   }
 }

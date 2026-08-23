@@ -4,10 +4,7 @@ import type { EventQueueRecord, QueueStatus } from '../dto/event.dto'
 export interface EventQueueRepository {
   findById(id: string): Promise<EventQueueRecord | null>
   findByEventAndPlayer(eventId: string, playerId: string): Promise<EventQueueRecord | null>
-  findWaiting(
-    eventId: string,
-    matchType?: 'singles' | 'doubles'
-  ): Promise<EventQueueRecord[]>
+  findWaiting(eventId: string, matchType?: 'singles' | 'doubles'): Promise<EventQueueRecord[]>
   findByEvent(eventId: string): Promise<EventQueueRecord[]>
   create(data: {
     event_id: string
@@ -25,16 +22,10 @@ export interface EventQueueRepository {
   leave(id: string): Promise<void>
 }
 
-export function createEventQueueRepository(
-  client: SupabaseClient
-): EventQueueRepository {
+export function createEventQueueRepository(client: SupabaseClient): EventQueueRepository {
   return {
     async findById(id) {
-      const { data, error } = await client
-        .from('event_queue')
-        .select('*')
-        .eq('id', id)
-        .single()
+      const { data, error } = await client.from('event_queue').select('*').eq('id', id).single()
 
       if (error && error.code !== 'PGRST116') {
         throw new Error(`Failed to find queue entry: ${error.message}`)
@@ -160,10 +151,7 @@ export function createEventQueueRepository(
     },
 
     async leave(id) {
-      const { error } = await client
-        .from('event_queue')
-        .update({ status: 'left' })
-        .eq('id', id)
+      const { error } = await client.from('event_queue').update({ status: 'left' }).eq('id', id)
 
       if (error) {
         throw new Error(`Failed to leave queue: ${error.message}`)

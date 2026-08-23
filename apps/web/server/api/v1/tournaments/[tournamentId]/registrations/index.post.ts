@@ -1,10 +1,17 @@
-import { serverSupabaseClient, serverSupabaseServiceRole, serverSupabaseUser } from '#supabase/server'
+import {
+  serverSupabaseClient,
+  serverSupabaseServiceRole,
+  serverSupabaseUser
+} from '#supabase/server'
 import { createEventRepository } from '~/server/domains/event/repositories/event.repository'
 import {
   createTournamentRepository,
   createTournamentRegistrationRepository
 } from '~/server/domains/event/repositories/tournament.repository'
-import { createEventService, EventServiceError } from '~/server/domains/event/services/event.service'
+import {
+  createEventService,
+  EventServiceError
+} from '~/server/domains/event/services/event.service'
 import type { RegisterForTournamentInput } from '~/server/domains/event/dto/tournament.dto'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
 import { createTournamentCategoryRepository } from '~/server/domains/event/repositories/tournament-category.repository'
@@ -48,12 +55,17 @@ export default defineEventHandler(async (event) => {
       const categoryRepo = createTournamentCategoryRepository(serviceClient)
       const category = await categoryRepo.findById(categoryId)
       if (!category || category.tournament_id !== tournamentId) {
-        throw createError({ statusCode: 404, statusMessage: 'Category not found for this tournament.' })
+        throw createError({
+          statusCode: 404,
+          statusMessage: 'Category not found for this tournament.'
+        })
       }
       if (category.min_rating != null || category.max_rating != null) {
         const tournament = await tournamentRepo.findById(tournamentId)
         const ratingService = createRatingService(createRatingRepository(serviceClient))
-        const rating = tournament ? await ratingService.getRating(profile.id, tournament.match_type) : null
+        const rating = tournament
+          ? await ratingService.getRating(profile.id, tournament.match_type)
+          : null
         const ratingValue = rating?.rating_value ?? null
         if (ratingValue == null) {
           throw createError({

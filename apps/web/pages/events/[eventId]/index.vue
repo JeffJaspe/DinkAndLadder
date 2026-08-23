@@ -1,7 +1,15 @@
 <script setup lang="ts">
-import type { EventDto, EventQueueDto, EventRegistrationDto } from '~/server/domains/event/dto/event.dto'
+import type {
+  EventDto,
+  EventQueueDto,
+  EventRegistrationDto
+} from '~/server/domains/event/dto/event.dto'
 import type { TournamentDto } from '~/server/domains/event/dto/tournament.dto'
-import type { MatchListItemDto, MatchListParticipantDto } from '~/server/domains/match/dto/match-join-row.dto'
+import type {
+  MatchListItemDto,
+  MatchListParticipantDto
+} from '~/server/domains/match/dto/match-join-row.dto'
+import type { PartnerDto } from '~/server/domains/partnership/dto/partnership.dto'
 import type { PlayerProfileDto } from '~/server/domains/player/dto/player-profile.dto'
 
 interface TournamentsResponse {
@@ -11,8 +19,17 @@ interface TournamentsResponse {
 const route = useRoute()
 const eventId = route.params.eventId as string
 const user = useSupabaseUser()
+const { isClubMode } = useAccountMode()
 
-const activeTab = ref<'info' | 'matches' | 'players' | 'rankings' | 'queue'>('info')
+/**
+ * Players, not Info.
+ *
+ * Info opened by default while carrying almost nothing — it rendered only a
+ * Tournaments card, a Record Match link or a queue blurb, each behind its own
+ * condition, so a plain published event opened on a blank panel. Who is playing
+ * is what people come to a public event page to see.
+ */
+const activeTab = ref<'info' | 'matches' | 'players' | 'rankings' | 'queue'>('players')
 
 interface EventRankingEntry {
   rank: number
@@ -23,51 +40,88 @@ interface EventRankingEntry {
   losses: number
 }
 
-const { data: event, pending: eventPending, error: eventError, refresh: refreshEvent } = await useFetch<EventDto>(
-  `/api/v1/events/${eventId}`
-)
+const {
+  data: event,
+  pending: eventPending,
+  error: eventError,
+  refresh: refreshEvent
+} = await useFetch<EventDto>(`/api/v1/events/${eventId}`)
 
 const { data: myProfile } = await useFetch<PlayerProfileDto>('/api/v1/players/me')
 
-const { data: tournamentsData, pending: tournamentsPending, error: tournamentsError } = await useFetch<TournamentsResponse>(
-  `/api/v1/events/${eventId}/tournaments`
-)
+const {
+  data: tournamentsData,
+  pending: tournamentsPending,
+  error: tournamentsError
+} = await useFetch<TournamentsResponse>(`/api/v1/events/${eventId}/tournaments`)
 
-const { data: registrationsData, pending: registrationsPending, refresh: refreshRegistrations } = await useFetch<{ data: EventRegistrationDto[] }>(
-  `/api/v1/events/${eventId}/registrations`
-)
+const {
+  data: registrationsData,
+  pending: registrationsPending,
+  refresh: refreshRegistrations
+} = await useFetch<{ data: EventRegistrationDto[] }>(`/api/v1/events/${eventId}/registrations`)
 
 const { data: matchesData, pending: matchesPending } = await useFetch<{ data: MatchListItemDto[] }>(
   `/api/v1/events/${eventId}/matches`
 )
 
-const { data: rankingsData, pending: rankingsPending } = await useFetch<{ data: EventRankingEntry[] }>(
-  `/api/v1/events/${eventId}/rankings`
-)
+const { data: rankingsData, pending: rankingsPending } = await useFetch<{
+  data: EventRankingEntry[]
+}>(`/api/v1/events/${eventId}/rankings`)
 
-const { data: queueData, pending: queuePending, refresh: refreshQueue } = await useFetch<{ data: EventQueueDto[] }>(
-  `/api/v1/events/${eventId}/queue`
-)
+const {
+  data: queueData,
+  pending: queuePending,
+  refresh: refreshQueue
+} = await useFetch<{ data: EventQueueDto[] }>(`/api/v1/events/${eventId}/queue`)
 
 const myRegistration = computed(() => {
   if (!myProfile.value || !registrationsData.value?.data) return null
-  return registrationsData.value.data.find(r =>
-    r.player_id === myProfile.value!.id && r.status !== 'withdrawn'
+  return registrationsData.value.data.find(
+    (r) => r.player_id === myProfile.value!.id && r.status !== 'withdrawn'
   )
 })
 
 const isRegistered = computed(() => !!myRegistration.value)
+
+/** Ownership only. Almost nothing should branch on this directly — see below. */
 const isOrganizer = computed(
-  () => !!myProfile.value && !!event.value && event.value.created_by_player_id === myProfile.value.id
+  () =>
+    !!myProfile.value && !!event.value && event.value.created_by_player_id === myProfile.value.id
 )
+
+/**
+ * The gate every organiser control hangs off.
+ *
+ * Ownership alone is not enough: running an event is club-mode work. In player
+ * mode the owner sees exactly what any other player sees — register, the player
+ * list, the bracket, the matches — and no way to publish, edit, delete, add a
+ * tournament, or drive the queue. That is why the participant branches below
+ * test `!canManageEvent` rather than `!isOrganizer`: an owner in player mode is,
+ * for every purpose on this screen, a participant.
+ */
+const canManageEvent = computed(() => isOrganizer.value && isClubMode.value)
+
+/**
+ * A draft is unpublished club work, so it has no place in the player-mode UI.
+ * The organiser is not locked out — switching to club mode reveals it — and no
+ * other viewer could load a draft anyway, since `events_select_public` filters
+ * them out server-side. This only stops an owner's own draft from appearing
+ * while they are wearing the player hat.
+ */
+const draftHiddenFromPlayer = computed(() => event.value?.status === 'draft' && !isClubMode.value)
 
 const myQueueEntry = computed(() => {
   if (!myProfile.value || !queueData.value?.data) return null
-  return queueData.value.data.find(q => q.player_id === myProfile.value!.id) ?? null
+  return queueData.value.data.find((q) => q.player_id === myProfile.value!.id) ?? null
 })
 
-const waitingEntries = computed(() => queueData.value?.data.filter(q => q.status === 'waiting') ?? [])
-const activeEntries = computed(() => queueData.value?.data.filter(q => q.status !== 'waiting') ?? [])
+const waitingEntries = computed(
+  () => queueData.value?.data.filter((q) => q.status === 'waiting') ?? []
+)
+const activeEntries = computed(
+  () => queueData.value?.data.filter((q) => q.status !== 'waiting') ?? []
+)
 
 const joinMatchType = ref<'singles' | 'doubles'>('singles')
 const joinPartnerId = ref('')
@@ -78,9 +132,44 @@ const queueError = ref('')
 const availablePartners = computed(() => {
   if (!registrationsData.value?.data) return []
   return registrationsData.value.data.filter(
-    r => r.status !== 'withdrawn' && r.player_id !== myProfile.value?.id
+    (r) => r.status !== 'withdrawn' && r.player_id !== myProfile.value?.id
   )
 })
+
+/**
+ * The reader's default duo, used only to pre-select the partner field below.
+ *
+ * server: false because this is a signed-in-only preference that has no
+ * bearing on the public render of the page.
+ */
+const { data: myPartnersData } = await useFetch<{ data: PartnerDto[] }>(
+  '/api/v1/players/me/partners',
+  { server: false, default: () => ({ data: [] }) }
+)
+
+const defaultPartnerId = computed(
+  () => myPartnersData.value?.data.find((partner) => partner.is_default)?.player_id ?? null
+)
+
+/**
+ * Pre-select the duo, but only if they are actually registered for this event —
+ * a partner who is not on the list cannot be queued with, and pre-filling a
+ * name the server will reject is worse than leaving the field empty.
+ *
+ * Only ever fills a blank field: once the reader picks someone, that choice
+ * stands even if the partner list reloads underneath them.
+ */
+watch(
+  [joinMatchType, defaultPartnerId, availablePartners],
+  () => {
+    if (joinMatchType.value !== 'doubles' || joinPartnerId.value) return
+    const duo = defaultPartnerId.value
+    if (duo && availablePartners.value.some((r) => r.player_id === duo)) {
+      joinPartnerId.value = duo
+    }
+  },
+  { immediate: true }
+)
 
 async function handleJoinQueue() {
   queueError.value = ''
@@ -229,7 +318,11 @@ function formatDateRange(start: string, end: string): string {
   const startDate = new Date(start)
   const endDate = new Date(end)
   const startStr = startDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-  const endStr = endDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+  const endStr = endDate.toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric'
+  })
   if (startStr === endStr.replace(/, \d{4}$/, '')) {
     return endStr
   }
@@ -237,7 +330,53 @@ function formatDateRange(start: string, end: string): string {
 }
 
 function formatScore(scores: { team1_score: number; team2_score: number }[]): string {
-  return scores.map(s => `${s.team1_score}-${s.team2_score}`).join(', ')
+  return scores.map((s) => `${s.team1_score}-${s.team2_score}`).join(', ')
+}
+
+/**
+ * Inline description editing.
+ *
+ * PATCH /api/v1/events/:id has accepted `description` since the event domain
+ * landed, but nothing in the UI ever called it, so whatever was typed at
+ * creation was final. Gated on canManageEvent, not isOrganizer: editing an
+ * event is club-mode work, same as publishing and deleting.
+ */
+const editingDescription = ref(false)
+const descriptionDraft = ref('')
+const savingDescription = ref(false)
+const descriptionError = ref('')
+const toast = useToast()
+
+function startEditDescription() {
+  descriptionDraft.value = event.value?.description ?? ''
+  descriptionError.value = ''
+  editingDescription.value = true
+}
+
+function cancelEditDescription() {
+  editingDescription.value = false
+  descriptionError.value = ''
+}
+
+async function saveDescription() {
+  savingDescription.value = true
+  descriptionError.value = ''
+  try {
+    const trimmed = descriptionDraft.value.trim()
+    await $fetch(`/api/v1/events/${eventId}`, {
+      method: 'PATCH',
+      // Empty clears the field rather than storing an empty string, so the
+      // "no description yet" branch renders instead of a blank paragraph.
+      body: { description: trimmed || null }
+    })
+    await refreshEvent()
+    editingDescription.value = false
+    toast.success('Event details updated.')
+  } catch (err) {
+    descriptionError.value = apiErrorMessage(err, 'Could not save the event details.')
+  } finally {
+    savingDescription.value = false
+  }
 }
 
 const publishing = ref(false)
@@ -261,7 +400,11 @@ async function handlePublishEvent() {
 const deleting = ref(false)
 
 async function handleDeleteEvent() {
-  if (!confirm('Delete this draft event? Its tournaments and categories go with it. This cannot be undone.')) {
+  if (
+    !confirm(
+      'Delete this draft event? Its tournaments and categories go with it. This cannot be undone.'
+    )
+  ) {
     return
   }
   deleting.value = true
@@ -304,21 +447,42 @@ const placesRemaining = computed(() => {
         </NuxtLink>
       </div>
 
+      <!-- A draft reached in player mode. Not an error and not a permission
+           failure — the viewer may well own it — so it says what the state is
+           and how to get to it, rather than pretending the event is missing. -->
+      <div
+        v-else-if="draftHiddenFromPlayer"
+        class="rounded-xl bg-surface p-8 text-center shadow-card"
+      >
+        <h1 class="text-lg font-semibold text-fg">This event is still a draft</h1>
+        <p class="mx-auto mt-2 max-w-md text-sm text-fg-muted">
+          Drafts live in club mode. Switch to the club that owns this event to finish setting it up
+          and make it visible to players.
+        </p>
+        <NuxtLink to="/events" class="mt-4 inline-block text-sm text-primary hover:underline">
+          Back to events
+        </NuxtLink>
+      </div>
+
       <template v-else-if="event">
         <!-- Event Header -->
-        <div class="mb-6 rounded-xl bg-surface p-6">
+        <div class="mb-6 rounded-xl bg-surface p-6 shadow-card">
           <div class="flex items-start justify-between gap-4">
             <div class="flex-1">
               <div class="flex flex-wrap items-center gap-2">
                 <h1 class="text-2xl font-bold text-fg">{{ event.name }}</h1>
                 <span
                   class="rounded-md px-2 py-0.5 text-xs font-medium"
-                  :class="event.affects_rating ? 'bg-accent/20 text-accent' : 'bg-surface-3 text-fg-muted'"
+                  :class="
+                    event.affects_rating ? 'bg-accent/20 text-accent' : 'bg-surface-3 text-fg-muted'
+                  "
                 >
                   {{ event.affects_rating ? 'Ranked' : 'Casual' }}
                 </span>
               </div>
-              <p class="mt-1 text-sm text-primary">{{ eventTypeLabels[event.event_type] || event.event_type }}</p>
+              <p class="mt-1 text-sm text-primary">
+                {{ eventTypeLabels[event.event_type] || event.event_type }}
+              </p>
               <p class="mt-2 text-fg-muted">
                 {{ formatDateRange(event.start_date, event.end_date) }}
               </p>
@@ -331,7 +495,7 @@ const placesRemaining = computed(() => {
               <div v-if="event.max_participants" class="text-sm text-fg-muted">
                 {{ registeredCount }} / {{ event.max_participants }} players
                 <span v-if="placesRemaining" class="ml-1 text-accent">
-                  — {{ placesRemaining }} more needed
+                  — {{ placesRemaining }} {{ placesRemaining === 1 ? 'slot' : 'slots' }} left
                 </span>
                 <span v-else-if="placesRemaining === 0" class="ml-1 text-primary">— full</span>
               </div>
@@ -346,7 +510,7 @@ const placesRemaining = computed(() => {
 
               <!-- Publish Button for Draft Events -->
               <button
-                v-if="isOrganizer && event.status === 'draft'"
+                v-if="canManageEvent && event.status === 'draft'"
                 :disabled="publishing"
                 class="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-on-primary hover:bg-primary-hover disabled:opacity-50"
                 @click="handlePublishEvent"
@@ -357,7 +521,7 @@ const placesRemaining = computed(() => {
               <!-- Draft only. A published event is cancelled, never deleted, so
                    the record and anyone's plans around it survive. -->
               <button
-                v-if="isOrganizer && event.status === 'draft'"
+                v-if="canManageEvent && event.status === 'draft'"
                 :disabled="deleting"
                 class="rounded-lg border border-red-500/40 px-4 py-2 text-sm font-medium text-red-400 hover:bg-red-500/10 disabled:opacity-50"
                 @click="handleDeleteEvent"
@@ -398,9 +562,6 @@ const placesRemaining = computed(() => {
               </template>
             </div>
           </div>
-          <p v-if="event.description" class="mt-4 text-fg-secondary">
-            {{ event.description }}
-          </p>
         </div>
 
         <!-- Tabs -->
@@ -409,13 +570,18 @@ const placesRemaining = computed(() => {
             v-for="tab in ['info', 'matches', 'players', 'rankings', 'queue'] as const"
             :key="tab"
             class="flex-1 rounded-md px-4 py-2 text-sm font-medium capitalize transition-colors"
-            :class="activeTab === tab
-              ? 'bg-primary text-on-primary'
-              : 'text-fg-muted hover:bg-surface-2 hover:text-on-primary'"
+            :class="
+              activeTab === tab
+                ? 'bg-primary text-on-primary'
+                : 'text-fg-muted hover:bg-surface-2 hover:text-on-primary'
+            "
             @click="activeTab = tab"
           >
             {{ tab }}
-            <span v-if="tab === 'players' && registrationsData?.data" class="ml-1 text-xs opacity-75">
+            <span
+              v-if="tab === 'players' && registrationsData?.data"
+              class="ml-1 text-xs opacity-75"
+            >
               ({{ registrationsData.data.length }})
             </span>
             <span v-if="tab === 'matches' && matchesData?.data" class="ml-1 text-xs opacity-75">
@@ -426,17 +592,143 @@ const placesRemaining = computed(() => {
 
         <!-- Tab Content: Info -->
         <div v-if="activeTab === 'info'" class="space-y-4">
+          <!-- About. The description was previously a paragraph in the page
+               header and was never editable; it is the substance of the Info
+               tab, so it lives here and organisers can change it in place. -->
+          <div class="rounded-xl bg-surface p-6 shadow-card">
+            <div class="mb-3 flex items-center justify-between gap-3">
+              <h2 class="text-lg font-semibold text-fg">About this event</h2>
+              <button
+                v-if="canManageEvent && !editingDescription"
+                type="button"
+                class="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-fg-secondary transition-colors hover:bg-surface-2 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                @click="startEditDescription"
+              >
+                <UiIcon name="edit" size="h-4 w-4" />
+                Edit
+              </button>
+            </div>
+
+            <div v-if="editingDescription" class="space-y-3">
+              <textarea
+                v-model="descriptionDraft"
+                rows="5"
+                maxlength="2000"
+                placeholder="What should players know about this event? Format, skill level, what to bring…"
+                class="w-full rounded-lg border border-border-strong bg-canvas px-3 py-2 text-fg placeholder-fg-muted focus:border-primary focus:outline-none"
+              />
+              <p v-if="descriptionError" class="text-sm text-red-400">{{ descriptionError }}</p>
+              <div class="flex items-center gap-2">
+                <button
+                  type="button"
+                  :disabled="savingDescription"
+                  class="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-on-primary hover:bg-primary-hover disabled:opacity-50"
+                  @click="saveDescription"
+                >
+                  {{ savingDescription ? 'Saving…' : 'Save' }}
+                </button>
+                <button
+                  type="button"
+                  :disabled="savingDescription"
+                  class="rounded-lg px-4 py-2 text-sm font-medium text-fg-secondary hover:bg-surface-2 disabled:opacity-50"
+                  @click="cancelEditDescription"
+                >
+                  Cancel
+                </button>
+                <span class="ml-auto text-xs text-fg-muted">
+                  {{ descriptionDraft.length }} / 2000
+                </span>
+              </div>
+            </div>
+
+            <template v-else>
+              <p v-if="event.description" class="whitespace-pre-line text-fg-secondary">
+                {{ event.description }}
+              </p>
+              <p v-else class="text-sm text-fg-muted">
+                {{
+                  canManageEvent
+                    ? 'No description yet. Add one so players know what to expect.'
+                    : 'The organiser has not added a description for this event.'
+                }}
+              </p>
+            </template>
+
+            <!-- The same facts as the header, laid out as a definition list.
+                 The header is a summary strip; this is where someone deciding
+                 whether to turn up actually reads them. -->
+            <dl class="mt-6 grid gap-x-6 gap-y-3 border-t border-border pt-4 sm:grid-cols-2">
+              <div>
+                <dt class="text-xs uppercase tracking-wide text-fg-muted">When</dt>
+                <dd class="mt-0.5 text-sm text-fg">
+                  {{ formatDateRange(event.start_date, event.end_date) }}
+                </dd>
+              </div>
+              <div>
+                <dt class="text-xs uppercase tracking-wide text-fg-muted">Where</dt>
+                <dd class="mt-0.5 text-sm text-fg">
+                  {{
+                    [event.venue, event.city, event.province].filter(Boolean).join(', ') ||
+                    'Venue not set'
+                  }}
+                </dd>
+              </div>
+              <div>
+                <dt class="text-xs uppercase tracking-wide text-fg-muted">Format</dt>
+                <dd class="mt-0.5 text-sm text-fg">
+                  {{ eventTypeLabels[event.event_type] || event.event_type }}
+                  <span class="text-fg-muted">
+                    · {{ event.affects_rating ? 'Ranked' : 'Casual' }}
+                  </span>
+                </dd>
+              </div>
+              <div>
+                <dt class="text-xs uppercase tracking-wide text-fg-muted">Entry fee</dt>
+                <dd class="mt-0.5 text-sm text-fg">
+                  <template v-if="event.fee_amount">
+                    {{ event.fee_currency || 'PHP' }} {{ event.fee_amount }}
+                  </template>
+                  <template v-else>Free</template>
+                </dd>
+              </div>
+              <div>
+                <dt class="text-xs uppercase tracking-wide text-fg-muted">Players</dt>
+                <dd class="mt-0.5 text-sm text-fg">
+                  {{ registeredCount }}
+                  <template v-if="event.max_participants">
+                    / {{ event.max_participants }} registered
+                  </template>
+                  <template v-else>registered</template>
+                </dd>
+              </div>
+              <div v-if="event.registration_closes">
+                <dt class="text-xs uppercase tracking-wide text-fg-muted">Registration closes</dt>
+                <dd class="mt-0.5 text-sm text-fg">
+                  {{ formatDateRange(event.registration_closes, event.registration_closes) }}
+                </dd>
+              </div>
+            </dl>
+          </div>
+
           <!-- Tournaments (for tournament type) -->
-          <div v-if="event.event_type === 'tournament'" class="rounded-xl bg-surface p-6">
+          <div
+            v-if="event.event_type === 'tournament'"
+            class="rounded-xl bg-surface p-6 shadow-card"
+          >
             <div class="mb-4 flex items-center justify-between">
               <h2 class="text-lg font-semibold text-fg">Tournaments</h2>
               <NuxtLink
-                v-if="isOrganizer"
+                v-if="canManageEvent"
                 :to="`/events/${eventId}/create-tournament`"
                 class="inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-on-primary hover:bg-primary-hover"
               >
                 <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M12 4v16m8-8H4"
+                  />
                 </svg>
                 Add Tournament
               </NuxtLink>
@@ -469,7 +761,11 @@ const placesRemaining = computed(() => {
                   </div>
                   <span
                     class="rounded-md px-2 py-0.5 text-xs font-medium capitalize"
-                    :class="statusConfig[tournament.status]?.bg + ' ' + statusConfig[tournament.status]?.text"
+                    :class="
+                      statusConfig[tournament.status]?.bg +
+                      ' ' +
+                      statusConfig[tournament.status]?.text
+                    "
                   >
                     {{ tournament.status }}
                   </span>
@@ -479,7 +775,10 @@ const placesRemaining = computed(() => {
           </div>
 
           <!-- Submit Match Button (for non-tournament types) -->
-          <div v-if="event.event_type !== 'tournament' && isRegistered && event.status === 'active'" class="rounded-xl bg-surface p-6">
+          <div
+            v-if="event.event_type !== 'tournament' && isRegistered && event.status === 'active'"
+            class="rounded-xl bg-surface p-6 shadow-card"
+          >
             <NuxtLink
               :to="`/matches/submit?event=${eventId}`"
               class="block w-full rounded-lg bg-primary py-3 text-center font-medium text-on-primary hover:bg-primary-hover"
@@ -489,11 +788,11 @@ const placesRemaining = computed(() => {
           </div>
 
           <!-- Queue Settings Info -->
-          <div v-if="event.queue_enabled" class="rounded-xl bg-surface p-6">
+          <div v-if="event.queue_enabled" class="rounded-xl bg-surface p-6 shadow-card">
             <h2 class="mb-3 text-lg font-semibold text-fg">Queue System</h2>
             <p class="text-fg-secondary">
-              This event has matchmaking queue enabled with {{ event.queue_courts }} court(s).
-              Mode: <span class="capitalize">{{ event.queue_mode.replace('_', ' ') }}</span>
+              This event has matchmaking queue enabled with {{ event.queue_courts }} court(s). Mode:
+              <span class="capitalize">{{ event.queue_mode.replace('_', ' ') }}</span>
             </p>
             <p class="mt-2 text-sm text-fg-muted">
               Auto-matching coming soon. Currently, the organizer assigns matches manually.
@@ -502,7 +801,7 @@ const placesRemaining = computed(() => {
         </div>
 
         <!-- Tab Content: Matches -->
-        <div v-if="activeTab === 'matches'" class="rounded-xl bg-surface p-6">
+        <div v-if="activeTab === 'matches'" class="rounded-xl bg-surface p-6 shadow-card">
           <div v-if="matchesPending" class="space-y-3">
             <div v-for="i in 5" :key="i" class="h-16 animate-pulse rounded-lg bg-canvas" />
           </div>
@@ -522,17 +821,29 @@ const placesRemaining = computed(() => {
                     <span class="text-sm capitalize text-fg-muted">{{ match.match_type }}</span>
                     <span
                       class="rounded px-2 py-0.5 text-xs"
-                      :class="statusConfig[match.status]?.bg + ' ' + statusConfig[match.status]?.text"
+                      :class="
+                        statusConfig[match.status]?.bg + ' ' + statusConfig[match.status]?.text
+                      "
                     >
                       {{ match.status }}
                     </span>
                   </div>
                   <div class="mt-1 text-fg">
-                    <span v-for="(p, i) in match.participants.filter((pp: MatchListParticipantDto) => pp.team_number === 1)" :key="p.player_id">
+                    <span
+                      v-for="(p, i) in match.participants.filter(
+                        (pp: MatchListParticipantDto) => pp.team_number === 1
+                      )"
+                      :key="p.player_id"
+                    >
                       {{ Number(i) > 0 ? ' & ' : '' }}{{ p.display_name }}
                     </span>
                     <span class="mx-2 text-fg-muted">vs</span>
-                    <span v-for="(p, i) in match.participants.filter((pp: MatchListParticipantDto) => pp.team_number === 2)" :key="p.player_id">
+                    <span
+                      v-for="(p, i) in match.participants.filter(
+                        (pp: MatchListParticipantDto) => pp.team_number === 2
+                      )"
+                      :key="p.player_id"
+                    >
                       {{ Number(i) > 0 ? ' & ' : '' }}{{ p.display_name }}
                     </span>
                   </div>
@@ -541,7 +852,12 @@ const placesRemaining = computed(() => {
                   </div>
                 </div>
                 <div class="text-right text-sm text-fg-muted">
-                  {{ new Date(match.played_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }}
+                  {{
+                    new Date(match.played_at).toLocaleTimeString([], {
+                      hour: '2-digit',
+                      minute: '2-digit'
+                    })
+                  }}
                 </div>
               </div>
             </NuxtLink>
@@ -549,7 +865,7 @@ const placesRemaining = computed(() => {
         </div>
 
         <!-- Tab Content: Players -->
-        <div v-if="activeTab === 'players'" class="rounded-xl bg-surface p-6">
+        <div v-if="activeTab === 'players'" class="rounded-xl bg-surface p-6 shadow-card">
           <div v-if="registrationsPending" class="space-y-3">
             <div v-for="i in 5" :key="i" class="h-12 animate-pulse rounded-lg bg-canvas" />
           </div>
@@ -563,11 +879,16 @@ const placesRemaining = computed(() => {
               class="flex items-center justify-between rounded-lg bg-canvas p-3"
             >
               <div class="flex items-center gap-3">
-                <div class="flex h-10 w-10 items-center justify-center rounded-full bg-surface-2 text-sm font-medium text-fg">
+                <div
+                  class="flex h-10 w-10 items-center justify-center rounded-full bg-surface-2 text-sm font-medium text-fg"
+                >
                   {{ reg.player?.display_name?.charAt(0) || '?' }}
                 </div>
                 <div>
-                  <NuxtLink :to="`/players/${reg.player_id}`" class="font-medium text-fg hover:text-primary">
+                  <NuxtLink
+                    :to="`/players/${reg.player_id}`"
+                    class="font-medium text-fg hover:text-primary"
+                  >
                     {{ reg.player?.display_name || 'Unknown' }}
                   </NuxtLink>
                   <p v-if="reg.player?.rating" class="text-sm text-fg-muted">
@@ -578,7 +899,11 @@ const placesRemaining = computed(() => {
               <div class="text-right">
                 <span
                   class="rounded px-2 py-0.5 text-xs"
-                  :class="reg.status === 'checked_in' ? 'bg-primary/20 text-primary' : 'bg-surface-3 text-fg-muted'"
+                  :class="
+                    reg.status === 'checked_in'
+                      ? 'bg-primary/20 text-primary'
+                      : 'bg-surface-3 text-fg-muted'
+                  "
                 >
                   {{ reg.status === 'checked_in' ? 'Checked In' : 'Registered' }}
                 </span>
@@ -588,41 +913,28 @@ const placesRemaining = computed(() => {
         </div>
 
         <!-- Tab Content: Rankings -->
-        <div v-if="activeTab === 'rankings'" class="rounded-xl bg-surface p-6">
-          <div v-if="rankingsPending" class="space-y-3">
-            <div v-for="i in 5" :key="i" class="h-12 animate-pulse rounded-lg bg-canvas" />
-          </div>
-          <div v-else-if="!rankingsData?.data.length" class="text-center py-8">
-            <p class="text-fg-muted">No verified matches yet — rankings appear once matches are confirmed.</p>
-          </div>
-          <div v-else class="space-y-2">
-            <div
-              v-for="entry in rankingsData.data"
-              :key="entry.player_id"
-              class="flex items-center justify-between rounded-lg bg-canvas p-3"
-            >
-              <div class="flex items-center gap-3">
-                <span class="flex h-7 w-7 items-center justify-center rounded-full bg-surface-2 text-xs font-medium text-fg-secondary">
-                  {{ entry.rank }}
-                </span>
-                <NuxtLink :to="`/players/${entry.player_id}`" class="font-medium text-fg hover:text-primary">
-                  {{ entry.display_name }}
-                </NuxtLink>
-              </div>
-              <div class="text-right text-sm">
-                <span class="text-primary">{{ entry.wins }}W</span>
-                <span class="mx-1 text-fg-muted">-</span>
-                <span class="text-red-400">{{ entry.losses }}L</span>
-                <span class="ml-2 text-fg-muted">({{ entry.matches_played }} played)</span>
-              </div>
-            </div>
-          </div>
+        <!-- Standings, on the shared RankingBoard. `record` rather than
+             `rating`: this endpoint aggregates wins and losses from verified
+             matches and deliberately carries no rating delta (rating_transactions
+             is select-own under RLS, so a shared leaderboard cannot show another
+             player's movement without a service-role bypass). -->
+        <div v-if="activeTab === 'rankings'">
+          <RankingBoard
+            :entries="rankingsData?.data ?? []"
+            variant="record"
+            :loading="rankingsPending"
+            :highlight-id="myProfile?.id ?? null"
+            :glow="false"
+            empty-title="No standings yet"
+            empty-message="Standings appear once matches at this event have been verified."
+            @select="navigateTo(`/players/${$event.player_id}`)"
+          />
         </div>
 
         <!-- Tab Content: Queue -->
         <div v-if="activeTab === 'queue'" class="space-y-4">
           <template v-if="event.queue_enabled">
-            <div class="rounded-xl bg-surface p-6">
+            <div class="rounded-xl bg-surface p-6 shadow-card">
               <p class="text-sm text-fg-muted">
                 {{ event.queue_courts }} court(s) · {{ event.queue_mode.replace('_', ' ') }} mode
               </p>
@@ -632,13 +944,18 @@ const placesRemaining = computed(() => {
               </div>
 
               <!-- Join / Leave -->
-              <div v-if="isRegistered && !isOrganizer" class="mt-4">
-                <div v-if="myQueueEntry" class="flex items-center justify-between rounded-lg bg-canvas p-4">
+              <div v-if="isRegistered && !canManageEvent" class="mt-4">
+                <div
+                  v-if="myQueueEntry"
+                  class="flex items-center justify-between rounded-lg bg-canvas p-4"
+                >
                   <div>
                     <p class="font-medium text-fg">You're in the queue</p>
                     <p class="text-sm text-fg-muted">
                       Status: <span class="capitalize">{{ myQueueEntry.status }}</span>
-                      <span v-if="myQueueEntry.court_number"> · Court {{ myQueueEntry.court_number }}</span>
+                      <span v-if="myQueueEntry.court_number">
+                        · Court {{ myQueueEntry.court_number }}</span
+                      >
                     </p>
                   </div>
                   <button
@@ -668,8 +985,13 @@ const placesRemaining = computed(() => {
                       class="rounded-lg border border-border-strong bg-surface px-3 py-2 text-sm text-fg focus:border-primary focus:outline-none"
                     >
                       <option value="" disabled>Select partner</option>
-                      <option v-for="p in availablePartners" :key="p.player_id" :value="p.player_id">
-                        {{ p.player?.display_name || 'Unknown' }}
+                      <option
+                        v-for="p in availablePartners"
+                        :key="p.player_id"
+                        :value="p.player_id"
+                      >
+                        {{ p.player?.display_name || 'Unknown'
+                        }}{{ p.player_id === defaultPartnerId ? ' ★ your duo' : '' }}
                       </option>
                     </select>
                   </div>
@@ -682,12 +1004,12 @@ const placesRemaining = computed(() => {
                   </button>
                 </div>
               </div>
-              <p v-else-if="!isOrganizer" class="mt-4 text-sm text-fg-muted">
+              <p v-else-if="!canManageEvent" class="mt-4 text-sm text-fg-muted">
                 Register for this event to join the queue.
               </p>
 
               <!-- Organizer: match waiting players -->
-              <div v-if="isOrganizer" class="mt-4 rounded-lg bg-canvas p-4">
+              <div v-if="canManageEvent" class="mt-4 rounded-lg bg-canvas p-4">
                 <h3 class="mb-3 text-sm font-semibold text-fg">Match Waiting Players</h3>
                 <div v-if="waitingEntries.length < 2" class="text-sm text-fg-muted">
                   Need at least 2 waiting players to create a match.
@@ -699,7 +1021,8 @@ const placesRemaining = computed(() => {
                   >
                     <option value="" disabled>Player/Pair 1</option>
                     <option v-for="e in waitingEntries" :key="e.id" :value="e.id">
-                      {{ e.player?.display_name }}{{ e.partner ? ` & ${e.partner.display_name}` : '' }}
+                      {{ e.player?.display_name
+                      }}{{ e.partner ? ` & ${e.partner.display_name}` : '' }}
                     </option>
                   </select>
                   <select
@@ -708,7 +1031,8 @@ const placesRemaining = computed(() => {
                   >
                     <option value="" disabled>Player/Pair 2</option>
                     <option v-for="e in waitingEntries" :key="e.id" :value="e.id">
-                      {{ e.player?.display_name }}{{ e.partner ? ` & ${e.partner.display_name}` : '' }}
+                      {{ e.player?.display_name
+                      }}{{ e.partner ? ` & ${e.partner.display_name}` : '' }}
                     </option>
                   </select>
                   <input
@@ -731,7 +1055,7 @@ const placesRemaining = computed(() => {
             </div>
 
             <!-- Queue List -->
-            <div class="rounded-xl bg-surface p-6">
+            <div class="rounded-xl bg-surface p-6 shadow-card">
               <h3 class="mb-4 font-semibold text-fg">Waiting ({{ waitingEntries.length }})</h3>
               <div v-if="queuePending" class="space-y-3">
                 <div v-for="i in 3" :key="i" class="h-14 animate-pulse rounded-lg bg-canvas" />
@@ -746,16 +1070,19 @@ const placesRemaining = computed(() => {
                   class="flex items-center justify-between rounded-lg bg-canvas p-3"
                 >
                   <div class="flex items-center gap-3">
-                    <span class="flex h-7 w-7 items-center justify-center rounded-full bg-surface-2 text-xs font-medium text-fg-secondary">
+                    <span
+                      class="flex h-7 w-7 items-center justify-center rounded-full bg-surface-2 text-xs font-medium text-fg-secondary"
+                    >
                       {{ i + 1 }}
                     </span>
                     <span class="text-fg">
-                      {{ e.player?.display_name }}{{ e.partner ? ` & ${e.partner.display_name}` : '' }}
+                      {{ e.player?.display_name
+                      }}{{ e.partner ? ` & ${e.partner.display_name}` : '' }}
                     </span>
                     <span class="text-xs capitalize text-fg-muted">{{ e.match_type }}</span>
                   </div>
                   <button
-                    v-if="isOrganizer"
+                    v-if="canManageEvent"
                     class="text-xs text-fg-muted hover:text-red-400"
                     @click="handleSkipEntry(e.id)"
                   >
@@ -773,7 +1100,8 @@ const placesRemaining = computed(() => {
                     class="flex items-center justify-between rounded-lg bg-canvas p-3"
                   >
                     <span class="text-fg">
-                      {{ e.player?.display_name }}{{ e.partner ? ` & ${e.partner.display_name}` : '' }}
+                      {{ e.player?.display_name
+                      }}{{ e.partner ? ` & ${e.partner.display_name}` : '' }}
                     </span>
                     <span class="text-sm text-primary">Court {{ e.court_number }}</span>
                   </div>
@@ -782,7 +1110,7 @@ const placesRemaining = computed(() => {
             </div>
           </template>
           <template v-else>
-            <div class="rounded-xl bg-surface p-6 text-center py-8">
+            <div class="rounded-xl bg-surface p-6 text-center py-8 shadow-card">
               <p class="text-fg-muted">Queue system is not enabled for this event.</p>
             </div>
           </template>

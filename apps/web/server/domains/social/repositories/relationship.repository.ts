@@ -1,15 +1,28 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import type { RelationshipRecord, RelationshipType, RelationshipStatus } from '../dto/relationship.dto'
+import type {
+  RelationshipRecord,
+  RelationshipType,
+  RelationshipStatus
+} from '../dto/relationship.dto'
 
 const RELATIONSHIP_COLUMNS =
   'id, from_player_id, to_player_id, relationship_type, status, created_at, updated_at'
 
 export interface RelationshipRepository {
-  findByFromAndTo(fromPlayerId: string, toPlayerId: string, type: RelationshipType): Promise<RelationshipRecord | null>
+  findByFromAndTo(
+    fromPlayerId: string,
+    toPlayerId: string,
+    type: RelationshipType
+  ): Promise<RelationshipRecord | null>
   findFollowing(playerId: string, limit: number, offset: number): Promise<RelationshipRecord[]>
   findFollowers(playerId: string, limit: number, offset: number): Promise<RelationshipRecord[]>
   findBlocked(playerId: string): Promise<RelationshipRecord[]>
-  create(fromPlayerId: string, toPlayerId: string, type: RelationshipType, status: RelationshipStatus): Promise<RelationshipRecord>
+  create(
+    fromPlayerId: string,
+    toPlayerId: string,
+    type: RelationshipType,
+    status: RelationshipStatus
+  ): Promise<RelationshipRecord>
   updateStatus(id: string, status: RelationshipStatus): Promise<RelationshipRecord>
   delete(id: string): Promise<void>
   isBlocked(fromPlayerId: string, toPlayerId: string): Promise<boolean>
@@ -101,10 +114,7 @@ export function createRelationshipRepository(client: SupabaseClient): Relationsh
     },
 
     async delete(id) {
-      const { error } = await client
-        .from('player_relationships')
-        .delete()
-        .eq('id', id)
+      const { error } = await client.from('player_relationships').delete().eq('id', id)
 
       if (error) throw error
     },

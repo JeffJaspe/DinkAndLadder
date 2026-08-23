@@ -34,13 +34,15 @@ export interface TournamentRegistrationRepository {
    * rating joined in. Separate from findByTournamentId so the bracket generator
    * keeps its cheap id-only read.
    */
-  findByTournamentIdWithPlayers(
-    tournamentId: string
-  ): Promise<Array<TournamentRegistrationRecord & {
-    display_name: string
-    rating: number | null
-    partner_display_name: string | null
-  }>>
+  findByTournamentIdWithPlayers(tournamentId: string): Promise<
+    Array<
+      TournamentRegistrationRecord & {
+        display_name: string
+        rating: number | null
+        partner_display_name: string | null
+      }
+    >
+  >
   create(
     tournamentId: string,
     playerId: string,

@@ -78,6 +78,12 @@
   --dnl-switch-track: 227 232 229; /* #E3E8E5 */
   --dnl-switch-thumb: 255 255 255; /* #FFFFFF */
 
+  /* Text and chrome laid over the landing hero's scrim. Deliberately identical
+     in both themes: the scrim is a colour the SuperAdmin picks (dark by
+     default, see docs/30 §2.3), so what sits on it follows the overlay, not
+     the visitor's light/dark choice. */
+  --dnl-on-scrim: 255 255 255;
+
   /* Decorative gradients (stat/hero cards). Light expresses depth with a
      near-flat gradient plus a shadow rather than a dark-to-darker ramp. */
   --dnl-grad-from: 255 255 255;
@@ -114,8 +120,7 @@
   --dnl-shadow-card-hover: 0 2px 4px rgb(16 24 20 / 0.08), 0 12px 28px rgb(16 24 20 / 0.16);
   /* Cast upward and wide: a plinth is lit from above and grounded at its base. */
   --dnl-shadow-raised:
-    0 1px 0 rgb(255 255 255 / 0.7) inset,
-    0 2px 4px rgb(16 24 20 / 0.06),
+    0 1px 0 rgb(255 255 255 / 0.7) inset, 0 2px 4px rgb(16 24 20 / 0.06),
     0 14px 28px -10px rgb(16 24 20 / 0.28);
 }
 
@@ -180,6 +185,10 @@
   --dnl-switch-track: 20 32 28; /* #14201C */
   --dnl-switch-thumb: 90 122 112; /* #5A7A70 */
 
+  /* Same value as light on purpose: the scrim is the operator's colour, not
+     the theme's. See the light block. */
+  --dnl-on-scrim: 255 255 255;
+
   /* Decorative gradients */
   --dnl-grad-from: 26 42 36; /* #1a2a24 */
   --dnl-grad-to: 20 32 28; /* #14201c */
@@ -193,8 +202,7 @@
   --dnl-shadow-card: 0 2px 8px rgb(0 0 0 / 0.3);
   --dnl-shadow-card-hover: 0 4px 16px rgb(0 0 0 / 0.4);
   --dnl-shadow-raised:
-    0 1px 0 rgb(255 255 255 / 0.06) inset,
-    0 2px 4px rgb(0 0 0 / 0.35),
+    0 1px 0 rgb(255 255 255 / 0.06) inset, 0 2px 4px rgb(0 0 0 / 0.35),
     0 14px 28px -10px rgb(0 0 0 / 0.6);
 }
 
@@ -296,6 +304,9 @@
   html.dnl-theme-switching *,
   html.dnl-theme-switching *::before,
   html.dnl-theme-switching *::after {
-    transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease !important;
+    transition:
+      background-color 150ms ease,
+      border-color 150ms ease,
+      color 150ms ease !important;
   }
 }

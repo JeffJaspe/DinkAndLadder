@@ -14,9 +14,5 @@ import { apiError } from '~/server/utils/api-error'
  * into scope and implemented. Do not "fix" this by returning 200.
  */
 export default defineEventHandler(() => {
-  throw apiError(
-    501,
-    'NOT_IMPLEMENTED',
-    'Payment processing is not enabled on this deployment.'
-  )
+  throw apiError(501, 'NOT_IMPLEMENTED', 'Payment processing is not enabled on this deployment.')
 })

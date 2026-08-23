@@ -76,9 +76,7 @@ export default defineEventHandler(async (event) => {
   const serviceClient = serverSupabaseServiceRole(event)
   const service = createMatchService(createMatchRepository(serviceClient))
   const auditService = createAuditService(createAuditRepository(serviceClient))
-  const notificationService = createNotificationService(
-    createNotificationRepository(serviceClient)
-  )
+  const notificationService = createNotificationService(createNotificationRepository(serviceClient))
   const playerRepo = createPlayerProfileRepository(serviceClient)
 
   try {

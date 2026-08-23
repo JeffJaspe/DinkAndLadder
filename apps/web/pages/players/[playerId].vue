@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import type { PlayerProfileDto } from '~/server/domains/player/dto/player-profile.dto'
 import type { PlayerRatingDto } from '~/server/domains/rating/dto/rating.dto'
-import type { PlayerStatsDto, RatingHistoryPointDto } from '~/server/domains/analytics/dto/analytics.dto'
+import type {
+  PlayerStatsDto,
+  RatingHistoryPointDto
+} from '~/server/domains/analytics/dto/analytics.dto'
 import type { ActivityDto } from '~/server/domains/activity/dto/activity.dto'
 
 interface Achievement {
@@ -59,7 +62,9 @@ const { data: achievementsData } = await useFetch<{ achievements: PlayerAchievem
 // these, plus the rating-history chart and activity feed below, now come from the real
 // per-player analytics/activity endpoints, which already enforce the profile's public
 // visibility server-side.
-const { data: stats } = await useFetch<PlayerStatsDto>(() => `/api/v1/players/${playerId.value}/stats`)
+const { data: stats } = await useFetch<PlayerStatsDto>(
+  () => `/api/v1/players/${playerId.value}/stats`
+)
 
 const { data: ratingHistoryData } = await useFetch<{ history: RatingHistoryPointDto[] }>(
   () => `/api/v1/players/${playerId.value}/rating-history`,
@@ -92,9 +97,13 @@ const { data: myMatchesData, execute: fetchMyMatches } = await useFetch<{ data: 
   { query: { limit: 10 }, immediate: false, server: false }
 )
 
-watch(isOwnProfile, (val) => {
-  if (val) fetchMyMatches()
-}, { immediate: true })
+watch(
+  isOwnProfile,
+  (val) => {
+    if (val) fetchMyMatches()
+  },
+  { immediate: true }
+)
 
 interface PartnerDto {
   player_id: string
@@ -114,19 +123,20 @@ const { data: partnersData, refresh: refreshPartners } = await useFetch<{ data: 
   { server: false }
 )
 
-const { data: outgoingRequests, refresh: refreshOutgoing } = await useFetch<{ data: PartnerRequestDto[] }>(
-  '/api/v1/players/me/partner-requests/outgoing',
-  { server: false }
-)
+const { data: outgoingRequests, refresh: refreshOutgoing } = await useFetch<{
+  data: PartnerRequestDto[]
+}>('/api/v1/players/me/partner-requests/outgoing', { server: false })
 
 const isPartner = computed(() => {
   if (!partnersData.value?.data) return false
-  return partnersData.value.data.some(p => p.player_id === playerId.value)
+  return partnersData.value.data.some((p) => p.player_id === playerId.value)
 })
 
 const pendingRequest = computed(() => {
   if (!outgoingRequests.value?.data) return null
-  return outgoingRequests.value.data.find(r => r.to_player_id === playerId.value && r.status === 'pending')
+  return outgoingRequests.value.data.find(
+    (r) => r.to_player_id === playerId.value && r.status === 'pending'
+  )
 })
 
 const partnerLoading = ref(false)
@@ -142,12 +152,12 @@ const PROFILE_TABS = [
 // Seeded from `?tab=` so a linked tab opens on that tab; UiTabs keeps the query
 // in sync from there.
 const activeTab = ref<string>(
-  PROFILE_TABS.some(t => t.value === route.query.tab) ? String(route.query.tab) : 'overview'
+  PROFILE_TABS.some((t) => t.value === route.query.tab) ? String(route.query.tab) : 'overview'
 )
 
-const { data: clubsData } = await useFetch<{ items: Array<{ club: { id: string; name: string; is_verified: boolean } }> }>(
-  () => `/api/v1/players/${playerId.value}/clubs`
-)
+const { data: clubsData } = await useFetch<{
+  items: Array<{ club: { id: string; name: string; is_verified: boolean } }>
+}>(() => `/api/v1/players/${playerId.value}/clubs`)
 
 async function sendPartnerRequest() {
   if (!user.value) return
@@ -183,26 +193,28 @@ async function removePartner() {
 }
 
 const achievements = computed(() => achievementsData.value?.achievements?.slice(0, 6) ?? [])
-const displayRating = computed(() => Math.max(ratings.value?.singles?.rating_value ?? 0, ratings.value?.doubles?.rating_value ?? 0))
+const displayRating = computed(() =>
+  Math.max(ratings.value?.singles?.rating_value ?? 0, ratings.value?.doubles?.rating_value ?? 0)
+)
 const selectedBadge = computed(() => badgeData.value?.data ?? null)
 
 function getOpponentNames(match: MatchSummary): string {
-  const myTeam = match.participants.find(p => p.player_id === myProfile.value?.id)?.team_number
-  const opponents = match.participants.filter(p => p.team_number !== myTeam)
-  return opponents.map(p => p.display_name).join(' & ') || 'Unknown'
+  const myTeam = match.participants.find((p) => p.player_id === myProfile.value?.id)?.team_number
+  const opponents = match.participants.filter((p) => p.team_number !== myTeam)
+  return opponents.map((p) => p.display_name).join(' & ') || 'Unknown'
 }
 
 function didIWin(match: MatchSummary): boolean | null {
-  const myTeam = match.participants.find(p => p.player_id === myProfile.value?.id)?.team_number
+  const myTeam = match.participants.find((p) => p.player_id === myProfile.value?.id)?.team_number
   if (!myTeam || match.scores.length === 0) return null
-  const mySets = match.scores.filter(s =>
+  const mySets = match.scores.filter((s) =>
     myTeam === 1 ? s.team1_score > s.team2_score : s.team2_score > s.team1_score
   ).length
   return mySets > match.scores.length / 2
 }
 
 function formatScore(match: MatchSummary): string {
-  return match.scores.map(s => `${s.team1_score}-${s.team2_score}`).join(', ')
+  return match.scores.map((s) => `${s.team1_score}-${s.team2_score}`).join(', ')
 }
 
 function formatRelativeTime(dateStr: string): string {
@@ -224,7 +236,7 @@ const ratingHistoryPoints = computed(() => ratingHistoryData.value?.history ?? [
  * not a black hole for screen readers.
  */
 const ratingChartPoints = computed(() =>
-  ratingHistoryPoints.value.map(p => ({ date: p.date, value: p.rating_value }))
+  ratingHistoryPoints.value.map((p) => ({ date: p.date, value: p.rating_value }))
 )
 
 const trendLabel = computed(() => {
@@ -242,16 +254,26 @@ const activities = computed(() => activitiesData.value?.activities ?? [])
 
 function getActivityIcon(type: string): string {
   switch (type) {
-    case 'match.verified': return '🎯'
-    case 'rating.changed': return '📈'
-    case 'achievement.earned': return '🏆'
-    case 'profile.updated': return '✏️'
-    case 'club.event_created': return '📅'
-    case 'club.member_joined': return '🏸'
-    case 'club.announcement': return '📣'
-    case 'social.started_following': return '👤'
-    case 'social.shoutout': return '📣'
-    default: return '📌'
+    case 'match.verified':
+      return '🎯'
+    case 'rating.changed':
+      return '📈'
+    case 'achievement.earned':
+      return '🏆'
+    case 'profile.updated':
+      return '✏️'
+    case 'club.event_created':
+      return '📅'
+    case 'club.member_joined':
+      return '🏸'
+    case 'club.announcement':
+      return '📣'
+    case 'social.started_following':
+      return '👤'
+    case 'social.shoutout':
+      return '📣'
+    default:
+      return '📌'
   }
 }
 
@@ -299,15 +321,22 @@ function formatActivityText(activity: ActivityDto): string {
     </div>
 
     <!-- Error -->
-    <div v-else-if="error" class="page-shell rounded-xl bg-surface p-8 text-center">
+    <div v-else-if="error" class="page-shell rounded-xl bg-surface p-8 text-center shadow-card">
       <p class="text-4xl">🔒</p>
       <h2 class="mt-4 text-xl font-semibold text-fg">
         {{ error.statusCode === 404 ? 'Profile Not Found' : 'Error Loading Profile' }}
       </h2>
       <p class="mt-2 text-sm text-fg-muted">
-        {{ error.statusCode === 404 ? 'This profile is private or does not exist.' : 'Please try again later.' }}
+        {{
+          error.statusCode === 404
+            ? 'This profile is private or does not exist.'
+            : 'Please try again later.'
+        }}
       </p>
-      <NuxtLink to="/players" class="mt-4 inline-block rounded-lg bg-primary px-4 py-2 text-on-primary">
+      <NuxtLink
+        to="/players"
+        class="mt-4 inline-block rounded-lg bg-primary px-4 py-2 text-on-primary"
+      >
         Browse Players
       </NuxtLink>
     </div>
@@ -315,27 +344,39 @@ function formatActivityText(activity: ActivityDto): string {
     <!-- Profile -->
     <div v-else-if="profile" class="page-shell space-y-6">
       <!-- Back Button -->
-      <NuxtLink to="/players" class="inline-flex items-center gap-2 text-sm text-fg-muted hover:text-fg">
+      <NuxtLink
+        to="/players"
+        class="inline-flex items-center gap-2 text-sm text-fg-muted hover:text-fg"
+      >
         <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            d="M15 19l-7-7 7-7"
+          />
         </svg>
         Back
       </NuxtLink>
 
       <!-- Header Card -->
-      <div class="rounded-xl bg-surface p-6">
+      <div class="rounded-xl bg-surface p-6 shadow-card">
         <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <!-- Avatar & Info -->
           <div class="flex items-start gap-4">
             <div class="relative">
-              <div class="flex h-20 w-20 flex-shrink-0 items-center justify-center rounded-full bg-surface-2 text-3xl font-bold text-fg ring-4 ring-primary">
+              <div
+                class="flex h-20 w-20 flex-shrink-0 items-center justify-center rounded-full bg-surface-2 text-3xl font-bold text-fg ring-4 ring-primary"
+              >
                 {{ profile.display_name?.charAt(0).toUpperCase() }}
               </div>
             </div>
             <div>
               <div class="flex items-center gap-2">
                 <h1 class="text-2xl font-bold text-fg">{{ profile.display_name }}</h1>
-                <span v-if="selectedBadge" :title="selectedBadge.name" class="text-xl">{{ selectedBadge.icon }}</span>
+                <span v-if="selectedBadge" :title="selectedBadge.name" class="text-xl">{{
+                  selectedBadge.icon
+                }}</span>
               </div>
               <p v-if="profile.city || profile.province" class="mt-1 text-sm text-fg-muted">
                 {{ [profile.city, profile.province].filter(Boolean).join(', ') }}
@@ -348,7 +389,9 @@ function formatActivityText(activity: ActivityDto): string {
           <div class="flex flex-col items-end gap-2">
             <div class="text-right">
               <p class="text-xs uppercase text-fg-muted">RATING</p>
-              <p class="text-3xl font-bold text-primary">{{ displayRating > 0 ? displayRating.toFixed(2) : '—' }}</p>
+              <p class="text-3xl font-bold text-primary">
+                {{ displayRating > 0 ? displayRating.toFixed(2) : '—' }}
+              </p>
             </div>
             <!-- Partner button (replaces Follow) -->
             <template v-if="user && !isOwnProfile">
@@ -394,7 +437,9 @@ function formatActivityText(activity: ActivityDto): string {
             <p class="text-xs text-fg-muted">Win Rate</p>
           </div>
           <div class="text-center">
-            <p class="text-xl font-bold text-fg">{{ stats ? `${stats.wins}-${stats.losses}` : '—' }}</p>
+            <p class="text-xl font-bold text-fg">
+              {{ stats ? `${stats.wins}-${stats.losses}` : '—' }}
+            </p>
             <p class="text-xs text-fg-muted">W - L</p>
           </div>
           <div class="text-center">
@@ -413,7 +458,7 @@ function formatActivityText(activity: ActivityDto): string {
         <!-- Overview Tab -->
         <template v-if="activeTab === 'overview'">
           <!-- Rating History -->
-          <div class="rounded-card border border-border bg-surface p-5">
+          <div class="rounded-card border border-border bg-surface p-5 shadow-card">
             <div class="mb-4 flex items-center justify-between">
               <span class="text-body-2 font-medium text-fg">Rating History</span>
               <span class="text-caption text-fg-muted">singles · last 180 days</span>
@@ -427,25 +472,32 @@ function formatActivityText(activity: ActivityDto): string {
 
           <!-- Dominant Hand & Preferred Position -->
           <div class="grid gap-4 sm:grid-cols-2">
-            <div class="rounded-xl bg-surface p-4">
+            <div class="rounded-xl bg-surface p-4 shadow-card">
               <p class="text-xs text-fg-muted">Dominant Hand</p>
-              <p class="mt-1 font-medium capitalize text-fg">{{ profile.dominant_hand || 'Not set' }}</p>
+              <p class="mt-1 font-medium capitalize text-fg">
+                {{ profile.dominant_hand || 'Not set' }}
+              </p>
             </div>
-            <div class="rounded-xl bg-surface p-4">
+            <div class="rounded-xl bg-surface p-4 shadow-card">
               <p class="text-xs text-fg-muted">Preferred Position</p>
-              <p class="mt-1 font-medium capitalize text-fg">{{ profile.preferred_position || 'Not set' }}</p>
+              <p class="mt-1 font-medium capitalize text-fg">
+                {{ profile.preferred_position || 'Not set' }}
+              </p>
             </div>
           </div>
         </template>
 
         <!-- Matches Tab -->
         <template v-if="activeTab === 'matches'">
-          <div class="rounded-xl bg-surface p-5">
+          <div class="rounded-xl bg-surface p-5 shadow-card">
             <h3 class="mb-4 text-sm font-medium text-fg">Recent Matches</h3>
             <div v-if="!isOwnProfile" class="py-6 text-center text-sm text-fg-muted">
               Match history is only visible to the player themselves.
             </div>
-            <div v-else-if="!myMatchesData?.data.length" class="py-6 text-center text-sm text-fg-muted">
+            <div
+              v-else-if="!myMatchesData?.data.length"
+              class="py-6 text-center text-sm text-fg-muted"
+            >
               No matches yet.
             </div>
             <div v-else class="space-y-3">
@@ -462,11 +514,21 @@ function formatActivityText(activity: ActivityDto): string {
                 <div class="text-right">
                   <span
                     class="rounded-md px-2 py-0.5 text-xs font-medium"
-                    :class="didIWin(match) === true ? 'bg-primary/20 text-primary' : didIWin(match) === false ? 'bg-red-500/20 text-red-400' : 'bg-surface-2 text-fg-secondary'"
+                    :class="
+                      didIWin(match) === true
+                        ? 'bg-primary/20 text-primary'
+                        : didIWin(match) === false
+                          ? 'bg-red-500/20 text-red-400'
+                          : 'bg-surface-2 text-fg-secondary'
+                    "
                   >
-                    {{ didIWin(match) === true ? 'Won' : didIWin(match) === false ? 'Lost' : 'Played' }}
+                    {{
+                      didIWin(match) === true ? 'Won' : didIWin(match) === false ? 'Lost' : 'Played'
+                    }}
                   </span>
-                  <p class="mt-1 text-xs text-fg-muted">{{ formatRelativeTime(match.played_at) }}</p>
+                  <p class="mt-1 text-xs text-fg-muted">
+                    {{ formatRelativeTime(match.played_at) }}
+                  </p>
                 </div>
               </NuxtLink>
             </div>
@@ -475,12 +537,14 @@ function formatActivityText(activity: ActivityDto): string {
 
         <!-- Stats Tab -->
         <template v-if="activeTab === 'stats'">
-          <div class="rounded-xl bg-surface p-5">
+          <div class="rounded-xl bg-surface p-5 shadow-card">
             <h3 class="mb-4 text-sm font-medium text-fg">Performance Stats</h3>
             <div class="grid gap-4 sm:grid-cols-2">
               <div class="rounded-lg bg-canvas p-3">
                 <p class="text-xs text-fg-muted">Singles / Doubles Played</p>
-                <p class="text-xl font-bold text-fg">{{ stats?.singles_matches ?? 0 }} / {{ stats?.doubles_matches ?? 0 }}</p>
+                <p class="text-xl font-bold text-fg">
+                  {{ stats?.singles_matches ?? 0 }} / {{ stats?.doubles_matches ?? 0 }}
+                </p>
               </div>
               <div class="rounded-lg bg-canvas p-3">
                 <p class="text-xs text-fg-muted">Matches This Month</p>
@@ -500,7 +564,7 @@ function formatActivityText(activity: ActivityDto): string {
 
         <!-- Achievements Tab -->
         <template v-if="activeTab === 'achievements'">
-          <div class="rounded-xl bg-surface p-5">
+          <div class="rounded-xl bg-surface p-5 shadow-card">
             <h3 class="mb-4 text-sm font-medium text-fg">Achievements</h3>
             <div v-if="achievements.length > 0" class="grid grid-cols-2 gap-3 sm:grid-cols-3">
               <div
@@ -508,7 +572,9 @@ function formatActivityText(activity: ActivityDto): string {
                 :key="pa.achievement_id"
                 class="rounded-lg bg-canvas p-3 text-center"
               >
-                <div class="mx-auto mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-warning-fill/20 text-warning">
+                <div
+                  class="mx-auto mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-warning-fill/20 text-warning"
+                >
                   🏆
                 </div>
                 <p class="text-xs font-medium text-fg">{{ pa.achievement.name }}</p>
@@ -521,13 +587,17 @@ function formatActivityText(activity: ActivityDto): string {
 
         <!-- Activity Tab -->
         <template v-if="activeTab === 'activity'">
-          <div class="rounded-xl bg-surface p-5">
+          <div class="rounded-xl bg-surface p-5 shadow-card">
             <h3 class="mb-4 text-sm font-medium text-fg">Recent Activity</h3>
             <div v-if="activities.length === 0" class="py-6 text-center text-sm text-fg-muted">
               No recent activity.
             </div>
             <div v-else class="space-y-3">
-              <div v-for="a in activities" :key="a.id" class="flex items-center gap-3 rounded-lg bg-canvas p-3">
+              <div
+                v-for="a in activities"
+                :key="a.id"
+                class="flex items-center gap-3 rounded-lg bg-canvas p-3"
+              >
                 <span class="text-lg">{{ getActivityIcon(a.activity_type) }}</span>
                 <div>
                   <p class="text-sm text-fg capitalize">{{ formatActivityText(a) }}</p>
@@ -540,7 +610,7 @@ function formatActivityText(activity: ActivityDto): string {
 
         <!-- Clubs Tab -->
         <template v-if="activeTab === 'clubs'">
-          <div class="rounded-xl bg-surface p-5">
+          <div class="rounded-xl bg-surface p-5 shadow-card">
             <h3 class="mb-4 text-sm font-medium text-fg">Club Memberships</h3>
             <div v-if="!clubsData?.items?.length" class="py-6 text-center text-sm text-fg-muted">
               Not a member of any clubs.
@@ -552,15 +622,25 @@ function formatActivityText(activity: ActivityDto): string {
                 :to="`/clubs/${membership.club.id}`"
                 class="flex items-center gap-3 rounded-lg bg-canvas p-3 transition-all hover:bg-surface-2"
               >
-                <div class="flex h-10 w-10 items-center justify-center rounded-lg bg-surface-2 text-lg font-bold text-fg-secondary">
+                <div
+                  class="flex h-10 w-10 items-center justify-center rounded-lg bg-surface-2 text-lg font-bold text-fg-secondary"
+                >
                   {{ membership.club.name.charAt(0).toUpperCase() }}
                 </div>
                 <div class="flex-1">
                   <p class="text-sm font-medium text-fg">{{ membership.club.name }}</p>
                 </div>
-                <div v-if="membership.club.is_verified" class="flex items-center gap-1 text-xs text-primary">
+                <div
+                  v-if="membership.club.is_verified"
+                  class="flex items-center gap-1 text-xs text-primary"
+                >
                   <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="2"
+                      d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"
+                    />
                   </svg>
                   Verified
                 </div>

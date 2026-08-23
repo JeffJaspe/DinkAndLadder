@@ -5,7 +5,10 @@ import {
   createTournamentRepository,
   createTournamentRegistrationRepository
 } from '~/server/domains/event/repositories/tournament.repository'
-import { createBracketService, BracketServiceError } from '~/server/domains/event/services/bracket.service'
+import {
+  createBracketService,
+  BracketServiceError
+} from '~/server/domains/event/services/bracket.service'
 
 export default defineEventHandler(async (event) => {
   const tournamentId = getRouterParam(event, 'tournamentId')

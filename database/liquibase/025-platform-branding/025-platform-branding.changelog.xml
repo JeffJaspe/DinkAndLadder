@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Platform branding for the SuperAdmin console
+     (docs/30-SUPER-ADMIN-SPECIFICATION.md §2.1).
+
+     Object PATHS are stored, not URLs. The bucket is private today, so what a
+     visitor needs is a signed URL minted per render; if the bucket is made
+     public the same path yields a stable public URL instead. Storing a URL
+     would bake one of those two choices into every row and go stale the moment
+     the bucket setting changed.
+
+     No new table: this is one row of configuration alongside the SuperAdmin id
+     and the active palette. RLS on platform_config stays as 018 left it -
+     enabled with zero policies - so these columns are read and written by the
+     server, which resolves the caller from the verified session. -->
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+    <changeSet id="0001-add-branding-to-platform-config" author="super-admin">
+        <addColumn tableName="platform_config">
+            <!-- Nullable rather than defaulted to 'DinkAndLadder': NULL means
+                 "nobody has renamed the platform", which is a different fact
+                 from "somebody typed the current name in". The application
+                 falls back to its own name when this is NULL. -->
+            <column name="app_name" type="text">
+                <constraints nullable="true"/>
+            </column>
+            <!-- Bucket-relative, e.g. 'platform/logo.png'. -->
+            <column name="logo_path" type="text">
+                <constraints nullable="true"/>
+            </column>
+            <column name="favicon_path" type="text">
+                <constraints nullable="true"/>
+            </column>
+            <column name="branding_updated_at" type="timestamptz">
+                <constraints nullable="true"/>
+            </column>
+            <column name="branding_updated_by" type="uuid">
+                <constraints nullable="true"
+                             foreignKeyName="fk_platform_config_branding_updated_by"
+                             references="users(id)"/>
+            </column>
+        </addColumn>
+        <rollback>
+            <dropColumn tableName="platform_config" columnName="branding_updated_by"/>
+            <dropColumn tableName="platform_config" columnName="branding_updated_at"/>
+            <dropColumn tableName="platform_config" columnName="favicon_path"/>
+            <dropColumn tableName="platform_config" columnName="logo_path"/>
+            <dropColumn tableName="platform_config" columnName="app_name"/>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

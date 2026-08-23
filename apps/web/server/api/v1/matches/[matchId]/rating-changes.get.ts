@@ -47,9 +47,9 @@ export default defineEventHandler(async (event) => {
     return { data: [] }
   }
 
-  const profiles = await createPlayerProfileRepository(client).findByIds(
-    [...new Set(transactions.map((t) => t.player_id))]
-  )
+  const profiles = await createPlayerProfileRepository(client).findByIds([
+    ...new Set(transactions.map((t) => t.player_id))
+  ])
   const nameById = new Map(profiles.map((p) => [p.id, p.display_name]))
 
   return {

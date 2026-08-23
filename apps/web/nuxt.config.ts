@@ -1,3 +1,5 @@
+import { resolveTrustProxy } from './server/utils/trust-proxy'
+
 // https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
   compatibilityDate: '2025-07-15',
@@ -30,7 +32,7 @@ export default defineNuxtConfig({
           tagPosition: 'head',
           tagPriority: -1,
           innerHTML:
-            "(function(){try{var m=document.cookie.match(/(?:^|;\\s*)dnl-theme=([^;]*)/);" +
+            '(function(){try{var m=document.cookie.match(/(?:^|;\\s*)dnl-theme=([^;]*)/);' +
             "var p=m?decodeURIComponent(m[1]):'light';" +
             "var d=p==='dark'||(p==='system'&&window.matchMedia('(prefers-color-scheme: dark)').matches);" +
             "document.documentElement.classList.toggle('dark',d);}catch(e){}})()"
@@ -48,6 +50,8 @@ export default defineNuxtConfig({
     paymongoSecretKey: process.env.PAYMONGO_SECRET_KEY,
     paymongoWebhookSecret: process.env.PAYMONGO_WEBHOOK_SECRET,
     turnstileSecretKey: process.env.TURNSTILE_SECRET_KEY,
+    // Overridable at runtime with NUXT_TRUST_PROXY_HEADERS.
+    trustProxyHeaders: resolveTrustProxy(process.env),
     public: {
       stripePublishableKey: process.env.STRIPE_PUBLISHABLE_KEY,
       paymongoPublicKey: process.env.PAYMONGO_PUBLIC_KEY,
@@ -65,6 +69,10 @@ export default defineNuxtConfig({
         '/players/*',
         '/clubs/*',
         '/rankings',
+        '/clubs',
+        // Retired route, kept public because it was public and in the sidebar:
+        // it redirects to /clubs?verified=1, and a signed-out visitor following
+        // an old bookmark must reach that redirect rather than the login page.
         '/verified-clubs',
         '/events/*',
         // Dev-only token preview; it 404s outside dev, so there is nothing to guard.

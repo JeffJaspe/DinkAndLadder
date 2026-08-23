@@ -5,7 +5,8 @@ import type {
   SponsorshipTargetType
 } from '../dto/sponsorship.dto'
 
-const COLUMNS = 'id, sponsor_player_id, target_type, target_id, amount_cents, currency, message, is_anonymous, stripe_payment_intent_id, status, created_at, updated_at'
+const COLUMNS =
+  'id, sponsor_player_id, target_type, target_id, amount_cents, currency, message, is_anonymous, stripe_payment_intent_id, status, created_at, updated_at'
 
 export interface SponsorshipRepository {
   create(input: CreateSponsorshipRecordInput): Promise<SponsorshipRecord>
@@ -13,7 +14,11 @@ export interface SponsorshipRepository {
   findByStripePaymentIntent(stripePaymentIntentId: string): Promise<SponsorshipRecord | null>
   updateStatus(id: string, status: SponsorshipStatus): Promise<SponsorshipRecord>
   listGivenByPlayer(playerId: string, limit?: number): Promise<SponsorshipRecord[]>
-  listReceivedByTarget(targetType: SponsorshipTargetType, targetId: string, limit?: number): Promise<SponsorshipRecord[]>
+  listReceivedByTarget(
+    targetType: SponsorshipTargetType,
+    targetId: string,
+    limit?: number
+  ): Promise<SponsorshipRecord[]>
   sumReceivedByTarget(targetType: SponsorshipTargetType, targetId: string): Promise<number>
 }
 

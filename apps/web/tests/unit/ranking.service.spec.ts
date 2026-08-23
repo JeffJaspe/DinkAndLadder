@@ -101,9 +101,7 @@ describe('ranking.service', () => {
       makeRow({ player_id: 'a', rating_value: 5.0 }),
       makeRow({ player_id: 'b', rating_value: 4.5 })
     ]
-    const service = createRankingService(
-      fakeRepository(rows, { deltas: { a: 0.125, b: -0.06 } })
-    )
+    const service = createRankingService(fakeRepository(rows, { deltas: { a: 0.125, b: -0.06 } }))
 
     const page = await service.getRankings({ rating_type: 'singles', limit: 50, offset: 0 })
 
@@ -131,8 +129,12 @@ describe('ranking.service', () => {
     const getTrendDeltas = vi.fn().mockResolvedValue(new Map())
     const rows = [makeRow({ player_id: 'a', rating_value: 5.0 })]
     const service = createRankingService({
-      async getRankings() { return rows },
-      async countRankings() { return 1 },
+      async getRankings() {
+        return rows
+      },
+      async countRankings() {
+        return 1
+      },
       getTrendDeltas
     })
 
@@ -157,10 +159,18 @@ describe('ranking.service', () => {
     const service = createRankingService({
       getRankings,
       countRankings,
-      async getTrendDeltas() { return new Map() }
+      async getTrendDeltas() {
+        return new Map()
+      }
     })
 
-    const query = { rating_type: 'singles' as const, q: 'reyes', province: 'Cebu', limit: 50, offset: 0 }
+    const query = {
+      rating_type: 'singles' as const,
+      q: 'reyes',
+      province: 'Cebu',
+      limit: 50,
+      offset: 0
+    }
     await service.getRankings(query)
 
     expect(getRankings).toHaveBeenCalledWith(query)
@@ -171,8 +181,12 @@ describe('ranking.service', () => {
   it('does not query deltas when the page is empty', async () => {
     const getTrendDeltas = vi.fn().mockResolvedValue(new Map())
     const service = createRankingService({
-      async getRankings() { return [] },
-      async countRankings() { return 0 },
+      async getRankings() {
+        return []
+      },
+      async countRankings() {
+        return 0
+      },
       getTrendDeltas
     })
 

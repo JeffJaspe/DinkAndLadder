@@ -48,7 +48,10 @@ async function handleSwitchToPlayer() {
       { ignoreResponseError: true }
     )
     if (!ratings?.singles || ratings.singles.rating_value == null) {
-      await navigateTo({ path: '/onboarding', query: { flow: 'rate-only', redirect: '/dashboard' } })
+      await navigateTo({
+        path: '/onboarding',
+        query: { flow: 'rate-only', redirect: '/dashboard' }
+      })
       return
     }
     switchToPlayer()
@@ -92,8 +95,18 @@ function onBlur(e: FocusEvent) {
         <span class="text-base">{{ accountMode === 'club' ? '🏆' : '🏓' }}</span>
         <span class="truncate">{{ currentLabel }}</span>
       </span>
-      <svg class="h-4 w-4 flex-shrink-0 text-fg-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l4-4 4 4m0 6l-4 4-4-4" />
+      <svg
+        class="h-4 w-4 flex-shrink-0 text-fg-muted"
+        fill="none"
+        stroke="currentColor"
+        viewBox="0 0 24 24"
+      >
+        <path
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="2"
+          d="M8 9l4-4 4 4m0 6l-4 4-4-4"
+        />
       </svg>
     </button>
 

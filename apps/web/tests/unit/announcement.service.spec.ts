@@ -1,9 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { createAnnouncementService, AnnouncementServiceError } from '../../server/domains/announcement/services/announcement.service'
+import {
+  createAnnouncementService,
+  AnnouncementServiceError
+} from '../../server/domains/announcement/services/announcement.service'
 import type { AnnouncementRepository } from '../../server/domains/announcement/repositories/announcement.repository'
 import type { ClubMembershipRepository } from '../../server/domains/club/repositories/club-membership.repository'
-import type { AnnouncementRecord, AnnouncementReadRecord } from '../../server/domains/announcement/dto/announcement.dto'
-import type { ClubMembershipRecord, ClubRole, ClubMembershipStatus } from '../../server/domains/club/dto/club-membership.dto'
+import type {
+  AnnouncementRecord,
+  AnnouncementReadRecord
+} from '../../server/domains/announcement/dto/announcement.dto'
+import type {
+  ClubMembershipRecord,
+  ClubRole,
+  ClubMembershipStatus
+} from '../../server/domains/club/dto/club-membership.dto'
 
 const TEST_IDS = {
   player: '11111111-1111-1111-1111-111111111111',
@@ -200,9 +210,9 @@ describe('AnnouncementService', () => {
       )
       vi.mocked(membershipRepo.findByClubAndPlayer).mockResolvedValue(createMockMembership())
 
-      await expect(
-        service.publish(TEST_IDS.player, TEST_IDS.announcement)
-      ).rejects.toThrow(AnnouncementServiceError)
+      await expect(service.publish(TEST_IDS.player, TEST_IDS.announcement)).rejects.toThrow(
+        AnnouncementServiceError
+      )
     })
   })
 
@@ -229,9 +239,9 @@ describe('AnnouncementService', () => {
       )
       vi.mocked(membershipRepo.findByClubAndPlayer).mockResolvedValue(createMockMembership())
 
-      await expect(
-        service.archive(TEST_IDS.player, TEST_IDS.announcement)
-      ).rejects.toThrow(AnnouncementServiceError)
+      await expect(service.archive(TEST_IDS.player, TEST_IDS.announcement)).rejects.toThrow(
+        AnnouncementServiceError
+      )
     })
   })
 
@@ -271,7 +281,10 @@ describe('AnnouncementService', () => {
 
       await service.markAsRead(TEST_IDS.player, TEST_IDS.announcement)
 
-      expect(announcementRepo.markAsRead).toHaveBeenCalledWith(TEST_IDS.announcement, TEST_IDS.player)
+      expect(announcementRepo.markAsRead).toHaveBeenCalledWith(
+        TEST_IDS.announcement,
+        TEST_IDS.player
+      )
     })
   })
 

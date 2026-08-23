@@ -21,7 +21,11 @@ export interface AnnouncementService {
   create(playerId: string, input: CreateAnnouncementInput): Promise<AnnouncementDto>
   getByClub(clubId: string, playerId: string | null): Promise<AnnouncementDto[]>
   getById(announcementId: string): Promise<AnnouncementDto | null>
-  update(playerId: string, announcementId: string, input: UpdateAnnouncementInput): Promise<AnnouncementDto>
+  update(
+    playerId: string,
+    announcementId: string,
+    input: UpdateAnnouncementInput
+  ): Promise<AnnouncementDto>
   publish(playerId: string, announcementId: string): Promise<AnnouncementDto>
   archive(playerId: string, announcementId: string): Promise<AnnouncementDto>
   togglePin(playerId: string, announcementId: string): Promise<AnnouncementDto>
@@ -39,7 +43,11 @@ export function createAnnouncementService(
       throw new AnnouncementServiceError(403, 'FORBIDDEN', 'You must be an active club member.')
     }
     if (!['OWNER', 'ADMIN', 'MODERATOR'].includes(membership.role)) {
-      throw new AnnouncementServiceError(403, 'FORBIDDEN', 'Only club staff can manage announcements.')
+      throw new AnnouncementServiceError(
+        403,
+        'FORBIDDEN',
+        'Only club staff can manage announcements.'
+      )
     }
   }
 
@@ -58,7 +66,11 @@ export function createAnnouncementService(
     const isAuthor = announcement.author_player_id === playerId
 
     if (!isOwnerOrAdmin && !isAuthor) {
-      throw new AnnouncementServiceError(403, 'FORBIDDEN', 'You can only edit your own announcements.')
+      throw new AnnouncementServiceError(
+        403,
+        'FORBIDDEN',
+        'You can only edit your own announcements.'
+      )
     }
   }
 
@@ -87,7 +99,8 @@ export function createAnnouncementService(
       return records
         .filter((r) => {
           if (r.status === 'draft' && r.author_player_id !== playerId && !isStaff) return false
-          if (r.visibility === 'admins_only' && !['OWNER', 'ADMIN'].includes(membership.role)) return false
+          if (r.visibility === 'admins_only' && !['OWNER', 'ADMIN'].includes(membership.role))
+            return false
           return true
         })
         .map(toAnnouncementDto)
@@ -108,7 +121,11 @@ export function createAnnouncementService(
       await assertCanEdit(playerId, announcementId)
       const announcement = await announcements.findById(announcementId)
       if (announcement?.status !== 'draft') {
-        throw new AnnouncementServiceError(409, 'INVALID_STATE', 'Only draft announcements can be published.')
+        throw new AnnouncementServiceError(
+          409,
+          'INVALID_STATE',
+          'Only draft announcements can be published.'
+        )
       }
       const record = await announcements.updateStatus(announcementId, 'published')
       return toAnnouncementDto(record)
@@ -118,7 +135,11 @@ export function createAnnouncementService(
       await assertCanEdit(playerId, announcementId)
       const announcement = await announcements.findById(announcementId)
       if (announcement?.status === 'archived') {
-        throw new AnnouncementServiceError(409, 'ALREADY_ARCHIVED', 'Announcement is already archived.')
+        throw new AnnouncementServiceError(
+          409,
+          'ALREADY_ARCHIVED',
+          'Announcement is already archived.'
+        )
       }
       const record = await announcements.updateStatus(announcementId, 'archived')
       return toAnnouncementDto(record)

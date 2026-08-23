@@ -1,10 +1,17 @@
-import { serverSupabaseClient, serverSupabaseServiceRole, serverSupabaseUser } from '#supabase/server'
+import {
+  serverSupabaseClient,
+  serverSupabaseServiceRole,
+  serverSupabaseUser
+} from '#supabase/server'
 import { createEventRepository } from '~/server/domains/event/repositories/event.repository'
 import {
   createTournamentRepository,
   createTournamentRegistrationRepository
 } from '~/server/domains/event/repositories/tournament.repository'
-import { createEventService, EventServiceError } from '~/server/domains/event/services/event.service'
+import {
+  createEventService,
+  EventServiceError
+} from '~/server/domains/event/services/event.service'
 import type { CreateTournamentInput } from '~/server/domains/event/dto/tournament.dto'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
 
@@ -27,7 +34,9 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 403, statusMessage: 'Player profile required.' })
   }
 
-  const body = await readBody<Omit<CreateTournamentInput, 'event_id'> & { auto_join?: boolean }>(event)
+  const body = await readBody<Omit<CreateTournamentInput, 'event_id'> & { auto_join?: boolean }>(
+    event
+  )
   if (!body.name || !body.match_type) {
     throw createError({
       statusCode: 400,
@@ -51,12 +60,7 @@ export default defineEventHandler(async (event) => {
     const tournament = await service.createTournament(profile.id, input)
 
     if (auto_join) {
-      const registration = await registrationRepo.create(
-        tournament.id,
-        profile.id,
-        null,
-        null
-      )
+      const registration = await registrationRepo.create(tournament.id, profile.id, null, null)
       await registrationRepo.updateStatus(registration.id, 'confirmed')
     }
 

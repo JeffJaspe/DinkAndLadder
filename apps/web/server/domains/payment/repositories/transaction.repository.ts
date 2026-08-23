@@ -5,7 +5,8 @@ import type {
   TransactionType
 } from '../dto/transaction.dto'
 
-const COLUMNS = 'id, player_id, club_id, stripe_payment_intent_id, stripe_invoice_id, amount_cents, currency, status, transaction_type, description, metadata, created_at, updated_at'
+const COLUMNS =
+  'id, player_id, club_id, stripe_payment_intent_id, stripe_invoice_id, amount_cents, currency, status, transaction_type, description, metadata, created_at, updated_at'
 
 export interface TransactionRepository {
   create(input: CreateTransactionInput): Promise<PaymentTransactionRecord>

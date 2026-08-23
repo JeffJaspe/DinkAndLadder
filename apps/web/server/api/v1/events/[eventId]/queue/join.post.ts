@@ -32,7 +32,11 @@ export default defineEventHandler(async (event) => {
   const userClient = await serverSupabaseClient(event)
   const playerProfile = await createPlayerProfileRepository(userClient).findByUserId(claims.sub)
   if (!playerProfile) {
-    throw apiError(409, 'PLAYER_PROFILE_REQUIRED', 'Complete your player profile before joining the queue.')
+    throw apiError(
+      409,
+      'PLAYER_PROFILE_REQUIRED',
+      'Complete your player profile before joining the queue.'
+    )
   }
 
   const serviceClient = serverSupabaseServiceRole(event)

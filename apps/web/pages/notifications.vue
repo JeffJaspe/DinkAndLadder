@@ -11,8 +11,12 @@ interface Notification {
   created_at: string
 }
 
-const { data, pending, refresh } = await useFetch<{ notifications: Notification[] }>('/api/v1/notifications')
-const { data: unreadCount, refresh: refreshCount } = await useFetch<{ count: number }>('/api/v1/notifications/unread-count')
+const { data, pending, refresh } = await useFetch<{ notifications: Notification[] }>(
+  '/api/v1/notifications'
+)
+const { data: unreadCount, refresh: refreshCount } = await useFetch<{ count: number }>(
+  '/api/v1/notifications/unread-count'
+)
 
 const notifications = computed(() => data.value?.notifications ?? [])
 
@@ -51,7 +55,7 @@ function dayLabel(iso: string): string {
 }
 
 const groupedNotifications = computed(() => {
-  const groups: Array<{ label: string, items: Notification[] }> = []
+  const groups: Array<{ label: string; items: Notification[] }> = []
   for (const notification of notifications.value) {
     const label = dayLabel(notification.created_at)
     const last = groups[groups.length - 1]
@@ -75,14 +79,22 @@ async function markAllAsRead() {
 
 function getNotificationIcon(type: string): string {
   switch (type) {
-    case 'match.verification_requested': return '🎯'
-    case 'match.verified': return '✅'
-    case 'match.rejected': return '❌'
-    case 'club.membership_approved': return '🏸'
-    case 'club.membership_rejected': return '🚫'
-    case 'achievement.unlocked': return '🏆'
-    case 'social.new_follower': return '👤'
-    default: return '🔔'
+    case 'match.verification_requested':
+      return '🎯'
+    case 'match.verified':
+      return '✅'
+    case 'match.rejected':
+      return '❌'
+    case 'club.membership_approved':
+      return '🏸'
+    case 'club.membership_rejected':
+      return '🚫'
+    case 'achievement.unlocked':
+      return '🏆'
+    case 'social.new_follower':
+      return '👤'
+    default:
+      return '🔔'
   }
 }
 
@@ -131,7 +143,7 @@ function formatTime(dateStr: string): string {
           </p>
         </div>
         <button
-          v-if="notifications.some(n => !n.is_read)"
+          v-if="notifications.some((n) => !n.is_read)"
           class="rounded-lg px-4 py-2 text-sm font-medium text-primary hover:bg-primary/10"
           @click="markAllAsRead"
         >
@@ -145,7 +157,10 @@ function formatTime(dateStr: string): string {
       </div>
 
       <!-- Empty -->
-      <div v-else-if="notifications.length === 0" class="rounded-xl bg-surface p-12 text-center">
+      <div
+        v-else-if="notifications.length === 0"
+        class="rounded-xl bg-surface p-12 text-center shadow-card"
+      >
         <p class="text-4xl">🔔</p>
         <h3 class="mt-4 text-lg font-semibold text-fg">No notifications</h3>
         <p class="mt-2 text-sm text-fg-muted">You're all caught up!</p>
@@ -161,37 +176,42 @@ function formatTime(dateStr: string): string {
             :is="getNotificationLink(notification) ? 'NuxtLink' : 'div'"
             v-for="notification in group.items"
             :key="notification.id"
-          :to="getNotificationLink(notification)"
-          class="flex items-start gap-4 rounded-xl p-4 transition-all"
-          :class="[
-            notification.is_read ? 'bg-surface' : 'bg-surface ring-1 ring-primary/20',
-            getNotificationLink(notification) ? 'hover:bg-surface-2 cursor-pointer' : ''
-          ]"
-          @click="!notification.is_read && markAsRead(notification.id)"
-        >
-          <!-- Icon -->
-          <div class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-surface-2 text-xl">
-            {{ getNotificationIcon(notification.type) }}
-          </div>
-
-          <!-- Content -->
-          <div class="min-w-0 flex-1">
-            <div class="flex items-start justify-between gap-2">
-              <h3 class="font-medium" :class="notification.is_read ? 'text-fg-secondary' : 'text-fg'">
-                {{ notification.title }}
-              </h3>
-              <span class="flex-shrink-0 text-xs text-fg-muted">
-                {{ formatTime(notification.created_at) }}
-              </span>
+            :to="getNotificationLink(notification)"
+            class="flex items-start gap-4 rounded-xl p-4 transition-all"
+            :class="[
+              notification.is_read ? 'bg-surface' : 'bg-surface ring-1 ring-primary/20',
+              getNotificationLink(notification) ? 'hover:bg-surface-2 cursor-pointer' : ''
+            ]"
+            @click="!notification.is_read && markAsRead(notification.id)"
+          >
+            <!-- Icon -->
+            <div
+              class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-surface-2 text-xl"
+            >
+              {{ getNotificationIcon(notification.type) }}
             </div>
-            <p class="mt-1 text-sm text-fg-muted">{{ notification.body }}</p>
-          </div>
 
-          <!-- Unread Indicator -->
-          <div
-            v-if="!notification.is_read"
-            class="mt-2 h-2 w-2 flex-shrink-0 rounded-full bg-primary"
-          />
+            <!-- Content -->
+            <div class="min-w-0 flex-1">
+              <div class="flex items-start justify-between gap-2">
+                <h3
+                  class="font-medium"
+                  :class="notification.is_read ? 'text-fg-secondary' : 'text-fg'"
+                >
+                  {{ notification.title }}
+                </h3>
+                <span class="flex-shrink-0 text-xs text-fg-muted">
+                  {{ formatTime(notification.created_at) }}
+                </span>
+              </div>
+              <p class="mt-1 text-sm text-fg-muted">{{ notification.body }}</p>
+            </div>
+
+            <!-- Unread Indicator -->
+            <div
+              v-if="!notification.is_read"
+              class="mt-2 h-2 w-2 flex-shrink-0 rounded-full bg-primary"
+            />
           </component>
         </section>
       </div>

@@ -53,7 +53,11 @@ async function assertOrganizer(events: EventRepository, eventId: string, playerI
     throw new EventQueueServiceError(404, 'NOT_FOUND', 'Event not found.')
   }
   if (event.created_by_player_id !== playerId) {
-    throw new EventQueueServiceError(403, 'FORBIDDEN', 'Only the event organizer can manage the queue.')
+    throw new EventQueueServiceError(
+      403,
+      'FORBIDDEN',
+      'Only the event organizer can manage the queue.'
+    )
   }
   return event
 }
@@ -85,7 +89,11 @@ export function createEventQueueService(
           )
         }
         if (partnerId === playerId) {
-          throw new EventQueueServiceError(400, 'VALIDATION_ERROR', 'You cannot partner with yourself.')
+          throw new EventQueueServiceError(
+            400,
+            'VALIDATION_ERROR',
+            'You cannot partner with yourself.'
+          )
         }
         await assertRegistered(registrations, eventId, partnerId)
       }
@@ -110,10 +118,17 @@ export function createEventQueueService(
       await assertOrganizer(events, eventId, actingPlayerId)
 
       if (queueId1 === queueId2) {
-        throw new EventQueueServiceError(400, 'VALIDATION_ERROR', 'Select two different queue entries.')
+        throw new EventQueueServiceError(
+          400,
+          'VALIDATION_ERROR',
+          'Select two different queue entries.'
+        )
       }
 
-      const [first, second] = await Promise.all([queue.findById(queueId1), queue.findById(queueId2)])
+      const [first, second] = await Promise.all([
+        queue.findById(queueId1),
+        queue.findById(queueId2)
+      ])
       if (!first || !second || first.event_id !== eventId || second.event_id !== eventId) {
         throw new EventQueueServiceError(404, 'NOT_FOUND', 'Queue entry not found for this event.')
       }
@@ -132,7 +147,11 @@ export function createEventQueueService(
           (entry.status === 'matched' || entry.status === 'playing')
       )
       if (courtTaken) {
-        throw new EventQueueServiceError(409, 'COURT_IN_USE', `Court ${courtNumber} is already in use.`)
+        throw new EventQueueServiceError(
+          409,
+          'COURT_IN_USE',
+          `Court ${courtNumber} is already in use.`
+        )
       }
 
       const [updatedFirst, updatedSecond] = await Promise.all([

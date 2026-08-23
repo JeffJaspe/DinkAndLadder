@@ -1,5 +1,8 @@
 import type { BracketRepository } from '../repositories/bracket.repository'
-import type { TournamentRegistrationRepository, TournamentRepository } from '../repositories/tournament.repository'
+import type {
+  TournamentRegistrationRepository,
+  TournamentRepository
+} from '../repositories/tournament.repository'
 import type { EventRepository } from '../repositories/event.repository'
 import type {
   BracketDto,
@@ -46,7 +49,11 @@ export function createBracketService(
       throw new BracketServiceError(404, 'NOT_FOUND', 'Event not found.')
     }
     if (event.created_by_player_id !== playerId) {
-      throw new BracketServiceError(403, 'FORBIDDEN', 'Only the event organizer can manage brackets.')
+      throw new BracketServiceError(
+        403,
+        'FORBIDDEN',
+        'Only the event organizer can manage brackets.'
+      )
     }
     return event
   }
@@ -114,21 +121,40 @@ export function createBracketService(
       await brackets.deleteByTournamentId(tournamentId, categoryId)
 
       const registrationIds = confirmedRegs.map((r) => r.id)
-      let bracketMatches: Omit<import('../dto/bracket.dto').BracketMatchRecord, 'id' | 'created_at'>[]
+      let bracketMatches: Omit<
+        import('../dto/bracket.dto').BracketMatchRecord,
+        'id' | 'created_at'
+      >[]
 
       switch (tournament.format) {
         case 'double_elimination':
-          bracketMatches = generateDoubleEliminationBracket(tournamentId, registrationIds, categoryId ?? null)
+          bracketMatches = generateDoubleEliminationBracket(
+            tournamentId,
+            registrationIds,
+            categoryId ?? null
+          )
           break
         case 'round_robin':
-          bracketMatches = generateRoundRobinBracket(tournamentId, registrationIds, categoryId ?? null)
+          bracketMatches = generateRoundRobinBracket(
+            tournamentId,
+            registrationIds,
+            categoryId ?? null
+          )
           break
         case 'pool_play':
-          bracketMatches = generatePoolPlayBracket(tournamentId, registrationIds, categoryId ?? null)
+          bracketMatches = generatePoolPlayBracket(
+            tournamentId,
+            registrationIds,
+            categoryId ?? null
+          )
           break
         case 'single_elimination':
         default:
-          bracketMatches = generateSingleEliminationBracket(tournamentId, registrationIds, categoryId ?? null)
+          bracketMatches = generateSingleEliminationBracket(
+            tournamentId,
+            registrationIds,
+            categoryId ?? null
+          )
           break
       }
       const created = await brackets.createMany(bracketMatches)

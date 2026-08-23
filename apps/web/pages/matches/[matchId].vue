@@ -22,7 +22,13 @@ const { data: myProfile } = await useFetch<PlayerProfileDto>('/api/v1/players/me
  * returns [] rather than erroring, so this never blocks the page.
  */
 const { data: ratingChanges } = await useFetch<{
-  data: Array<{ player_id: string, display_name: string, rating_delta: number, new_rating: number, created_at: string }>
+  data: Array<{
+    player_id: string
+    display_name: string
+    rating_delta: number
+    new_rating: number
+    created_at: string
+  }>
 }>(() => `/api/v1/matches/${matchId.value}/rating-changes`, { server: false })
 
 // The detail endpoint now returns a players map, so the timeline can name who
@@ -105,7 +111,8 @@ async function submitCounter() {
         }))
       }
     })
-    actionMessage.value = 'Your proposed score was recorded. The match is now marked disputed for review.'
+    actionMessage.value =
+      'Your proposed score was recorded. The match is now marked disputed for review.'
     showCounterForm.value = false
     counterSets.value = [{ team1Score: '', team2Score: '' }]
     await refresh()
@@ -162,11 +169,11 @@ async function recordDecision(status: 'confirmed' | 'rejected' | 'disputed') {
 }
 
 function getTeamPlayers(teamNumber: number) {
-  return match.value?.participants.filter(p => p.team_number === teamNumber) ?? []
+  return match.value?.participants.filter((p) => p.team_number === teamNumber) ?? []
 }
 
 function didTeamWinSet(setNumber: number, teamNumber: number): boolean {
-  const score = match.value?.scores.find(s => s.set_number === setNumber)
+  const score = match.value?.scores.find((s) => s.set_number === setNumber)
   if (!score) return false
   if (teamNumber === 1) return score.team1_score > score.team2_score
   return score.team2_score > score.team1_score
@@ -183,10 +190,7 @@ function didTeamWinSet(setNumber: number, teamNumber: number): boolean {
       </div>
 
       <!-- Error -->
-      <div
-        v-else-if="error"
-        class="rounded-xl bg-red-500/10 p-6 text-center"
-      >
+      <div v-else-if="error" class="rounded-xl bg-red-500/10 p-6 text-center">
         <p class="text-red-400">
           {{
             error.statusCode === 404
@@ -208,7 +212,13 @@ function didTeamWinSet(setNumber: number, teamNumber: number): boolean {
               {{ match.match_type === 'singles' ? 'Singles' : 'Doubles' }} Match
             </h1>
             <p class="mt-1 text-fg-muted">
-              {{ new Date(match.played_at).toLocaleDateString() }} at {{ new Date(match.played_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }}
+              {{ new Date(match.played_at).toLocaleDateString() }} at
+              {{
+                new Date(match.played_at).toLocaleTimeString([], {
+                  hour: '2-digit',
+                  minute: '2-digit'
+                })
+              }}
             </p>
             <p v-if="match.venue" class="text-sm text-fg-muted">{{ match.venue }}</p>
           </div>
@@ -221,7 +231,7 @@ function didTeamWinSet(setNumber: number, teamNumber: number): boolean {
         </div>
 
         <!-- Score Card -->
-        <div class="mb-6 rounded-xl bg-surface p-5">
+        <div class="mb-6 rounded-xl bg-surface p-5 shadow-card">
           <div class="flex items-center justify-between gap-4">
             <!-- Team 1 -->
             <div class="flex-1 text-center">
@@ -246,11 +256,15 @@ function didTeamWinSet(setNumber: number, teamNumber: number): boolean {
               >
                 <span class="text-xs text-fg-muted">Set {{ s.set_number }}</span>
                 <div class="flex items-center gap-1 text-lg font-bold">
-                  <span :class="didTeamWinSet(s.set_number, 1) ? 'text-primary' : 'text-fg-secondary'">
+                  <span
+                    :class="didTeamWinSet(s.set_number, 1) ? 'text-primary' : 'text-fg-secondary'"
+                  >
                     {{ s.team1_score }}
                   </span>
                   <span class="text-fg-muted">-</span>
-                  <span :class="didTeamWinSet(s.set_number, 2) ? 'text-primary' : 'text-fg-secondary'">
+                  <span
+                    :class="didTeamWinSet(s.set_number, 2) ? 'text-primary' : 'text-fg-secondary'"
+                  >
                     {{ s.team2_score }}
                   </span>
                 </div>
@@ -276,7 +290,7 @@ function didTeamWinSet(setNumber: number, teamNumber: number): boolean {
         <!-- Verification timeline. The mockup's central element: an auditable
              chain of who did what and when is what makes a disputed result
              resolvable (docs/33 §5.6). -->
-        <div class="mb-6 rounded-card border border-border bg-surface p-5">
+        <div class="mb-6 rounded-card border border-border bg-surface p-5 shadow-card">
           <h2 class="mb-4 font-display text-heading-3 text-fg">Timeline</h2>
 
           <MatchVerificationTimeline
@@ -288,18 +302,19 @@ function didTeamWinSet(setNumber: number, teamNumber: number): boolean {
             :rated-at="ratedAt"
           />
 
-          <div v-if="match.verifications.length === 0 && canInitiate" class="mt-4 border-t border-border pt-4">
+          <div
+            v-if="match.verifications.length === 0 && canInitiate"
+            class="mt-4 border-t border-border pt-4"
+          >
             <p class="mb-3 text-body-2 text-fg-secondary">
               Verification has not started yet. Ask your opponent to confirm the score.
             </p>
-            <UiButton :loading="acting" @click="startVerification">
-              Start verification
-            </UiButton>
+            <UiButton :loading="acting" @click="startVerification"> Start verification </UiButton>
           </div>
         </div>
 
         <!-- Decision Form -->
-        <div v-if="canDecide" class="mb-6 rounded-xl bg-surface p-5">
+        <div v-if="canDecide" class="mb-6 rounded-xl bg-surface p-5 shadow-card">
           <h2 class="mb-4 font-semibold text-fg">Your Decision</h2>
           <p class="mb-4 text-sm text-fg-muted">
             Please verify the match details above and confirm or dispute.
@@ -336,7 +351,7 @@ function didTeamWinSet(setNumber: number, teamNumber: number): boolean {
         </div>
 
         <!-- Counter-Proposal -->
-        <div v-if="canCounter" class="mb-6 rounded-xl bg-surface p-5">
+        <div v-if="canCounter" class="mb-6 rounded-xl bg-surface p-5 shadow-card">
           <div class="mb-4 flex items-center justify-between">
             <h2 class="font-semibold text-fg">Disagree with the score?</h2>
             <button
@@ -383,7 +398,12 @@ function didTeamWinSet(setNumber: number, teamNumber: number): boolean {
                 @click="removeCounterSet(i)"
               >
                 <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M6 18L18 6M6 6l12 12"
+                  />
                 </svg>
               </button>
             </div>
@@ -416,7 +436,10 @@ function didTeamWinSet(setNumber: number, teamNumber: number): boolean {
         </div>
 
         <!-- Score Proposal History -->
-        <div v-if="match.score_proposals.length > 0" class="mb-6 rounded-xl bg-surface p-5">
+        <div
+          v-if="match.score_proposals.length > 0"
+          class="mb-6 rounded-xl bg-surface p-5 shadow-card"
+        >
           <h2 class="mb-4 font-semibold text-fg">Proposed Scores</h2>
           <div class="space-y-3">
             <div
@@ -427,14 +450,24 @@ function didTeamWinSet(setNumber: number, teamNumber: number): boolean {
               <div class="mb-2 flex items-center justify-between">
                 <span class="text-sm text-fg-secondary">
                   Round {{ proposal.proposal_round }} by
-                  {{ proposal.proposed_by_player_id === myProfile?.id ? 'you' : proposal.proposed_by_player_id.slice(0, 8) }}
+                  {{
+                    proposal.proposed_by_player_id === myProfile?.id
+                      ? 'you'
+                      : proposal.proposed_by_player_id.slice(0, 8)
+                  }}
                 </span>
-                <span class="rounded-md bg-yellow-500/20 px-2 py-0.5 text-xs font-medium capitalize text-yellow-400">
+                <span
+                  class="rounded-md bg-yellow-500/20 px-2 py-0.5 text-xs font-medium capitalize text-yellow-400"
+                >
                   {{ proposal.status }}
                 </span>
               </div>
               <div class="flex gap-2 text-sm text-fg">
-                <span v-for="s in proposal.scores" :key="s.set_number" class="rounded bg-surface-2 px-2 py-1">
+                <span
+                  v-for="s in proposal.scores"
+                  :key="s.set_number"
+                  class="rounded bg-surface-2 px-2 py-1"
+                >
                   {{ s.team1_score }}-{{ s.team2_score }}
                 </span>
               </div>

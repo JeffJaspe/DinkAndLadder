@@ -83,17 +83,13 @@ const locationLabel = computed(() => {
   return 'Nationwide'
 })
 
-const {
-  data: playHistoryData,
-  pending: historyPending
-} = await useFetch<{ data: { partners: PlayHistoryEntry[]; opponents: OpponentEntry[] } }>(
-  '/api/v1/players/me/play-history'
-)
+const { data: playHistoryData, pending: historyPending } = await useFetch<{
+  data: { partners: PlayHistoryEntry[]; opponents: OpponentEntry[] }
+}>('/api/v1/players/me/play-history')
 
-const {
-  data: clubsData,
-  pending: clubsPending
-} = await useFetch<{ data: ClubItem[] }>('/api/v1/clubs/all')
+const { data: clubsData, pending: clubsPending } = await useFetch<{ data: ClubItem[] }>(
+  '/api/v1/clubs/all'
+)
 
 const partners = computed(() => playHistoryData.value?.data?.partners ?? [])
 const opponents = computed(() => playHistoryData.value?.data?.opponents ?? [])
@@ -117,31 +113,47 @@ function formatRelativeTime(dateStr: string): string {
       <p class="mt-1 text-sm text-fg-muted">Players from your matches and clubs</p>
 
       <!-- Tabs -->
-      <div class="my-6 flex gap-1 rounded-xl bg-surface p-1">
+      <div class="my-6 flex gap-1 rounded-xl bg-surface p-1 shadow-card">
         <button
           class="flex-1 rounded-lg px-3 py-2 text-sm font-medium transition-colors"
-          :class="activeTab === 'rankings' ? 'bg-primary text-on-primary' : 'text-fg-muted hover:text-on-primary'"
+          :class="
+            activeTab === 'rankings'
+              ? 'bg-primary text-on-primary'
+              : 'text-fg-muted hover:text-on-primary'
+          "
           @click="activeTab = 'rankings'"
         >
           Rankings
         </button>
         <button
           class="flex-1 rounded-lg px-3 py-2 text-sm font-medium transition-colors"
-          :class="activeTab === 'partners' ? 'bg-primary text-on-primary' : 'text-fg-muted hover:text-on-primary'"
+          :class="
+            activeTab === 'partners'
+              ? 'bg-primary text-on-primary'
+              : 'text-fg-muted hover:text-on-primary'
+          "
           @click="activeTab = 'partners'"
         >
           Partners
         </button>
         <button
           class="flex-1 rounded-lg px-3 py-2 text-sm font-medium transition-colors"
-          :class="activeTab === 'opponents' ? 'bg-primary text-on-primary' : 'text-fg-muted hover:text-on-primary'"
+          :class="
+            activeTab === 'opponents'
+              ? 'bg-primary text-on-primary'
+              : 'text-fg-muted hover:text-on-primary'
+          "
           @click="activeTab = 'opponents'"
         >
           Opponents
         </button>
         <button
           class="flex-1 rounded-lg px-3 py-2 text-sm font-medium transition-colors"
-          :class="activeTab === 'clubs' ? 'bg-primary text-on-primary' : 'text-fg-muted hover:text-on-primary'"
+          :class="
+            activeTab === 'clubs'
+              ? 'bg-primary text-on-primary'
+              : 'text-fg-muted hover:text-on-primary'
+          "
           @click="activeTab = 'clubs'"
         >
           Clubs
@@ -159,7 +171,11 @@ function formatRelativeTime(dateStr: string): string {
               :key="type"
               type="button"
               class="flex-1 rounded-md px-4 py-2 text-sm font-medium capitalize transition-colors"
-              :class="type === ratingType ? 'bg-primary text-on-primary' : 'text-fg-muted hover:text-on-primary'"
+              :class="
+                type === ratingType
+                  ? 'bg-primary text-on-primary'
+                  : 'text-fg-muted hover:text-on-primary'
+              "
               @click="ratingType = type"
             >
               {{ type }}
@@ -183,7 +199,11 @@ function formatRelativeTime(dateStr: string): string {
               class="rounded-lg border border-border-strong bg-surface px-3 py-2 text-sm text-fg focus:border-primary focus:outline-none disabled:opacity-50"
               @change="selectCity(($event.target as HTMLSelectElement).value)"
             >
-              <option value="">{{ loadingCities ? 'Loading...' : (selectedProvince ? 'All Cities' : 'Select province') }}</option>
+              <option value="">
+                {{
+                  loadingCities ? 'Loading...' : selectedProvince ? 'All Cities' : 'Select province'
+                }}
+              </option>
               <option v-for="c in cities" :key="c.code" :value="c.code">{{ c.name }}</option>
             </select>
             <select
@@ -192,7 +212,11 @@ function formatRelativeTime(dateStr: string): string {
               class="rounded-lg border border-border-strong bg-surface px-3 py-2 text-sm text-fg focus:border-primary focus:outline-none disabled:opacity-50"
               @change="selectBarangay(($event.target as HTMLSelectElement).value)"
             >
-              <option value="">{{ loadingBarangays ? 'Loading...' : (selectedCity ? 'All Barangays' : 'Select city') }}</option>
+              <option value="">
+                {{
+                  loadingBarangays ? 'Loading...' : selectedCity ? 'All Barangays' : 'Select city'
+                }}
+              </option>
               <option v-for="b in barangays" :key="b.code" :value="b.code">{{ b.name }}</option>
             </select>
           </div>
@@ -200,18 +224,25 @@ function formatRelativeTime(dateStr: string): string {
 
         <!-- Loading -->
         <div v-if="rankingsPending" class="flex justify-center py-12">
-          <div class="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+          <div
+            class="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"
+          />
         </div>
 
         <!-- Error -->
-        <div v-else-if="rankingsError" class="rounded-xl bg-surface p-8 text-center">
+        <div v-else-if="rankingsError" class="rounded-xl bg-surface p-8 text-center shadow-card">
           <p class="text-4xl">⚠️</p>
           <h3 class="mt-3 font-semibold text-fg">Rankings are unavailable</h3>
-          <p class="mt-1 text-sm text-fg-muted">Something went wrong loading them. Try again shortly.</p>
+          <p class="mt-1 text-sm text-fg-muted">
+            Something went wrong loading them. Try again shortly.
+          </p>
         </div>
 
         <!-- Empty -->
-        <div v-else-if="rankings.length === 0" class="rounded-xl bg-surface p-8 text-center">
+        <div
+          v-else-if="rankings.length === 0"
+          class="rounded-xl bg-surface p-8 text-center shadow-card"
+        >
           <p class="text-4xl">🏆</p>
           <h3 class="mt-4 text-lg font-semibold text-fg">No ranked players</h3>
           <p class="mt-2 text-sm text-fg-muted">
@@ -222,44 +253,71 @@ function formatRelativeTime(dateStr: string): string {
         <!-- Rankings Content -->
         <div v-else class="space-y-4">
           <!-- Top 3 Podium -->
-          <div v-if="topThree.length >= 3" class="rounded-xl bg-surface p-4">
+          <div v-if="topThree.length >= 3" class="rounded-xl bg-surface p-4 shadow-card">
             <h3 class="mb-3 text-center text-sm font-semibold text-fg">
               🏆 Top 3 {{ ratingType === 'singles' ? 'Singles' : 'Doubles' }} - {{ locationLabel }}
             </h3>
             <div class="flex items-end justify-center gap-3">
               <!-- 2nd Place -->
-              <NuxtLink :to="`/players/${topThree[1].player_id}`" class="flex flex-col items-center">
-                <div class="mb-1 flex h-10 w-10 items-center justify-center rounded-full bg-surface-2 text-sm font-bold text-rating-silver ring-2 ring-rating-silver">
+              <NuxtLink
+                :to="`/players/${topThree[1].player_id}`"
+                class="flex flex-col items-center"
+              >
+                <div
+                  class="mb-1 flex h-10 w-10 items-center justify-center rounded-full bg-surface-2 text-sm font-bold text-rating-silver ring-2 ring-rating-silver"
+                >
                   {{ topThree[1].display_name.charAt(0) }}
                 </div>
-                <p class="text-xs text-fg-secondary">{{ topThree[1].display_name.split(' ')[0] }}</p>
+                <p class="text-xs text-fg-secondary">
+                  {{ topThree[1].display_name.split(' ')[0] }}
+                </p>
                 <p class="text-xs text-fg-muted">{{ Math.round(topThree[1].rating_value) }}</p>
-                <div class="mt-1 flex h-12 w-10 items-end justify-center rounded-t-lg bg-rating-silver/20">
+                <div
+                  class="mt-1 flex h-12 w-10 items-end justify-center rounded-t-lg bg-rating-silver/20"
+                >
                   <span class="mb-1 text-lg font-bold text-rating-silver">2</span>
                 </div>
               </NuxtLink>
               <!-- 1st Place -->
-              <NuxtLink :to="`/players/${topThree[0].player_id}`" class="flex flex-col items-center">
+              <NuxtLink
+                :to="`/players/${topThree[0].player_id}`"
+                class="flex flex-col items-center"
+              >
                 <div class="relative mb-1">
                   <span class="absolute -top-3 left-1/2 -translate-x-1/2 text-sm">👑</span>
-                  <div class="flex h-12 w-12 items-center justify-center rounded-full bg-surface-2 text-lg font-bold text-warning ring-2 ring-warning-fill">
+                  <div
+                    class="flex h-12 w-12 items-center justify-center rounded-full bg-surface-2 text-lg font-bold text-warning ring-2 ring-warning-fill"
+                  >
                     {{ topThree[0].display_name.charAt(0) }}
                   </div>
                 </div>
-                <p class="text-xs text-fg-secondary">{{ topThree[0].display_name.split(' ')[0] }}</p>
+                <p class="text-xs text-fg-secondary">
+                  {{ topThree[0].display_name.split(' ')[0] }}
+                </p>
                 <p class="text-xs text-fg-muted">{{ Math.round(topThree[0].rating_value) }}</p>
-                <div class="mt-1 flex h-16 w-12 items-end justify-center rounded-t-lg bg-warning-fill/20">
+                <div
+                  class="mt-1 flex h-16 w-12 items-end justify-center rounded-t-lg bg-warning-fill/20"
+                >
                   <span class="mb-1 text-xl font-bold text-warning">1</span>
                 </div>
               </NuxtLink>
               <!-- 3rd Place -->
-              <NuxtLink :to="`/players/${topThree[2].player_id}`" class="flex flex-col items-center">
-                <div class="mb-1 flex h-8 w-8 items-center justify-center rounded-full bg-surface-2 text-xs font-bold text-rating-bronze ring-2 ring-rating-bronze">
+              <NuxtLink
+                :to="`/players/${topThree[2].player_id}`"
+                class="flex flex-col items-center"
+              >
+                <div
+                  class="mb-1 flex h-8 w-8 items-center justify-center rounded-full bg-surface-2 text-xs font-bold text-rating-bronze ring-2 ring-rating-bronze"
+                >
                   {{ topThree[2].display_name.charAt(0) }}
                 </div>
-                <p class="text-xs text-fg-secondary">{{ topThree[2].display_name.split(' ')[0] }}</p>
+                <p class="text-xs text-fg-secondary">
+                  {{ topThree[2].display_name.split(' ')[0] }}
+                </p>
                 <p class="text-xs text-fg-muted">{{ Math.round(topThree[2].rating_value) }}</p>
-                <div class="mt-1 flex h-8 w-10 items-end justify-center rounded-t-lg bg-rating-bronze/20">
+                <div
+                  class="mt-1 flex h-8 w-10 items-end justify-center rounded-t-lg bg-rating-bronze/20"
+                >
                   <span class="mb-1 text-lg font-bold text-rating-bronze">3</span>
                 </div>
               </NuxtLink>
@@ -269,14 +327,18 @@ function formatRelativeTime(dateStr: string): string {
           <!-- Rest of Rankings List -->
           <div class="space-y-2">
             <NuxtLink
-              v-for="entry in (topThree.length >= 3 ? restOfRankings : rankings)"
+              v-for="entry in topThree.length >= 3 ? restOfRankings : rankings"
               :key="entry.player_id"
               :to="`/players/${entry.player_id}`"
-              class="flex items-center justify-between rounded-xl bg-surface p-3 transition-all hover:bg-surface-2"
+              class="flex items-center justify-between rounded-xl bg-surface p-3 transition-all hover:bg-surface-2 shadow-card hover:shadow-card-hover"
             >
               <div class="flex items-center gap-3">
-                <span class="w-6 text-center text-sm font-medium text-fg-muted">{{ entry.rank }}</span>
-                <div class="flex h-10 w-10 items-center justify-center rounded-full bg-surface-2 text-sm font-bold text-fg-secondary">
+                <span class="w-6 text-center text-sm font-medium text-fg-muted">{{
+                  entry.rank
+                }}</span>
+                <div
+                  class="flex h-10 w-10 items-center justify-center rounded-full bg-surface-2 text-sm font-bold text-fg-secondary"
+                >
                   {{ entry.display_name.charAt(0).toUpperCase() }}
                 </div>
                 <div>
@@ -284,14 +346,16 @@ function formatRelativeTime(dateStr: string): string {
                   <p v-if="entry.city" class="text-xs text-fg-muted">{{ entry.city }}</p>
                 </div>
               </div>
-              <span class="text-sm font-semibold text-primary">{{ Math.round(entry.rating_value) }}</span>
+              <span class="text-sm font-semibold text-primary">{{
+                Math.round(entry.rating_value)
+              }}</span>
             </NuxtLink>
           </div>
 
           <!-- View Full Rankings Link -->
           <NuxtLink
             to="/rankings"
-            class="block rounded-xl border border-border-strong p-3 text-center text-sm text-fg-secondary transition-colors hover:bg-surface"
+            class="block rounded-xl border border-border-strong p-3 text-center text-sm text-fg-secondary transition-colors hover:bg-surface shadow-card hover:shadow-card-hover"
           >
             View Full Rankings →
           </NuxtLink>
@@ -301,10 +365,15 @@ function formatRelativeTime(dateStr: string): string {
       <!-- Partners Tab -->
       <div v-if="activeTab === 'partners'">
         <div v-if="historyPending" class="flex justify-center py-12">
-          <div class="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+          <div
+            class="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"
+          />
         </div>
 
-        <div v-else-if="partners.length === 0" class="rounded-xl bg-surface p-8 text-center">
+        <div
+          v-else-if="partners.length === 0"
+          class="rounded-xl bg-surface p-8 text-center shadow-card"
+        >
           <p class="text-fg-muted">No match partners yet.</p>
           <p class="mt-2 text-sm text-fg-muted">
             Play doubles matches and your teammates will appear here.
@@ -316,16 +385,19 @@ function formatRelativeTime(dateStr: string): string {
             v-for="partner in partners"
             :key="partner.player_id"
             :to="`/players/${partner.player_id}`"
-            class="flex items-center justify-between rounded-xl bg-surface p-4 transition-all hover:bg-surface-2"
+            class="flex items-center justify-between rounded-xl bg-surface p-4 transition-all hover:bg-surface-2 shadow-card hover:shadow-card-hover"
           >
             <div class="flex items-center gap-3">
-              <div class="flex h-12 w-12 items-center justify-center rounded-full bg-surface-2 text-lg font-bold text-fg-secondary">
+              <div
+                class="flex h-12 w-12 items-center justify-center rounded-full bg-surface-2 text-lg font-bold text-fg-secondary"
+              >
                 {{ partner.display_name.charAt(0).toUpperCase() }}
               </div>
               <div>
                 <p class="font-medium text-fg">{{ partner.display_name }}</p>
                 <p class="text-sm text-fg-muted">
-                  {{ partner.match_count }} match{{ partner.match_count !== 1 ? 'es' : '' }} together
+                  {{ partner.match_count }} match{{ partner.match_count !== 1 ? 'es' : '' }}
+                  together
                 </p>
               </div>
             </div>
@@ -340,10 +412,15 @@ function formatRelativeTime(dateStr: string): string {
       <!-- Opponents Tab -->
       <div v-else-if="activeTab === 'opponents'">
         <div v-if="historyPending" class="flex justify-center py-12">
-          <div class="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+          <div
+            class="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"
+          />
         </div>
 
-        <div v-else-if="opponents.length === 0" class="rounded-xl bg-surface p-8 text-center">
+        <div
+          v-else-if="opponents.length === 0"
+          class="rounded-xl bg-surface p-8 text-center shadow-card"
+        >
           <p class="text-fg-muted">No opponents yet.</p>
           <p class="mt-2 text-sm text-fg-muted">
             Play matches and your opponents will appear here with head-to-head records.
@@ -355,10 +432,12 @@ function formatRelativeTime(dateStr: string): string {
             v-for="opponent in opponents"
             :key="opponent.player_id"
             :to="`/players/${opponent.player_id}/head-to-head`"
-            class="flex items-center justify-between rounded-xl bg-surface p-4 transition-all hover:bg-surface-2"
+            class="flex items-center justify-between rounded-xl bg-surface p-4 transition-all hover:bg-surface-2 shadow-card hover:shadow-card-hover"
           >
             <div class="flex items-center gap-3">
-              <div class="flex h-12 w-12 items-center justify-center rounded-full bg-surface-2 text-lg font-bold text-fg-secondary">
+              <div
+                class="flex h-12 w-12 items-center justify-center rounded-full bg-surface-2 text-lg font-bold text-fg-secondary"
+              >
                 {{ opponent.display_name.charAt(0).toUpperCase() }}
               </div>
               <div>
@@ -383,10 +462,15 @@ function formatRelativeTime(dateStr: string): string {
       <!-- Clubs Tab -->
       <div v-else-if="activeTab === 'clubs'">
         <div v-if="clubsPending" class="flex justify-center py-12">
-          <div class="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+          <div
+            class="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"
+          />
         </div>
 
-        <div v-else-if="clubs.length === 0" class="rounded-xl bg-surface p-8 text-center">
+        <div
+          v-else-if="clubs.length === 0"
+          class="rounded-xl bg-surface p-8 text-center shadow-card"
+        >
           <p class="text-fg-muted">No clubs yet.</p>
         </div>
 
@@ -395,10 +479,12 @@ function formatRelativeTime(dateStr: string): string {
             v-for="club in clubs"
             :key="club.id"
             :to="`/clubs/${club.id}`"
-            class="flex items-center justify-between rounded-xl bg-surface p-4 transition-all hover:bg-surface-2"
+            class="flex items-center justify-between rounded-xl bg-surface p-4 transition-all hover:bg-surface-2 shadow-card hover:shadow-card-hover"
           >
             <div class="flex items-center gap-3">
-              <div class="flex h-12 w-12 items-center justify-center rounded-full bg-surface-2 text-lg font-bold text-fg-secondary">
+              <div
+                class="flex h-12 w-12 items-center justify-center rounded-full bg-surface-2 text-lg font-bold text-fg-secondary"
+              >
                 {{ club.name.charAt(0).toUpperCase() }}
               </div>
               <div>

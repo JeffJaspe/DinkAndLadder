@@ -16,8 +16,13 @@ export interface BracketRepository {
    * when a tournament has no categories at all). categoryId === null → only matches with
    * no category. categoryId === a string → only that category's matches.
    */
-  findByTournamentId(tournamentId: string, categoryId?: string | null): Promise<BracketMatchRecord[]>
-  createMany(matches: Omit<BracketMatchRecord, 'id' | 'created_at'>[]): Promise<BracketMatchRecord[]>
+  findByTournamentId(
+    tournamentId: string,
+    categoryId?: string | null
+  ): Promise<BracketMatchRecord[]>
+  createMany(
+    matches: Omit<BracketMatchRecord, 'id' | 'created_at'>[]
+  ): Promise<BracketMatchRecord[]>
   update(bracketMatchId: string, input: UpdateBracketMatchInput): Promise<BracketMatchRecord>
   /**
    * Places an advancing entrant into a downstream slot.
@@ -55,7 +60,10 @@ export function createBracketRepository(client: SupabaseClient): BracketReposito
         .select(BRACKET_MATCH_COLUMNS)
         .eq('tournament_id', tournamentId)
       if (categoryId !== undefined) {
-        builder = categoryId === null ? builder.is('category_id', null) : builder.eq('category_id', categoryId)
+        builder =
+          categoryId === null
+            ? builder.is('category_id', null)
+            : builder.eq('category_id', categoryId)
       }
       const { data, error } = await builder
         .order('round', { ascending: true })
@@ -95,8 +103,7 @@ export function createBracketRepository(client: SupabaseClient): BracketReposito
     },
 
     async setParticipant(bracketMatchId, slot, registrationId, status) {
-      const column =
-        slot === 1 ? 'participant1_registration_id' : 'participant2_registration_id'
+      const column = slot === 1 ? 'participant1_registration_id' : 'participant2_registration_id'
 
       const { data, error } = await client
         .from('bracket_matches')
@@ -112,7 +119,10 @@ export function createBracketRepository(client: SupabaseClient): BracketReposito
     async deleteByTournamentId(tournamentId, categoryId) {
       let builder = client.from('bracket_matches').delete().eq('tournament_id', tournamentId)
       if (categoryId !== undefined) {
-        builder = categoryId === null ? builder.is('category_id', null) : builder.eq('category_id', categoryId)
+        builder =
+          categoryId === null
+            ? builder.is('category_id', null)
+            : builder.eq('category_id', categoryId)
       }
       const { error } = await builder
 

@@ -43,7 +43,9 @@ const emit = defineEmits<{ retry: [] }>()
 
     <details v-if="detail" class="mt-1 max-w-full">
       <summary class="cursor-pointer text-caption text-fg-muted">Details</summary>
-      <pre class="scroll-x mt-1 whitespace-pre-wrap text-left text-caption text-fg-muted">{{ detail }}</pre>
+      <pre class="scroll-x mt-1 whitespace-pre-wrap text-left text-caption text-fg-muted">{{
+        detail
+      }}</pre>
     </details>
 
     <UiButton variant="secondary" size="sm" class="mt-1" @click="emit('retry')">

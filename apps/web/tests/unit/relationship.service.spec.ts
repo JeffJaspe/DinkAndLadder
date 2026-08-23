@@ -1,5 +1,8 @@
 import { describe, it, expect, vi } from 'vitest'
-import { createRelationshipService, RelationshipServiceError } from '../../server/domains/social/services/relationship.service'
+import {
+  createRelationshipService,
+  RelationshipServiceError
+} from '../../server/domains/social/services/relationship.service'
 import type { RelationshipRepository } from '../../server/domains/social/repositories/relationship.repository'
 import type { RelationshipRecord } from '../../server/domains/social/dto/relationship.dto'
 
@@ -91,14 +94,20 @@ describe('RelationshipService', () => {
     it('throws when not following', async () => {
       const service = createRelationshipService(createFakeRepository())
 
-      await expect(service.unfollow('player-1', 'player-2')).rejects.toThrow(RelationshipServiceError)
+      await expect(service.unfollow('player-1', 'player-2')).rejects.toThrow(
+        RelationshipServiceError
+      )
     })
   })
 
   describe('block', () => {
     it('creates a block relationship and removes mutual follows', async () => {
       const followRecord = makeRelationshipRecord({ id: 'follow-1' })
-      const theirFollowRecord = makeRelationshipRecord({ id: 'follow-2', from_player_id: 'player-2', to_player_id: 'player-1' })
+      const theirFollowRecord = makeRelationshipRecord({
+        id: 'follow-2',
+        from_player_id: 'player-2',
+        to_player_id: 'player-1'
+      })
       const blockRecord = makeRelationshipRecord({ id: 'block-1', relationship_type: 'block' })
 
       let findCall = 0
@@ -154,7 +163,9 @@ describe('RelationshipService', () => {
     it('throws when not blocked', async () => {
       const service = createRelationshipService(createFakeRepository())
 
-      await expect(service.unblock('player-1', 'player-2')).rejects.toThrow(RelationshipServiceError)
+      await expect(service.unblock('player-1', 'player-2')).rejects.toThrow(
+        RelationshipServiceError
+      )
     })
   })
 

@@ -9,8 +9,8 @@ interface EventsResponse {
 
 // Events are created by clubs, not by players — the create affordance only
 // appears in club mode. Switching account mode is how a player gets there.
-const { accountMode, activeClubId } = useAccountMode()
-const canCreateEvent = computed(() => accountMode.value === 'club')
+const { isClubMode, activeClubId } = useAccountMode()
+const canCreateEvent = isClubMode
 const createEventLink = computed(() =>
   activeClubId.value ? `/create-event?club=${activeClubId.value}` : '/create-event'
 )
@@ -63,9 +63,19 @@ const selectedStatus = computed(
   () => STATUS_FILTERS.find((f) => f.value === statusFilter.value)?.status
 )
 
+// Draft is club-mode work, so player mode is not offered it as a filter — and
+// if the mode is switched while "Draft" is selected, the filter falls back to
+// "All Status" rather than leaving the select showing an option it no longer has.
 const statusOptions = computed(() =>
-  STATUS_FILTERS.map((f) => ({ value: f.value, label: f.label }))
+  STATUS_FILTERS.filter((f) => f.value !== 'draft' || isClubMode.value).map((f) => ({
+    value: f.value,
+    label: f.label
+  }))
 )
+
+watch(isClubMode, (clubMode) => {
+  if (!clubMode && statusFilter.value === 'draft') statusFilter.value = 'all'
+})
 
 const { data, pending, error } = await useFetch<EventsResponse>('/api/v1/events', {
   query: computed(() => ({
@@ -77,7 +87,13 @@ const { data, pending, error } = await useFetch<EventsResponse>('/api/v1/events'
   default: () => ({ events: [] as EventDto[] })
 })
 
-const visibleEvents = computed(() => data.value?.events ?? [])
+// Defence in depth, not the only guard. The endpoint already withholds other
+// people's drafts, but an organiser's own drafts come back on this list, and in
+// player mode they should not be on screen at all.
+const visibleEvents = computed(() => {
+  const events = data.value?.events ?? []
+  return isClubMode.value ? events : events.filter((e) => e.status !== 'draft')
+})
 
 const hasLocationFilter = computed(() => !!provinceName.value || !!cityName.value)
 
@@ -123,7 +139,15 @@ function slotsFor(event: EventDto) {
   const percent = Math.round((filled / total) * 100)
 
   if (remaining === 0) {
-    return { label: 'Full', taken: filled, total, remaining, percent, tone: 'text-danger', barTone: 'bg-danger' }
+    return {
+      label: 'Full',
+      taken: filled,
+      total,
+      remaining,
+      percent,
+      tone: 'text-danger',
+      barTone: 'bg-danger'
+    }
   }
   // Under a quarter left is worth flagging — that is when signing up stops
   // being something a player can put off.
@@ -143,7 +167,11 @@ function formatDateRange(start: string, end: string): string {
   const startDate = new Date(start)
   const endDate = new Date(end)
   const startStr = startDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-  const endStr = endDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+  const endStr = endDate.toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric'
+  })
   if (startStr === endStr.replace(/, \d{4}$/, '')) {
     return endStr
   }
@@ -166,7 +194,12 @@ function formatDateRange(start: string, end: string): string {
           class="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2 font-medium text-on-primary hover:bg-primary-hover"
         >
           <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M12 4v16m8-8H4"
+            />
           </svg>
           Create Event
         </NuxtLink>
@@ -175,14 +208,12 @@ function formatDateRange(start: string, end: string): string {
       <!-- Filters: status, then location -->
       <div class="mb-6 flex flex-wrap items-end gap-3">
         <div class="min-w-[10rem]">
-          <UiSelect
-            v-model="statusFilter"
-            label="Status"
-            :options="statusOptions"
-          />
+          <UiSelect v-model="statusFilter" label="Status" :options="statusOptions" />
         </div>
         <div class="min-w-[12rem] flex-1">
-          <label for="filter-province" class="mb-1.5 block text-xs text-fg-secondary">Province</label>
+          <label for="filter-province" class="mb-1.5 block text-xs text-fg-secondary"
+            >Province</label
+          >
           <select
             id="filter-province"
             :value="selectedProvince"
@@ -204,7 +235,13 @@ function formatDateRange(start: string, end: string): string {
             @change="selectCity(($event.target as HTMLSelectElement).value)"
           >
             <option value="">
-              {{ loadingCities ? 'Loading…' : selectedProvince ? 'All cities' : 'Select a province first' }}
+              {{
+                loadingCities
+                  ? 'Loading…'
+                  : selectedProvince
+                    ? 'All cities'
+                    : 'Select a province first'
+              }}
             </option>
             <option v-for="c in cities" :key="c.code" :value="c.code">{{ c.name }}</option>
           </select>
@@ -230,7 +267,10 @@ function formatDateRange(start: string, end: string): string {
       </div>
 
       <!-- Empty -->
-      <div v-else-if="!data?.events.length" class="rounded-xl bg-surface p-12 text-center">
+      <div
+        v-else-if="!data?.events.length"
+        class="rounded-xl bg-surface p-12 text-center shadow-card"
+      >
         <p class="text-4xl">🎪</p>
         <h3 class="mt-4 text-lg font-semibold text-fg">
           {{ hasLocationFilter ? 'No events in this area' : 'No events yet' }}
@@ -273,9 +313,19 @@ function formatDateRange(start: string, end: string): string {
           v-for="event in visibleEvents"
           :key="event.id"
           :to="`/events/${event.id}`"
-          class="group overflow-hidden rounded-card border border-border bg-surface transition-colors hover:border-border-strong"
+          class="group overflow-hidden rounded-card border border-border bg-surface transition-colors hover:border-border-strong shadow-card hover:shadow-card-hover"
         >
           <UiCoverArt :name="event.name" variant="card" rounded="rounded-none">
+            <!-- Only rendered when the server knew who was asking:
+                 viewer_registered is undefined for a signed-out visitor, and a
+                 missing badge must not read as "you are not signed up". -->
+            <span
+              v-if="event.viewer_registered"
+              class="absolute left-2 top-2 inline-flex items-center gap-1 rounded-badge bg-surface/95 px-2 py-0.5 text-caption font-medium text-success"
+            >
+              <UiIcon name="check" size="h-3.5 w-3.5" :stroke-width="2.5" />
+              Registered
+            </span>
             <span
               class="absolute right-2 top-2 rounded-badge px-2 py-0.5 text-caption font-medium"
               :class="[statusConfig[event.status].bg, statusConfig[event.status].text]"
@@ -290,9 +340,14 @@ function formatDateRange(start: string, end: string): string {
               <UiIcon name="calendar" size="h-4 w-4" class="shrink-0 text-fg-muted" />
               {{ formatDateRange(event.start_date, event.end_date) }}
             </p>
-            <p v-if="event.venue || event.city" class="mt-1 flex items-center gap-1.5 text-caption text-fg-muted">
+            <p
+              v-if="event.venue || event.city"
+              class="mt-1 flex items-center gap-1.5 text-caption text-fg-muted"
+            >
               <UiIcon name="location" size="h-4 w-4" class="shrink-0" />
-              <span class="truncate">{{ [event.venue, event.city].filter(Boolean).join(', ') }}</span>
+              <span class="truncate">{{
+                [event.venue, event.city].filter(Boolean).join(', ')
+              }}</span>
             </p>
 
             <!-- Capacity. Only rendered when the event declares a limit and the

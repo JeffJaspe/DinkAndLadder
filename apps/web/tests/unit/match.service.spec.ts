@@ -472,11 +472,7 @@ describe('MatchService verification', () => {
       const service = createMatchService(repository)
       const match = await service.submitMatch('player-me', baseSinglesInput)
 
-      const updated = await service.proposeCounterScore(
-        'player-opponent',
-        match.id,
-        counterScores
-      )
+      const updated = await service.proposeCounterScore('player-opponent', match.id, counterScores)
 
       expect(updated.status).toBe('disputed')
       expect(updated.score_proposals).toHaveLength(1)

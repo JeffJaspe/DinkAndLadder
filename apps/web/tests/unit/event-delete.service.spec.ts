@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
-import { createEventService, EventServiceError } from '../../server/domains/event/services/event.service'
+import {
+  createEventService,
+  EventServiceError
+} from '../../server/domains/event/services/event.service'
 import type { EventRepository } from '../../server/domains/event/repositories/event.repository'
 import type {
   TournamentRegistrationRepository,
@@ -50,9 +53,7 @@ function setup(options?: {
     search: vi.fn().mockResolvedValue([]),
     countBlockingChildren: vi
       .fn()
-      .mockResolvedValue(
-        options?.blocking ?? { registrations: 0, matches: 0, queueEntries: 0 }
-      ),
+      .mockResolvedValue(options?.blocking ?? { registrations: 0, matches: 0, queueEntries: 0 }),
     deleteWithChildren
   }
 
@@ -134,9 +135,7 @@ describe('EventService.deleteDraftEvent', () => {
       {} as TournamentRegistrationRepository
     )
 
-    await expect(bare.deleteDraftEvent('organizer-1', 'missing')).rejects.toThrow(
-      EventServiceError
-    )
+    await expect(bare.deleteDraftEvent('organizer-1', 'missing')).rejects.toThrow(EventServiceError)
     expect(service).toBeDefined()
   })
 })

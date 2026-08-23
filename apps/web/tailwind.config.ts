@@ -62,6 +62,8 @@ export default {
           soft: token('accent-soft')
         },
         'on-accent': token('on-accent'),
+        // Labels over the landing hero's scrim — see tokens.css.
+        'on-scrim': token('on-scrim'),
 
         // Status
         success: {

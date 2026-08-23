@@ -1,11 +1,18 @@
-import { serverSupabaseClient, serverSupabaseServiceRole, serverSupabaseUser } from '#supabase/server'
+import {
+  serverSupabaseClient,
+  serverSupabaseServiceRole,
+  serverSupabaseUser
+} from '#supabase/server'
 import { createBracketRepository } from '~/server/domains/event/repositories/bracket.repository'
 import { createEventRepository } from '~/server/domains/event/repositories/event.repository'
 import {
   createTournamentRepository,
   createTournamentRegistrationRepository
 } from '~/server/domains/event/repositories/tournament.repository'
-import { createBracketService, BracketServiceError } from '~/server/domains/event/services/bracket.service'
+import {
+  createBracketService,
+  BracketServiceError
+} from '~/server/domains/event/services/bracket.service'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
 
 export default defineEventHandler(async (event) => {

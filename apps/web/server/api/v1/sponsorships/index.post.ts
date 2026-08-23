@@ -1,6 +1,9 @@
 import { serverSupabaseClient, serverSupabaseUser } from '#supabase/server'
 import { createSponsorshipRepository } from '~/server/domains/payment/repositories/sponsorship.repository'
-import { createSponsorshipService, SponsorshipServiceError } from '~/server/domains/payment/services/sponsorship.service'
+import {
+  createSponsorshipService,
+  SponsorshipServiceError
+} from '~/server/domains/payment/services/sponsorship.service'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
 import type { CreateSponsorshipInput } from '~/server/domains/payment/dto/sponsorship.dto'
 
@@ -13,7 +16,10 @@ export default defineEventHandler(async (event) => {
   const body = await readBody<CreateSponsorshipInput>(event)
 
   if (!body.target_type || !body.target_id || !body.amount_cents) {
-    throw createError({ statusCode: 400, statusMessage: 'target_type, target_id, and amount_cents are required' })
+    throw createError({
+      statusCode: 400,
+      statusMessage: 'target_type, target_id, and amount_cents are required'
+    })
   }
 
   const client = await serverSupabaseClient(event)

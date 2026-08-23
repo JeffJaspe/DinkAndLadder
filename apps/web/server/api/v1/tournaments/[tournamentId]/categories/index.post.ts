@@ -1,4 +1,8 @@
-import { serverSupabaseClient, serverSupabaseServiceRole, serverSupabaseUser } from '#supabase/server'
+import {
+  serverSupabaseClient,
+  serverSupabaseServiceRole,
+  serverSupabaseUser
+} from '#supabase/server'
 import { createEventRepository } from '~/server/domains/event/repositories/event.repository'
 import { createTournamentRepository } from '~/server/domains/event/repositories/tournament.repository'
 import { createTournamentCategoryRepository } from '~/server/domains/event/repositories/tournament-category.repository'

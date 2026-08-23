@@ -1,0 +1,159 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Platform theme palettes for the SuperAdmin console
+     (docs/30-SUPER-ADMIN-SPECIFICATION.md §2.2, revised).
+
+     Two deliberate departures from the spec as written, both directed by the
+     product owner (2026-08-23):
+
+     1. Palettes are PRE-SUGGESTED, not custom. The spec's four free-form colour
+        pickers can produce combinations that fail contrast at caption size; a
+        curated catalog is checked once, by whoever adds the row.
+
+     2. Every palette carries a LIGHT and a DARK counterpart. The spec says
+        "Dark mode - No", which the shipped token system and theme switch have
+        since overtaken. A single set of colours cannot serve both modes: the
+        dark theme's green is ~2.3:1 on white, and the light theme's green is
+        unreadable on near-black. See assets/css/tokens.css for the reasoning
+        this catalog inherits.
+
+     Scope: palettes retint the BRAND tokens only - primary and accent, with
+     their hover/soft/on- counterparts. Surfaces, text and status colours stay
+     with the design system, so no palette can make body text unreadable.
+
+     RLS: public SELECT (the browser has to paint the theme), no write policies,
+     so writes are service-role only through the SuperAdmin-checked endpoint. -->
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+    <changeSet id="0001-create-theme-palettes-table" author="super-admin">
+        <createTable tableName="theme_palettes">
+            <column name="id" type="uuid" defaultValueComputed="gen_random_uuid()">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="key" type="text">
+                <constraints nullable="false" unique="true" uniqueConstraintName="uq_theme_palettes_key"/>
+            </column>
+            <column name="name" type="text">
+                <constraints nullable="false"/>
+            </column>
+            <column name="description" type="text">
+                <constraints nullable="true"/>
+            </column>
+            <!-- {token: "#hex"}. Hex because a human reads and checks these; the
+                 server converts to the space-separated RGB channels the tokens
+                 use, so Tailwind's /alpha modifiers keep working. -->
+            <column name="light" type="jsonb">
+                <constraints nullable="false"/>
+            </column>
+            <column name="dark" type="jsonb">
+                <constraints nullable="false"/>
+            </column>
+            <column name="display_order" type="int" defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_at" type="timestamptz" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
+
+    <changeSet id="0002-enable-rls-theme-palettes" author="super-admin">
+        <sql>
+            ALTER TABLE theme_palettes ENABLE ROW LEVEL SECURITY;
+        </sql>
+        <rollback>
+            ALTER TABLE theme_palettes DISABLE ROW LEVEL SECURITY;
+        </rollback>
+    </changeSet>
+
+    <changeSet id="0003-theme-palettes-select-policy" author="super-admin">
+        <sql>
+            CREATE POLICY theme_palettes_select_all ON theme_palettes
+                FOR SELECT USING (true);
+        </sql>
+        <rollback>
+            DROP POLICY theme_palettes_select_all ON theme_palettes;
+        </rollback>
+    </changeSet>
+
+    <!-- NULL means "the design system's own tokens", which is what every
+         deployment runs today. Choosing a palette is an explicit act. -->
+    <changeSet id="0004-add-active-palette-to-platform-config" author="super-admin">
+        <addColumn tableName="platform_config">
+            <column name="active_palette_key" type="text">
+                <constraints nullable="true"/>
+            </column>
+            <column name="theme_updated_at" type="timestamptz">
+                <constraints nullable="true"/>
+            </column>
+            <column name="theme_updated_by" type="uuid">
+                <constraints nullable="true"
+                             foreignKeyName="fk_platform_config_theme_updated_by"
+                             references="users(id)"/>
+            </column>
+        </addColumn>
+        <rollback>
+            <dropColumn tableName="platform_config" columnName="theme_updated_by"/>
+            <dropColumn tableName="platform_config" columnName="theme_updated_at"/>
+            <dropColumn tableName="platform_config" columnName="active_palette_key"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="0005-add-active-palette-fk" author="super-admin">
+        <addForeignKeyConstraint
+            constraintName="fk_platform_config_active_palette"
+            baseTableName="platform_config"
+            baseColumnNames="active_palette_key"
+            referencedTableName="theme_palettes"
+            referencedColumnNames="key"
+            onDelete="SET NULL"/>
+    </changeSet>
+
+    <!-- Seeded as raw SQL rather than <insert>: a JDBC string parameter cannot
+         be assigned to a jsonb column without an explicit cast. -->
+    <changeSet id="0006-seed-theme-palettes" author="super-admin">
+        <sql>
+            INSERT INTO theme_palettes (key, name, description, display_order, light, dark) VALUES
+            (
+              'court-green',
+              'Court Green',
+              'The DinkAndLadder default. Deep green on light, a brighter green on dark.',
+              1,
+              '{"primary":"#0A7F45","primary-hover":"#0FA55B","primary-soft":"#E8F7EE","on-primary":"#FFFFFF","accent":"#A7E3C1","accent-soft":"#E8F7EE","on-accent":"#0B3B24"}'::jsonb,
+              '{"primary":"#4DB175","primary-hover":"#5FC287","primary-soft":"#1A3325","on-primary":"#06170F","accent":"#B5B9F0","accent-soft":"#B5B9F0","on-accent":"#0B0D09"}'::jsonb
+            ),
+            (
+              'deep-ocean',
+              'Deep Ocean',
+              'Cool blue brand with a soft sky accent.',
+              2,
+              '{"primary":"#0B69C7","primary-hover":"#1580E8","primary-soft":"#E4F0FC","on-primary":"#FFFFFF","accent":"#9FD0F5","accent-soft":"#E4F0FC","on-accent":"#08304F"}'::jsonb,
+              '{"primary":"#58AEEA","primary-hover":"#74BFF0","primary-soft":"#14293D","on-primary":"#04121F","accent":"#B5C7F0","accent-soft":"#B5C7F0","on-accent":"#0B0D09"}'::jsonb
+            ),
+            (
+              'sunset-clay',
+              'Sunset Clay',
+              'Warm terracotta brand with a sand accent.',
+              3,
+              '{"primary":"#C2410C","primary-hover":"#E2590F","primary-soft":"#FDECE1","on-primary":"#FFFFFF","accent":"#F2C9A0","accent-soft":"#FDECE1","on-accent":"#4A2408"}'::jsonb,
+              '{"primary":"#F0A868","primary-hover":"#F6BC85","primary-soft":"#3A2210","on-primary":"#2B1405","accent":"#E8B98C","accent-soft":"#E8B98C","on-accent":"#0B0D09"}'::jsonb
+            ),
+            (
+              'violet-night',
+              'Violet Night',
+              'Violet brand with a lavender accent.',
+              4,
+              '{"primary":"#6D28D9","primary-hover":"#7C3AED","primary-soft":"#EFE7FD","on-primary":"#FFFFFF","accent":"#C4B5FD","accent-soft":"#EFE7FD","on-accent":"#2E1065"}'::jsonb,
+              '{"primary":"#A78BFA","primary-hover":"#BBA6FC","primary-soft":"#241442","on-primary":"#16082E","accent":"#C4B5FD","accent-soft":"#C4B5FD","on-accent":"#0B0D09"}'::jsonb
+            );
+        </sql>
+        <rollback>
+            DELETE FROM theme_palettes
+             WHERE key IN ('court-green', 'deep-ocean', 'sunset-clay', 'violet-night');
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

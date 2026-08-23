@@ -80,7 +80,7 @@ const describedBy = computed(() => {
             : 'border-border-strong focus:border-primary focus:ring-primary/40'
         ]"
         @input="emit('update:modelValue', ($event.target as HTMLInputElement).value)"
-      >
+      />
     </div>
 
     <p v-if="error" :id="errorId" class="text-caption text-danger">{{ error }}</p>

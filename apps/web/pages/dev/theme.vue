@@ -141,7 +141,8 @@ const statusPills = [
           <h1 class="text-heading-1">Design tokens</h1>
           <p class="mt-1 text-body-2 text-fg-secondary">
             Dev-only preview of <code>assets/css/tokens.css</code>. Currently rendering
-            <strong class="text-primary">{{ resolvedTheme }}</strong>.
+            <strong class="text-primary">{{ resolvedTheme }}</strong
+            >.
           </p>
         </div>
         <UiThemeToggle show-label />
@@ -151,10 +152,7 @@ const statusPills = [
         <h2 class="text-heading-3">Your live data</h2>
 
         <!-- Loading -->
-        <div
-          v-if="pending"
-          class="grid gap-3 sm:grid-cols-2"
-        >
+        <div v-if="pending" class="grid gap-3 sm:grid-cols-2">
           <div
             v-for="n in 2"
             :key="n"
@@ -200,9 +198,7 @@ const statusPills = [
               {{ myTier.name }} tier
               <span v-if="isProvisional" class="text-warning">· provisional</span>
             </p>
-            <p v-else class="text-caption text-fg-muted">
-              Play a match to get your first rating
-            </p>
+            <p v-else class="text-caption text-fg-muted">Play a match to get your first rating</p>
             <p class="mt-2 text-caption text-fg-muted">
               {{ matchesPlayed }} {{ matchesPlayed === 1 ? 'match' : 'matches' }} played
             </p>
@@ -312,20 +308,23 @@ const statusPills = [
               v-for="tier in RATING_TIERS"
               :key="tier.name"
               class="text-body-2 font-semibold"
-              :class="[tier.klass, myTier?.name === tier.name ? 'underline underline-offset-4' : '']"
+              :class="[
+                tier.klass,
+                myTier?.name === tier.name ? 'underline underline-offset-4' : ''
+              ]"
             >
               {{ tier.name }} <span class="font-normal text-fg-muted">{{ tier.range }}</span>
             </span>
           </div>
-          <p v-if="myTier" class="text-caption text-fg-muted">
-            Underlined is your current tier.
-          </p>
+          <p v-if="myTier" class="text-caption text-fg-muted">Underlined is your current tier.</p>
         </div>
       </section>
 
       <section class="space-y-3">
         <h2 class="text-heading-3">Buttons</h2>
-        <div class="flex flex-wrap gap-3 rounded-card border border-border bg-surface p-5 shadow-card">
+        <div
+          class="flex flex-wrap gap-3 rounded-card border border-border bg-surface p-5 shadow-card"
+        >
           <button
             class="rounded-button bg-primary px-4 py-2 text-body-2 font-medium text-on-primary transition-colors hover:bg-primary-hover"
           >
@@ -349,19 +348,22 @@ const statusPills = [
 
       <section class="space-y-3">
         <h2 class="text-heading-3">Inputs</h2>
-        <div class="grid gap-3 rounded-card border border-border bg-surface p-5 shadow-card sm:grid-cols-2">
+        <div
+          class="grid gap-3 rounded-card border border-border bg-surface p-5 shadow-card sm:grid-cols-2"
+        >
           <input
             type="text"
             placeholder="Search players…"
             class="w-full rounded-button border border-border-strong bg-canvas px-3 py-2 text-body-2 text-fg placeholder:text-fg-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
-          >
+          />
           <input
             type="date"
             class="w-full rounded-button border border-border-strong bg-canvas px-3 py-2 text-body-2 text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
-          >
+          />
         </div>
         <p class="text-caption text-fg-muted">
-          The date field checks the theme-conditional picker glyph — it must stay visible in both themes.
+          The date field checks the theme-conditional picker glyph — it must stay visible in both
+          themes.
         </p>
       </section>
     </div>

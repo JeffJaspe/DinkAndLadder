@@ -23,9 +23,8 @@ vi.stubGlobal('useState', (key: string, init?: () => unknown) => {
   return states.get(key)!
 })
 
-const { useTheme, isThemePreference, THEME_COOKIE, THEME_DEFAULT } = await import(
-  '../../composables/useTheme'
-)
+const { useTheme, isThemePreference, THEME_COOKIE, THEME_DEFAULT } =
+  await import('../../composables/useTheme')
 
 describe('useTheme', () => {
   beforeEach(() => {

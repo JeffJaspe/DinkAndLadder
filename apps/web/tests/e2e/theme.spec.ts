@@ -19,9 +19,9 @@ const PUBLIC_ROUTES = ['/', '/rankings', '/login', '/register']
 /** Sets the theme the way a returning visitor arrives: cookie already present. */
 async function visitWithTheme(page: Page, path: string, theme: 'light' | 'dark') {
   await page.context().clearCookies()
-  await page.context().addCookies([
-    { name: 'dnl-theme', value: theme, url: 'http://localhost:3000' }
-  ])
+  await page
+    .context()
+    .addCookies([{ name: 'dnl-theme', value: theme, url: 'http://localhost:3000' }])
   await page.goto(path, { waitUntil: 'domcontentloaded' })
   // Let the head manager settle the class before asserting on computed styles.
   await page.waitForTimeout(500)
@@ -138,6 +138,13 @@ test.describe('accessibility', () => {
 
         const results = await new AxeBuilder({ page })
           .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+          // The Nuxt DevTools toolbar is not ours to make accessible, and its
+          // timing pill is a real 3.54:1 violation (#888888 on #FFFFFF at
+          // 9.6px). `reuseExistingServer` means this suite runs against a dev
+          // server whenever one happens to be up on :3000 instead of against
+          // `pnpm run preview`, so without this the result depends on whether
+          // the developer left `pnpm dev` running.
+          .exclude('nuxt-devtools-frame')
           .analyze()
 
         // Report the rule ids rather than a bare count, so a failure says what

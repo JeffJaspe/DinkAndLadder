@@ -2270,3 +2270,962 @@ against the live API instead (Saulog Tournament 1/16, Open Play 2/14).
 
 `test:unit` **448/448** (+6) · `test:e2e` **39/39** · `typecheck` exit 0 ·
 `build` exit 0 · `eslint` 0 errors · `check:tokens` clean.
+
+## Turnstile client IP, and light-theme card elevation (2026-08-23)
+
+Two unrelated items: the last open Security finding from the 2026-08-22 audit,
+and the light theme's missing depth.
+
+### F-11 — Turnstile was being handed the proxy's IP
+
+`requireTurnstile` called `getRequestIP(event)` with no options, so Cloudflare
+received the socket address. On Vercel that is the edge, identical for every
+visitor, which makes the `remoteip` signal uniform noise.
+
+The naive fix — always pass `{ xForwardedFor: true }` — is worse than the bug.
+`X-Forwarded-For` is client-controlled unless something upstream overwrites it,
+so trusting it on a bare host lets a caller pin every request to an IP of their
+choosing. Turnstile would then be scoring a fiction rather than scoring nothing.
+That is why the finding was filed as "decide based on the deploy topology"
+rather than as a one-line change.
+
+The topology is now a configured fact instead of a guess:
+
+| Layer | Change |
+| --- | --- |
+| `server/utils/trust-proxy.ts` | `resolveTrustProxy(env)` — dependency-free, so `nuxt.config.ts` can import it at config load |
+| `nuxt.config.ts` | `runtimeConfig.trustProxyHeaders`, overridable as `NUXT_TRUST_PROXY_HEADERS` |
+| `server/utils/client-ip.ts` | `getClientIp(event, trustProxy)` — reads the header only when trusted |
+| `server/utils/require-turnstile.ts` | passes the resolved flag through |
+
+Precedence: `TRUST_PROXY_HEADERS` when set (so a non-Vercel deployment behind
+its own load balancer can opt in, and a Vercel deployment can opt out), then
+Vercel auto-detection, then untrusted. A blank variable counts as unset rather
+than as `false` — an empty Vercel project variable must not silently disable
+the auto-detection sitting next to it.
+
+`getClientIp` mirrors h3's `getRequestIP` precedence rather than calling it:
+h3 is a transitive dependency, unresolvable from the Vitest runner under pnpm's
+strict layout, which would have left the spoofing branch — the only part worth
+testing — uncovered. 11 tests cover both the decision and the extraction.
+
+### Light-theme cards had no elevation at all
+
+The dark theme separates a card from the page by lightness (#1E2E2A on
+#0B0D09). The light theme cannot: `--dnl-surface` is #FFFFFF against a #F7F9F8
+canvas, which is **1.06:1**. Elevation is the only cue available, and 152 panels
+across 36 files were carrying none — no border, no shadow. Light mode read as
+one undifferentiated sheet.
+
+The shadow tokens were not the problem; they were tuned in the 2026-08-22 theme
+pass and are unchanged here. The problem was reach: two card idioms coexist,
+and the dominant page-level one (`rounded-xl bg-surface p-5`) never adopted
+`shadow-card`. `components/cards/*` already had it, which is why the components
+looked right and the pages did not.
+
+`scripts/card-shadow-codemod.mjs` applies it, deliberately narrower than a
+find/replace:
+
+- `bg-surface` matched as a whole token — `bg-surface-2` and `bg-surface/50` are
+  nested rows and secondary fills, and a shadow on a row *inside* a card is
+  worse than no shadow.
+- Only card radii (`rounded-card`, `rounded-xl`, `rounded-2xl`). `rounded-button`
+  and `rounded-lg` are inputs and buttons; a form field is not a card.
+- Skeletons (`animate-pulse`) skipped — a shadow on a pulsing block draws the
+  eye to the loading state.
+- Anything already declaring a shadow left untouched.
+- Panels that already animate a hover also get `hover:shadow-card-hover`, so an
+  interactive card lifts the way `components/cards` already do.
+
+Dark mode is unchanged: its shadow token is understated by design, so the same
+class produces no halo there. Verified by screenshot on `/dev/components` and
+`/rankings` in both themes.
+
+### Three failures found here, all since resolved
+
+See the next section — all three were fixed the same day. One of them turned out
+not to be a repo defect at all.
+
+### Validated
+
+`test:unit` **459/459** (+11) · `typecheck` exit 0 · `build` exit 0 · `eslint`
+0 errors · `check:tokens` clean · light and dark screenshots on
+`/dev/components` and `/rankings`.
+
+## Capacity wording, and "Registered" on the event card (2026-08-23, later)
+
+Reported as a bug: on an event thumbnail the slots-left figure and the `2/14`
+fraction "are not the same", the fraction being the true one.
+
+Nothing was static. `slotsFor()` derives both from the same
+`registered_count`/`max_participants` pair, confirmed against the live database
+(Open Play: `max_participants` 14, two `registered` rows, none withdrawn) and
+against `GET /api/v1/events` (`registered_count: 2`). The label was
+arithmetically right and read wrong: `"12 of 14 slots left"` beside `2/14` puts
+two fractions with the same denominator on one row pointing opposite ways, so it
+scans as "12 filled".
+
+| Screen | Was | Now |
+| --- | --- | --- |
+| Event card | `12 of 14 slots left` · `2/14` | `12 slots left` · `2/14` |
+| Event detail | `2 / 14 players — 12 more needed` | `2 / 14 players — 12 slots left` |
+| Tournament category | `12 of 16 places left` | `4/16 · 12 places left` |
+
+"More needed" was the worse of the three: on an open-play session it implied the
+event could not run without twelve more players. All three now singularise
+(`1 slot left`).
+
+### Already-registered indicator
+
+An event thumbnail now carries a "Registered" badge when the caller already
+holds a live registration for that event, through the full layering.
+
+| Layer | Change |
+| --- | --- |
+| DTO | `EventDto.viewer_registered?`, `EventSearchQuery.viewer_player_id?` |
+| Repository | `findRegisteredEventIds(playerId, ids, statuses)` → `Set` |
+| Service | `searchEvents` attaches the flag; capacity and viewer lookups are now independently conditional |
+| Controller | list endpoint passes the resolved player id |
+| UI | badge over the cover art, top-left, opposite the status pill |
+
+No migration needed — `event_registrations` already carries everything.
+
+- **Undefined ≠ false.** A signed-out visitor gets no flag at all, so an absent
+  badge never means "you are not signed up" to someone the request could not
+  identify. The card renders it under `v-if="event.viewer_registered"`.
+- **A withdrawal clears it.** Same `SLOT_OCCUPYING_STATUSES` filter the capacity
+  count uses, so withdrawing removes the badge as well as freeing the slot.
+- **One query for the page.** Ids only, filtered by player and by the ids
+  already on screen.
+- Restructuring `searchEvents` fixed a latent gap: the capacity round trip is
+  skipped when nothing in the listing is capped, and the old early return would
+  have skipped the viewer lookup with it. Covered by a test.
+
+**Known gap:** the badge reflects event-level registration only. A player who
+entered a tournament through a category (`tournament_registrations`) but never
+registered at the event level will not see it. The event detail page's Register
+button is the path that exists today for both, so this matches what the capacity
+count on the same card already measures.
+
+### Validated
+
+`test:unit` **462/462** (+3) · `typecheck` exit 0 · `build` exit 0 · `eslint` 0
+errors on the touched files · live query shape verified against Supabase
+(player `0e636938…` → Saulog Tournament). Not screenshotted: `/events` is still
+auth-gated, as noted in the previous section.
+
+## Clearing the three reported failures (2026-08-23, later still)
+
+All three items logged by the card-elevation pass are closed. One of them was a
+misdiagnosis on my part, and correcting it matters more than the fix did.
+
+### The axe failures were my own dev server, not the repo
+
+`playwright.config.ts` starts `pnpm run preview` — a production build, no
+devtools — but sets `reuseExistingServer: !process.env.CI`. Any `pnpm dev`
+server already listening on :3000 therefore silently becomes the target of the
+whole suite, DevTools toolbar and all. That toolbar's timing pill is a genuine
+3.54:1 violation, so axe was right; it just was not looking at the app.
+
+I had recorded this as "confirmed pre-existing on a clean `main`". That check was
+real but worthless: `git stash -u` reverts the working tree and does nothing to a
+running server, so the same dev server served both runs. **With :3000 free, all
+39 e2e tests pass with no code change at all.**
+
+Fixed regardless, because a suite whose verdict depends on what a developer left
+running cannot be trusted: the scan now carries `.exclude('nuxt-devtools-frame')`.
+Verified from both directions — 39/39 against `preview`, and 8/8 axe tests
+against a deliberately started dev server, the exact case that used to fail.
+
+### `prettier --check` is green: 209 files → 0
+
+Two independent causes, and fixing either alone leaves it red.
+
+**Real debt.** The repo had never been formatted consistently. These were
+substantive reflows, not cosmetic noise — inlined `watch()` bodies, `{ a: string,
+b: number }` where Prettier writes `;`, unwrapped chains.
+
+**Line endings.** `core.autocrlf=true` checks files out as CRLF while Prettier's
+`endOfLine` default is `lf`, so every file fails on a fresh clone no matter how
+well formatted. Proven by taking a *passing* file, converting it to CRLF, and
+watching the check fail. Without this half, the next clone re-breaks everything.
+
+A root `.gitattributes` now pins the working tree to `eol=lf`. It changes no
+committed content — the index was already LF — so the fix is invisible in the
+diff, which is the point. `types/database.types.ts` is now in `.prettierignore`;
+it is generated, and formatting it only creates a diff against the next
+regeneration.
+
+An early hypothesis that the whole thing was *only* line endings was wrong, and
+testing it took two minutes: `utils/icons.ts` was already LF and still failed.
+
+### The Prettier/Vue deadlock
+
+`@confirm="destructiveModalOpen = false; toast.info(…)"` — Prettier splits it
+and drops the `;`, the Vue compiler rejects the result, the build fails, and
+re-adding the `;` is formatted straight back out. Extracted to a named
+`confirmDestructive()`, the one form both tools accept. A grep confirmed it was
+the only multi-statement inline handler in the codebase.
+
+### Validated
+
+`format:check` **0 files failing** (was 209) · `test:unit` **462/462** ·
+`test:e2e` **39/39** · `build` exit 0 · `eslint` 0 errors · `check:tokens` clean.
+
+`typecheck` reports one error, and it is not from this work:
+`tests/unit/club-verification.service.spec.ts` fakes `PlatformAdminService`
+without the `getFeatureFlags` / `setFeatureFlag` methods that a **concurrent
+session** added while this ran. That session is mid-build on platform feature
+flags — `023-platform-feature-flags/`, `server/utils/feature-flags.ts`,
+`server/domains/platform/dto/`, `middleware/super-admin.ts`. Left untouched: it
+is their in-flight work, and the fake belongs to whoever changed the interface.
+It is the only typecheck error, so everything here is type-clean.
+
+Note for the next session: `prettier --write .` reformatted that session's new
+files too. Formatting is non-semantic and the build is green, but expect their
+next write to land unformatted code that `format:check` will then flag.
+
+## SuperAdmin, slice 1: feature flags (2026-08-23, later still)
+
+First slice of `docs/30-SUPER-ADMIN-SPECIFICATION.md` §2.5. The Registered badge
+shipped earlier today is its first flag, **off by default** — so as of this
+change the badge is invisible to everyone until the SuperAdmin turns it on.
+
+| Layer | Change |
+| --- | --- |
+| Database | `023-platform-feature-flags` — `feature_flags jsonb`, `feature_flags_updated_at`, `feature_flags_updated_by` on `platform_config` |
+| DTO | `platform/dto/feature-flag.dto.ts` — the flag registry, `resolveFeatureFlags()` |
+| Repository | `getFeatureFlags()`, `updateFeatureFlags(flags, userId)` |
+| Service | `getFeatureFlags()`, `setFeatureFlag()` + `PlatformAdminServiceError` |
+| Controller | `GET`/`PATCH /api/v1/admin/feature-flags`, both SuperAdmin-gated |
+| Server util | `utils/feature-flags.ts` — `isFeatureEnabled(event, key)`, 30s cache |
+| UI | `/admin/features` toggle console; nav entry for the SuperAdmin |
+
+### Defaults live in code, overrides live in the column
+
+The column stores only what a SuperAdmin has explicitly decided (`{}` means
+"nothing overridden"). A flag's default has to be known *before* anyone has ever
+written the map, and adding a flag must not need a migration. `resolveFeatureFlags`
+merges the two and is deliberately strict: unknown keys are dropped, so a flag
+removed from the registry cannot come back to life from an old stored map, and a
+non-boolean stored value falls back to its default rather than being coerced —
+`"false"` is truthy, and guessing there would enable something an admin turned
+off.
+
+### Gated on the server, not in the template
+
+`GET /api/v1/events` consults the flag and simply does not attach
+`viewer_registered` when it is off, so no client — stale bundle, direct API call,
+or the future Flutter app — can surface the badge. This is the spec's "API
+doesn't serve it", one endpoint at a time.
+
+### A dead SuperAdmin check, found while wiring this up
+
+`GET /api/v1/me/is-superadmin` read `platform_config` through the **caller's**
+client. That table was created in 018 with RLS enabled and **zero policies**, so
+the read returned no rows for everyone — the endpoint always answered `false`.
+The Club Verification nav item never appeared and the `/admin/*` route guard
+bounced the real SuperAdmin to `/dashboard`. Confirmed against the live database:
+an anon-key select on `platform_config` returns `[]` while the service-role
+select returns the row with `super_admin_id` set. Now reads with the service-role
+client, like every other consumer of that repository already did; the identity
+being checked still comes from the verified session.
+
+### Migration NOT yet applied
+
+`023-platform-feature-flags` is authored and in the master changelog but has not
+run — this session has the Supabase API keys, not the Postgres password Liquibase
+needs. Verified live that the column is genuinely absent (PostgREST `42703`), and
+the repository treats exactly that code as "not migrated yet": it logs once and
+serves registry defaults instead of failing every request that consults a flag.
+Everything at default means the badge stays hidden, which is the intended state
+regardless. Run `liquibase update` from `database/liquibase/` to enable the
+toggle.
+
+### Scope deliberately left out
+
+- **Branding, 4-colour theme, hero, icons, config history.** Spec §2.1–2.4 and §9.
+- The spec's §2.2 palette assumes a single light theme ("Dark mode — No"), which
+  the shipped token system and light/dark switch have since overtaken. That
+  section needs a decision before anyone builds it; noted here rather than
+  silently reinterpreted.
+- The spec's other flags (payments, tournaments, social, …) are not in the
+  registry, because none of them is enforced anywhere yet. A toggle that changes
+  nothing is worse than no toggle; each lands as it is genuinely wired.
+
+### Validated
+
+`test:unit` **475/475** (+13) · `typecheck` exit 0 · `build` exit 0 · `eslint` 0
+errors on the touched files · live check of the pre-migration fallback path.
+
+## SuperAdmin, slice 2: flags moved into the database, and theme palettes (2026-08-23, final)
+
+Two directions from the product owner, both applied before anything shipped to
+the live database:
+
+1. **"Make sure feature flag is not hard coded."** The `023` migration authored
+   earlier had not run yet, so it was rewritten rather than amended: flags are
+   now rows in a `feature_flags` table, not a `jsonb` column driven by a
+   TypeScript registry.
+2. **"For colour palette it always has a counterpart for light and dark mode;
+   better pre-suggested palette rather than custom."** The theme slice is a
+   curated catalog where every palette carries both modes — not four free-form
+   colour pickers.
+
+### Flags are data now
+
+| Layer | Change |
+| --- | --- |
+| Database | `023` rewritten — `feature_flags` table (key, label, description, enabled, display_order, audit), RLS public SELECT, no write policies, seeded with the badge flag disabled |
+| DTO | `feature-flag.dto.ts` — record/DTO/map, `isEnabledIn()` |
+| Repository | `feature-flag.repository.ts` — `listAll`, `findByKey`, `setEnabled` |
+| Service | `feature-flag.service.ts` — `listFlags`, `getFlagMap`, `setFlag` |
+| Controller | `GET`/`PATCH /api/v1/admin/feature-flags`, `GET /api/v1/platform/feature-flags` |
+| Composable | `useFeatureFlags()` — shared per page load |
+| UI | `/admin/features` renders whatever rows exist |
+
+Nothing in code lists the flags any more. A key still appears where a feature is
+gated — that is the gate, not the catalog — and **an unknown key reads as off**,
+so a gate whose row was never seeded hides its feature instead of exposing it.
+`PlatformAdminService` went back to `isSuperAdmin` only; flags own their service.
+
+**The badge stays halted.** Its row seeds disabled and the events endpoint still
+consults the flag before attaching `viewer_registered`.
+
+### Theme palettes: pre-suggested, light and dark together
+
+| Layer | Change |
+| --- | --- |
+| Database | `024-platform-theme` — `theme_palettes` (key, name, description, light/dark jsonb, order), `platform_config.active_palette_key` + FK + audit columns, RLS public SELECT |
+| DTO | `theme-palette.dto.ts` — `PALETTE_TOKENS`, `sanitizePaletteColors()`, `hexToRgbChannels()`, `paletteToCss()` |
+| Repository / Service | `theme-palette.repository.ts`, `theme.service.ts` |
+| Controller | `GET /api/v1/platform/theme`, `GET`/`PATCH /api/v1/admin/theme` |
+| Plugin | `plugins/palette.ts` — inlines the palette stylesheet during SSR |
+| UI | `/admin/theme` — palette cards showing both counterparts, plus a reset |
+
+Four palettes seeded: **Court Green** (identical to today's tokens, so selecting
+it changes nothing), **Deep Ocean**, **Sunset Clay**, **Violet Night**.
+
+- **Brand tokens only.** A palette may set `primary`, `primary-hover`,
+  `primary-soft`, `on-primary`, `accent`, `accent-soft`, `on-accent` — nothing
+  else. Surfaces, text and status colours stay with the design system, so no
+  palette can make body text unreadable, which is the failure mode a free-form
+  picker has.
+- **Anything that is not a six-digit hex is dropped** before it reaches the
+  stylesheet. These values are interpolated into CSS served to every visitor;
+  a stored string that is not a colour is a mistake or an injection attempt, and
+  both fall back to the token's own value. Covered by a test that feeds it
+  `#FFFFFF; } html { display: none } .x {`.
+- **`html:root` / `html:root.dark`**, not `:root` / `.dark`: the palette rides in
+  the head next to the bundled token stylesheet, and load order between them is
+  not something a page should depend on. The extra element selector wins either way.
+- **Inlined during SSR**, so the first paint already carries the brand. Fetching
+  after hydration would flash the default green for a frame.
+- No palette selected → no `<style>` at all → the design system's own tokens,
+  which is what every deployment runs today.
+
+### Found while smoke-testing: PostgREST reports a missing table as PGRST205
+
+The pre-migration fallbacks originally matched Postgres's `42P01`. Running the
+built server against the real database showed PostgREST answers a missing table
+with its own `PGRST205` ("not found in the schema cache") instead — a missing
+*column* does come through as `42703`, which is why the earlier check worked.
+Both codes now count as "the migration has not run".
+
+### Still not applied
+
+`023` and `024` are authored and in the master changelog; the Postgres password
+was mentioned but not included in the message, so `liquibase update` has not run.
+Verified degradation against the live database in the meantime:
+`GET /api/v1/platform/feature-flags` returns `{}` (everything off, badge hidden)
+and `GET /api/v1/platform/theme` returns `{"palette":null,"css":""}` (built-in
+colours). Both admin endpoints 401 unauthenticated.
+
+### Validated
+
+`test:unit` **486/486** (+14) · `typecheck` exit 0 · `build` exit 0 · `eslint` 0
+errors on the touched files · `check:tokens` clean · live smoke test of all four
+new endpoints against the built server.
+
+## Migrations 023 and 024 applied to the live database (2026-08-23, applied)
+
+Ran with the real Liquibase CLI (4.32.0, downloaded fresh into a scratch dir with
+the PostgreSQL JDBC driver — neither is installed in this environment) against
+the session-mode pooler, the same connection every prior migration used. The
+password contains `&`, so it went in through `LIQUIBASE_COMMAND_PASSWORD` rather
+than a CLI flag, per the note further up this file.
+
+`status` showed **11** pending, `update` ran all 11, `status` afterwards reports
+up to date. 192 changesets total.
+
+### One older changeset was blocking everything behind it
+
+`002-player::0003-add-barangay-column` failed with `column "barangay" of relation
+"player_profiles" already exists` — the column had reached the live database
+outside Liquibase at some point, and because Liquibase stops at the first
+failure, nothing after it could run.
+
+Fixed by guarding that changeset with a `MARK_RAN` precondition
+(`<not><columnExists …></not>`) rather than force-syncing it locally: a fresh
+database still needs the column created, and the next environment would have hit
+exactly the same wall. Recording it as applied where it already exists is what
+the precondition is for.
+
+### Verified live, not assumed
+
+- `feature_flags` — one row, `events.registered_badge` = **false**. The badge
+  stays hidden, which is the point.
+- `theme_palettes` — four rows: court-green, deep-ocean, sunset-clay, violet-night.
+- `platform_config.active_palette_key` — NULL, so the platform paints its own tokens.
+- **RLS holds.** An anon key reads both tables fine and an anon `PATCH` of
+  `feature_flags` affects zero rows (PostgREST returns `200 []`); the flag was
+  still `false` and `updated_by_user_id` still NULL afterwards.
+- **The palette pipeline works end to end.** With `active_palette_key` set to
+  `deep-ocean`, `GET /api/v1/platform/theme` returned the expected CSS and the
+  built server inlined it into the `<head>` of `/login` as
+  `html:root{--dnl-primary: 11 105 199;…}html:root.dark{--dnl-primary: 88 174 234;…}`.
+  Reset to NULL afterwards, so the platform is exactly as it was found and the
+  choice remains the SuperAdmin's.
+
+### The storage bucket for branding: two things to settle first
+
+The bucket exists — `Images`, 50 MB limit, mime allow-list
+`image/jpeg, image/jpg, image/png, image/svg`. Two problems before branding
+uploads can work:
+
+1. **`image/svg` is not the MIME type browsers send for an SVG.** It is
+   `image/svg+xml`. As configured, every SVG upload will be rejected by Storage
+   with a mime-type error. The allow-list needs `image/svg+xml`.
+2. **The bucket is private** (`public: false`). A logo shown to every visitor has
+   to be reachable, so either the bucket goes public (normal for branding assets)
+   or the server mints a signed, expiring URL on each render. Both work; they are
+   different code paths, which is why this is a question rather than a guess.
+
+An SVG logo is also worth a thought regardless of MIME: an SVG uploaded to a
+same-origin URL can carry script, so it wants either a public bucket on a
+separate origin or `Content-Disposition`/CSP handling.
+
+## SuperAdmin, slice 3: branding (2026-08-23, applied)
+
+App name, logo and favicon, on the bucket the operator created. Migration
+`025-platform-branding` is **applied live** (193 changesets total, status clean).
+
+| Layer | Change |
+| --- | --- |
+| Database | `platform_config` gains `app_name`, `logo_path`, `favicon_path`, branding audit columns |
+| DTO | `branding.dto.ts` — slots, allowed types, object paths, name fallback |
+| Repository | `branding.repository.ts` (config row), `branding-asset.repository.ts` (Storage) |
+| Service | `branding.service.ts` — read, rename, upload, clear |
+| Controller | `GET /api/v1/platform/branding`; admin `GET`/`PATCH`, `POST`/`DELETE /api/v1/admin/branding/:slot` |
+| Composable | `useBranding()` — one request per page load |
+| UI | `UiBrandMark` (logo or monogram) replacing four hard-coded marks; `/admin/branding` |
+| App | title template and favicon now follow the platform name |
+
+### Paths are stored, URLs are minted
+
+The row holds `platform/logo-<stamp>.png`, never a URL. The bucket is private
+today, so a visitor needs a signed URL per render; if it is made public the same
+path yields a stable public one. Storing a URL would bake one of those choices
+into the row and go stale the moment the bucket setting changed. The stamp in the
+filename is cache-busting: a replaced logo occupies the same slot, and without it
+a public URL would keep serving the previous image.
+
+Order on replace is upload → point the row at the new object → delete the old
+one. Deleting first would leave the config referencing something already gone if
+the update failed. Covered by a test asserting the call order.
+
+### Verified against the real bucket
+
+A self-test ran against live Storage with the service-role key:
+
+- `upload png` → ok; `sign` → ok; `GET` signed URL → **200 image/png**
+- `GET` public URL → **400**, confirming the bucket is private and that the
+  signed path is the one actually in use
+- `image/svg+xml` upload → **rejected: "mime type image/svg+xml is not supported"**
+- test objects removed afterwards
+
+That last line is the concrete version of the earlier warning: the bucket's
+allow-list names `image/svg`, which no browser ever sends, so SVG cannot be
+uploaded at all as configured. The UI therefore accepts **PNG and JPEG only**,
+and `ALLOWED_IMAGE_TYPES` matches. Adding `image/svg+xml` to the bucket would
+also mean accepting a format that can carry script from the app's own origin —
+worth a deliberate decision rather than a config tweak.
+
+The S3-compatible credentials offered for this were not used and are not stored
+anywhere in the repo: the server already holds the service-role key, which is
+what Storage uploads and URL signing need.
+
+### A note on the working tree
+
+Midway through this slice the entire working tree briefly disappeared — a
+`git stash` (and then a pop) ran outside this session, and two file-state checks
+landed inside that window. Everything came back intact; the full suite was re-run
+afterwards to confirm the restored tree matches what was built.
+
+### Validated
+
+`test:unit` **499/499** (+13) · `typecheck` exit 0 · `build` exit 0 · `eslint` 0
+errors (8 pre-existing warnings) · `check:tokens` clean · live smoke test:
+branding, flags and the login page title all served correctly by the built server.
+
+## Account switcher restored to the sidebar (2026-08-23, later still)
+
+Reported: "the switching from player to club is gone?" It was, and it had been
+since this morning.
+
+### Cause
+
+Commit `d985f6c` ("light and dark theme") rewrote `layouts/default.vue` — 367 of
+its lines — merging the sidebar's three separate blocks (main nav / account
+switcher / bottom nav) into a single `<nav>` with a divider. The bottom-nav links
+survived that merge. The switcher's wrapper did not:
+
+```
+-        <!-- Account Switcher -->
+-        <div v-if="user" class="border-t border-[#2E4540]/50 px-2 py-3">
+-          <AccountSwitcher />
+-        </div>
+```
+
+The component file itself was kept and *retokenised in that same commit*, which
+is what made this hard to see: `AccountSwitcher.vue` looks current and correct,
+`useAccountMode()` still drives which nav items render, and the only surviving
+references to the switcher anywhere in the app are four code comments pointing
+at a component nothing mounts. `git grep '<AccountSwitcher' HEAD` returned
+nothing.
+
+Consequence: `accountMode` could still be *read* — the layout switches nav items
+on it — but there was no longer any way to *change* it, so club mode was
+unreachable for anyone not already in it.
+
+### Fix
+
+Restored the mount point at the foot of the desktop sidebar, above the user card,
+in the current token vocabulary. That position is not arbitrary: the menu renders
+with `bottom-full`, so it opens upward and only works anchored near the bottom.
+The old `v-if="user"` was dropped as redundant — the whole `<aside>` is already
+behind it.
+
+### Verified by bundle, not by eye
+
+A signed-in screenshot needs a live session, and the throwaway-password step
+against the real Supabase project was declined by the permission layer — left
+alone rather than worked around.
+
+Verified structurally instead, which for a mount-point regression is arguably the
+stronger check: `"Set up a club"` (a string unique to the switcher) is absent
+from `default-*.mjs` in a build of `HEAD` and present in a build with this
+change. The component was dead code; now it is wired into the layout on both the
+server and client bundles.
+
+### Still open
+
+- [ ] The mobile drawer has no switcher — it had none before this regression
+      either, so club mode has never been reachable on a phone. Pre-existing
+      scope, deliberately not widened here.
+
+### Validated
+
+`format:check` clean · `test:unit` **499/499** · `test:e2e` **39/39** · `build`
+exit 0 · `eslint` 0 errors.
+
+Two environment notes worth carrying forward. `git stash -u` stashes an untracked
+`.gitattributes`, so the checkout underneath it re-applies `core.autocrlf` and
+every file comes back CRLF — `format:check` then fails on ~220 files that were
+fine a moment earlier. Re-run `prettier --write .` after any stash cycle until
+`.gitattributes` is committed. And `npm run build` deletes `.nuxt/dist`, which
+puts any running `nuxt dev` server into a permanent 503 restart loop; because
+`playwright.config.ts` sets `reuseExistingServer`, that broken server then gets
+reused and the e2e suite times out waiting for it.
+
+## Player mode is read-and-register; club mode runs events (2026-08-23, later still)
+
+Three related asks: make the account switcher reachable on mobile, keep drafts
+out of player mode, and confine every event-modifying action to club mode —
+including the word "Publish".
+
+### One gate, not scattered conditionals
+
+`useAccountMode()` now exposes `isClubMode` / `isPlayerMode`, and each screen
+derives a single named capability from it rather than testing the mode inline:
+
+| Screen | Gate | Reads as |
+| --- | --- | --- |
+| `events/[eventId]` | `canManageEvent` | `isOrganizer && isClubMode` |
+| `tournaments/[id]` | `canManageTournament` | `isOrganizer && isClubMode` |
+| `clubs/[clubId]` | `canManageAnnouncements` | `isStaff && isClubMode` |
+| `events/index` | `canCreateEvent` | `isClubMode` (already existed) |
+
+`isOrganizer` survives as ownership-only and is now documented as something
+almost nothing should branch on directly.
+
+The subtle part is the *negative* branches. On the event page, two conditions
+previously read `!isOrganizer` — "Register for this event to join the queue" and
+the registered-player block. They now read `!canManageEvent`, which is what makes
+the rule hold in both directions: an owner in player mode is not merely stripped
+of controls, they are shown the participant view. Half-gating would have left
+them in a state that is neither.
+
+What player mode keeps, deliberately: register and withdraw, the registered
+player list, the bracket, the matches, the rankings, the categories and who is in
+them. What it loses: publish, delete, edit, add tournament, generate bracket,
+confirm registrations, and the queue-matching console.
+
+### Drafts
+
+A draft is unpublished club work. Player mode now filters drafts out of the
+events list, drops "Draft" from the status filter, and resets the filter to "All
+Status" if the mode changes while Draft is selected — otherwise the select keeps
+showing an option it no longer offers.
+
+Deep-linking a draft in player mode renders a short explanatory panel rather than
+an error: the viewer may well own it, so it says the event is still a draft and
+that drafts live in club mode. Treating it as a 404 would have been a lie to the
+one person who can actually see it.
+
+The list filter is defence in depth, not the only guard — `events_select_public`
+already withholds other people's drafts server-side. What it adds is hiding an
+organiser's *own* drafts while they wear the player hat.
+
+### Mobile
+
+The switcher was desktop-only, so club mode was unreachable on a phone — a real
+problem for a mobile-first product. The same component now renders in the mobile
+drawer's footer (its menu opens upward, so the footer is where it works).
+
+The drawer also needed to close on navigation. Every nav link already did that on
+click, but the switcher navigates from inside its own component after an async
+check, and on the "no club yet" path it lands on `/create-club` rather than any
+link's href. A watcher on the settled route closes it, covering both and any
+future in-drawer navigation.
+
+Verified in the built layout chunk: `AccountSwitcher` is rendered at two sites —
+the desktop `<aside>` and the teleported mobile drawer (`_push2`).
+
+### Scope held at the line the request drew
+
+Member approvals, role changes and club verification still go by role alone, not
+by mode. Extending the mode gate there changes *who can act on a pending join
+request*, which is a product decision rather than a UI one — logged in the
+backlog rather than assumed.
+
+### Validated
+
+`test:unit` **504/504** (+5, `use-account-mode.spec.ts`) · `test:e2e` **39/39** ·
+`typecheck` exit 0 · `build` exit 0 · `eslint` 0 errors · `format:check` clean.
+
+Not verified by eye: every screen touched here is behind a login, and the
+throwaway-password step needed to drive a real session remains declined by the
+permission layer. The mode logic is unit-tested and the mount sites confirmed in
+the bundle, but nobody has yet *looked* at player mode on a phone.
+
+## Club roles: the UI the API was always waiting for (2026-08-23, later still)
+
+Two things, one screen: expose the role-change API that nothing ever called, and
+apply the club-hat split the product chose.
+
+### The role API had no caller
+
+`club_memberships.role` has been constrained to OWNER / ADMIN / MODERATOR /
+MEMBER since `003-club`, `PATCH /clubs/{id}/members/{playerId}` has always
+accepted a role, and `ClubService.updateMember` has held an explicit permission
+matrix the whole time. A grep of the entire front end found no call that ever
+sent one.
+
+So in practice **every member was a MEMBER for life.** The only way anyone held
+another role was creating the club, which assigns OWNER. The members list offered
+one button — Remove — and nothing else.
+
+There is now a role control on each member row, with options drawn from the same
+matrix the service enforces:
+
+| Acting as | May assign | To whom |
+| --- | --- | --- |
+| OWNER | ADMIN, MODERATOR, MEMBER | anyone except the owner row and themselves |
+| ADMIN | MODERATOR, MEMBER | members and moderators only |
+
+### A bug found while mirroring the matrix
+
+The old Remove condition was `isAdmin && member.role !== 'OWNER' && not-self`,
+which offered Remove to an ADMIN against another ADMIN. The service refuses that
+("Admins cannot modify other admins") — and `updateMember` had no catch, so the
+403 was swallowed and the row simply did not change, with no message. Both halves
+are fixed: the condition matches the matrix, and failures now surface.
+
+The mirroring is the risk here — two copies of one rule set — so
+`club-member-permissions.spec.ts` pins the UI copy against the same cases the
+service enforces. If the service changes, those tests fail.
+
+### Option C, as chosen
+
+Club administration is split rather than uniformly gated:
+
+| Action | Needs the club hat? |
+| --- | --- |
+| Approve / reject join requests | **No** — works in both |
+| Change a role | Yes |
+| Remove a member | Yes |
+| Request verification | Yes |
+| Submit match / create event for the club | Yes |
+| Announcements (write, pin, publish, delete) | Yes |
+
+Approvals stay available in both hats on purpose: a pending request is a person
+waiting to get into a club, and nothing else on the page has a third party
+blocked on it. Every other action can wait for a deliberate mode switch.
+
+`Create Event` was already club-mode-only on the events page, so leaving it
+ungated on the club page had been the same inconsistency in a second place.
+
+### The two-clubs hole is closed
+
+`canManageAnnouncements` previously tested `isClubMode` alone, which let someone
+acting as Club A publish for Club B. Every club-hat gate now goes through
+`isActingAsThisClub` — club mode AND `activeClubId` being the club on screen.
+
+That makes the controls disappear for staff who are on the page in the wrong hat,
+so the members panel now carries a line naming the club to switch to. Controls
+that vanish without explanation are worse than controls that are merely absent.
+
+### Validated
+
+`test:unit` **516/516** (+12) · `test:e2e` **39/39** · `typecheck` exit 0 ·
+`build` exit 0 · `eslint` 0 errors · my files format-clean.
+
+Still not verified by eye — the club page is behind a login and the
+throwaway-password step remains declined.
+
+### Worth deciding next
+
+MODERATOR can now be assigned, and still grants nothing. `ClubService` says so
+outright: "recognized as a role; carries no additional permissions in this pass".
+Promoting someone to moderator changes a label and nothing else. Either give the
+role powers (announcements is the obvious candidate — `isStaff` already includes
+MODERATOR) or drop it from the assignable list so it stops implying authority it
+does not carry.
+
+## MODERATOR becomes a real role (2026-08-23, later still)
+
+Instruction: a moderator may accept event requests, accept new club members, and
+announce. The third already worked; the other two needed server-side permission
+changes, not UI ones — and one of them needed a UI that had never been built.
+
+### Announcements — already true
+
+`announcement.service.ts` has admitted OWNER / ADMIN / MODERATOR since it was
+written, and the club page gates on `isStaff`, which includes the role. Editing
+*someone else's* announcement is still OWNER/ADMIN; a moderator edits their own.
+No change made — checked rather than assumed.
+
+### Club join requests — service change
+
+`ClubService.updateMember` gated everything behind `ADMIN_ROLES`. It now
+distinguishes a *join-request review* from every other membership change:
+
+```
+isJoinRequestReview =
+  target.status === 'pending' && !input.role &&
+  (input.status === 'active' || input.status === 'rejected')
+```
+
+Reviews admit `APPROVAL_ROLES` (owner, admin, moderator); everything else keeps
+`ADMIN_ROLES`. The gate turns on the **target's state**, not on the status value
+in the body — otherwise `status: 'active'` against an existing member would have
+let a moderator reinstate someone, and `status: 'left'` is a removal however it
+is spelled. Six tests cover the boundary, including that same-input-different-
+target case.
+
+### Event registrations — service change plus the missing screen
+
+`updateRegistrationStatus` called `assertEventOrganizer`: the event's creator and
+nobody else. A new `assertCanReviewRegistrations` widens it to the hosting club's
+owner, admin and moderator, leaving edit/publish/cancel/delete organiser-only.
+
+It degrades to organiser-only when no membership repository was supplied rather
+than throwing, so the service's other callers keep their current behaviour. The
+registrations endpoint now passes one — it never had.
+
+`PATCH /api/v1/registrations/{id}` turned out to have **no caller at all**. The
+tournament page rendered "3 awaiting approval" as dead text: the queue was
+visible and unactionable. There are now Approve / Reject buttons per pending
+entry. `waitlisted` is accepted by the endpoint but not offered — there is no
+waitlist concept in the UI, and half-building one is worse than leaving it.
+
+### Where the two queues agree
+
+Both reviews work in **either hat**, unlike every other management action.
+
+That is the same reasoning behind option C: a pending request is a person waiting
+for an answer, and making them wait on someone noticing they are in the wrong
+mode costs real time. Nothing else in either surface has a third party blocked on
+it, so nothing else got the exemption.
+
+| Action | Roles | Hat required |
+| --- | --- | --- |
+| Review club join request | OWNER, ADMIN, MODERATOR | either |
+| Review event registration | organiser, or club OWNER/ADMIN/MODERATOR | either |
+| Announcements | OWNER, ADMIN, MODERATOR | club hat |
+| Roles, removals, verification | OWNER, ADMIN | club hat |
+| Publish/edit/cancel/delete an event | organiser | club hat |
+
+### Validated
+
+`test:unit` **522/522** (+6) · `test:e2e` **39/39** · `typecheck` exit 0 ·
+`build` exit 0 · `eslint` 0 errors · format-clean.
+
+Still unverified by eye — both screens are behind a login and the
+throwaway-password step remains declined.
+
+## Discovery, the default duo, and one ranking treatment (2026-08-23, later still)
+
+Seven things that using the app surfaced. Six of them were separate; the seventh
+— the duo — turned out to be sitting on a genuinely broken path.
+
+### The event page opened on the wrong tab, showing the wrong thing
+
+A public event landed on Info, and Info was frequently blank: it rendered a
+Tournaments card, a Record Match link and a queue blurb, each behind its own
+condition, so a plain published event opened on an empty panel. The description
+typed at creation was a small paragraph in the page header and had never been
+editable by anything — `PATCH /api/v1/events/{id}` has accepted `description`
+since the event domain landed and no screen ever called it.
+
+Players is now the default tab. Info leads with an "About this event" card
+carrying the description plus a definition list of when / where / format / fee /
+players / registration close. Organisers get inline editing of the description,
+gated on `canManageEvent` (owner **and** club mode), not on ownership alone —
+running an event is club-mode work, the same rule publish and delete already
+follow.
+
+### Two club directories, one of them unreachable
+
+The sidebar linked "Verified Clubs" → `/verified-clubs`. The real directory at
+`/clubs` was already titled "Discover Clubs" and was not in the nav at all.
+
+They are one screen now. The nav item is "Discover Clubs" → `/clubs`;
+`/verified-clubs` redirects to `/clubs?verified=1`, which lands with a
+Verified-only toggle already on. `GET /api/v1/verified-clubs` is left in place
+but no longer has a caller.
+
+`/clubs` also carried a hardcoded three-option province dropdown — "Metro
+Manila", "Cebu", "Davao" as plain strings. Club rows store PSGC names, so
+"Metro Manila" could never match anything: the option was inert. It now uses
+the same cascading `useLocationPicker()` province → city pair as the players
+directory.
+
+### "All Provinces" showed nothing, on both directories
+
+Same three-layer cause on `/clubs` and `/players`: the page refused to fetch
+without a filter, and the endpoint 400'd on an unfiltered call. So the option
+labelled "All Provinces" cleared the list and said "Start searching".
+
+Both guards are gone. Empty filters now mean everything. The repositories always
+handled the unfiltered case correctly — they were never the problem — and both
+still restrict to public+active rows and still page with `.range()`, so an
+unfiltered browse is bounded and no broader than a search was.
+
+### The default duo, and the doubles bug underneath it
+
+New table `player_default_partners` (`027-default-partner`), one row per player,
+`player_id` as the primary key so "one duo" is structural and changing it is an
+upsert. **Deliberately not a column on `player_profiles`**: that table is
+publicly selectable, while `partnerships` is restricted by RLS to the two
+partners, and a `default_partner_id` on the public profile would leak exactly
+the relationship that policy protects.
+
+The behaviour is **pre-fill only**, chosen explicitly over auto-registration.
+Setting a duo never enters anyone into anything: it pre-selects an editable
+partner field in doubles match submission, event queue join, and tournament
+registration, marks that player ★ in each list, and floats them to the top.
+`removePartner` clears the duo on both sides — the FK only cascades when a
+profile is deleted, so without that the pickers would keep offering someone who
+is no longer a partner.
+
+Wiring it up exposed a real bug. **Registering for any doubles tournament
+category always failed.** `EventService.register` requires `partner_player_id`
+(`PARTNER_REQUIRED`), the endpoint has always read it off the body, and
+`pages/tournaments/[tournamentId].vue` sent `{ category_id }` and nothing else —
+with no partner control anywhere on the page to fix it. That path now has a
+per-category partner select, pre-filled from the duo. Per category rather than
+per page, because mixed doubles and men's doubles are rarely the same partner.
+
+### One ranking treatment
+
+`/rankings` had the podium/table/tier/trend design; four other screens kept
+their own. Extracted to `components/RankingBoard.vue` and applied to the landing
+page's Rankings tab, event standings, the club profile's Top Members, and both
+club-dashboard ladders. `/rankings` was refactored onto it first, as the
+reference.
+
+Two variants, because two shapes of ladder genuinely exist: `rating` (rating,
+tier, 7-day trend) and `record` (wins–losses, for event standings, whose
+endpoint deliberately carries no rating delta — `rating_transactions` is
+select-own under RLS).
+
+Three real defects died with the old copies: the club and community podiums
+rendered nothing at all below three players, the club dashboard rounded
+`numeric(5,3)` ratings to two decimals so members three thousandths apart read
+as identical, and the landing page's rows below the podium were bespoke gradient
+cards with their own medal colours. A fourth was found by a test while writing
+this: with three or fewer players the whole ladder sits on the podium and the
+table below it rendered its own "No ranked players yet" state directly under
+three named players. The table is now dropped in that case.
+
+`components/ui/RankBadge.vue` was the last primitive still on raw
+`text-xs`/`text-sm`/`text-xl`; it is on the token scale now.
+
+**Community was left alone on purpose** — it was excluded from the chosen scope.
+It is the worst remaining offender and now a two-line swap.
+
+### Landing nav
+
+The tab row was `justify-start` inside a `max-w-6xl` container, so five pills
+packed left under the brand and, below ~640px, overflowed with no way to reach
+the last one. Now centred at `sm` and up, horizontally scrollable below it, on
+`UiIcon` rather than emoji, with a hover lift and an animated underline on the
+active tab — all of it behind `motion-safe` / `prefers-reduced-motion`.
+
+### Validated
+
+`typecheck` exit 0 · `lint` 0 errors (8 pre-existing warnings in PlayerCard and
+Skeleton, both untouched) · `test:unit` **544/544** (+22: 10 for the duo service,
+12 for RankingBoard) · `test:e2e` **39/39** · `build` exit 0 · `check:tokens`
+clean. Formatting was applied only to the files this pass touched.
+
+The four light-mode axe failures recorded on 2026-08-23 did not reproduce — all
+39 e2e pass here, consistent with those having been the Nuxt DevTools toolbar,
+which the preview build does not load.
+
+### Migration applied
+
+`liquibase update` ran against the live Supabase project on 2026-08-23 and all
+four `027-default-partner` changesets applied cleanly — they were the only
+pending ones, against 195 already-applied. `status` now reports up to date
+(199 total).
+
+Two things worth recording about reaching that database, because they cost time
+and will cost it again:
+
+- **`db.<ref>.supabase.co` is IPv6-only and this machine has no global IPv6
+  address**, so the direct connection documented in the Liquibase README cannot
+  be used from here. Migrations go through the **session** pooler on port 5432
+  (`aws-0-ap-northeast-1.pooler.supabase.com`, user `postgres.<ref>`). Not the
+  transaction pooler on 6543 — Liquibase needs session-level locks for
+  DATABASECHANGELOGLOCK.
+- **The project is in `ap-northeast-1`**, which is not obvious from anything in
+  the repo; it was identified by matching the direct host's IPv6 address against
+  the published AWS IP ranges.
+
+Verified after applying: the table answers PostgREST (200 `[]`, where a missing
+table 404s), an anonymous read returns no rows — the owner-only RLS policy is
+live, matching how `partnerships` behaves — and the exact query the repository
+issues (`select=*&player_id=eq.<uuid>` under the service-role key, which is what
+the endpoint uses) succeeds with all three columns resolving by name.
+
+The rollback path was **not** exercised. The changesets all carry explicit
+`<rollback>` blocks, but proving them means dropping and recreating the table on
+a live database, which is worth asking about rather than assuming.
+
+### Still not verified in a browser
+
+Every screen this pass touched except the landing page and the two directories
+is behind a login, and no authenticated walkthrough has been run.

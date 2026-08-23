@@ -26,7 +26,7 @@
  */
 import type { RankingEntryDto } from '~/server/domains/rating/dto/ranking.dto'
 import type { PlayerProfileDto } from '~/server/domains/player/dto/player-profile.dto'
-import { formatRating, tierForRating } from '~/utils/rating-tiers'
+import { formatRating } from '~/utils/rating-tiers'
 
 useHead({ title: 'Rankings' })
 
@@ -79,13 +79,20 @@ watch([ratingType, province, page], () => {
 })
 
 // Changing a filter must reset paging, or you land on page 4 of a 1-page list.
-watch([ratingType, province], () => { page.value = 1 })
+watch([ratingType, province], () => {
+  page.value = 1
+})
 
 const offset = computed(() => (page.value - 1) * PAGE_SIZE)
 
-const { data: response, pending, error, refresh } = await useFetch<{
+const {
+  data: response,
+  pending,
+  error,
+  refresh
+} = await useFetch<{
   data: RankingEntryDto[]
-  meta: { total: number, limit: number, offset: number }
+  meta: { total: number; limit: number; offset: number }
 }>('/api/v1/rankings', {
   query: { rating_type: ratingType, province, q: debouncedSearch, limit: PAGE_SIZE, offset },
   watch: [ratingType, province, debouncedSearch, offset]
@@ -100,30 +107,8 @@ const entries = computed(() => response.value?.data ?? [])
 const total = computed(() => response.value?.meta?.total ?? 0)
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / PAGE_SIZE)))
 
-// No client-side filtering: the server returns exactly the matching page.
-const visible = computed(() => entries.value)
-
 /** The podium only makes sense on page one of an unsearched list. */
-const showPodium = computed(
-  () => page.value === 1 && !debouncedSearch.value && visible.value.length >= 1
-)
-const podium = computed(() =>
-  showPodium.value
-    ? visible.value.slice(0, 3).map((e) => ({
-        id: e.player_id,
-        name: e.display_name,
-        rating: e.rating_value,
-        location: e.city ?? e.province,
-        matchesPlayed: e.matches_played,
-        trendDelta: e.trend_delta
-      }))
-    : []
-)
-const tableRows = computed(() => (showPodium.value ? visible.value.slice(3) : visible.value))
-
-const isMe = (entry: RankingEntryDto) => entry.player_id === myProfile.value?.id
-
-const tierName = (rating: number) => tierForRating(rating).name
+const showPodium = computed(() => page.value === 1 && !debouncedSearch.value)
 
 /**
  * Compact page list: first, last, and a window around the current page. The old
@@ -141,33 +126,18 @@ const provinceOptions = computed(() => [
   ...provinces.value.map((p) => ({ value: p.name, label: p.name }))
 ])
 
-const columns = [
-  { key: 'rank', label: '#', numeric: true, width: 'w-16' },
-  { key: 'player', label: 'Player' },
-  { key: 'matches', label: 'Matches', numeric: true, hideOnMobile: true },
-  { key: 'rating', label: 'Rating', numeric: true },
-  { key: 'trend', label: 'Trend', numeric: true }
-]
-
 /** Where the reader sits, for the standing callout under the podium. */
 const myEntry = computed(
   () => entries.value.find((e) => e.player_id === myProfile.value?.id) ?? null
 )
 
-function openPlayer(entry: RankingEntryDto) {
+function openPlayer(entry: { player_id: string }) {
   return navigateTo(`/players/${entry.player_id}`)
 }
 </script>
 
 <template>
   <div class="page-shell relative px-4 py-6 lg:px-6">
-    <!-- Atmospheric arc behind the podium, from the reference design.
-         Decorative and token-based, so it flips with the theme. `z-0` with the
-         content at `z-10` rather than a negative index: `-z-10` put it behind
-         the page background entirely and it never showed. `overflow-clip`
-         stops the oversized ellipse widening the document. -->
-    <div class="dnl-podium-glow pointer-events-none absolute inset-x-0 top-0 z-0 h-[34rem]" aria-hidden="true" />
-
     <header class="relative z-10 mb-6 text-center sm:text-left">
       <h1 class="font-display text-heading-1 text-fg">Rankings</h1>
       <p class="mt-1 text-body-2 text-fg-secondary">
@@ -179,13 +149,12 @@ function openPlayer(entry: RankingEntryDto) {
       <UiSegmented
         v-model="ratingType"
         label="Rating type"
-        :items="[{ value: 'singles', label: 'Singles' }, { value: 'doubles', label: 'Doubles' }]"
+        :items="[
+          { value: 'singles', label: 'Singles' },
+          { value: 'doubles', label: 'Doubles' }
+        ]"
       />
-      <UiSelect
-        v-model="province"
-        aria-label="Province"
-        :options="provinceOptions"
-      />
+      <UiSelect v-model="province" aria-label="Province" :options="provinceOptions" />
       <div class="min-w-[12rem] flex-1 lg:max-w-xs">
         <UiInput
           v-model="searchQuery"
@@ -206,105 +175,18 @@ function openPlayer(entry: RankingEntryDto) {
     />
 
     <template v-else>
-      <section v-if="showPodium || pending" class="relative z-10 mb-12">
-        <h2 class="mb-6 text-center font-display text-heading-3 text-fg">
-          Top 3 {{ ratingType === 'singles' ? 'Singles' : 'Doubles' }}
-          <span class="text-fg-secondary">· {{ province || 'Nationwide' }}</span>
-        </h2>
+      <h2 v-if="showPodium" class="mb-6 text-center font-display text-heading-3 text-fg">
+        Top 3 {{ ratingType === 'singles' ? 'Singles' : 'Doubles' }}
+        <span class="text-fg-secondary">· {{ province || 'Nationwide' }}</span>
+      </h2>
 
-        <div v-if="pending" class="flex items-end justify-center gap-4">
-          <div class="mt-12 h-36 w-32 animate-pulse rounded-t-card bg-surface-2" />
-          <div class="h-52 w-36 animate-pulse rounded-t-card bg-surface-2" />
-          <div class="mt-20 h-28 w-32 animate-pulse rounded-t-card bg-surface-2" />
-        </div>
-        <UiPodium
-          v-else
-          :entries="podium"
-          :highlight-id="myProfile?.id ?? null"
-          @select="navigateTo(`/players/${$event.id}`)"
-        />
-
-        <!-- Standing callout, in the spirit of the reference's "you ranked N of
-             M users" pill — but built only from facts we hold: the reader's own
-             rank, the real total, and their movement. Hidden entirely when the
-             reader is not on this ladder, rather than inventing a placeholder. -->
-        <div v-if="myEntry" class="mt-8 flex justify-center">
-          <p class="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 rounded-pill border border-border bg-surface px-4 py-2 text-body-2 text-fg-secondary">
-            <span>You are</span>
-            <strong class="font-semibold text-fg">#{{ myEntry.rank }}</strong>
-            <span>of {{ total }} ranked {{ total === 1 ? 'player' : 'players' }}</span>
-            <span class="text-fg-muted">·</span>
-            <strong class="font-semibold tabular-nums text-fg">{{ formatRating(myEntry.rating_value) }}</strong>
-            <UiTrendIndicator
-              v-if="myEntry.trend_delta !== null"
-              :value="myEntry.trend_delta"
-              size="sm"
-              suffix="in the last 7 days"
-            />
-            <span v-else class="text-caption text-fg-muted">no rated match in the last 7 days</span>
-          </p>
-        </div>
-      </section>
-
-      <UiDataTable
-        :columns="columns"
-        :rows="tableRows"
-        :row-key="(row) => row.player_id"
-        :is-highlighted="isMe"
+      <RankingBoard
+        :entries="entries"
+        :show-podium="showPodium"
+        :highlight-id="myProfile?.id ?? null"
         :loading="pending"
-        clickable-rows
-        caption="Player rankings by rating"
-        @row-click="openPlayer"
+        @select="openPlayer"
       >
-        <template #cell-rank="{ row }">
-          <span
-            class="inline-flex h-7 min-w-[1.75rem] items-center justify-center rounded-button px-1.5 text-caption font-bold tabular-nums"
-            :class="row.rank <= 3 ? 'bg-primary-soft text-primary' : 'text-fg-muted'"
-          >{{ row.rank }}</span>
-        </template>
-
-        <!-- Two-line cell, as the reference does: name over a secondary line.
-             The reference uses an @handle; this platform has no usernames, so
-             the second line carries location, which is what players actually
-             use to place each other. -->
-        <template #cell-player="{ row }">
-          <span class="flex items-center gap-3">
-            <UiAvatar :name="row.display_name" size="md" :highlighted="isMe(row)" />
-            <span class="min-w-0">
-              <span class="flex items-center gap-1.5">
-                <span class="truncate font-medium text-fg">{{ row.display_name }}</span>
-                <span
-                  v-if="isMe(row)"
-                  class="shrink-0 rounded-pill bg-primary-soft px-1.5 py-0.5 text-caption font-medium text-primary"
-                >You</span>
-              </span>
-              <span class="block truncate text-caption text-fg-muted">
-                {{ row.city || row.province || 'Location not set' }}
-              </span>
-            </span>
-          </span>
-        </template>
-
-        <template #cell-matches="{ row }">
-          <span class="tabular-nums text-fg-secondary">{{ row.matches_played }}</span>
-        </template>
-
-        <template #cell-rating="{ row }">
-          <span class="inline-flex flex-col items-end">
-            <span class="font-semibold tabular-nums text-fg">{{ formatRating(row.rating_value) }}</span>
-            <span class="text-caption text-fg-muted">
-              {{ tierName(row.rating_value) }}<template v-if="row.provisional"> · provisional</template>
-            </span>
-          </span>
-        </template>
-
-        <!-- null means "no rated match in the window", which is not the same as
-             a zero delta and must not look like one. -->
-        <template #cell-trend="{ row }">
-          <UiTrendIndicator v-if="row.trend_delta !== null" :value="row.trend_delta" size="sm" />
-          <span v-else class="text-caption text-fg-muted" title="No rated match in the last 7 days">—</span>
-        </template>
-
         <template #empty>
           <UiEmptyState
             v-if="debouncedSearch"
@@ -323,7 +205,36 @@ function openPlayer(entry: RankingEntryDto) {
             action-to="/matches/submit"
           />
         </template>
-      </UiDataTable>
+
+        <template #below-podium>
+          <!-- Standing callout, in the spirit of the reference's "you ranked N of
+               M users" pill — but built only from facts we hold: the reader's own
+               rank, the real total, and their movement. Hidden entirely when the
+               reader is not on this ladder, rather than inventing a placeholder. -->
+          <div v-if="myEntry" class="mt-8 flex justify-center">
+            <p
+              class="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 rounded-pill border border-border bg-surface px-4 py-2 text-body-2 text-fg-secondary"
+            >
+              <span>You are</span>
+              <strong class="font-semibold text-fg">#{{ myEntry.rank }}</strong>
+              <span>of {{ total }} ranked {{ total === 1 ? 'player' : 'players' }}</span>
+              <span class="text-fg-muted">·</span>
+              <strong class="font-semibold tabular-nums text-fg">{{
+                formatRating(myEntry.rating_value)
+              }}</strong>
+              <UiTrendIndicator
+                v-if="myEntry.trend_delta !== null"
+                :value="myEntry.trend_delta"
+                size="sm"
+                suffix="in the last 7 days"
+              />
+              <span v-else class="text-caption text-fg-muted"
+                >no rated match in the last 7 days</span
+              >
+            </p>
+          </div>
+        </template>
+      </RankingBoard>
 
       <nav
         v-if="totalPages > 1"
@@ -345,10 +256,14 @@ function openPlayer(entry: RankingEntryDto) {
           <button
             type="button"
             class="min-w-[2rem] rounded-button px-2.5 py-1 text-body-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-            :class="n === page ? 'bg-primary text-on-primary' : 'text-fg-secondary hover:bg-surface-2'"
+            :class="
+              n === page ? 'bg-primary text-on-primary' : 'text-fg-secondary hover:bg-surface-2'
+            "
             :aria-current="n === page ? 'page' : undefined"
             @click="page = n"
-          >{{ n }}</button>
+          >
+            {{ n }}
+          </button>
         </template>
 
         <UiButton

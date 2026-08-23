@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Feature flags for the SuperAdmin console (docs/30-SUPER-ADMIN-SPECIFICATION.md §2.5).
+
+     A table, not a jsonb column on platform_config and not an array in application
+     code: the catalog of flags is data. A flag's label, description, order and state
+     are all editable without a deploy, and the admin console renders whatever rows
+     exist rather than a list compiled into the bundle.
+
+     Code still names a key where it gates something — that is the gate, not the
+     catalog — and an unknown key reads as disabled (fail closed).
+
+     RLS: public SELECT, because the client has to know what to hide and the flag
+     list is not secret. No INSERT/UPDATE/DELETE policies at all, so writes are
+     service-role only and go through the SuperAdmin-checked endpoint, matching how
+     platform_config is handled in 018. -->
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+    <changeSet id="0001-create-feature-flags-table" author="super-admin">
+        <createTable tableName="feature_flags">
+            <column name="id" type="uuid" defaultValueComputed="gen_random_uuid()">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <!-- Dotted namespace ('domain.feature'), matching the keys used in code. -->
+            <column name="key" type="text">
+                <constraints nullable="false" unique="true" uniqueConstraintName="uq_feature_flags_key"/>
+            </column>
+            <column name="label" type="text">
+                <constraints nullable="false"/>
+            </column>
+            <column name="description" type="text">
+                <constraints nullable="true"/>
+            </column>
+            <!-- New flags start off. A feature appears because someone decided it
+                 should, never because a migration ran. -->
+            <column name="enabled" type="boolean" defaultValueBoolean="false">
+                <constraints nullable="false"/>
+            </column>
+            <column name="display_order" type="int" defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_at" type="timestamptz" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+            <column name="updated_at" type="timestamptz" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+            <column name="updated_by_user_id" type="uuid">
+                <constraints nullable="true"
+                             foreignKeyName="fk_feature_flags_updated_by"
+                             references="users(id)"/>
+            </column>
+        </createTable>
+    </changeSet>
+
+    <changeSet id="0002-enable-rls-feature-flags" author="super-admin">
+        <sql>
+            ALTER TABLE feature_flags ENABLE ROW LEVEL SECURITY;
+        </sql>
+        <rollback>
+            ALTER TABLE feature_flags DISABLE ROW LEVEL SECURITY;
+        </rollback>
+    </changeSet>
+
+    <!-- Read-only to the world. Writes have no policy, so only the service role
+         can perform them, and the endpoint that holds that key checks the caller
+         against platform_config.super_admin_id first. -->
+    <changeSet id="0003-feature-flags-select-policy" author="super-admin">
+        <sql>
+            CREATE POLICY feature_flags_select_all ON feature_flags
+                FOR SELECT USING (true);
+        </sql>
+        <rollback>
+            DROP POLICY feature_flags_select_all ON feature_flags;
+        </rollback>
+    </changeSet>
+
+    <!-- The one flag that exists so far: the Registered badge on event cards,
+         built but deliberately held back. Seeded disabled. -->
+    <changeSet id="0004-seed-feature-flags" author="super-admin">
+        <insert tableName="feature_flags">
+            <column name="key" value="events.registered_badge"/>
+            <column name="label" value="Registered badge on event cards"/>
+            <column name="description"
+                    value="Marks the event thumbnails a player has already signed up for. Off means the events list looks the same to everyone."/>
+            <column name="enabled" valueBoolean="false"/>
+            <column name="display_order" valueNumeric="1"/>
+        </insert>
+        <rollback>
+            <delete tableName="feature_flags">
+                <where>key = 'events.registered_badge'</where>
+            </delete>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

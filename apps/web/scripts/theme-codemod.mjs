@@ -53,12 +53,17 @@ const MAP = {
   '141d19': 'canvas',
   '0f1a17': 'canvas',
   '1e2e2a': 'surface',
-  '182621': 'surface',
-  '162220': 'surface',
+  182621: 'surface',
+  162220: 'surface',
   '132a20': 'surface',
   '2e4540': { border: 'border', ring: 'border', divide: 'border', default: 'surface-2' },
   '2a3f38': 'surface-2',
-  '3a5750': { border: 'border-strong', ring: 'border-strong', divide: 'border-strong', default: 'surface-3' },
+  '3a5750': {
+    border: 'border-strong',
+    ring: 'border-strong',
+    divide: 'border-strong',
+    default: 'surface-3'
+  },
 
   // Gradients
   '1a2a24': 'grad-from',
@@ -112,7 +117,15 @@ const PREFIXES =
   'bg|text|border|from|to|via|ring|fill|stroke|divide|placeholder|shadow|decoration|outline|accent|caret'
 const HEX_CLASS = new RegExp(`\\b(${PREFIXES})-\\[#([0-9A-Fa-f]{3,8})\\](/\\d{1,3})?`, 'g')
 
-const report = { files: 0, hex: 0, white: 0, unmapped: new Map(), ambiguous: [], whiteBreakdown: new Map(), leftover: [] }
+const report = {
+  files: 0,
+  hex: 0,
+  white: 0,
+  unmapped: new Map(),
+  ambiguous: [],
+  whiteBreakdown: new Map(),
+  leftover: []
+}
 
 function tokenFor(prefix, hex) {
   const entry = MAP[hex.toLowerCase()]
@@ -184,7 +197,10 @@ function classifyLabels(region, file, outer = '', regionIsContext = true) {
       const count = (body.match(LABEL) || []).length
       LABEL.lastIndex = 0
       report.white += count
-      report.whiteBreakdown.set('text-fg (no fill in scope)', (report.whiteBreakdown.get('text-fg (no fill in scope)') ?? 0) + count)
+      report.whiteBreakdown.set(
+        'text-fg (no fill in scope)',
+        (report.whiteBreakdown.get('text-fg (no fill in scope)') ?? 0) + count
+      )
       return quote + body.replace(LABEL, 'text-fg') + quote
     }
 
@@ -244,7 +260,8 @@ for (const file of files) {
 console.log(`${DRY ? '[dry run] ' : ''}files changed: ${report.files}`)
 console.log(`hex classes rewritten: ${report.hex}`)
 console.log(`text-white classified: ${report.white}`)
-for (const [k, v] of [...report.whiteBreakdown].sort((a, b) => b[1] - a[1])) console.log(`  ${v.toString().padStart(4)}  → ${k}`)
+for (const [k, v] of [...report.whiteBreakdown].sort((a, b) => b[1] - a[1]))
+  console.log(`  ${v.toString().padStart(4)}  → ${k}`)
 
 if (report.unmapped.size) {
   console.log('\nUNMAPPED — left untouched, add to MAP or fix by hand:')

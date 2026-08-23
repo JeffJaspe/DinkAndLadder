@@ -80,7 +80,7 @@ export function createApiKeyService(repo: ApiKeyRepository): ApiKeyService {
         throw new ApiKeyServiceError(404, 'NOT_FOUND', 'API key not found')
       }
       if (record.player_id !== playerId) {
-        throw new ApiKeyServiceError(403, 'FORBIDDEN', 'Cannot revoke another player\'s key')
+        throw new ApiKeyServiceError(403, 'FORBIDDEN', "Cannot revoke another player's key")
       }
 
       await repo.deactivate(keyId)
@@ -124,10 +124,19 @@ export function createWebhookService(repo: WebhookRepository): WebhookService {
         throw new ApiKeyServiceError(400, 'INVALID_URL', 'Webhook URL must use HTTPS')
       }
 
-      const validEvents = ['match.verified', 'rating.changed', 'club.member_joined', 'tournament.registration_opened']
-      const invalidEvents = input.events.filter(e => !validEvents.includes(e))
+      const validEvents = [
+        'match.verified',
+        'rating.changed',
+        'club.member_joined',
+        'tournament.registration_opened'
+      ]
+      const invalidEvents = input.events.filter((e) => !validEvents.includes(e))
       if (invalidEvents.length > 0) {
-        throw new ApiKeyServiceError(400, 'INVALID_EVENTS', `Invalid events: ${invalidEvents.join(', ')}`)
+        throw new ApiKeyServiceError(
+          400,
+          'INVALID_EVENTS',
+          `Invalid events: ${invalidEvents.join(', ')}`
+        )
       }
 
       const secret = generateWebhookSecret()
@@ -148,7 +157,7 @@ export function createWebhookService(repo: WebhookRepository): WebhookService {
         throw new ApiKeyServiceError(404, 'NOT_FOUND', 'Webhook not found')
       }
       if (record.player_id !== playerId) {
-        throw new ApiKeyServiceError(403, 'FORBIDDEN', 'Cannot delete another player\'s webhook')
+        throw new ApiKeyServiceError(403, 'FORBIDDEN', "Cannot delete another player's webhook")
       }
 
       await repo.delete(webhookId)

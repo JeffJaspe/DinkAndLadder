@@ -1,7 +1,4 @@
-import {
-  serverSupabaseClient,
-  serverSupabaseUser
-} from '#supabase/server'
+import { serverSupabaseClient, serverSupabaseUser } from '#supabase/server'
 import { apiError } from '~/server/utils/api-error'
 import {
   singlesRatingOf,
@@ -29,7 +26,8 @@ export default defineEventHandler(async (event) => {
 
   const { data: registrations, error: regError } = await userClient
     .from('event_registrations')
-    .select(`
+    .select(
+      `
       id,
       event_id,
       player_id,
@@ -44,7 +42,8 @@ export default defineEventHandler(async (event) => {
           rating_value
         )
       )
-    `)
+    `
+    )
     .eq('event_id', eventId)
     .in('status', ['registered', 'checked_in'])
     .order('registered_at', { ascending: true })

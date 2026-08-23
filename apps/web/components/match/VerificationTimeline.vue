@@ -84,9 +84,7 @@ const steps = computed<Step[]>(() => {
     const rejected = v.status === 'rejected' || v.status === 'disputed'
     out.push({
       key: `v-${v.verifier_player_id}`,
-      title: rejected
-        ? v.status === 'disputed' ? 'Disputed' : 'Rejected'
-        : 'Confirmed',
+      title: rejected ? (v.status === 'disputed' ? 'Disputed' : 'Rejected') : 'Confirmed',
       by: v.verifier_name ? `by ${v.verifier_name}` : null,
       at: v.responded_at,
       icon: rejected ? 'alert' : 'check',
@@ -174,14 +172,22 @@ function relative(iso: string) {
       <div class="min-w-0 flex-1 pt-1">
         <p class="flex flex-wrap items-baseline gap-x-2">
           <span class="text-body-2 font-medium text-fg">{{ step.title }}</span>
-          <time v-if="step.at" class="text-caption text-fg-muted" :datetime="step.at" :title="absolute(step.at)">
+          <time
+            v-if="step.at"
+            class="text-caption text-fg-muted"
+            :datetime="step.at"
+            :title="absolute(step.at)"
+          >
             {{ relative(step.at) }}
           </time>
           <span v-else class="text-caption text-fg-muted">pending</span>
         </p>
 
         <p v-if="step.by" class="text-caption text-fg-secondary">{{ step.by }}</p>
-        <p v-if="step.note" class="mt-1 rounded-button bg-surface-2 px-2 py-1 text-caption text-fg-secondary">
+        <p
+          v-if="step.note"
+          class="mt-1 rounded-button bg-surface-2 px-2 py-1 text-caption text-fg-secondary"
+        >
           “{{ step.note }}”
         </p>
 
@@ -194,7 +200,9 @@ function relative(iso: string) {
             <span class="truncate text-caption text-fg">{{ change.display_name }}</span>
             <span class="flex items-baseline gap-2 whitespace-nowrap">
               <UiTrendIndicator :value="change.rating_delta" size="sm" />
-              <span class="text-caption tabular-nums text-fg-muted">→ {{ change.new_rating.toFixed(3) }}</span>
+              <span class="text-caption tabular-nums text-fg-muted"
+                >→ {{ change.new_rating.toFixed(3) }}</span
+              >
             </span>
           </li>
         </ul>

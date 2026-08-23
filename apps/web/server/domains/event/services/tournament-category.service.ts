@@ -9,7 +9,10 @@ import type {
   TournamentCategoryDto,
   UpdateTournamentCategoryInput
 } from '../dto/tournament-category.dto'
-import { toTournamentCategoryDto, toTournamentCategoryTemplateDto } from '../dto/tournament-category.dto'
+import {
+  toTournamentCategoryDto,
+  toTournamentCategoryTemplateDto
+} from '../dto/tournament-category.dto'
 import { EventServiceError } from './event.service'
 
 export interface CreateCategoryFromTemplateInput {

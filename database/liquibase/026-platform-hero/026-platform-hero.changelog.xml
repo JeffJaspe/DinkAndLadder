@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Landing-page hero for the SuperAdmin console
+     (docs/30-SUPER-ADMIN-SPECIFICATION.md §2.3).
+
+     Same row and same bucket as branding in 025 - a hero image is one more
+     brand asset, so it reuses that upload path rather than growing a parallel
+     one. The background is stored as a bucket-relative PATH for the reason 025
+     gives: the URL shape depends on the bucket's public setting, not on the row.
+
+     Overlay colour and opacity exist because the headline sits on top of a
+     photograph nobody has seen yet. Without a controllable scrim, any image
+     with a bright region makes the text unreadable, and the fix would otherwise
+     be "upload a darker picture". -->
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+    <changeSet id="0001-add-hero-to-platform-config" author="super-admin">
+        <addColumn tableName="platform_config">
+            <!-- All nullable: NULL means "the built-in landing copy", which is
+                 what the site has shipped with and is a complete hero on its
+                 own. Defaults here would make "never set" indistinguishable
+                 from "set to the same words". -->
+            <column name="hero_title" type="text">
+                <constraints nullable="true"/>
+            </column>
+            <column name="hero_subtitle" type="text">
+                <constraints nullable="true"/>
+            </column>
+            <column name="hero_background_path" type="text">
+                <constraints nullable="true"/>
+            </column>
+            <column name="hero_overlay_color" type="text">
+                <constraints nullable="true"/>
+            </column>
+            <!-- 0.0 - 1.0. numeric rather than float: an opacity is a decimal
+                 the operator types, and exact storage keeps 0.35 as 0.35. -->
+            <column name="hero_overlay_opacity" type="numeric(3,2)">
+                <constraints nullable="true"/>
+            </column>
+        </addColumn>
+        <rollback>
+            <dropColumn tableName="platform_config" columnName="hero_overlay_opacity"/>
+            <dropColumn tableName="platform_config" columnName="hero_overlay_color"/>
+            <dropColumn tableName="platform_config" columnName="hero_background_path"/>
+            <dropColumn tableName="platform_config" columnName="hero_subtitle"/>
+            <dropColumn tableName="platform_config" columnName="hero_title"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="0002-check-hero-overlay-opacity" author="super-admin">
+        <sql>
+            ALTER TABLE platform_config ADD CONSTRAINT ck_platform_config_hero_overlay_opacity
+                CHECK (hero_overlay_opacity IS NULL
+                       OR (hero_overlay_opacity >= 0 AND hero_overlay_opacity &lt;= 1));
+        </sql>
+        <rollback>
+            ALTER TABLE platform_config DROP CONSTRAINT ck_platform_config_hero_overlay_opacity;
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

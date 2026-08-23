@@ -1,5 +1,8 @@
 import { describe, it, expect, vi } from 'vitest'
-import { createActivityService, createActivityLogger } from '../../server/domains/activity/services/activity.service'
+import {
+  createActivityService,
+  createActivityLogger
+} from '../../server/domains/activity/services/activity.service'
 import type { ActivityRepository } from '../../server/domains/activity/repositories/activity.repository'
 import type { RelationshipRepository } from '../../server/domains/social/repositories/relationship.repository'
 import type { ActivityRecord } from '../../server/domains/activity/dto/activity.dto'
@@ -53,7 +56,9 @@ function createFakeActivityRepository(overrides?: Partial<ActivityRepository>): 
   }
 }
 
-function createFakeRelationshipRepository(overrides?: Partial<RelationshipRepository>): RelationshipRepository {
+function createFakeRelationshipRepository(
+  overrides?: Partial<RelationshipRepository>
+): RelationshipRepository {
   return {
     findByFromAndTo: vi.fn().mockResolvedValue(null),
     findFollowing: vi.fn().mockResolvedValue([]),
@@ -125,7 +130,15 @@ describe('ActivityService', () => {
   describe('getPersonalizedFeed', () => {
     it('includes activities from followed players', async () => {
       const followingRecords = [
-        { id: 'rel-1', from_player_id: 'player-1', to_player_id: 'player-2', relationship_type: 'follow' as const, status: 'active' as const, created_at: '', updated_at: '' }
+        {
+          id: 'rel-1',
+          from_player_id: 'player-1',
+          to_player_id: 'player-2',
+          relationship_type: 'follow' as const,
+          status: 'active' as const,
+          created_at: '',
+          updated_at: ''
+        }
       ]
       const activities = [makeActivityRecord({ actor_player_id: 'player-2' })]
 
@@ -143,12 +156,28 @@ describe('ActivityService', () => {
       expect(result[0].actor_player_id).toBe('player-2')
     })
 
-    it('prioritizes the player\'s own verified club above other verified clubs, above unverified/personal activity', async () => {
+    it("prioritizes the player's own verified club above other verified clubs, above unverified/personal activity", async () => {
       const activities = [
-        makeActivityRecord({ id: 'a-personal', actor_club_id: null, created_at: '2026-08-03T00:00:00Z' }),
-        makeActivityRecord({ id: 'a-other-verified', actor_club_id: 'club-other', created_at: '2026-08-01T00:00:00Z' }),
-        makeActivityRecord({ id: 'a-own-verified', actor_club_id: 'club-mine', created_at: '2026-08-02T00:00:00Z' }),
-        makeActivityRecord({ id: 'a-unverified', actor_club_id: 'club-unverified', created_at: '2026-08-04T00:00:00Z' })
+        makeActivityRecord({
+          id: 'a-personal',
+          actor_club_id: null,
+          created_at: '2026-08-03T00:00:00Z'
+        }),
+        makeActivityRecord({
+          id: 'a-other-verified',
+          actor_club_id: 'club-other',
+          created_at: '2026-08-01T00:00:00Z'
+        }),
+        makeActivityRecord({
+          id: 'a-own-verified',
+          actor_club_id: 'club-mine',
+          created_at: '2026-08-02T00:00:00Z'
+        }),
+        makeActivityRecord({
+          id: 'a-unverified',
+          actor_club_id: 'club-unverified',
+          created_at: '2026-08-04T00:00:00Z'
+        })
       ]
       const activityRepo = createFakeActivityRepository({
         findFollowingFeed: vi.fn().mockResolvedValue(activities)
@@ -156,12 +185,22 @@ describe('ActivityService', () => {
       const clubRepo = createFakeClubRepository({
         'club-mine': makeClubRecord({ id: 'club-mine', verification_status: 'verified' }),
         'club-other': makeClubRecord({ id: 'club-other', verification_status: 'verified' }),
-        'club-unverified': makeClubRecord({ id: 'club-unverified', verification_status: 'unverified' })
+        'club-unverified': makeClubRecord({
+          id: 'club-unverified',
+          verification_status: 'unverified'
+        })
       })
 
-      const service = createActivityService(activityRepo, createFakeRelationshipRepository(), clubRepo)
+      const service = createActivityService(
+        activityRepo,
+        createFakeRelationshipRepository(),
+        clubRepo
+      )
 
-      const result = await service.getPersonalizedFeed('player-1', ['club-mine'], { limit: 20, offset: 0 })
+      const result = await service.getPersonalizedFeed('player-1', ['club-mine'], {
+        limit: 20,
+        offset: 0
+      })
 
       expect(result.map((r) => r.id)).toEqual([
         'a-own-verified',

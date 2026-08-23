@@ -38,7 +38,12 @@ const roleColors: Record<string, string> = {
           class="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2 font-medium text-on-primary hover:bg-primary-hover"
         >
           <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M12 4v16m8-8H4"
+            />
           </svg>
           Create Club
         </NuxtLink>
@@ -55,11 +60,19 @@ const roleColors: Record<string, string> = {
       </div>
 
       <!-- Empty -->
-      <div v-else-if="!data?.items.length" class="rounded-xl bg-surface p-12 text-center">
+      <div
+        v-else-if="!data?.items.length"
+        class="rounded-xl bg-surface p-12 text-center shadow-card"
+      >
         <p class="text-4xl">🏸</p>
         <h3 class="mt-4 text-lg font-semibold text-fg">No clubs yet</h3>
-        <p class="mt-2 text-sm text-fg-muted">Join a club to connect with other players, or create your own</p>
-        <NuxtLink to="/clubs" class="mt-4 inline-block rounded-lg bg-primary px-4 py-2 text-on-primary">
+        <p class="mt-2 text-sm text-fg-muted">
+          Join a club to connect with other players, or create your own
+        </p>
+        <NuxtLink
+          to="/clubs"
+          class="mt-4 inline-block rounded-lg bg-primary px-4 py-2 text-on-primary"
+        >
           Discover Clubs
         </NuxtLink>
       </div>
@@ -70,17 +83,22 @@ const roleColors: Record<string, string> = {
           v-for="membership in data.items"
           :key="membership.id"
           :to="`/clubs/${membership.club.id}`"
-          class="flex items-center gap-4 rounded-xl bg-surface p-4 transition-all hover:bg-surface-2"
+          class="flex items-center gap-4 rounded-xl bg-surface p-4 transition-all hover:bg-surface-2 shadow-card hover:shadow-card-hover"
         >
           <!-- Logo -->
-          <div class="flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-xl bg-surface-2 text-xl font-bold text-fg-secondary">
+          <div
+            class="flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-xl bg-surface-2 text-xl font-bold text-fg-secondary"
+          >
             {{ membership.club.name.charAt(0).toUpperCase() }}
           </div>
 
           <!-- Info -->
           <div class="min-w-0 flex-1">
             <h3 class="font-semibold text-fg">{{ membership.club.name }}</h3>
-            <p v-if="membership.club.city || membership.club.province" class="mt-0.5 text-sm text-fg-muted">
+            <p
+              v-if="membership.club.city || membership.club.province"
+              class="mt-0.5 text-sm text-fg-muted"
+            >
               {{ [membership.club.city, membership.club.province].filter(Boolean).join(', ') }}
             </p>
           </div>
@@ -94,8 +112,18 @@ const roleColors: Record<string, string> = {
           </span>
 
           <!-- Arrow -->
-          <svg class="h-5 w-5 flex-shrink-0 text-fg-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+          <svg
+            class="h-5 w-5 flex-shrink-0 text-fg-muted"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M9 5l7 7-7 7"
+            />
           </svg>
         </NuxtLink>
       </div>

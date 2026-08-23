@@ -1,6 +1,7 @@
 export type BillingInterval = 'month' | 'year' | 'one_time'
 export type PlanType = 'player' | 'club'
-export type SubscriptionStatus = 'active' | 'canceled' | 'past_due' | 'trialing' | 'paused' | 'incomplete'
+export type SubscriptionStatus =
+  'active' | 'canceled' | 'past_due' | 'trialing' | 'paused' | 'incomplete'
 
 export interface SubscriptionPlanFeatures {
   max_matches_per_month?: number

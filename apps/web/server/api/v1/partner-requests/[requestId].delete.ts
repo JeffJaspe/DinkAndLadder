@@ -1,7 +1,10 @@
 import { serverSupabaseServiceRole, serverSupabaseUser } from '#supabase/server'
 import { createPartnershipRepository } from '~/server/domains/partnership/repositories/partnership.repository'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
-import { createPartnershipService, PartnershipServiceError } from '~/server/domains/partnership/services/partnership.service'
+import {
+  createPartnershipService,
+  PartnershipServiceError
+} from '~/server/domains/partnership/services/partnership.service'
 import { apiError } from '~/server/utils/api-error'
 
 export default defineEventHandler(async (event) => {
@@ -23,10 +26,7 @@ export default defineEventHandler(async (event) => {
     throw apiError(409, 'PLAYER_PROFILE_REQUIRED', 'Complete your player profile first.')
   }
 
-  const service = createPartnershipService(
-    createPartnershipRepository(client),
-    playerRepo
-  )
+  const service = createPartnershipService(createPartnershipRepository(client), playerRepo)
 
   try {
     await service.cancelRequest(profile.id, requestId)

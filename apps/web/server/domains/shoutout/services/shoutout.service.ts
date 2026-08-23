@@ -51,7 +51,11 @@ export function createShoutoutService(
       }
 
       if (input.message.length > 280) {
-        throw new ShoutoutServiceError(400, 'VALIDATION_ERROR', 'Message must be 280 characters or less.')
+        throw new ShoutoutServiceError(
+          400,
+          'VALIDATION_ERROR',
+          'Message must be 280 characters or less.'
+        )
       }
 
       await shoutouts.deactivate(playerId)
@@ -75,7 +79,11 @@ export function createShoutoutService(
       }
 
       if (input.message.length > 280) {
-        throw new ShoutoutServiceError(400, 'VALIDATION_ERROR', 'Message must be 280 characters or less.')
+        throw new ShoutoutServiceError(
+          400,
+          'VALIDATION_ERROR',
+          'Message must be 280 characters or less.'
+        )
       }
 
       const existing = await shoutouts.findActiveByPlayerId(playerId)

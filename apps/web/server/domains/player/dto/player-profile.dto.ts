@@ -141,9 +141,7 @@ const UPDATABLE_TEXT_FIELD_MAP: Record<OptionalTextField, true> = {
   preferred_position: true
 }
 
-export const UPDATABLE_TEXT_FIELDS = Object.keys(
-  UPDATABLE_TEXT_FIELD_MAP
-) as OptionalTextField[]
+export const UPDATABLE_TEXT_FIELDS = Object.keys(UPDATABLE_TEXT_FIELD_MAP) as OptionalTextField[]
 
 /**
  * Parses an untrusted request body into an UpdatePlayerProfileInput.

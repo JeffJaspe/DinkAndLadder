@@ -31,6 +31,15 @@ const modalOpen = ref(false)
 const destructiveModalOpen = ref(false)
 const modalLoading = ref(false)
 
+// Named rather than inline. As two statements in the template, Prettier splits
+// the expression across lines and drops the separating `;`, which the Vue
+// compiler then rejects — and re-adding the `;` is formatted straight back out.
+// A function is the one form both tools accept.
+function confirmDestructive() {
+  destructiveModalOpen.value = false
+  toast.info('Left the club')
+}
+
 const inputValue = ref('')
 const inputWithError = ref('bad value')
 const selectValue = ref('all')
@@ -41,7 +50,7 @@ const stepperB = ref(21)
 
 /** Deterministic sample series so the chart looks the same on every reload. */
 const chartPoints = computed(() => {
-  const out: { date: string, value: number }[] = []
+  const out: { date: string; value: number }[] = []
   let value = 3.2
   for (let i = 29; i >= 0; i--) {
     value += (Math.sin(i * 1.7) + Math.cos(i * 0.6)) * 0.03
@@ -86,8 +95,9 @@ function confirmWithDelay() {
         <div>
           <h1 class="font-display text-heading-1">Components</h1>
           <p class="mt-1 text-body-2 text-fg-secondary">
-            Dev-only gallery. Rendering <strong class="text-primary">{{ resolvedTheme }}</strong>.
-            Tokens live at <NuxtLink to="/dev/theme" class="text-primary underline">/dev/theme</NuxtLink>.
+            Dev-only gallery. Rendering <strong class="text-primary">{{ resolvedTheme }}</strong
+            >. Tokens live at
+            <NuxtLink to="/dev/theme" class="text-primary underline">/dev/theme</NuxtLink>.
           </p>
         </div>
         <UiThemeToggle show-label />
@@ -96,7 +106,7 @@ function confirmWithDelay() {
       <!-- Buttons -->
       <section class="space-y-3">
         <h2 class="text-heading-3">Buttons</h2>
-        <div class="space-y-3 rounded-card border border-border bg-surface p-5">
+        <div class="space-y-3 rounded-card border border-border bg-surface p-5 shadow-card">
           <div class="flex flex-wrap items-center gap-3">
             <UiButton variant="primary">Primary</UiButton>
             <UiButton variant="secondary">Secondary</UiButton>
@@ -119,10 +129,21 @@ function confirmWithDelay() {
       <!-- Form controls -->
       <section class="space-y-3">
         <h2 class="text-heading-3">Form controls</h2>
-        <div class="grid gap-4 rounded-card border border-border bg-surface p-5 sm:grid-cols-2">
-          <UiInput v-model="inputValue" label="Search players" icon="search" placeholder="Search players…" />
+        <div
+          class="grid gap-4 rounded-card border border-border bg-surface p-5 sm:grid-cols-2 shadow-card"
+        >
+          <UiInput
+            v-model="inputValue"
+            label="Search players"
+            icon="search"
+            placeholder="Search players…"
+          />
           <UiInput v-model="inputValue" label="With a hint" hint="Shown until there is an error." />
-          <UiInput v-model="inputWithError" label="With an error" error="That name is already taken." />
+          <UiInput
+            v-model="inputWithError"
+            label="With an error"
+            error="That name is already taken."
+          />
           <UiInput v-model="inputValue" label="Disabled" disabled placeholder="Not editable" />
           <UiSelect
             v-model="selectValue"
@@ -144,7 +165,7 @@ function confirmWithDelay() {
       <!-- Navigation -->
       <section class="space-y-3">
         <h2 class="text-heading-3">Navigation</h2>
-        <div class="space-y-4 rounded-card border border-border bg-surface p-5">
+        <div class="space-y-4 rounded-card border border-border bg-surface p-5 shadow-card">
           <UiSegmented
             v-model="segmentValue"
             label="Rating type"
@@ -178,7 +199,7 @@ function confirmWithDelay() {
       <!-- Identity -->
       <section class="space-y-3">
         <h2 class="text-heading-3">Avatars and badges</h2>
-        <div class="space-y-4 rounded-card border border-border bg-surface p-5">
+        <div class="space-y-4 rounded-card border border-border bg-surface p-5 shadow-card">
           <div class="flex flex-wrap items-end gap-3">
             <UiAvatar name="Ana Reyes" size="xs" />
             <UiAvatar name="Ben Cruz" size="sm" />
@@ -205,7 +226,7 @@ function confirmWithDelay() {
       <!-- Data display -->
       <section class="space-y-3">
         <h2 class="text-heading-3">Podium and table</h2>
-        <div class="rounded-card border border-border bg-surface p-5">
+        <div class="rounded-card border border-border bg-surface p-5 shadow-card">
           <UiPodium :entries="podiumEntries" highlight-id="2" />
         </div>
         <UiDataTable
@@ -246,10 +267,10 @@ function confirmWithDelay() {
       <!-- Chart -->
       <section class="space-y-3">
         <h2 class="text-heading-3">Line chart</h2>
-        <div class="rounded-card border border-border bg-surface p-5">
+        <div class="rounded-card border border-border bg-surface p-5 shadow-card">
           <UiLineChart :points="chartPoints" label="Sample rating over 30 days" />
         </div>
-        <div class="rounded-card border border-border bg-surface p-5">
+        <div class="rounded-card border border-border bg-surface p-5 shadow-card">
           <UiLineChart :points="[]" label="Empty chart" />
         </div>
       </section>
@@ -264,11 +285,13 @@ function confirmWithDelay() {
             action-label="Submit a match"
             action-to="/matches/submit"
           />
-          <UiErrorState
-            detail="TypeError: failed to fetch"
-            @retry="toast.info('Retry pressed')"
+          <UiErrorState detail="TypeError: failed to fetch" @retry="toast.info('Retry pressed')" />
+          <UiEmptyState
+            compact
+            icon="search"
+            title="No results"
+            message="Nothing matched that search."
           />
-          <UiEmptyState compact icon="search" title="No results" message="Nothing matched that search." />
           <UiErrorState compact @retry="toast.info('Retry pressed')" />
         </div>
       </section>
@@ -276,12 +299,20 @@ function confirmWithDelay() {
       <!-- Overlays -->
       <section class="space-y-3">
         <h2 class="text-heading-3">Modal and toasts</h2>
-        <div class="flex flex-wrap gap-3 rounded-card border border-border bg-surface p-5">
+        <div
+          class="flex flex-wrap gap-3 rounded-card border border-border bg-surface p-5 shadow-card"
+        >
           <UiButton @click="modalOpen = true">Confirm verification</UiButton>
           <UiButton variant="danger" @click="destructiveModalOpen = true">Destructive</UiButton>
-          <UiButton variant="secondary" @click="toast.success('Match submitted successfully!')">Success toast</UiButton>
-          <UiButton variant="secondary" @click="toast.info('Rating updated! +0.120')">Info toast</UiButton>
-          <UiButton variant="secondary" @click="toast.error('Failed to submit match')">Error toast</UiButton>
+          <UiButton variant="secondary" @click="toast.success('Match submitted successfully!')"
+            >Success toast</UiButton
+          >
+          <UiButton variant="secondary" @click="toast.info('Rating updated! +0.120')"
+            >Info toast</UiButton
+          >
+          <UiButton variant="secondary" @click="toast.error('Failed to submit match')"
+            >Error toast</UiButton
+          >
         </div>
 
         <UiModal
@@ -298,7 +329,7 @@ function confirmWithDelay() {
           description="You will lose access to club events and announcements."
           confirm-label="Leave club"
           destructive
-          @confirm="destructiveModalOpen = false; toast.info('Left the club')"
+          @confirm="confirmDestructive"
         />
       </section>
 
@@ -315,8 +346,14 @@ function confirmWithDelay() {
       <!-- Icons -->
       <section class="space-y-3">
         <h2 class="text-heading-3">Icons ({{ iconNames.length }})</h2>
-        <div class="grid grid-cols-4 gap-3 rounded-card border border-border bg-surface p-5 sm:grid-cols-6 lg:grid-cols-8">
-          <div v-for="name in iconNames" :key="name" class="flex flex-col items-center gap-1 text-center">
+        <div
+          class="grid grid-cols-4 gap-3 rounded-card border border-border bg-surface p-5 sm:grid-cols-6 lg:grid-cols-8 shadow-card"
+        >
+          <div
+            v-for="name in iconNames"
+            :key="name"
+            class="flex flex-col items-center gap-1 text-center"
+          >
             <UiIcon :name="name" size="h-6 w-6" class="text-fg-secondary" />
             <span class="break-all text-[10px] text-fg-muted">{{ name }}</span>
           </div>

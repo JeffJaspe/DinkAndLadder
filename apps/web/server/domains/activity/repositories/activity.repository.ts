@@ -7,7 +7,12 @@ const ACTIVITY_COLUMNS =
 export interface ActivityRepository {
   findById(activityId: string): Promise<ActivityRecord | null>
   findByActorPlayer(playerId: string, limit: number, offset: number): Promise<ActivityRecord[]>
-  findPublicFeed(limit: number, offset: number, types?: ActivityType[], since?: string): Promise<ActivityRecord[]>
+  findPublicFeed(
+    limit: number,
+    offset: number,
+    types?: ActivityType[],
+    since?: string
+  ): Promise<ActivityRecord[]>
   findFollowingFeed(
     followingPlayerIds: string[],
     clubIds: string[],
@@ -46,10 +51,7 @@ export function createActivityRepository(client: SupabaseClient): ActivityReposi
     },
 
     async findPublicFeed(limit, offset, types, since) {
-      let query = client
-        .from('activities')
-        .select(ACTIVITY_COLUMNS)
-        .eq('visibility', 'public')
+      let query = client.from('activities').select(ACTIVITY_COLUMNS).eq('visibility', 'public')
 
       if (types && types.length > 0) {
         query = query.in('activity_type', types)
@@ -67,9 +69,7 @@ export function createActivityRepository(client: SupabaseClient): ActivityReposi
     },
 
     async findFollowingFeed(followingPlayerIds, clubIds, limit, offset, types, since) {
-      let query = client
-        .from('activities')
-        .select(ACTIVITY_COLUMNS)
+      let query = client.from('activities').select(ACTIVITY_COLUMNS)
 
       const conditions: string[] = []
 

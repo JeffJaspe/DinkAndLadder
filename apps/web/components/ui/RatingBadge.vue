@@ -30,7 +30,9 @@ const SIZES = {
   lg: 'px-3 py-1.5 text-heading-3 gap-2'
 } as const
 
-const tier = computed(() => (props.rating === null || props.rating === undefined ? null : tierForRating(props.rating)))
+const tier = computed(() =>
+  props.rating === null || props.rating === undefined ? null : tierForRating(props.rating)
+)
 </script>
 
 <template>
@@ -42,7 +44,10 @@ const tier = computed(() => (props.rating === null || props.rating === undefined
     <span>{{ formatRating(rating) }}</span>
     <!-- No opacity: it compounded on an already-tinted background and took the
          tier label under AA in both themes. -->
-    <span v-if="showTier && tier && size !== 'sm'" class="text-caption font-medium text-fg-secondary">
+    <span
+      v-if="showTier && tier && size !== 'sm'"
+      class="text-caption font-medium text-fg-secondary"
+    >
       {{ tier.name }}
     </span>
     <!-- Not `text-warning`: amber over a tier wash measured 4.08:1 on bronze.

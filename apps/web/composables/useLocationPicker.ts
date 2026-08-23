@@ -42,17 +42,17 @@ export function useLocationPicker() {
   const loadingBarangays = ref(false)
 
   const provinceName = computed(() => {
-    const p = provinces.value.find(p => p.code === selectedProvince.value)
+    const p = provinces.value.find((p) => p.code === selectedProvince.value)
     return p?.name ?? ''
   })
 
   const cityName = computed(() => {
-    const c = cities.value.find(c => c.code === selectedCity.value)
+    const c = cities.value.find((c) => c.code === selectedCity.value)
     return c?.name ?? ''
   })
 
   const barangayName = computed(() => {
-    const b = barangays.value.find(b => b.code === selectedBarangay.value)
+    const b = barangays.value.find((b) => b.code === selectedBarangay.value)
     return b?.name ?? ''
   })
 
@@ -60,16 +60,18 @@ export function useLocationPicker() {
     if (provinces.value.length > 0) return
     loadingProvinces.value = true
     try {
-      const response = await $fetch<Array<{ code: string; name: string; regionCode: string }> | string>(
-        `${LOCATIONS_BASE}/provinces`
-      )
+      const response = await $fetch<
+        Array<{ code: string; name: string; regionCode: string }> | string
+      >(`${LOCATIONS_BASE}/provinces`)
       const data = typeof response === 'string' ? JSON.parse(response) : response
       if (data && Array.isArray(data)) {
-        const sorted = data.map(p => ({
-          code: p.code,
-          name: p.name,
-          regionCode: p.regionCode
-        })).sort((a, b) => a.name.localeCompare(b.name))
+        const sorted = data
+          .map((p) => ({
+            code: p.code,
+            name: p.name,
+            regionCode: p.regionCode
+          }))
+          .sort((a, b) => a.name.localeCompare(b.name))
         // Add NCR at the top since it's commonly selected
         provinces.value = [NCR_ENTRY, ...sorted]
       }
@@ -88,18 +90,30 @@ export function useLocationPicker() {
     loadingCities.value = true
     try {
       // NCR is a region, not a province - use region endpoint
-      const endpoint = provinceCode === NCR_CODE
-        ? `${LOCATIONS_BASE}/cities?region=${provinceCode}`
-        : `${LOCATIONS_BASE}/cities?province=${provinceCode}`
-      const response = await $fetch<Array<{ code: string; name: string; provinceCode?: string; regionCode?: string; isCity: boolean }> | string>(endpoint)
+      const endpoint =
+        provinceCode === NCR_CODE
+          ? `${LOCATIONS_BASE}/cities?region=${provinceCode}`
+          : `${LOCATIONS_BASE}/cities?province=${provinceCode}`
+      const response = await $fetch<
+        | Array<{
+            code: string
+            name: string
+            provinceCode?: string
+            regionCode?: string
+            isCity: boolean
+          }>
+        | string
+      >(endpoint)
       const data = typeof response === 'string' ? JSON.parse(response) : response
       if (data && Array.isArray(data)) {
-        cities.value = data.map(c => ({
-          code: c.code,
-          name: c.name,
-          provinceCode: c.provinceCode || c.regionCode || provinceCode,
-          isCity: c.isCity
-        })).sort((a, b) => a.name.localeCompare(b.name))
+        cities.value = data
+          .map((c) => ({
+            code: c.code,
+            name: c.name,
+            provinceCode: c.provinceCode || c.regionCode || provinceCode,
+            isCity: c.isCity
+          }))
+          .sort((a, b) => a.name.localeCompare(b.name))
       }
     } catch (err) {
       console.error('Failed to load cities:', err)
@@ -121,11 +135,13 @@ export function useLocationPicker() {
       )
       const data = typeof response === 'string' ? JSON.parse(response) : response
       if (data && Array.isArray(data)) {
-        barangays.value = data.map(b => ({
-          code: b.code,
-          name: b.name,
-          cityCode
-        })).sort((a, b) => a.name.localeCompare(b.name))
+        barangays.value = data
+          .map((b) => ({
+            code: b.code,
+            name: b.name,
+            cityCode
+          }))
+          .sort((a, b) => a.name.localeCompare(b.name))
       }
     } catch (err) {
       console.error('Failed to load barangays:', err)

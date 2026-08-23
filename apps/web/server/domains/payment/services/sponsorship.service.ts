@@ -20,9 +20,7 @@ export interface SponsorshipService {
   getTotalReceivedByPlayer(playerId: string): Promise<number>
 }
 
-export function createSponsorshipService(
-  sponsorships: SponsorshipRepository
-): SponsorshipService {
+export function createSponsorshipService(sponsorships: SponsorshipRepository): SponsorshipService {
   return {
     async createSponsorship(sponsorPlayerId, input) {
       if (input.amount_cents < 100) {
@@ -48,17 +46,17 @@ export function createSponsorshipService(
 
     async listGiven(playerId) {
       const records = await sponsorships.listGivenByPlayer(playerId)
-      return records.map(r => toSponsorshipDto(r))
+      return records.map((r) => toSponsorshipDto(r))
     },
 
     async listReceivedByPlayer(playerId) {
       const records = await sponsorships.listReceivedByTarget('player', playerId)
-      return records.map(r => toSponsorshipDto(r))
+      return records.map((r) => toSponsorshipDto(r))
     },
 
     async listReceivedByClub(clubId) {
       const records = await sponsorships.listReceivedByTarget('club', clubId)
-      return records.map(r => toSponsorshipDto(r))
+      return records.map((r) => toSponsorshipDto(r))
     },
 
     async getTotalReceivedByPlayer(playerId) {

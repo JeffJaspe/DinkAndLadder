@@ -31,21 +31,27 @@ test('landing page links to login', async ({ page }) => {
   await expect(page.getByRole('link', { name: 'Log in' })).toBeVisible()
 })
 
-test('check-email page is reachable while signed out and shows the given email', async ({ page }) => {
+test('check-email page is reachable while signed out and shows the given email', async ({
+  page
+}) => {
   await page.goto('/check-email?email=someone%40example.com')
   await expect(page).toHaveURL(/\/check-email/)
   await expect(page.getByText('someone@example.com')).toBeVisible()
   await expect(page.getByRole('main').getByRole('link', { name: 'Log in' })).toBeVisible()
 })
 
-test('POST /api/v1/auth/register without a password returns a validation error', async ({ request }) => {
+test('POST /api/v1/auth/register without a password returns a validation error', async ({
+  request
+}) => {
   const response = await request.post('/api/v1/auth/register', {
     data: { email: 'ci-test@example.com' }
   })
   expect(response.status()).toBe(400)
 })
 
-test('POST /api/v1/auth/login without a password returns a validation error', async ({ request }) => {
+test('POST /api/v1/auth/login without a password returns a validation error', async ({
+  request
+}) => {
   const response = await request.post('/api/v1/auth/login', {
     data: { email: 'ci-test@example.com' }
   })

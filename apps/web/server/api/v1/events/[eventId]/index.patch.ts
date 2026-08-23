@@ -1,10 +1,17 @@
-import { serverSupabaseClient, serverSupabaseServiceRole, serverSupabaseUser } from '#supabase/server'
+import {
+  serverSupabaseClient,
+  serverSupabaseServiceRole,
+  serverSupabaseUser
+} from '#supabase/server'
 import { createEventRepository } from '~/server/domains/event/repositories/event.repository'
 import {
   createTournamentRepository,
   createTournamentRegistrationRepository
 } from '~/server/domains/event/repositories/tournament.repository'
-import { createEventService, EventServiceError } from '~/server/domains/event/services/event.service'
+import {
+  createEventService,
+  EventServiceError
+} from '~/server/domains/event/services/event.service'
 import type { UpdateEventInput } from '~/server/domains/event/dto/event.dto'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
 

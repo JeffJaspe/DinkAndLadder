@@ -14,7 +14,9 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <div class="flex flex-col items-center justify-center rounded-xl bg-surface px-6 py-12 text-center">
+  <div
+    class="flex flex-col items-center justify-center rounded-xl bg-surface px-6 py-12 text-center shadow-card"
+  >
     <div v-if="icon" class="mb-4 text-5xl">
       {{ icon }}
     </div>

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { PartnerDto } from '~/server/domains/partnership/dto/partnership.dto'
 import type {
   TournamentDto,
   TournamentRegistrationWithPlayerDto
@@ -9,6 +10,7 @@ import type {
   TournamentCategoryTemplateDto
 } from '~/server/domains/event/dto/tournament-category.dto'
 import type { EventDto } from '~/server/domains/event/dto/event.dto'
+import type { MyClubMembershipDto } from '~/server/domains/club/dto/club-membership.dto'
 import type { PlayerProfileDto } from '~/server/domains/player/dto/player-profile.dto'
 
 interface RegistrationsResponse {
@@ -21,12 +23,86 @@ const tournamentId = route.params.tournamentId as string
 const { data: tournament } = await useFetch<TournamentDto>(`/api/v1/tournaments/${tournamentId}`)
 const { data: myProfile } = await useFetch<PlayerProfileDto>('/api/v1/players/me')
 
-const eventUrl = computed(() => (tournament.value ? `/api/v1/events/${tournament.value.event_id}` : ''))
+const eventUrl = computed(() =>
+  tournament.value ? `/api/v1/events/${tournament.value.event_id}` : ''
+)
 const { data: eventData } = await useFetch<EventDto>(eventUrl, { immediate: !!tournament.value })
 
+const { isClubMode } = useAccountMode()
+
+/** Ownership only — see `canManageTournament`, which is what the template uses. */
 const isOrganizer = computed(
-  () => !!myProfile.value && !!eventData.value && eventData.value.created_by_player_id === myProfile.value.id
+  () =>
+    !!myProfile.value &&
+    !!eventData.value &&
+    eventData.value.created_by_player_id === myProfile.value.id
 )
+
+/**
+ * Running a tournament is club-mode work, so ownership alone does not unlock it.
+ * Everything a player came here for stays visible in either mode — the bracket,
+ * the matches, the categories and who is registered in them. What disappears in
+ * player mode is the machinery: generating and editing the bracket, confirming
+ * registrations, changing the format.
+ */
+const canManageTournament = computed(() => isOrganizer.value && isClubMode.value)
+
+/**
+ * Reviewing registrations is deliberately not part of `canManageTournament`.
+ *
+ * Two ways it is wider. It admits the hosting club's staff — owner, admin and
+ * moderator — not only the event's creator, so the queue does not stall on one
+ * person being unavailable. And it works in BOTH hats, for the same reason the
+ * club-side join queue does: a pending registration is a player waiting for an
+ * answer, and making them wait on someone noticing they are in the wrong mode
+ * costs a real person real time.
+ *
+ * Mirrors `assertCanReviewRegistrations` in event.service.ts, which is the
+ * authority; everything else on this page stays organiser-and-club-hat.
+ */
+const REVIEW_ROLES = ['OWNER', 'ADMIN', 'MODERATOR']
+
+const { data: myClubs } = await useFetch<{ items: MyClubMembershipDto[] }>('/api/v1/clubs/mine', {
+  ignoreResponseError: true,
+  default: () => ({ items: [] })
+})
+
+const myRoleInHostClub = computed(() => {
+  const clubId = eventData.value?.club_id
+  if (!clubId) return null
+  const membership = myClubs.value?.items?.find(
+    (m) => m.club.id === clubId && m.status === 'active'
+  )
+  return membership?.role ?? null
+})
+
+const canReviewRegistrations = computed(
+  () => isOrganizer.value || REVIEW_ROLES.includes(myRoleInHostClub.value ?? '')
+)
+
+const reviewingRegistrationId = ref<string | null>(null)
+const reviewError = ref('')
+
+/**
+ * `confirmed` and `rejected` are the two answers the endpoint takes for a
+ * pending entry; `waitlisted` exists too but there is no UI concept for a
+ * waitlist yet, so it is not offered rather than half-built.
+ */
+async function reviewRegistration(registrationId: string, status: 'confirmed' | 'rejected') {
+  reviewError.value = ''
+  reviewingRegistrationId.value = registrationId
+  try {
+    await $fetch(`/api/v1/registrations/${registrationId}`, {
+      method: 'PATCH',
+      body: { status }
+    })
+    await refreshRegistrations()
+  } catch (err) {
+    reviewError.value = apiErrorMessage(err, 'Could not update that registration.')
+  } finally {
+    reviewingRegistrationId.value = null
+  }
+}
 
 const { data: categoriesResponse, refresh: refreshCategories } = await useFetch<{
   data: TournamentCategoryDto[]
@@ -41,8 +117,12 @@ const availableTemplates = computed(() => {
   return (templatesResponse.value?.data ?? []).filter((t) => !usedTemplateIds.has(t.id))
 })
 
-const { data: registrationsData, pending: regPending, error: regError, refresh: refreshRegistrations } =
-  await useFetch<RegistrationsResponse>(`/api/v1/tournaments/${tournamentId}/registrations`)
+const {
+  data: registrationsData,
+  pending: regPending,
+  error: regError,
+  refresh: refreshRegistrations
+} = await useFetch<RegistrationsResponse>(`/api/v1/tournaments/${tournamentId}/registrations`)
 
 // Bracket tab: one per category, plus the plain flat bracket when no categories exist.
 const activeCategoryId = ref<string | null>(null)
@@ -75,6 +155,49 @@ const {
 // shows a spinner.
 const registering = ref<string | null>(null)
 const registerError = ref('')
+
+/**
+ * Doubles partner picker.
+ *
+ * This was the one genuinely broken path on the page: EventService requires
+ * `partner_player_id` for a doubles tournament (PARTNER_REQUIRED), the endpoint
+ * has always read it off the body, and the page never sent it — so registering
+ * for any doubles category failed every time, with no control anywhere to fix
+ * it. The field below is that control, pre-filled from the player's duo.
+ *
+ * Per category rather than per page: a player may enter several categories of
+ * the same tournament, and the partner for mixed doubles is not necessarily
+ * the partner for men's doubles.
+ */
+const isDoublesTournament = computed(() => tournament.value?.match_type === 'doubles')
+
+const { data: myPartnersData } = await useFetch<{ data: PartnerDto[] }>(
+  '/api/v1/players/me/partners',
+  { server: false, default: () => ({ data: [] }) }
+)
+const myPartners = computed(() => myPartnersData.value?.data ?? [])
+const defaultPartnerId = computed(
+  () => myPartners.value.find((partner) => partner.is_default)?.player_id ?? null
+)
+
+/** Explicit per-category overrides. Absent means "use the duo". */
+const partnerByCategory = reactive<Record<string, string>>({})
+
+const CATEGORY_KEY_FLAT = 'flat'
+
+function partnerKey(categoryId: string | null): string {
+  return categoryId ?? CATEGORY_KEY_FLAT
+}
+
+function partnerFor(categoryId: string | null): string {
+  const explicit = partnerByCategory[partnerKey(categoryId)]
+  if (explicit !== undefined) return explicit
+  return defaultPartnerId.value ?? ''
+}
+
+function setPartnerFor(categoryId: string | null, playerId: string) {
+  partnerByCategory[partnerKey(categoryId)] = playerId
+}
 
 const registrations = computed(() => registrationsData.value?.registrations ?? [])
 
@@ -116,8 +239,9 @@ const statsByCategory = computed<Record<string, CategoryStats>>(() => {
 
 function vacancyLabel(stats: CategoryStats): string {
   if (stats.capacity === null) return `${stats.confirmed.length} registered`
-  if (stats.isFull) return `Full — ${stats.capacity} of ${stats.capacity}`
-  return `${stats.vacant} of ${stats.capacity} places left`
+  if (stats.isFull) return `Full — ${stats.capacity}/${stats.capacity}`
+  const noun = stats.vacant === 1 ? 'place' : 'places'
+  return `${stats.confirmed.length}/${stats.capacity} · ${stats.vacant} ${noun} left`
 }
 
 const statusConfig: Record<string, { bg: string; text: string }> = {
@@ -175,12 +299,26 @@ function categoryLabel(categoryId: string | null): string {
 }
 
 async function registerForCategory(categoryId: string | null) {
-  registering.value = categoryId ?? 'flat'
   registerError.value = ''
+
+  const partnerPlayerId = isDoublesTournament.value ? partnerFor(categoryId) : ''
+  // Caught here rather than letting the server answer PARTNER_REQUIRED, so the
+  // message names the missing control instead of describing an API rule.
+  if (isDoublesTournament.value && !partnerPlayerId) {
+    registerError.value = myPartners.value.length
+      ? 'Choose a partner before registering for a doubles category.'
+      : 'Doubles needs a partner. Add one from Partners first, then register.'
+    return
+  }
+
+  registering.value = categoryId ?? CATEGORY_KEY_FLAT
   try {
     await $fetch(`/api/v1/tournaments/${tournamentId}/registrations`, {
       method: 'POST',
-      body: { category_id: categoryId }
+      body: {
+        category_id: categoryId,
+        partner_player_id: partnerPlayerId || null
+      }
     })
     await refreshRegistrations()
   } catch (err) {
@@ -194,7 +332,7 @@ async function registerForCategory(categoryId: string | null) {
 // Only while draft: changing format or match type after a bracket has been
 // drawn would invalidate it.
 const isDraft = computed(() => tournament.value?.status === 'draft')
-const canEditTournament = computed(() => isOrganizer.value && isDraft.value)
+const canEditTournament = computed(() => canManageTournament.value && isDraft.value)
 
 const editingTournament = ref(false)
 const savingTournament = ref(false)
@@ -382,7 +520,11 @@ const emptyBracketRounds = computed(() => {
         status: 'pending'
       })
     }
-    rounds.push({ round: r, name: r === numRounds ? 'Final' : r === numRounds - 1 ? 'Semi-Finals' : `Round ${r}`, matches })
+    rounds.push({
+      round: r,
+      name: r === numRounds ? 'Final' : r === numRounds - 1 ? 'Semi-Finals' : `Round ${r}`,
+      matches
+    })
   }
   return rounds
 })
@@ -401,7 +543,12 @@ const emptyBracketRounds = computed(() => {
           class="mb-3 inline-flex items-center gap-1.5 text-sm text-fg-muted transition-colors hover:text-primary"
         >
           <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M15 19l-7-7 7-7"
+            />
           </svg>
           {{ eventData?.name ?? 'Back to event' }}
         </NuxtLink>
@@ -422,7 +569,7 @@ const emptyBracketRounds = computed(() => {
         </div>
 
         <!-- Draft only: changing format after a bracket exists would invalidate it. -->
-        <div v-if="editingTournament" class="mt-4 rounded-xl bg-surface p-5">
+        <div v-if="editingTournament" class="mt-4 rounded-xl bg-surface p-5 shadow-card">
           <div class="grid gap-3 sm:grid-cols-2">
             <div class="sm:col-span-2">
               <label class="mb-1.5 block text-xs text-fg-secondary">Name</label>
@@ -430,7 +577,7 @@ const emptyBracketRounds = computed(() => {
                 v-model="tournamentForm.name"
                 type="text"
                 class="w-full rounded-lg border border-border-strong bg-canvas px-3 py-2 text-sm text-fg focus:border-primary focus:outline-none"
-              >
+              />
             </div>
             <div>
               <label class="mb-1.5 block text-xs text-fg-secondary">Format</label>
@@ -462,7 +609,7 @@ const emptyBracketRounds = computed(() => {
                 step="0.1"
                 placeholder="Any"
                 class="w-full rounded-lg border border-border-strong bg-canvas px-3 py-2 text-sm text-fg focus:border-primary focus:outline-none"
-              >
+              />
             </div>
             <div>
               <label class="mb-1.5 block text-xs text-fg-secondary">Max rating</label>
@@ -472,7 +619,7 @@ const emptyBracketRounds = computed(() => {
                 step="0.1"
                 placeholder="Any"
                 class="w-full rounded-lg border border-border-strong bg-canvas px-3 py-2 text-sm text-fg focus:border-primary focus:outline-none"
-              >
+              />
             </div>
           </div>
           <p v-if="tournamentError" class="mt-3 text-sm text-red-400">{{ tournamentError }}</p>
@@ -501,11 +648,14 @@ const emptyBracketRounds = computed(() => {
         to be able to see the categories. Only the management controls inside
         are organizer-gated.
       -->
-      <div v-if="isOrganizer || categories.length" class="mb-6 rounded-xl bg-surface p-5">
+      <div
+        v-if="canManageTournament || categories.length"
+        class="mb-6 rounded-xl bg-surface p-5 shadow-card"
+      >
         <h2 class="mb-4 font-semibold text-fg">Categories</h2>
-        <p v-if="isOrganizer" class="mb-4 text-sm text-fg-muted">
-          Split this tournament into rating-based brackets. Players register per category
-          and may enter more than one.
+        <p v-if="canManageTournament" class="mb-4 text-sm text-fg-muted">
+          Split this tournament into rating-based brackets. Players register per category and may
+          enter more than one.
         </p>
 
         <!-- Bracket-friendly suggestions; the inputs stay free-text. -->
@@ -514,11 +664,7 @@ const emptyBracketRounds = computed(() => {
         </datalist>
 
         <ul v-if="categories.length" class="mb-4 space-y-2">
-          <li
-            v-for="cat in categories"
-            :key="cat.id"
-            class="rounded-lg bg-canvas px-3 py-2"
-          >
+          <li v-for="cat in categories" :key="cat.id" class="rounded-lg bg-canvas px-3 py-2">
             <!-- Inline edit -->
             <div v-if="editingCategoryId === cat.id" class="space-y-2">
               <div class="flex flex-wrap items-end gap-2">
@@ -528,7 +674,7 @@ const emptyBracketRounds = computed(() => {
                     v-model="categoryForm.name"
                     type="text"
                     class="w-full rounded-lg border border-border-strong bg-surface px-3 py-2 text-sm text-fg focus:border-primary focus:outline-none"
-                  >
+                  />
                 </div>
                 <div class="w-32">
                   <label class="mb-1 block text-xs text-fg-secondary">Players</label>
@@ -538,7 +684,7 @@ const emptyBracketRounds = computed(() => {
                     min="2"
                     list="category-sizes"
                     class="w-full rounded-lg border border-border-strong bg-surface px-3 py-2 text-sm text-fg focus:border-primary focus:outline-none"
-                  >
+                  />
                 </div>
                 <button
                   type="button"
@@ -575,13 +721,34 @@ const emptyBracketRounds = computed(() => {
                     {{ statsByCategory[cat.id] ? vacancyLabel(statsByCategory[cat.id]) : '' }}
                   </span>
                   <button
-                    v-if="isOrganizer"
+                    v-if="canManageTournament"
                     type="button"
                     class="rounded-lg px-2 py-1 text-xs text-fg-muted hover:text-fg"
                     @click="startEditCategory(cat)"
                   >
                     Edit
                   </button>
+                  <!-- Doubles needs a pair. Pre-selected to the player's duo
+                       and editable per category, because mixed doubles and
+                       men's doubles are rarely the same partner. -->
+                  <select
+                    v-if="isDoublesTournament && myProfile && !statsByCategory[cat.id]?.mine"
+                    :value="partnerFor(cat.id)"
+                    :aria-label="`Partner for ${cat.name}`"
+                    class="max-w-[11rem] rounded-lg border border-border-strong bg-surface px-2 py-1.5 text-xs text-fg focus:border-primary focus:outline-none"
+                    @change="setPartnerFor(cat.id, ($event.target as HTMLSelectElement).value)"
+                  >
+                    <option value="">
+                      {{ myPartners.length ? 'Choose partner…' : 'No partners yet' }}
+                    </option>
+                    <option
+                      v-for="mate in myPartners"
+                      :key="mate.player_id"
+                      :value="mate.player_id"
+                    >
+                      {{ mate.display_name }}{{ mate.is_default ? ' ★ your duo' : '' }}
+                    </option>
+                  </select>
                   <button
                     v-if="myProfile && !statsByCategory[cat.id]?.mine"
                     type="button"
@@ -601,13 +768,20 @@ const emptyBracketRounds = computed(() => {
                     v-else-if="statsByCategory[cat.id]?.mine"
                     class="rounded-lg bg-primary/20 px-3 py-1.5 text-xs text-primary"
                   >
-                    {{ statsByCategory[cat.id]?.mine?.status === 'confirmed' ? 'Registered' : 'Pending' }}
+                    {{
+                      statsByCategory[cat.id]?.mine?.status === 'confirmed'
+                        ? 'Registered'
+                        : 'Pending'
+                    }}
                   </span>
                 </div>
               </div>
 
               <!-- Who is in this category -->
-              <div v-if="statsByCategory[cat.id]?.confirmed.length" class="flex flex-wrap gap-x-3 gap-y-1">
+              <div
+                v-if="statsByCategory[cat.id]?.confirmed.length"
+                class="flex flex-wrap gap-x-3 gap-y-1"
+              >
                 <NuxtLink
                   v-for="reg in statsByCategory[cat.id].confirmed"
                   :key="reg.id"
@@ -615,19 +789,62 @@ const emptyBracketRounds = computed(() => {
                   class="text-xs text-fg-secondary underline-offset-2 hover:text-primary hover:underline"
                 >
                   {{ reg.display_name
-                  }}<template v-if="reg.partner_display_name"> &amp; {{ reg.partner_display_name }}</template>
+                  }}<template v-if="reg.partner_display_name">
+                    &amp; {{ reg.partner_display_name }}</template
+                  >
                 </NuxtLink>
               </div>
               <p v-else class="text-xs text-fg-muted">No players registered yet.</p>
 
-              <p v-if="isOrganizer && statsByCategory[cat.id]?.pending.length" class="text-xs text-accent">
-                {{ statsByCategory[cat.id].pending.length }} awaiting approval
-              </p>
+              <!-- Awaiting approval. This used to be a count and nothing else:
+                   the PATCH endpoint existed but no screen ever called it, so a
+                   pending registration could be seen and never actioned. -->
+              <div
+                v-if="canReviewRegistrations && statsByCategory[cat.id]?.pending.length"
+                class="mt-2 space-y-1.5"
+              >
+                <p class="text-xs text-accent">
+                  {{ statsByCategory[cat.id].pending.length }} awaiting approval
+                </p>
+                <div
+                  v-for="reg in statsByCategory[cat.id].pending"
+                  :key="reg.id"
+                  class="flex flex-wrap items-center gap-2 rounded-button bg-canvas px-2 py-1.5"
+                >
+                  <span class="min-w-0 flex-1 truncate text-xs text-fg">
+                    {{ reg.display_name
+                    }}<template v-if="reg.partner_display_name">
+                      &amp; {{ reg.partner_display_name }}</template
+                    >
+                  </span>
+                  <button
+                    type="button"
+                    :disabled="reviewingRegistrationId === reg.id"
+                    class="rounded-button bg-primary px-2.5 py-1 text-xs font-medium text-on-primary hover:bg-primary-hover disabled:opacity-50"
+                    @click="reviewRegistration(reg.id, 'confirmed')"
+                  >
+                    Approve
+                  </button>
+                  <button
+                    type="button"
+                    :disabled="reviewingRegistrationId === reg.id"
+                    class="rounded-button border border-danger px-2.5 py-1 text-xs font-medium text-danger hover:bg-danger/10 disabled:opacity-50"
+                    @click="reviewRegistration(reg.id, 'rejected')"
+                  >
+                    Reject
+                  </button>
+                </div>
+                <p v-if="reviewError" role="alert" class="text-xs text-danger">
+                  {{ reviewError }}
+                </p>
+              </div>
             </div>
           </li>
         </ul>
 
-        <div v-if="isOrganizer" class="flex flex-wrap items-end gap-3">
+        <p v-if="registerError" role="alert" class="text-sm text-danger">{{ registerError }}</p>
+
+        <div v-if="canManageTournament" class="flex flex-wrap items-end gap-3">
           <!-- Capacity moved off the tournament and onto the category; it is
                required here so a bracket always knows how big it should be. -->
           <div class="w-32">
@@ -641,7 +858,7 @@ const emptyBracketRounds = computed(() => {
               min="2"
               list="category-sizes"
               class="w-full rounded-lg border border-border-strong bg-canvas px-3 py-2 text-sm text-fg focus:border-primary focus:outline-none"
-            >
+            />
           </div>
 
           <div v-if="availableTemplates.length">
@@ -675,7 +892,10 @@ const emptyBracketRounds = computed(() => {
           </button>
         </div>
 
-        <div v-if="showCustomCategoryForm" class="mt-4 grid gap-3 rounded-lg bg-canvas p-4 sm:grid-cols-3">
+        <div
+          v-if="showCustomCategoryForm"
+          class="mt-4 grid gap-3 rounded-lg bg-canvas p-4 sm:grid-cols-3"
+        >
           <div>
             <label class="mb-1.5 block text-xs text-fg-secondary">Name</label>
             <input
@@ -717,7 +937,7 @@ const emptyBracketRounds = computed(() => {
       </div>
 
       <!-- Registration Section -->
-      <div class="mb-6 rounded-xl bg-surface p-5">
+      <div class="mb-6 rounded-xl bg-surface p-5 shadow-card">
         <div class="mb-4 flex items-center justify-between">
           <h2 class="font-semibold text-fg">Registrations</h2>
           <span v-if="registrationsData?.registrations.length" class="text-sm text-fg-muted">
@@ -743,11 +963,16 @@ const emptyBracketRounds = computed(() => {
             class="flex items-center justify-between rounded-lg bg-canvas p-3"
           >
             <div class="flex items-center gap-3">
-              <div class="flex h-8 w-8 items-center justify-center rounded-full bg-surface-2 text-sm font-bold text-fg-secondary">
+              <div
+                class="flex h-8 w-8 items-center justify-center rounded-full bg-surface-2 text-sm font-bold text-fg-secondary"
+              >
                 {{ reg.player_id.charAt(0).toUpperCase() }}
               </div>
               <span class="text-sm text-fg">{{ reg.player_id.slice(0, 8) }}...</span>
-              <span v-if="categories.length" class="rounded-full bg-surface-2 px-2 py-0.5 text-xs text-fg-secondary">
+              <span
+                v-if="categories.length"
+                class="rounded-full bg-surface-2 px-2 py-0.5 text-xs text-fg-secondary"
+              >
                 {{ categoryLabel(reg.category_id) }}
               </span>
             </div>
@@ -768,15 +993,14 @@ const emptyBracketRounds = computed(() => {
           rating band, and may enter several — a single tournament-level button
           could express neither.
         -->
-        <p v-if="registerError" class="mt-4 text-sm text-red-400">{{ registerError }}</p>
       </div>
 
       <!-- Bracket Section -->
-      <div class="rounded-xl bg-surface p-5">
+      <div class="rounded-xl bg-surface p-5 shadow-card">
         <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
           <h2 class="font-semibold text-fg">Bracket</h2>
           <button
-            v-if="isOrganizer"
+            v-if="canManageTournament"
             type="button"
             :disabled="generating"
             class="rounded-lg border border-border-strong px-4 py-2 text-sm text-fg-secondary hover:bg-surface-2 disabled:opacity-50"
@@ -794,9 +1018,11 @@ const emptyBracketRounds = computed(() => {
             :key="cat.id"
             type="button"
             class="flex-shrink-0 rounded-lg px-3 py-1.5 text-sm transition-colors"
-            :class="activeCategoryId === cat.id
-              ? 'bg-primary text-on-primary'
-              : 'bg-surface-2 text-fg-secondary hover:text-on-primary'"
+            :class="
+              activeCategoryId === cat.id
+                ? 'bg-primary text-on-primary'
+                : 'bg-surface-2 text-fg-secondary hover:text-on-primary'
+            "
             @click="activeCategoryId = cat.id"
           >
             {{ cat.name }}
@@ -823,11 +1049,7 @@ const emptyBracketRounds = computed(() => {
           <div v-if="poolRounds.length">
             <h3 class="mb-3 text-sm font-medium text-fg-secondary">Pools</h3>
             <div class="grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
-              <div
-                v-for="round in poolRounds"
-                :key="round.round"
-                class="rounded-xl bg-canvas p-4"
-              >
+              <div v-for="round in poolRounds" :key="round.round" class="rounded-xl bg-canvas p-4">
                 <h4 class="mb-3 text-sm font-semibold text-fg">{{ roundLabel(round.round) }}</h4>
                 <div class="space-y-3">
                   <BracketMatchCard
@@ -844,11 +1066,7 @@ const emptyBracketRounds = computed(() => {
           <!-- Knockout / playoff rounds keep the left-to-right rail. -->
           <div v-if="knockoutRounds.length" class="scroll-x">
             <div class="flex gap-6 pb-4">
-              <div
-                v-for="round in knockoutRounds"
-                :key="round.round"
-                class="min-w-[220px] flex-1"
-              >
+              <div v-for="round in knockoutRounds" :key="round.round" class="min-w-[220px] flex-1">
                 <h3 class="mb-3 text-sm font-medium text-fg-secondary">
                   {{ roundLabel(round.round) }}
                 </h3>
@@ -868,10 +1086,15 @@ const emptyBracketRounds = computed(() => {
         <!-- Empty Bracket Preview (before generation) -->
         <div v-else-if="emptyBracketRounds.length" class="scroll-x">
           <p class="mb-4 text-sm text-fg-muted">
-            Bracket preview ({{ tournament?.max_participants ?? 8 }} players) — Click "Generate Bracket" to assign players
+            Bracket preview ({{ tournament?.max_participants ?? 8 }} players) — Click "Generate
+            Bracket" to assign players
           </p>
           <div class="flex gap-6 pb-4">
-            <div v-for="round in emptyBracketRounds" :key="round.round" class="min-w-[220px] flex-1">
+            <div
+              v-for="round in emptyBracketRounds"
+              :key="round.round"
+              class="min-w-[220px] flex-1"
+            >
               <h3 class="mb-3 text-sm font-medium text-fg-secondary">
                 {{ round.name }}
               </h3>

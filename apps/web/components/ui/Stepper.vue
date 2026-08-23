@@ -44,7 +44,9 @@ function onInput(event: Event) {
 </script>
 
 <template>
-  <div class="inline-flex items-center gap-1 rounded-button border border-border-strong bg-surface p-1">
+  <div
+    class="inline-flex items-center gap-1 rounded-button border border-border-strong bg-surface p-1"
+  >
     <button
       type="button"
       class="flex h-9 w-9 items-center justify-center rounded-[6px] text-fg-secondary transition-colors hover:bg-surface-2 hover:text-fg disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
@@ -66,7 +68,7 @@ function onInput(event: Event) {
       :disabled="disabled"
       class="dnl-no-spin w-12 border-0 bg-transparent text-center font-display text-heading-3 tabular-nums text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
       @input="onInput"
-    >
+    />
 
     <button
       type="button"

@@ -1,7 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { createSubscriptionService } from '../../server/domains/payment/services/subscription.service'
 import type { SubscriptionRepository } from '../../server/domains/payment/repositories/subscription.repository'
-import type { SubscriptionPlanRecord, PlayerSubscriptionRecord, ClubSubscriptionRecord } from '../../server/domains/payment/dto/subscription.dto'
+import type {
+  SubscriptionPlanRecord,
+  PlayerSubscriptionRecord,
+  ClubSubscriptionRecord
+} from '../../server/domains/payment/dto/subscription.dto'
 
 const TEST_IDS = {
   player: '11111111-1111-1111-1111-111111111111',
@@ -33,7 +37,9 @@ function createMockPlan(overrides: Partial<SubscriptionPlanRecord> = {}): Subscr
   }
 }
 
-function createMockPlayerSubscription(overrides: Partial<PlayerSubscriptionRecord> = {}): PlayerSubscriptionRecord {
+function createMockPlayerSubscription(
+  overrides: Partial<PlayerSubscriptionRecord> = {}
+): PlayerSubscriptionRecord {
   return {
     id: 'sub-1',
     player_id: TEST_IDS.player,
@@ -50,7 +56,9 @@ function createMockPlayerSubscription(overrides: Partial<PlayerSubscriptionRecor
   }
 }
 
-function createMockClubSubscription(overrides: Partial<ClubSubscriptionRecord> = {}): ClubSubscriptionRecord {
+function createMockClubSubscription(
+  overrides: Partial<ClubSubscriptionRecord> = {}
+): ClubSubscriptionRecord {
   return {
     id: 'sub-1',
     club_id: TEST_IDS.club,

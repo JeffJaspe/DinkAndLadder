@@ -1,5 +1,14 @@
 <script setup lang="ts">
-type Status = 'pending' | 'verified' | 'disputed' | 'draft' | 'open' | 'closed' | 'cancelled' | 'active' | 'inactive'
+type Status =
+  | 'pending'
+  | 'verified'
+  | 'disputed'
+  | 'draft'
+  | 'open'
+  | 'closed'
+  | 'cancelled'
+  | 'active'
+  | 'inactive'
 
 interface Props {
   status: Status
@@ -34,17 +43,50 @@ const sizeClasses = computed(() => {
     class="inline-flex items-center gap-1.5 rounded-pill font-medium"
     :class="[config.bg, config.text, sizeClasses]"
   >
-    <svg v-if="config.icon === 'clock'" class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+    <svg
+      v-if="config.icon === 'clock'"
+      class="h-3.5 w-3.5"
+      fill="none"
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+    >
+      <path
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        stroke-width="2"
+        d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+      />
     </svg>
-    <svg v-else-if="config.icon === 'check'" class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <svg
+      v-else-if="config.icon === 'check'"
+      class="h-3.5 w-3.5"
+      fill="none"
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+    >
       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
     </svg>
-    <svg v-else-if="config.icon === 'alert'" class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+    <svg
+      v-else-if="config.icon === 'alert'"
+      class="h-3.5 w-3.5"
+      fill="none"
+      stroke="currentColor"
+      viewBox="0 0 24 24"
+    >
+      <path
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        stroke-width="2"
+        d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+      />
     </svg>
     <svg v-else class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+      <path
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        stroke-width="2"
+        d="M6 18L18 6M6 6l12 12"
+      />
     </svg>
     {{ config.label }}
   </span>

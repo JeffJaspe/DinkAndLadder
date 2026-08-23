@@ -1,6 +1,13 @@
-import { serverSupabaseClient, serverSupabaseServiceRole, serverSupabaseUser } from '#supabase/server'
+import {
+  serverSupabaseClient,
+  serverSupabaseServiceRole,
+  serverSupabaseUser
+} from '#supabase/server'
 import { createRelationshipRepository } from '~/server/domains/social/repositories/relationship.repository'
-import { createRelationshipService, RelationshipServiceError } from '~/server/domains/social/services/relationship.service'
+import {
+  createRelationshipService,
+  RelationshipServiceError
+} from '~/server/domains/social/services/relationship.service'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
 import { createActivityRepository } from '~/server/domains/activity/repositories/activity.repository'
 import { createActivityLogger } from '~/server/domains/activity/services/activity.service'

@@ -16,7 +16,10 @@ export interface AchievementRepository {
   findDefinitionById(achievementId: string): Promise<AchievementDefinitionRecord | null>
   findDefinitionByKey(key: string): Promise<AchievementDefinitionRecord | null>
   findPlayerAchievements(playerId: string): Promise<PlayerAchievementWithDefinition[]>
-  findPlayerAchievement(playerId: string, achievementId: string): Promise<PlayerAchievementRecord | null>
+  findPlayerAchievement(
+    playerId: string,
+    achievementId: string
+  ): Promise<PlayerAchievementRecord | null>
   createPlayerAchievement(playerId: string, achievementId: string): Promise<PlayerAchievementRecord>
   claimAchievement(playerAchievementId: string): Promise<PlayerAchievementRecord>
   countPlayerAchievementPoints(playerId: string): Promise<number>
@@ -118,7 +121,8 @@ export function createAchievementRepository(client: SupabaseClient): Achievement
 
       let total = 0
       for (const row of data ?? []) {
-        const def = (row as unknown as { achievement_definitions: { points: number } | null }).achievement_definitions
+        const def = (row as unknown as { achievement_definitions: { points: number } | null })
+          .achievement_definitions
         if (def) total += def.points
       }
       return total

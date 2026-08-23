@@ -7,9 +7,12 @@ import type {
   SubscriptionStatus
 } from '../dto/subscription.dto'
 
-const PLAN_COLUMNS = 'id, name, description, stripe_price_id, billing_interval, price_cents, currency, features, plan_type, is_active, sort_order, created_at, updated_at'
-const PLAYER_SUB_COLUMNS = 'id, player_id, plan_id, stripe_subscription_id, stripe_customer_id, status, current_period_start, current_period_end, cancel_at_period_end, created_at, updated_at'
-const CLUB_SUB_COLUMNS = 'id, club_id, plan_id, stripe_subscription_id, stripe_customer_id, status, current_period_start, current_period_end, cancel_at_period_end, created_at, updated_at'
+const PLAN_COLUMNS =
+  'id, name, description, stripe_price_id, billing_interval, price_cents, currency, features, plan_type, is_active, sort_order, created_at, updated_at'
+const PLAYER_SUB_COLUMNS =
+  'id, player_id, plan_id, stripe_subscription_id, stripe_customer_id, status, current_period_start, current_period_end, cancel_at_period_end, created_at, updated_at'
+const CLUB_SUB_COLUMNS =
+  'id, club_id, plan_id, stripe_subscription_id, stripe_customer_id, status, current_period_start, current_period_end, cancel_at_period_end, created_at, updated_at'
 
 export interface SubscriptionRepository {
   listActivePlans(planType?: PlanType): Promise<SubscriptionPlanRecord[]>
@@ -19,12 +22,18 @@ export interface SubscriptionRepository {
   getPlayerSubscription(playerId: string): Promise<PlayerSubscriptionRecord | null>
   getPlayerSubscriptionByStripeId(stripeSubId: string): Promise<PlayerSubscriptionRecord | null>
   createPlayerSubscription(input: CreatePlayerSubscriptionInput): Promise<PlayerSubscriptionRecord>
-  updatePlayerSubscription(id: string, input: UpdateSubscriptionInput): Promise<PlayerSubscriptionRecord>
+  updatePlayerSubscription(
+    id: string,
+    input: UpdateSubscriptionInput
+  ): Promise<PlayerSubscriptionRecord>
 
   getClubSubscription(clubId: string): Promise<ClubSubscriptionRecord | null>
   getClubSubscriptionByStripeId(stripeSubId: string): Promise<ClubSubscriptionRecord | null>
   createClubSubscription(input: CreateClubSubscriptionInput): Promise<ClubSubscriptionRecord>
-  updateClubSubscription(id: string, input: UpdateSubscriptionInput): Promise<ClubSubscriptionRecord>
+  updateClubSubscription(
+    id: string,
+    input: UpdateSubscriptionInput
+  ): Promise<ClubSubscriptionRecord>
 }
 
 export interface CreatePlayerSubscriptionInput {

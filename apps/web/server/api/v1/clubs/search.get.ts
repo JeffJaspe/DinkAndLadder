@@ -12,6 +12,18 @@ function parsePositiveInt(value: unknown, fallback: number): number {
   return Number.isNaN(parsed) || parsed < 0 ? fallback : parsed
 }
 
+/**
+ * Public club directory ("Discover Clubs").
+ *
+ * An unfiltered call lists clubs rather than 400ing. The old guard required one
+ * of q/province/city, which is why selecting "All Provinces" produced an empty
+ * screen instead of every club. The repository already restricts to
+ * visibility = 'public' AND status = 'active' and pages with .range(), so an
+ * unfiltered browse is both bounded and no broader than a search was.
+ *
+ * `verified=true` narrows to clubs the platform has verified — it replaces the
+ * old standalone /verified-clubs page, which now redirects here.
+ */
 export default defineEventHandler(async (event) => {
   const rawQuery = getQuery(event)
 
@@ -23,12 +35,9 @@ export default defineEventHandler(async (event) => {
         : undefined,
     city:
       typeof rawQuery.city === 'string' && rawQuery.city.trim() ? rawQuery.city.trim() : undefined,
+    verified: rawQuery.verified === 'true' || rawQuery.verified === '1',
     limit: Math.min(parsePositiveInt(rawQuery.limit, DEFAULT_LIMIT), MAX_LIMIT),
     offset: parsePositiveInt(rawQuery.offset, 0)
-  }
-
-  if (!query.q && !query.province && !query.city) {
-    throw apiError(400, 'VALIDATION_ERROR', 'Provide at least one of: q, province, or city.')
   }
 
   const client = await serverSupabaseClient(event)

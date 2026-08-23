@@ -31,7 +31,8 @@ export default defineEventHandler(async (event) => {
     const club = await service.rejectVerification(claims.sub, clubId)
     return { data: club, message: 'Club verification rejected', request_id: crypto.randomUUID() }
   } catch (err) {
-    if (err instanceof ClubVerificationServiceError) throw apiError(err.status, err.code, err.message)
+    if (err instanceof ClubVerificationServiceError)
+      throw apiError(err.status, err.code, err.message)
     console.error(`[POST /api/v1/admin/clubs/${clubId}/reject-verification] failed:`, err)
     throw apiError(500, 'INTERNAL_ERROR', 'Could not reject club verification.')
   }

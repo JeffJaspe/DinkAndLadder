@@ -26,7 +26,11 @@ export default defineEventHandler(async (event) => {
   const membershipRepo = createClubMembershipRepository(client)
   const membership = await membershipRepo.findByClubAndPlayer(clubId, profile.id)
 
-  if (!membership || membership.status !== 'active' || !['OWNER', 'ADMIN'].includes(membership.role)) {
+  if (
+    !membership ||
+    membership.status !== 'active' ||
+    !['OWNER', 'ADMIN'].includes(membership.role)
+  ) {
     throw createError({ statusCode: 403, statusMessage: 'Only club admins can view subscription' })
   }
 

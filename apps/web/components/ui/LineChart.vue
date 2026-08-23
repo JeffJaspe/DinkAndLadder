@@ -66,12 +66,15 @@ const geometry = computed(() => {
   const span = max - min || 1
 
   const coords = sorted.value.map((p, i) => {
-    const x = PAD.left + (sorted.value.length === 1 ? plotW / 2 : (i / (sorted.value.length - 1)) * plotW)
+    const x =
+      PAD.left + (sorted.value.length === 1 ? plotW / 2 : (i / (sorted.value.length - 1)) * plotW)
     const y = PAD.top + plotH - ((p.value - min) / span) * plotH
     return { x, y, ...p }
   })
 
-  const line = coords.map((c, i) => `${i === 0 ? 'M' : 'L'}${c.x.toFixed(2)},${c.y.toFixed(2)}`).join(' ')
+  const line = coords
+    .map((c, i) => `${i === 0 ? 'M' : 'L'}${c.x.toFixed(2)},${c.y.toFixed(2)}`)
+    .join(' ')
   const area = coords.length
     ? `${line} L${coords[coords.length - 1]!.x.toFixed(2)},${(PAD.top + plotH).toFixed(2)} L${coords[0]!.x.toFixed(2)},${(PAD.top + plotH).toFixed(2)} Z`
     : ''
@@ -95,7 +98,10 @@ const xLabels = computed(() => {
   const pick = [0, Math.floor(coords.length / 2), coords.length - 1]
   return [...new Set(pick)].map((i) => ({
     x: coords[i]!.x,
-    text: new Date(coords[i]!.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+    text: new Date(coords[i]!.date).toLocaleDateString(undefined, {
+      month: 'short',
+      day: 'numeric'
+    })
   }))
 })
 
@@ -113,7 +119,10 @@ function onMove(event: MouseEvent) {
   let bestDist = Infinity
   geometry.value.coords.forEach((c, i) => {
     const d = Math.abs(c.x - x)
-    if (d < bestDist) { bestDist = d; best = i }
+    if (d < bestDist) {
+      bestDist = d
+      best = i
+    }
   })
   hovered.value = best
 }
@@ -128,7 +137,11 @@ const trend = computed(() => {
 
 <template>
   <figure class="m-0">
-    <div v-if="!hasLine" class="flex items-center justify-center rounded-card border border-dashed border-border px-4 text-center" :style="{ height: `${height}px` }">
+    <div
+      v-if="!hasLine"
+      class="flex items-center justify-center rounded-card border border-dashed border-border px-4 text-center"
+      :style="{ height: `${height}px` }"
+    >
       <p class="text-body-2 text-fg-muted">{{ emptyMessage }}</p>
     </div>
 
@@ -170,7 +183,9 @@ const trend = computed(() => {
             text-anchor="end"
             font-size="9"
             fill="rgb(var(--dnl-fg-muted))"
-          >{{ g.value.toFixed(2) }}</text>
+          >
+            {{ g.value.toFixed(2) }}
+          </text>
         </g>
 
         <path :d="geometry.area" :fill="`url(#fill-${label.replace(/\W/g, '')})`" />
@@ -193,7 +208,9 @@ const trend = computed(() => {
           text-anchor="middle"
           font-size="9"
           fill="rgb(var(--dnl-fg-muted))"
-        >{{ l.text }}</text>
+        >
+          {{ l.text }}
+        </text>
 
         <!-- Hover marker -->
         <g v-if="active">
@@ -223,12 +240,20 @@ const trend = computed(() => {
       <p class="mt-1 h-4 text-caption text-fg-muted">
         <template v-if="active">
           <span class="font-semibold text-fg">{{ formatRating(active.value) }}</span>
-          · {{ new Date(active.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) }}
+          ·
+          {{
+            new Date(active.date).toLocaleDateString(undefined, {
+              month: 'short',
+              day: 'numeric',
+              year: 'numeric'
+            })
+          }}
         </template>
         <template v-else>
           {{ sorted.length }} points ·
           <span :class="trend > 0 ? 'text-success' : trend < 0 ? 'text-danger' : ''">
-            {{ trend > 0 ? '↑' : trend < 0 ? '↓' : '' }} {{ Math.abs(trend).toFixed(3) }} over the range
+            {{ trend > 0 ? '↑' : trend < 0 ? '↓' : '' }} {{ Math.abs(trend).toFixed(3) }} over the
+            range
           </span>
         </template>
       </p>
@@ -238,9 +263,16 @@ const trend = computed(() => {
          reader, and a summary would hide the data rather than expose it. -->
     <figcaption class="sr-only">
       <table>
-        <caption>{{ label }}</caption>
+        <caption>
+          {{
+            label
+          }}
+        </caption>
         <thead>
-          <tr><th scope="col">Date</th><th scope="col">Rating</th></tr>
+          <tr>
+            <th scope="col">Date</th>
+            <th scope="col">Rating</th>
+          </tr>
         </thead>
         <tbody>
           <tr v-for="p in sorted" :key="p.date">

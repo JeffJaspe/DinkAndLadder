@@ -33,11 +33,13 @@ onMounted(async () => {
 
 <template>
   <div class="flex min-h-screen items-center justify-center bg-canvas p-4">
-    <div class="w-full max-w-sm rounded-xl bg-surface p-8 text-center">
+    <div class="w-full max-w-sm rounded-xl bg-surface p-8 text-center shadow-card">
       <!-- Loading State -->
       <template v-if="!errorMessage">
         <div class="mb-4 flex justify-center">
-          <div class="h-12 w-12 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+          <div
+            class="h-12 w-12 animate-spin rounded-full border-4 border-primary border-t-transparent"
+          />
         </div>
         <h1 class="text-xl font-semibold text-fg">Confirming your account</h1>
         <p class="mt-2 text-fg-muted">Please wait while we verify your email...</p>
@@ -46,9 +48,16 @@ onMounted(async () => {
       <!-- Error State -->
       <template v-else>
         <div class="mb-4 flex justify-center">
-          <div class="flex h-12 w-12 items-center justify-center rounded-full bg-red-500/20 text-red-400">
+          <div
+            class="flex h-12 w-12 items-center justify-center rounded-full bg-red-500/20 text-red-400"
+          >
             <svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M6 18L18 6M6 6l12 12"
+              />
             </svg>
           </div>
         </div>

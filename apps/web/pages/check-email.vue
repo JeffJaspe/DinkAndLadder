@@ -8,15 +8,19 @@ const email = computed(() => (typeof route.query.email === 'string' ? route.quer
     <div class="w-full max-w-md">
       <div class="mb-8 text-center">
         <NuxtLink to="/" class="inline-flex items-center gap-2">
-          <div class="flex h-12 w-12 items-center justify-center rounded-xl bg-primary text-xl font-bold text-on-primary">
+          <div
+            class="flex h-12 w-12 items-center justify-center rounded-xl bg-primary text-xl font-bold text-on-primary"
+          >
             D
           </div>
         </NuxtLink>
       </div>
 
-      <div class="rounded-xl bg-surface p-6 text-center">
+      <div class="rounded-xl bg-surface p-6 text-center shadow-card">
         <div class="mb-4 flex justify-center">
-          <div class="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
+          <div
+            class="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary"
+          >
             <svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path
                 stroke-linecap="round"
@@ -29,15 +33,17 @@ const email = computed(() => (typeof route.query.email === 'string' ? route.quer
         </div>
         <h1 class="text-xl font-semibold text-fg">Verification sent</h1>
         <p class="mt-2 text-fg-secondary">
-          Check your email<span v-if="email">, <span class="text-fg">{{ email }}</span></span> for a
-          confirmation link. Click it to finish creating your account — you'll be signed in
+          Check your email<span v-if="email"
+            >, <span class="text-fg">{{ email }}</span></span
+          >
+          for a confirmation link. Click it to finish creating your account — you'll be signed in
           automatically. The link can only be used once.
         </p>
         <p class="mt-4 text-sm text-fg-muted">
           Didn't get it? Check your spam folder, or
           <NuxtLink to="/register" class="font-medium text-primary hover:text-primary-hover">
-            try registering again
-          </NuxtLink>.
+            try registering again </NuxtLink
+          >.
         </p>
       </div>
 

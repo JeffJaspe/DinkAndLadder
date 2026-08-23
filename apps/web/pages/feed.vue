@@ -44,14 +44,22 @@ function formatEventDate(startDate: string): string {
 
 function getActivityIcon(type: string): string {
   switch (type) {
-    case 'match.verified': return '🎯'
-    case 'rating.changed': return '📈'
-    case 'social.started_following': return '👤'
-    case 'social.shoutout': return '📣'
-    case 'achievement.unlocked': return '🏆'
-    case 'club.joined': return '🏸'
-    case 'tournament.registered': return '🎪'
-    default: return '📌'
+    case 'match.verified':
+      return '🎯'
+    case 'rating.changed':
+      return '📈'
+    case 'social.started_following':
+      return '👤'
+    case 'social.shoutout':
+      return '📣'
+    case 'achievement.unlocked':
+      return '🏆'
+    case 'club.joined':
+      return '🏸'
+    case 'tournament.registered':
+      return '🎪'
+    default:
+      return '📌'
   }
 }
 
@@ -107,7 +115,12 @@ function formatTime(dateStr: string): string {
           @click="refresh()"
         >
           <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+            />
           </svg>
         </button>
       </div>
@@ -118,22 +131,23 @@ function formatTime(dateStr: string): string {
         surface here at all.
       -->
       <section v-if="upcomingEvents.length" class="mb-8">
-        <h2 class="mb-3 text-sm font-semibold uppercase tracking-wide text-fg-muted">
-          Coming up
-        </h2>
+        <h2 class="mb-3 text-sm font-semibold uppercase tracking-wide text-fg-muted">Coming up</h2>
         <div class="scroll-x">
           <div class="flex gap-3 pb-2">
             <NuxtLink
               v-for="upcoming in upcomingEvents"
               :key="upcoming.id"
               :to="`/events/${upcoming.id}`"
-              class="min-w-[14rem] flex-1 rounded-xl bg-surface p-4 transition-colors hover:bg-surface-2"
+              class="min-w-[14rem] flex-1 rounded-xl bg-surface p-4 transition-colors hover:bg-surface-2 shadow-card hover:shadow-card-hover"
             >
               <p class="text-xs font-medium text-primary">
                 {{ formatEventDate(upcoming.start_date) }}
               </p>
               <p class="mt-1 truncate font-medium text-fg">{{ upcoming.name }}</p>
-              <p v-if="upcoming.venue || upcoming.city" class="mt-0.5 truncate text-xs text-fg-muted">
+              <p
+                v-if="upcoming.venue || upcoming.city"
+                class="mt-0.5 truncate text-xs text-fg-muted"
+              >
                 {{ [upcoming.venue, upcoming.city].filter(Boolean).join(', ') }}
               </p>
             </NuxtLink>
@@ -155,11 +169,17 @@ function formatTime(dateStr: string): string {
       </div>
 
       <!-- Empty -->
-      <div v-else-if="activities.length === 0" class="rounded-xl bg-surface p-12 text-center">
+      <div
+        v-else-if="activities.length === 0"
+        class="rounded-xl bg-surface p-12 text-center shadow-card"
+      >
         <p class="text-4xl">📰</p>
         <h3 class="mt-4 text-lg font-semibold text-fg">No activity yet</h3>
         <p class="mt-2 text-sm text-fg-muted">Follow other players to see their activity here</p>
-        <NuxtLink to="/players" class="mt-4 inline-block rounded-lg bg-primary px-4 py-2 text-on-primary">
+        <NuxtLink
+          to="/players"
+          class="mt-4 inline-block rounded-lg bg-primary px-4 py-2 text-on-primary"
+        >
           Find Players
         </NuxtLink>
       </div>
@@ -169,10 +189,12 @@ function formatTime(dateStr: string): string {
         <div
           v-for="activity in activities"
           :key="activity.id"
-          class="flex gap-4 rounded-xl bg-surface p-4"
+          class="flex gap-4 rounded-xl bg-surface p-4 shadow-card"
         >
           <!-- Icon -->
-          <div class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-surface-2 text-xl">
+          <div
+            class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-surface-2 text-xl"
+          >
             {{ getActivityIcon(activity.activity_type) }}
           </div>
 

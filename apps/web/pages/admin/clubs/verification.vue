@@ -68,19 +68,30 @@ async function reject(clubId: string) {
         <p class="text-red-400">Could not load pending verification requests.</p>
       </div>
 
-      <div v-else-if="!clubs.length" class="mt-6 rounded-xl bg-surface p-8 text-center">
+      <div v-else-if="!clubs.length" class="mt-6 rounded-xl bg-surface p-8 text-center shadow-card">
         <p class="text-fg-muted">No pending verification requests.</p>
       </div>
 
       <div v-else class="mt-6 space-y-3">
-        <p v-if="actionError" class="rounded-lg bg-red-500/10 p-3 text-sm text-red-400">{{ actionError }}</p>
-        <div v-for="club in clubs" :key="club.id" class="flex items-center justify-between rounded-xl bg-surface p-4">
+        <p v-if="actionError" class="rounded-lg bg-red-500/10 p-3 text-sm text-red-400">
+          {{ actionError }}
+        </p>
+        <div
+          v-for="club in clubs"
+          :key="club.id"
+          class="flex items-center justify-between rounded-xl bg-surface p-4 shadow-card"
+        >
           <div>
             <NuxtLink :to="`/clubs/${club.id}`" class="font-medium text-fg hover:text-primary">
               {{ club.name }}
             </NuxtLink>
             <p class="text-xs text-fg-muted">
-              Requested {{ club.verification_requested_at ? new Date(club.verification_requested_at).toLocaleDateString() : '—' }}
+              Requested
+              {{
+                club.verification_requested_at
+                  ? new Date(club.verification_requested_at).toLocaleDateString()
+                  : '—'
+              }}
             </p>
           </div>
           <div class="flex gap-2">

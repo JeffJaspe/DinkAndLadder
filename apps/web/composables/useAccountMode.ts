@@ -11,6 +11,20 @@ export function useAccountMode() {
   const accountMode = useCookie<AccountMode>('account_mode', { default: () => 'player' })
   const activeClubId = useCookie<string | null>('active_club_id', { default: () => null })
 
+  /**
+   * The organiser half of the product lives behind this.
+   *
+   * Owning an event is necessary to manage it but not sufficient: management
+   * only appears in club mode. Player mode is deliberately read-and-register
+   * only — register, see who else registered, follow the bracket and matches —
+   * even for the person who created the event. Anything that creates, edits,
+   * publishes, deletes or runs an event belongs to the club they are acting as,
+   * so the answer to "may I change this?" is always ownership AND club mode,
+   * never ownership alone.
+   */
+  const isClubMode = computed(() => accountMode.value === 'club')
+  const isPlayerMode = computed(() => accountMode.value === 'player')
+
   function switchToClub(clubId: string) {
     accountMode.value = 'club'
     activeClubId.value = clubId
@@ -21,5 +35,5 @@ export function useAccountMode() {
     activeClubId.value = null
   }
 
-  return { accountMode, activeClubId, switchToClub, switchToPlayer }
+  return { accountMode, activeClubId, isClubMode, isPlayerMode, switchToClub, switchToPlayer }
 }

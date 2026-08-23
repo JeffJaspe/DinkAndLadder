@@ -9,9 +9,7 @@
  */
 export default defineNuxtRouteMiddleware(async () => {
   try {
-    const result = await useRequestFetch()<{ is_superadmin: boolean }>(
-      '/api/v1/me/is-superadmin'
-    )
+    const result = await useRequestFetch()<{ is_superadmin: boolean }>('/api/v1/me/is-superadmin')
     if (!result?.is_superadmin) {
       return navigateTo('/dashboard')
     }

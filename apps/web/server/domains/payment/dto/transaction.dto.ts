@@ -1,5 +1,6 @@
 export type TransactionStatus = 'pending' | 'succeeded' | 'failed' | 'refunded' | 'canceled'
-export type TransactionType = 'subscription' | 'tournament_entry' | 'sponsorship' | 'donation' | 'refund'
+export type TransactionType =
+  'subscription' | 'tournament_entry' | 'sponsorship' | 'donation' | 'refund'
 
 export interface PaymentTransactionRecord {
   id: string

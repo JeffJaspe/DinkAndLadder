@@ -179,7 +179,13 @@ describe('ClubVerificationService', () => {
   })
 
   it('lets the super admin reject a pending club back to unverified', async () => {
-    clubs.set('club-1', makeClub({ verification_status: 'pending', verification_requested_at: new Date().toISOString() }))
+    clubs.set(
+      'club-1',
+      makeClub({
+        verification_status: 'pending',
+        verification_requested_at: new Date().toISOString()
+      })
+    )
     isSuperAdminResult = true
     const service = createService()
     const result = await service.rejectVerification('admin-user', 'club-1')

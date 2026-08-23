@@ -25,11 +25,7 @@ export const PSGC_CACHE_CONTROL = 'public, max-age=86400, stale-while-revalidate
 
 export function assertPsgcCode(value: unknown, label: string): string {
   if (typeof value !== 'string' || !PSGC_CODE_PATTERN.test(value)) {
-    throw apiError(
-      400,
-      'VALIDATION_ERROR',
-      `${label} must be a 9- or 10-digit PSGC code.`
-    )
+    throw apiError(400, 'VALIDATION_ERROR', `${label} must be a 9- or 10-digit PSGC code.`)
   }
   return value
 }

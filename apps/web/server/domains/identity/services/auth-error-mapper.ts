@@ -57,7 +57,10 @@ const AUTH_ERROR_MESSAGES: Record<string, MappedAuthError> = {
   }
 }
 
-export function mapAuthError(code: string | null | undefined, fallbackMessage: string): MappedAuthError {
+export function mapAuthError(
+  code: string | null | undefined,
+  fallbackMessage: string
+): MappedAuthError {
   if (code) {
     const mapped = AUTH_ERROR_MESSAGES[code]
     if (mapped) return mapped

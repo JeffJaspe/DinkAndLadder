@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { ClubDto } from '~/server/domains/club/dto/club.dto'
-import type { RosterMemberDto } from '~/server/domains/club/dto/club-membership.dto'
+import type { ClubRole, RosterMemberDto } from '~/server/domains/club/dto/club-membership.dto'
 import type { PlayerProfileDto } from '~/server/domains/player/dto/player-profile.dto'
 import type { AnnouncementDto } from '~/server/domains/announcement/dto/announcement.dto'
 import type { EventDto } from '~/server/domains/event/dto/event.dto'
@@ -139,7 +139,7 @@ onMounted(() => {
 })
 
 function formatScore(scores: ClubMatchSummary['scores']): string {
-  return scores.map(s => `${s.team1_score}-${s.team2_score}`).join(', ')
+  return scores.map((s) => `${s.team1_score}-${s.team2_score}`).join(', ')
 }
 
 function formatEventDate(dateStr: string): string {
@@ -152,10 +152,52 @@ const myMembership = computed(
 const isAdmin = computed(
   () => myMembership.value?.role === 'OWNER' || myMembership.value?.role === 'ADMIN'
 )
-const isStaff = computed(
-  () => ['OWNER', 'ADMIN', 'MODERATOR'].includes(myMembership.value?.role ?? '')
+const isStaff = computed(() =>
+  ['OWNER', 'ADMIN', 'MODERATOR'].includes(myMembership.value?.role ?? '')
 )
+
 const isOwner = computed(() => myMembership.value?.role === 'OWNER')
+
+const { isClubMode, activeClubId } = useAccountMode()
+
+/**
+ * Wearing *this* club's hat — club mode, and the club being acted as is the one
+ * on screen.
+ *
+ * The club id matters as much as the mode. Checking `isClubMode` alone would let
+ * someone acting as Club A administer Club B, which is incoherent even though
+ * they must still be staff of B for anything to be offered.
+ */
+const isActingAsThisClub = computed(() => isClubMode.value && activeClubId.value === clubId.value)
+
+/**
+ * Club administration, split the way the product decided (2026-08-23).
+ *
+ * Approving and rejecting join requests works in BOTH hats, on purpose: a
+ * pending request is a person waiting to get in, and making them wait for an
+ * admin to notice they are in the wrong mode costs someone real time. Nothing
+ * else on this page has a third party blocked on it.
+ *
+ * Everything else — roles, removals, verification, and the club's create
+ * actions — is club work and needs the club hat. `Create Event` was already
+ * club-mode-only on the events page, so leaving it ungated here was the same
+ * inconsistency in a second place.
+ */
+// Moderators too, matching APPROVAL_ROLES in club.service.ts — the whole point
+// of the role is absorbing this queue. Still both hats, still review-only:
+// nothing below widens for them.
+const canReviewJoinRequests = computed(() => isStaff.value)
+const canManageMembers = computed(() => isAdmin.value && isActingAsThisClub.value)
+const canManageAnnouncements = computed(() => isStaff.value && isActingAsThisClub.value)
+const canRequestVerification = computed(() => isOwner.value && isActingAsThisClub.value)
+const canUseClubActions = computed(() => isAdmin.value && isActingAsThisClub.value)
+
+/**
+ * Staff who are on the club's page but not wearing its hat would otherwise see
+ * the management controls simply vanish with no explanation. This drives a hint
+ * telling them what to switch to.
+ */
+const needsClubHatToManage = computed(() => isStaff.value && !isActingAsThisClub.value)
 
 const verificationLoading = ref(false)
 const verificationError = ref('')
@@ -201,9 +243,66 @@ async function handleLeave() {
   await loadRoster()
 }
 
+const memberActionError = ref('')
+const memberBusyId = ref<string | null>(null)
+
 async function updateMember(playerId: string, body: { status?: string; role?: string }) {
-  await $fetch(`/api/v1/clubs/${clubId.value}/members/${playerId}`, { method: 'PATCH', body })
-  await loadRoster()
+  memberActionError.value = ''
+  memberBusyId.value = playerId
+  try {
+    await $fetch(`/api/v1/clubs/${clubId.value}/members/${playerId}`, { method: 'PATCH', body })
+    await loadRoster()
+  } catch (err) {
+    // Previously unhandled: a refused change left the row looking unchanged with
+    // no reason given. The permission matrix below mirrors the server's, so a
+    // 403 here means the two have drifted — worth showing, not swallowing.
+    memberActionError.value = apiErrorMessage(err, 'Could not update this member.')
+  } finally {
+    memberBusyId.value = null
+  }
+}
+
+/**
+ * Which roles the current user may assign to a given member.
+ *
+ * This mirrors ClubService.updateMember, which is the real authority — the UI
+ * offering an action the server refuses is worse than not offering it. From
+ * that matrix:
+ *   - the OWNER row is never modifiable, by anyone;
+ *   - nobody edits their own membership here (leaving is a separate action);
+ *   - an ADMIN may not touch another ADMIN, and may not grant ADMIN.
+ * So the owner can assign all three lower roles, and an admin can only move
+ * members and moderators between those two.
+ *
+ * An empty list means the row shows no role control at all.
+ */
+const ASSIGNABLE_BY_OWNER: ClubRole[] = ['ADMIN', 'MODERATOR', 'MEMBER']
+const ASSIGNABLE_BY_ADMIN: ClubRole[] = ['MODERATOR', 'MEMBER']
+
+function assignableRolesFor(member: RosterMemberDto): ClubRole[] {
+  if (!canManageMembers.value) return []
+  if (member.role === 'OWNER') return []
+  if (member.player_id === myProfile.value?.id) return []
+  if (isOwner.value) return ASSIGNABLE_BY_OWNER
+  return member.role === 'ADMIN' ? [] : ASSIGNABLE_BY_ADMIN
+}
+
+/**
+ * Same matrix, for removal. The previous condition offered Remove to an admin
+ * against another admin, which the server then refused with a 403 the UI never
+ * surfaced.
+ */
+function canRemoveMember(member: RosterMemberDto): boolean {
+  if (!canManageMembers.value) return false
+  if (member.role === 'OWNER') return false
+  if (member.player_id === myProfile.value?.id) return false
+  if (!isOwner.value && member.role === 'ADMIN') return false
+  return true
+}
+
+function changeRole(member: RosterMemberDto, nextRole: string) {
+  if (!nextRole || nextRole === member.role) return
+  updateMember(member.player_id, { role: nextRole })
 }
 
 const showAnnouncementForm = ref(false)
@@ -255,19 +354,13 @@ function formatDate(dateStr: string): string {
 }
 
 const publishedAnnouncements = computed(() =>
-  announcements.value.filter(a => a.status === 'published')
+  announcements.value.filter((a) => a.status === 'published')
 )
-const draftAnnouncements = computed(() =>
-  announcements.value.filter(a => a.status === 'draft')
-)
+const draftAnnouncements = computed(() => announcements.value.filter((a) => a.status === 'draft'))
 
 // Split roster into pending requests and active members for admin view
-const pendingRequests = computed(() =>
-  roster.value?.filter((m) => m.status === 'pending') ?? []
-)
-const activeMembers = computed(() =>
-  roster.value?.filter((m) => m.status === 'active') ?? []
-)
+const pendingRequests = computed(() => roster.value?.filter((m) => m.status === 'pending') ?? [])
+const activeMembers = computed(() => roster.value?.filter((m) => m.status === 'active') ?? [])
 </script>
 
 <template>
@@ -280,10 +373,7 @@ const activeMembers = computed(() =>
       </div>
 
       <!-- Error -->
-      <div
-        v-else-if="clubError"
-        class="rounded-xl bg-red-500/10 p-6 text-center"
-      >
+      <div v-else-if="clubError" class="rounded-xl bg-red-500/10 p-6 text-center">
         <p class="text-red-400">
           {{
             clubError.statusCode === 404
@@ -300,11 +390,13 @@ const activeMembers = computed(() =>
         <!-- Header. The mockup leads with a cover photo; there is no image
              column on clubs, so this is generated from the name — see
              UiCoverArt. The logo tile overlaps the cover, as drawn. -->
-        <div class="mb-6 overflow-hidden rounded-card border border-border bg-surface">
+        <div class="mb-6 overflow-hidden rounded-card border border-border bg-surface shadow-card">
           <UiCoverArt :name="club.name" variant="banner" rounded="rounded-none" />
 
           <div class="flex items-start gap-4 p-6 pt-0">
-            <div class="-mt-8 flex h-16 w-16 flex-shrink-0 items-center justify-center rounded-xl border-4 border-surface bg-surface-2 text-2xl font-bold text-fg">
+            <div
+              class="-mt-8 flex h-16 w-16 flex-shrink-0 items-center justify-center rounded-xl border-4 border-surface bg-surface-2 text-2xl font-bold text-fg"
+            >
               {{ club.name.charAt(0).toUpperCase() }}
             </div>
             <div class="flex-1 pt-4">
@@ -326,7 +418,10 @@ const activeMembers = computed(() =>
               </p>
 
               <!-- Court Details -->
-              <div v-if="club.court_name || club.court_address" class="mt-3 rounded-lg bg-canvas p-3">
+              <div
+                v-if="club.court_name || club.court_address"
+                class="mt-3 rounded-lg bg-canvas p-3"
+              >
                 <p v-if="club.court_name" class="text-sm font-medium text-fg">
                   🏸 {{ club.court_name }}
                 </p>
@@ -336,7 +431,7 @@ const activeMembers = computed(() =>
               </div>
 
               <!-- Verification status/action, owner only -->
-              <div v-if="isOwner" class="mt-3">
+              <div v-if="canRequestVerification" class="mt-3">
                 <span
                   v-if="club.verification_status === 'pending'"
                   class="inline-flex items-center gap-1.5 rounded-full bg-amber-500/10 px-3 py-1 text-xs text-amber-400"
@@ -352,67 +447,49 @@ const activeMembers = computed(() =>
                 >
                   {{ verificationLoading ? 'Requesting…' : 'Request Verification' }}
                 </button>
-                <p v-if="verificationError" class="mt-1 text-xs text-red-400">{{ verificationError }}</p>
+                <p v-if="verificationError" class="mt-1 text-xs text-red-400">
+                  {{ verificationError }}
+                </p>
               </div>
             </div>
           </div>
         </div>
 
         <!-- Club Stats -->
-        <div v-if="roster" class="mb-6 rounded-xl bg-surface p-5">
-          <h2 class="mb-3 text-sm font-medium uppercase tracking-wider text-fg-muted">Club Stats</h2>
+        <div v-if="roster" class="mb-6 rounded-xl bg-surface p-5 shadow-card">
+          <h2 class="mb-3 text-sm font-medium uppercase tracking-wider text-fg-muted">
+            Club Stats
+          </h2>
           <div class="flex gap-6 text-fg-secondary">
-            <span>👥 {{ roster.filter(m => m.status === 'active').length }} Members</span>
-            <span>🎾 {{ clubMatches.length }}{{ clubMatches.length === 50 ? '+' : '' }} Matches</span>
+            <span>👥 {{ roster.filter((m) => m.status === 'active').length }} Members</span>
+            <span
+              >🎾 {{ clubMatches.length }}{{ clubMatches.length === 50 ? '+' : '' }} Matches</span
+            >
             <span>📅 {{ upcomingClubEvents.length + previousClubEvents.length }} Events</span>
           </div>
         </div>
 
-        <!-- Top Members Podium -->
-        <div v-if="clubRankings.length > 0" class="mb-6 rounded-xl bg-surface p-5">
+        <!-- Top members, on the shared RankingBoard. This was a third
+             hand-rolled podium: a [2,1,3] loop with ring-coloured initials and
+             w-14 plinth stubs, which rendered nothing at all when the club had
+             fewer than three rated members. UiPodium handles a short list. -->
+        <div v-if="clubRankings.length > 0" class="mb-6 rounded-xl bg-surface p-5 shadow-card">
           <div class="mb-4 flex items-center justify-between">
             <h2 class="font-semibold text-fg">Top Members</h2>
             <span class="text-xs text-fg-muted">By singles rating</span>
           </div>
-          <div class="flex items-end justify-center gap-3 pt-2">
-            <template v-for="place in [2, 1, 3]" :key="place">
-              <div v-if="clubRankings[place - 1]" class="flex flex-col items-center">
-                <div
-                  class="mb-2 flex items-center justify-center rounded-full bg-surface-2 font-bold ring-2"
-                  :class="place === 1 ? 'h-14 w-14 text-lg text-warning ring-warning-fill' : place === 2 ? 'h-11 w-11 text-sm text-rating-silver ring-rating-silver' : 'h-10 w-10 text-sm text-rating-bronze ring-rating-bronze'"
-                >
-                  {{ clubRankings[place - 1].display_name.charAt(0) }}
-                </div>
-                <p class="text-xs text-fg-secondary">{{ clubRankings[place - 1].display_name }}</p>
-                <p class="text-xs text-fg-muted">{{ clubRankings[place - 1].rating_value?.toFixed(2) ?? '—' }}</p>
-                <div
-                  class="mt-2 flex w-14 items-end justify-center rounded-t-lg"
-                  :class="place === 1 ? 'h-24 bg-warning-fill/20' : place === 2 ? 'h-16 bg-rating-silver/20' : 'h-12 bg-rating-bronze/20'"
-                >
-                  <span
-                    class="mb-2 text-xl font-bold"
-                    :class="place === 1 ? 'text-warning' : place === 2 ? 'text-rating-silver' : 'text-rating-bronze'"
-                  >
-                    {{ place }}
-                  </span>
-                </div>
-              </div>
-            </template>
-          </div>
-          <div v-if="clubRankings.length > 3" class="mt-4 space-y-1">
-            <div
-              v-for="r in clubRankings.slice(3)"
-              :key="r.player_id"
-              class="flex items-center justify-between rounded-lg bg-canvas px-3 py-2 text-sm"
-            >
-              <span class="text-fg-secondary">#{{ r.rank }} {{ r.display_name }}</span>
-              <span class="text-fg-muted">{{ r.rating_value?.toFixed(2) ?? '—' }}</span>
-            </div>
-          </div>
+          <RankingBoard
+            :entries="clubRankings"
+            :glow="false"
+            compact
+            empty-title="No rated members yet"
+            empty-message="Ratings appear once members have played verified matches."
+            @select="navigateTo(`/players/${$event.player_id}`)"
+          />
         </div>
 
         <!-- Recent Club Matches -->
-        <div v-if="clubMatches.length > 0" class="mb-6 rounded-xl bg-surface p-5">
+        <div v-if="clubMatches.length > 0" class="mb-6 rounded-xl bg-surface p-5 shadow-card">
           <h2 class="mb-4 font-semibold text-fg">Recent Club Matches</h2>
           <div class="space-y-2">
             <NuxtLink
@@ -422,22 +499,33 @@ const activeMembers = computed(() =>
               class="flex items-center justify-between rounded-lg bg-canvas p-3 hover:bg-surface-2"
             >
               <div class="text-sm text-fg">
-                <span v-for="(p, i) in match.participants.filter(pp => pp.team_number === 1)" :key="p.player_id">
+                <span
+                  v-for="(p, i) in match.participants.filter((pp) => pp.team_number === 1)"
+                  :key="p.player_id"
+                >
                   {{ i > 0 ? ' & ' : '' }}{{ p.display_name }}
                 </span>
                 <span class="mx-1 text-fg-muted">vs</span>
-                <span v-for="(p, i) in match.participants.filter(pp => pp.team_number === 2)" :key="p.player_id">
+                <span
+                  v-for="(p, i) in match.participants.filter((pp) => pp.team_number === 2)"
+                  :key="p.player_id"
+                >
                   {{ i > 0 ? ' & ' : '' }}{{ p.display_name }}
                 </span>
                 <span class="ml-2 text-primary">{{ formatScore(match.scores) }}</span>
               </div>
-              <span class="text-xs text-fg-muted">{{ new Date(match.played_at).toLocaleDateString() }}</span>
+              <span class="text-xs text-fg-muted">{{
+                new Date(match.played_at).toLocaleDateString()
+              }}</span>
             </NuxtLink>
           </div>
         </div>
 
         <!-- Upcoming Events -->
-        <div v-if="upcomingClubEvents.length > 0" class="mb-6 rounded-xl bg-surface p-5">
+        <div
+          v-if="upcomingClubEvents.length > 0"
+          class="mb-6 rounded-xl bg-surface p-5 shadow-card"
+        >
           <h2 class="mb-4 font-semibold text-fg">Upcoming Events</h2>
           <div class="space-y-2">
             <NuxtLink
@@ -448,7 +536,9 @@ const activeMembers = computed(() =>
             >
               <span class="text-sm text-fg">
                 📅 {{ e.name }}
-                <span class="text-fg-muted">{{ [e.venue, e.city].filter(Boolean).join(', ') }}</span>
+                <span class="text-fg-muted">{{
+                  [e.venue, e.city].filter(Boolean).join(', ')
+                }}</span>
               </span>
               <span class="text-xs text-fg-muted">{{ formatEventDate(e.start_date) }}</span>
             </NuxtLink>
@@ -456,7 +546,10 @@ const activeMembers = computed(() =>
         </div>
 
         <!-- Previous Events -->
-        <div v-if="previousClubEvents.length > 0" class="mb-6 rounded-xl bg-surface p-5">
+        <div
+          v-if="previousClubEvents.length > 0"
+          class="mb-6 rounded-xl bg-surface p-5 shadow-card"
+        >
           <h2 class="mb-4 font-semibold text-fg">Previous Events</h2>
           <div class="space-y-2">
             <NuxtLink
@@ -472,7 +565,10 @@ const activeMembers = computed(() =>
         </div>
 
         <!-- Announcements -->
-        <div v-if="publishedAnnouncements.length > 0" class="mb-6 rounded-xl bg-surface p-5">
+        <div
+          v-if="publishedAnnouncements.length > 0"
+          class="mb-6 rounded-xl bg-surface p-5 shadow-card"
+        >
           <h2 class="mb-4 font-semibold text-fg">Announcements</h2>
           <div class="space-y-3">
             <div
@@ -486,19 +582,29 @@ const activeMembers = computed(() =>
                 <div class="flex items-center gap-2">
                   <span v-if="ann.pinned" class="text-warning">
                     <svg class="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
-                      <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                      <path
+                        d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"
+                      />
                     </svg>
                   </span>
                   <span class="font-medium text-fg">{{ ann.title }}</span>
                 </div>
-                <span class="text-xs text-fg-muted">{{ formatDate(ann.published_at || ann.created_at) }}</span>
+                <span class="text-xs text-fg-muted">{{
+                  formatDate(ann.published_at || ann.created_at)
+                }}</span>
               </div>
               <p class="mt-2 text-fg-secondary">{{ ann.body }}</p>
-              <div v-if="isStaff" class="mt-3 flex gap-3">
-                <button class="text-xs text-primary hover:underline" @click.stop="togglePin(ann.id)">
+              <div v-if="canManageAnnouncements" class="mt-3 flex gap-3">
+                <button
+                  class="text-xs text-primary hover:underline"
+                  @click.stop="togglePin(ann.id)"
+                >
                   {{ ann.pinned ? 'Unpin' : 'Pin' }}
                 </button>
-                <button class="text-xs text-red-400 hover:underline" @click.stop="archiveAnnouncement(ann.id)">
+                <button
+                  class="text-xs text-red-400 hover:underline"
+                  @click.stop="archiveAnnouncement(ann.id)"
+                >
                   Archive
                 </button>
               </div>
@@ -507,7 +613,10 @@ const activeMembers = computed(() =>
         </div>
 
         <!-- Draft Announcements (Staff Only) -->
-        <div v-if="isStaff && draftAnnouncements.length > 0" class="mb-6 rounded-xl bg-surface p-5">
+        <div
+          v-if="canManageAnnouncements && draftAnnouncements.length > 0"
+          class="mb-6 rounded-xl bg-surface p-5 shadow-card"
+        >
           <h2 class="mb-4 font-semibold text-fg-muted">Drafts</h2>
           <div class="space-y-3">
             <div
@@ -521,10 +630,16 @@ const activeMembers = computed(() =>
               </div>
               <p class="mt-2 text-fg-muted">{{ ann.body }}</p>
               <div class="mt-3 flex gap-3">
-                <button class="text-xs text-primary hover:underline" @click="publishAnnouncement(ann.id)">
+                <button
+                  class="text-xs text-primary hover:underline"
+                  @click="publishAnnouncement(ann.id)"
+                >
                   Publish
                 </button>
-                <button class="text-xs text-red-400 hover:underline" @click="archiveAnnouncement(ann.id)">
+                <button
+                  class="text-xs text-red-400 hover:underline"
+                  @click="archiveAnnouncement(ann.id)"
+                >
                   Delete
                 </button>
               </div>
@@ -533,18 +648,23 @@ const activeMembers = computed(() =>
         </div>
 
         <!-- New Announcement Form (Staff Only) -->
-        <div v-if="isStaff" class="mb-6">
+        <div v-if="canManageAnnouncements" class="mb-6">
           <button
             v-if="!showAnnouncementForm"
             class="flex items-center gap-2 text-sm font-medium text-primary hover:underline"
             @click="showAnnouncementForm = true"
           >
             <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M12 4v16m8-8H4"
+              />
             </svg>
             New Announcement
           </button>
-          <div v-else class="rounded-xl bg-surface p-5">
+          <div v-else class="rounded-xl bg-surface p-5 shadow-card">
             <h3 class="mb-4 font-semibold text-fg">Create Announcement</h3>
             <div class="mb-3">
               <label class="mb-1.5 block text-sm text-fg-secondary">Title</label>
@@ -564,7 +684,9 @@ const activeMembers = computed(() =>
                 class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none"
               />
             </div>
-            <p v-if="announcementError" class="mb-3 text-sm text-red-400">{{ announcementError }}</p>
+            <p v-if="announcementError" class="mb-3 text-sm text-red-400">
+              {{ announcementError }}
+            </p>
             <div class="flex gap-2">
               <button
                 :disabled="creatingAnnouncement"
@@ -584,13 +706,18 @@ const activeMembers = computed(() =>
         </div>
 
         <!-- Admin Actions -->
-        <div v-if="isAdmin" class="mb-6 grid gap-3 sm:grid-cols-2">
+        <div v-if="canUseClubActions" class="mb-6 grid gap-3 sm:grid-cols-2">
           <NuxtLink
             :to="`/matches/submit?club=${clubId}`"
             class="flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 font-medium text-on-primary hover:bg-primary-hover"
           >
             <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M12 4v16m8-8H4"
+              />
             </svg>
             Submit Match
           </NuxtLink>
@@ -599,21 +726,28 @@ const activeMembers = computed(() =>
             class="flex items-center justify-center gap-2 rounded-xl border border-primary px-4 py-3 font-medium text-primary hover:bg-primary/10"
           >
             <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
+              />
             </svg>
             Create Event
           </NuxtLink>
         </div>
 
         <!-- Join CTA (Non-Members) -->
-        <div v-if="notAMember" class="mb-6 rounded-xl bg-surface p-6 text-center">
+        <div v-if="notAMember" class="mb-6 rounded-xl bg-surface p-6 text-center shadow-card">
           <h2 class="font-semibold text-fg">
             {{ club.visibility === 'private' ? 'Private Club' : 'Join This Club' }}
           </h2>
           <p class="mt-1 text-fg-muted">
-            {{ club.visibility === 'private'
-              ? 'This is a private club. Request membership to access full details.'
-              : 'Request membership to see member roster and announcements' }}
+            {{
+              club.visibility === 'private'
+                ? 'This is a private club. Request membership to access full details.'
+                : 'Request membership to see member roster and announcements'
+            }}
           </p>
 
           <!-- Already has pending request -->
@@ -655,12 +789,17 @@ const activeMembers = computed(() =>
 
         <!-- Pending Requests Section (Admins Only) -->
         <div
-          v-if="roster && isAdmin && pendingRequests.length > 0"
+          v-if="roster && canReviewJoinRequests && pendingRequests.length > 0"
           class="mb-6 rounded-xl bg-amber-500/10 p-5 ring-1 ring-amber-500/30"
         >
           <h2 class="mb-4 flex items-center gap-2 font-semibold text-amber-400">
             <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+              />
             </svg>
             Pending Requests ({{ pendingRequests.length }})
           </h2>
@@ -671,7 +810,9 @@ const activeMembers = computed(() =>
               class="flex items-center justify-between rounded-lg bg-canvas p-3"
             >
               <div class="flex items-center gap-3">
-                <div class="flex h-8 w-8 items-center justify-center rounded-full bg-surface-2 text-sm font-bold text-fg-secondary">
+                <div
+                  class="flex h-8 w-8 items-center justify-center rounded-full bg-surface-2 text-sm font-bold text-fg-secondary"
+                >
                   {{ member.display_name.charAt(0).toUpperCase() }}
                 </div>
                 <NuxtLink
@@ -700,8 +841,27 @@ const activeMembers = computed(() =>
         </div>
 
         <!-- Members List (Active Members Only) -->
-        <div v-if="roster" class="mb-6 rounded-xl bg-surface p-5">
+        <div v-if="roster" class="mb-6 rounded-xl bg-surface p-5 shadow-card">
           <h2 class="mb-4 font-semibold text-fg">Members ({{ activeMembers.length }})</h2>
+
+          <!-- Staff on this page without its hat. Says why the controls are not
+               here, rather than letting them silently not exist. -->
+          <p
+            v-if="needsClubHatToManage"
+            class="mb-4 rounded-button bg-surface-2 px-3 py-2 text-xs text-fg-secondary"
+          >
+            Switch to <span class="font-medium text-fg">{{ club?.name }}</span> in the account
+            switcher to change roles, remove members or manage announcements.
+          </p>
+
+          <p
+            v-if="memberActionError"
+            role="alert"
+            class="mb-4 rounded-button bg-danger/10 px-3 py-2 text-xs text-danger"
+          >
+            {{ memberActionError }}
+          </p>
+
           <div class="space-y-2">
             <div
               v-for="member in activeMembers"
@@ -709,7 +869,9 @@ const activeMembers = computed(() =>
               class="flex items-center justify-between rounded-lg bg-canvas p-3"
             >
               <div class="flex items-center gap-3">
-                <div class="flex h-8 w-8 items-center justify-center rounded-full bg-surface-2 text-sm font-bold text-fg-secondary">
+                <div
+                  class="flex h-8 w-8 items-center justify-center rounded-full bg-surface-2 text-sm font-bold text-fg-secondary"
+                >
                   {{ member.display_name.charAt(0).toUpperCase() }}
                 </div>
                 <NuxtLink
@@ -726,9 +888,30 @@ const activeMembers = computed(() =>
                 </span>
               </div>
 
-              <div v-if="isAdmin && member.role !== 'OWNER' && member.player_id !== myProfile?.id" class="flex gap-2">
+              <div class="flex flex-shrink-0 items-center gap-2">
+                <!-- Role control. The API has always accepted a role change;
+                     until now nothing in the app ever sent one, so a member
+                     stayed a MEMBER for life. Options come from the same matrix
+                     the server enforces, so nothing offered here can 403. -->
+                <label v-if="assignableRolesFor(member).length" class="sr-only">
+                  Role for {{ member.display_name }}
+                </label>
+                <select
+                  v-if="assignableRolesFor(member).length"
+                  :value="member.role"
+                  :disabled="memberBusyId === member.player_id"
+                  class="rounded-button border border-border-strong bg-surface px-2 py-1 text-xs text-fg focus:border-primary focus:outline-none disabled:opacity-50"
+                  @change="changeRole(member, ($event.target as HTMLSelectElement).value)"
+                >
+                  <option v-for="role in assignableRolesFor(member)" :key="role" :value="role">
+                    {{ role }}
+                  </option>
+                </select>
+
                 <button
-                  class="rounded-lg border border-red-400 px-3 py-1 text-xs font-medium text-red-400 hover:bg-red-400/10"
+                  v-if="canRemoveMember(member)"
+                  :disabled="memberBusyId === member.player_id"
+                  class="rounded-button border border-danger px-3 py-1 text-xs font-medium text-danger hover:bg-danger/10 disabled:opacity-50"
                   @click="updateMember(member.player_id, { status: 'left' })"
                 >
                   Remove

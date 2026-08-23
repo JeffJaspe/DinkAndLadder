@@ -19,16 +19,19 @@ interface PlayerAchievement {
 }
 
 const { data: allData } = await useFetch<{ achievements: Achievement[] }>('/api/v1/achievements')
-const { data: myData, status } = await useFetch<{ achievements: PlayerAchievement[]; total_points: number }>('/api/v1/players/me/achievements')
+const { data: myData, status } = await useFetch<{
+  achievements: PlayerAchievement[]
+  total_points: number
+}>('/api/v1/players/me/achievements')
 
 const allAchievements = computed(() => allData.value?.achievements ?? [])
 const myAchievements = computed(() => myData.value?.achievements ?? [])
 const totalPoints = computed(() => myData.value?.total_points ?? 0)
 
-const unlockedIds = computed(() => new Set(myAchievements.value.map(a => a.achievement_id)))
+const unlockedIds = computed(() => new Set(myAchievements.value.map((a) => a.achievement_id)))
 
 const categories = computed(() => {
-  const cats = new Set(allAchievements.value.map(a => a.category))
+  const cats = new Set(allAchievements.value.map((a) => a.category))
   return Array.from(cats)
 })
 
@@ -36,7 +39,7 @@ const selectedCategory = ref<string | null>(null)
 
 const filteredAchievements = computed(() => {
   if (!selectedCategory.value) return allAchievements.value
-  return allAchievements.value.filter(a => a.category === selectedCategory.value)
+  return allAchievements.value.filter((a) => a.category === selectedCategory.value)
 })
 
 const unlockedCount = computed(() => unlockedIds.value.size)
@@ -47,7 +50,7 @@ function isUnlocked(achievementId: string): boolean {
 }
 
 function getUnlockedAt(achievementId: string): string | null {
-  const pa = myAchievements.value.find(a => a.achievement_id === achievementId)
+  const pa = myAchievements.value.find((a) => a.achievement_id === achievementId)
   return pa?.unlocked_at ?? null
 }
 
@@ -70,7 +73,7 @@ const tierConfig: Record<string, { bg: string; text: string; label: string }> = 
         </div>
 
         <!-- Points Badge -->
-        <div class="flex items-center gap-4 rounded-xl bg-surface p-4">
+        <div class="flex items-center gap-4 rounded-xl bg-surface p-4 shadow-card">
           <div class="text-center">
             <p class="text-2xl font-bold text-warning">{{ totalPoints }}</p>
             <p class="text-xs text-fg-muted">Total Points</p>
@@ -87,9 +90,11 @@ const tierConfig: Record<string, { bg: string; text: string; label: string }> = 
       <div class="mb-6 flex flex-wrap gap-2">
         <button
           class="rounded-lg px-4 py-2 text-sm font-medium transition-colors"
-          :class="selectedCategory === null
-            ? 'bg-primary text-on-primary'
-            : 'bg-surface text-fg-secondary hover:text-on-primary'"
+          :class="
+            selectedCategory === null
+              ? 'bg-primary text-on-primary'
+              : 'bg-surface text-fg-secondary hover:text-on-primary'
+          "
           @click="selectedCategory = null"
         >
           All
@@ -98,9 +103,11 @@ const tierConfig: Record<string, { bg: string; text: string; label: string }> = 
           v-for="cat in categories"
           :key="cat"
           class="rounded-lg px-4 py-2 text-sm font-medium capitalize transition-colors"
-          :class="selectedCategory === cat
-            ? 'bg-primary text-on-primary'
-            : 'bg-surface text-fg-secondary hover:text-on-primary'"
+          :class="
+            selectedCategory === cat
+              ? 'bg-primary text-on-primary'
+              : 'bg-surface text-fg-secondary hover:text-on-primary'
+          "
           @click="selectedCategory = cat"
         >
           {{ cat }}
@@ -118,9 +125,11 @@ const tierConfig: Record<string, { bg: string; text: string; label: string }> = 
           v-for="achievement in filteredAchievements"
           :key="achievement.id"
           class="relative rounded-xl p-4 transition-all"
-          :class="isUnlocked(achievement.id)
-            ? 'bg-surface ring-1 ring-primary/30'
-            : 'bg-surface/50 opacity-70'"
+          :class="
+            isUnlocked(achievement.id)
+              ? 'bg-surface ring-1 ring-primary/30'
+              : 'bg-surface/50 opacity-70'
+          "
         >
           <!-- Unlocked Badge -->
           <div
@@ -128,7 +137,12 @@ const tierConfig: Record<string, { bg: string; text: string; label: string }> = 
             class="absolute right-3 top-3 flex h-6 w-6 items-center justify-center rounded-full bg-primary text-on-primary"
           >
             <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M5 13l4 4L19 7"
+              />
             </svg>
           </div>
 

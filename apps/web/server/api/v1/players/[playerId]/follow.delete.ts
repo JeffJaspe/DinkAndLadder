@@ -1,6 +1,9 @@
 import { serverSupabaseClient, serverSupabaseUser } from '#supabase/server'
 import { createRelationshipRepository } from '~/server/domains/social/repositories/relationship.repository'
-import { createRelationshipService, RelationshipServiceError } from '~/server/domains/social/services/relationship.service'
+import {
+  createRelationshipService,
+  RelationshipServiceError
+} from '~/server/domains/social/services/relationship.service'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
 
 export default defineEventHandler(async (event) => {

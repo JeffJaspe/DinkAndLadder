@@ -49,8 +49,16 @@ const variantClasses = computed(() => {
       class="fixed left-1/2 top-4 z-50 w-full max-w-md -translate-x-1/2 px-4"
       role="alert"
     >
-      <div class="flex items-start gap-3 rounded-lg border px-4 py-3 shadow-lg backdrop-blur" :class="variantClasses">
-        <svg class="mt-0.5 h-5 w-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <div
+        class="flex items-start gap-3 rounded-lg border px-4 py-3 shadow-lg backdrop-blur"
+        :class="variantClasses"
+      >
+        <svg
+          class="mt-0.5 h-5 w-5 flex-shrink-0"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
           <path
             stroke-linecap="round"
             stroke-linejoin="round"

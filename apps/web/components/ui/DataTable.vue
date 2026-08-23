@@ -52,9 +52,13 @@ const emit = defineEmits<{ rowClick: [Row] }>()
 </script>
 
 <template>
-  <div class="scroll-x rounded-card border border-border bg-surface">
+  <div class="scroll-x rounded-card border border-border bg-surface shadow-card">
     <table class="w-full border-collapse text-body-2">
-      <caption v-if="caption" class="sr-only">{{ caption }}</caption>
+      <caption v-if="caption" class="sr-only">
+        {{
+          caption
+        }}
+      </caption>
       <thead>
         <tr class="border-b border-border">
           <th
@@ -77,7 +81,11 @@ const emit = defineEmits<{ rowClick: [Row] }>()
         <!-- Skeleton rows are shaped like the real ones so the table does not
              jump when the data lands. -->
         <template v-if="loading">
-          <tr v-for="n in skeletonRows" :key="`sk-${n}`" class="border-b border-border last:border-0">
+          <tr
+            v-for="n in skeletonRows"
+            :key="`sk-${n}`"
+            class="border-b border-border last:border-0"
+          >
             <td
               v-for="col in columns"
               :key="col.key"

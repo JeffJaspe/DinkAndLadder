@@ -1,4 +1,5 @@
-export type QuestionCategory = 'experience' | 'skill' | 'strategy' | 'competition' | 'self-assessment'
+export type QuestionCategory =
+  'experience' | 'skill' | 'strategy' | 'competition' | 'self-assessment'
 
 export interface QuestionChoice {
   label: string
@@ -213,7 +214,8 @@ export const QUESTION_BANK: AssessmentQuestion[] = [
   {
     id: 'STRAT-003',
     category: 'strategy',
-    question: 'During a dink rally, your opponent pops the ball up. What is usually the best response?',
+    question:
+      'During a dink rally, your opponent pops the ball up. What is usually the best response?',
     choices: [
       { label: 'Continue dinking', points: 2 },
       { label: 'Attack the ball', points: 6 },
@@ -422,11 +424,41 @@ export interface RatingTier {
 }
 
 export const RATING_TIERS: RatingTier[] = [
-  { min: 2.0, max: 2.49, name: 'Beginner', description: 'Just starting your pickleball journey', color: '#6B7B75' },
-  { min: 2.5, max: 2.99, name: 'Novice', description: 'Learning the fundamentals', color: '#8B9B95' },
-  { min: 3.0, max: 3.49, name: 'Intermediate', description: 'Developing consistent play', color: '#4DB175' },
-  { min: 3.5, max: 3.99, name: 'Advanced', description: 'Strong recreational player', color: '#3D9B65' },
-  { min: 4.0, max: 4.49, name: 'Skilled', description: 'Competitive club player', color: '#2D8B55' },
+  {
+    min: 2.0,
+    max: 2.49,
+    name: 'Beginner',
+    description: 'Just starting your pickleball journey',
+    color: '#6B7B75'
+  },
+  {
+    min: 2.5,
+    max: 2.99,
+    name: 'Novice',
+    description: 'Learning the fundamentals',
+    color: '#8B9B95'
+  },
+  {
+    min: 3.0,
+    max: 3.49,
+    name: 'Intermediate',
+    description: 'Developing consistent play',
+    color: '#4DB175'
+  },
+  {
+    min: 3.5,
+    max: 3.99,
+    name: 'Advanced',
+    description: 'Strong recreational player',
+    color: '#3D9B65'
+  },
+  {
+    min: 4.0,
+    max: 4.49,
+    name: 'Skilled',
+    description: 'Competitive club player',
+    color: '#2D8B55'
+  },
   { min: 4.5, max: 4.99, name: 'Expert', description: 'Tournament-ready player', color: '#1D7B45' },
   { min: 5.0, max: 5.49, name: 'Pro', description: 'Elite competitive player', color: '#F5A623' },
   { min: 5.5, max: 5.99, name: 'Elite', description: 'Top-tier competitor', color: '#E59513' },

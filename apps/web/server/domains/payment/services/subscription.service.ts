@@ -6,7 +6,11 @@ import type {
   PlanType,
   SubscriptionPlanFeatures
 } from '../dto/subscription.dto'
-import { toSubscriptionPlanDto, toPlayerSubscriptionDto, toClubSubscriptionDto } from '../dto/subscription.dto'
+import {
+  toSubscriptionPlanDto,
+  toPlayerSubscriptionDto,
+  toClubSubscriptionDto
+} from '../dto/subscription.dto'
 
 export class SubscriptionServiceError extends Error {
   constructor(

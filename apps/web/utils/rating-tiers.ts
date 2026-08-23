@@ -38,15 +38,78 @@ export interface RatingTierView {
  * mockup's visual system only has four steps.
  */
 export const RATING_TIER_VIEWS: RatingTierView[] = [
-  { min: 2.0, max: 2.49, name: 'Beginner', description: 'Just starting your pickleball journey', textClass: 'text-rating-iron', softClass: 'bg-rating-iron/15' },
-  { min: 2.5, max: 2.99, name: 'Novice', description: 'Learning the fundamentals', textClass: 'text-rating-iron', softClass: 'bg-rating-iron/15' },
-  { min: 3.0, max: 3.49, name: 'Intermediate', description: 'Developing consistent play', textClass: 'text-rating-bronze', softClass: 'bg-rating-bronze/15' },
-  { min: 3.5, max: 3.99, name: 'Advanced', description: 'Strong recreational player', textClass: 'text-rating-bronze', softClass: 'bg-rating-bronze/15' },
-  { min: 4.0, max: 4.49, name: 'Skilled', description: 'Competitive club player', textClass: 'text-rating-silver', softClass: 'bg-rating-silver/15' },
-  { min: 4.5, max: 4.99, name: 'Expert', description: 'Tournament-ready player', textClass: 'text-rating-silver', softClass: 'bg-rating-silver/15' },
-  { min: 5.0, max: 5.49, name: 'Pro', description: 'Elite competitive player', textClass: 'text-rating-gold', softClass: 'bg-rating-gold/15' },
-  { min: 5.5, max: 5.99, name: 'Elite', description: 'Top-tier competitor', textClass: 'text-rating-gold', softClass: 'bg-rating-gold/15' },
-  { min: 6.0, max: 8.0, name: 'Champion', description: 'Professional level', textClass: 'text-rating-gold', softClass: 'bg-rating-gold/15' }
+  {
+    min: 2.0,
+    max: 2.49,
+    name: 'Beginner',
+    description: 'Just starting your pickleball journey',
+    textClass: 'text-rating-iron',
+    softClass: 'bg-rating-iron/15'
+  },
+  {
+    min: 2.5,
+    max: 2.99,
+    name: 'Novice',
+    description: 'Learning the fundamentals',
+    textClass: 'text-rating-iron',
+    softClass: 'bg-rating-iron/15'
+  },
+  {
+    min: 3.0,
+    max: 3.49,
+    name: 'Intermediate',
+    description: 'Developing consistent play',
+    textClass: 'text-rating-bronze',
+    softClass: 'bg-rating-bronze/15'
+  },
+  {
+    min: 3.5,
+    max: 3.99,
+    name: 'Advanced',
+    description: 'Strong recreational player',
+    textClass: 'text-rating-bronze',
+    softClass: 'bg-rating-bronze/15'
+  },
+  {
+    min: 4.0,
+    max: 4.49,
+    name: 'Skilled',
+    description: 'Competitive club player',
+    textClass: 'text-rating-silver',
+    softClass: 'bg-rating-silver/15'
+  },
+  {
+    min: 4.5,
+    max: 4.99,
+    name: 'Expert',
+    description: 'Tournament-ready player',
+    textClass: 'text-rating-silver',
+    softClass: 'bg-rating-silver/15'
+  },
+  {
+    min: 5.0,
+    max: 5.49,
+    name: 'Pro',
+    description: 'Elite competitive player',
+    textClass: 'text-rating-gold',
+    softClass: 'bg-rating-gold/15'
+  },
+  {
+    min: 5.5,
+    max: 5.99,
+    name: 'Elite',
+    description: 'Top-tier competitor',
+    textClass: 'text-rating-gold',
+    softClass: 'bg-rating-gold/15'
+  },
+  {
+    min: 6.0,
+    max: 8.0,
+    name: 'Champion',
+    description: 'Professional level',
+    textClass: 'text-rating-gold',
+    softClass: 'bg-rating-gold/15'
+  }
 ]
 
 export const RATING_MIN = 2.0

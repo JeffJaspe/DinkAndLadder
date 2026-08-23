@@ -1,11 +1,13 @@
 import { describe, it, expect, vi } from 'vitest'
-import {
-  createEventQueueService
-} from '../../server/domains/event/services/event-queue.service'
+import { createEventQueueService } from '../../server/domains/event/services/event-queue.service'
 import type { EventQueueRepository } from '../../server/domains/event/repositories/event-queue.repository'
 import type { EventRegistrationRepository } from '../../server/domains/event/repositories/event-registration.repository'
 import type { EventRepository } from '../../server/domains/event/repositories/event.repository'
-import type { EventQueueRecord, EventRecord, EventRegistrationRecord } from '../../server/domains/event/dto/event.dto'
+import type {
+  EventQueueRecord,
+  EventRecord,
+  EventRegistrationRecord
+} from '../../server/domains/event/dto/event.dto'
 
 function makeQueueEntry(overrides?: Partial<EventQueueRecord>): EventQueueRecord {
   return {
@@ -67,7 +69,9 @@ function makeRegistration(overrides?: Partial<EventRegistrationRecord>): EventRe
   }
 }
 
-function createFakeQueueRepository(overrides?: Partial<EventQueueRepository>): EventQueueRepository {
+function createFakeQueueRepository(
+  overrides?: Partial<EventQueueRepository>
+): EventQueueRepository {
   return {
     findById: vi.fn().mockResolvedValue(null),
     findByEventAndPlayer: vi.fn().mockResolvedValue(null),
@@ -91,6 +95,7 @@ function createFakeRegistrationRepository(
     findByPlayer: vi.fn().mockResolvedValue([]),
     countByEvent: vi.fn().mockResolvedValue(0),
     countByEvents: vi.fn().mockResolvedValue(new Map<string, number>()),
+    findRegisteredEventIds: vi.fn().mockResolvedValue(new Set<string>()),
     create: vi.fn(),
     updateStatus: vi.fn(),
     checkIn: vi.fn(),
@@ -108,7 +113,9 @@ function createFakeEventRepository(overrides?: Partial<EventRepository>): EventR
     search: vi.fn().mockResolvedValue([]),
     // Added to EventRepository alongside cascade delete; the fakes were never
     // updated, which broke `vue-tsc` for every spec that builds one.
-    countBlockingChildren: vi.fn().mockResolvedValue({ registrations: 0, matches: 0, queueEntries: 0 }),
+    countBlockingChildren: vi
+      .fn()
+      .mockResolvedValue({ registrations: 0, matches: 0, queueEntries: 0 }),
     deleteWithChildren: vi.fn().mockResolvedValue(undefined),
     ...overrides
   }
@@ -117,7 +124,9 @@ function createFakeEventRepository(overrides?: Partial<EventRepository>): EventR
 describe('EventQueueService', () => {
   describe('joinQueue', () => {
     it('creates a singles queue entry for a registered player', async () => {
-      const queueRepo = createFakeQueueRepository({ create: vi.fn().mockResolvedValue(makeQueueEntry()) })
+      const queueRepo = createFakeQueueRepository({
+        create: vi.fn().mockResolvedValue(makeQueueEntry())
+      })
       const service = createEventQueueService(
         queueRepo,
         createFakeRegistrationRepository(),
@@ -149,7 +158,9 @@ describe('EventQueueService', () => {
 
     it('rejects joining twice', async () => {
       const service = createEventQueueService(
-        createFakeQueueRepository({ findByEventAndPlayer: vi.fn().mockResolvedValue(makeQueueEntry()) }),
+        createFakeQueueRepository({
+          findByEventAndPlayer: vi.fn().mockResolvedValue(makeQueueEntry())
+        }),
         createFakeRegistrationRepository(),
         createFakeEventRepository()
       )
@@ -224,13 +235,22 @@ describe('EventQueueService', () => {
       const entry1 = makeQueueEntry({ id: 'queue-1', player_id: 'player-1' })
       const entry2 = makeQueueEntry({ id: 'queue-2', player_id: 'player-2' })
       const queueRepo = createFakeQueueRepository({
-        findById: vi.fn().mockImplementation((id: string) =>
-          Promise.resolve(id === 'queue-1' ? entry1 : id === 'queue-2' ? entry2 : null)
-        ),
+        findById: vi
+          .fn()
+          .mockImplementation((id: string) =>
+            Promise.resolve(id === 'queue-1' ? entry1 : id === 'queue-2' ? entry2 : null)
+          ),
         findByEvent: vi.fn().mockResolvedValue([entry1, entry2]),
-        setMatched: vi.fn().mockImplementation((id: string, courtNumber: number, opponentId: string) =>
-          Promise.resolve({ ...(id === 'queue-1' ? entry1 : entry2), status: 'matched', court_number: courtNumber, opponent_queue_id: opponentId })
-        )
+        setMatched: vi
+          .fn()
+          .mockImplementation((id: string, courtNumber: number, opponentId: string) =>
+            Promise.resolve({
+              ...(id === 'queue-1' ? entry1 : entry2),
+              status: 'matched',
+              court_number: courtNumber,
+              opponent_queue_id: opponentId
+            })
+          )
       })
       const service = createEventQueueService(
         queueRepo,
@@ -273,9 +293,9 @@ describe('EventQueueService', () => {
       const entry1 = makeQueueEntry({ id: 'queue-1', status: 'matched' })
       const entry2 = makeQueueEntry({ id: 'queue-2' })
       const queueRepo = createFakeQueueRepository({
-        findById: vi.fn().mockImplementation((id: string) =>
-          Promise.resolve(id === 'queue-1' ? entry1 : entry2)
-        )
+        findById: vi
+          .fn()
+          .mockImplementation((id: string) => Promise.resolve(id === 'queue-1' ? entry1 : entry2))
       })
       const service = createEventQueueService(
         queueRepo,
@@ -293,9 +313,9 @@ describe('EventQueueService', () => {
       const entry2 = makeQueueEntry({ id: 'queue-2' })
       const busy = makeQueueEntry({ id: 'queue-3', status: 'matched', court_number: 2 })
       const queueRepo = createFakeQueueRepository({
-        findById: vi.fn().mockImplementation((id: string) =>
-          Promise.resolve(id === 'queue-1' ? entry1 : entry2)
-        ),
+        findById: vi
+          .fn()
+          .mockImplementation((id: string) => Promise.resolve(id === 'queue-1' ? entry1 : entry2)),
         findByEvent: vi.fn().mockResolvedValue([entry1, entry2, busy])
       })
       const service = createEventQueueService(
@@ -335,9 +355,9 @@ describe('EventQueueService', () => {
         createFakeEventRepository()
       )
 
-      await expect(
-        service.skipEntry('someone-else', 'event-1', 'queue-1')
-      ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+      await expect(service.skipEntry('someone-else', 'event-1', 'queue-1')).rejects.toMatchObject({
+        code: 'FORBIDDEN'
+      })
     })
 
     it('rejects skipping a non-waiting entry', async () => {
@@ -348,9 +368,9 @@ describe('EventQueueService', () => {
         createFakeEventRepository()
       )
 
-      await expect(
-        service.skipEntry('organizer-1', 'event-1', 'queue-1')
-      ).rejects.toMatchObject({ code: 'INVALID_QUEUE_STATE' })
+      await expect(service.skipEntry('organizer-1', 'event-1', 'queue-1')).rejects.toMatchObject({
+        code: 'INVALID_QUEUE_STATE'
+      })
     })
   })
 })

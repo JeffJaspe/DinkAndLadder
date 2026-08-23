@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Default duo partner.
+
+     A player picks one partner from their confirmed partnerships as their
+     "duo". Every doubles picker in the app then pre-selects that player:
+     tournament registration, event queue join, and doubles match submission.
+     It is a pre-fill and nothing more — the control stays editable and no
+     player is ever entered into anything without acting themselves.
+
+     Why a dedicated table rather than a column on player_profiles:
+     player_profiles is publicly selectable (profile_visibility = 'public'),
+     while partnerships is deliberately restricted by RLS to the two partners
+     (019-partnerships, changeSet 0007). Hanging default_partner_id off the
+     public profile row would leak exactly the relationship that table exists
+     to protect. A separate owner-only table keeps that boundary intact.
+
+     One default per player is enforced structurally: player_id is the primary
+     key, so there is no second row to conflict with and "change your duo" is
+     an ordinary upsert.
+
+     RLS policies live in this file rather than 008-security, following the
+     convention documented at the top of 018-platform-enhancements. -->
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+    <changeSet id="0001-create-player-default-partners-table" author="partnership-domain">
+        <createTable tableName="player_default_partners">
+            <column name="player_id" type="uuid">
+                <constraints primaryKey="true" nullable="false"
+                    foreignKeyName="fk_player_default_partners_player"
+                    references="player_profiles(id)"
+                    deleteCascade="true"/>
+            </column>
+            <column name="partner_id" type="uuid">
+                <constraints nullable="false"
+                    foreignKeyName="fk_player_default_partners_partner"
+                    references="player_profiles(id)"
+                    deleteCascade="true"/>
+            </column>
+            <column name="updated_at" type="timestamptz" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <rollback>
+            <dropTable tableName="player_default_partners"/>
+        </rollback>
+    </changeSet>
+
+    <!-- Deleting the partner profile cascades the row away, but removing the
+         *partnership* does not touch this table — the service clears the
+         default in that case (partnership.service.ts removePartner). This
+         check only guards the nonsense case of being your own duo. -->
+    <changeSet id="0002-player-default-partners-constraints" author="partnership-domain">
+        <sql>
+            ALTER TABLE player_default_partners
+                ADD CONSTRAINT chk_no_self_default_partner
+                CHECK (player_id != partner_id);
+        </sql>
+        <rollback>
+            ALTER TABLE player_default_partners DROP CONSTRAINT chk_no_self_default_partner;
+        </rollback>
+    </changeSet>
+
+    <!-- player_id is already the PK, so lookups by owner are covered. This
+         index serves the reverse direction, which the cascade on partner
+         deletion and any future "who has me as their duo" query both need. -->
+    <changeSet id="0003-player-default-partners-index" author="partnership-domain">
+        <createIndex tableName="player_default_partners" indexName="idx_player_default_partners_partner">
+            <column name="partner_id"/>
+        </createIndex>
+        <rollback>
+            <dropIndex tableName="player_default_partners" indexName="idx_player_default_partners_partner"/>
+        </rollback>
+    </changeSet>
+
+    <!-- Owner-only, for every operation. Unlike partnerships (select-only, all
+         writes via service role), a player's own duo choice is genuinely their
+         own row to write, so the policy is FOR ALL. The API still goes through
+         the service role so it can validate the target really is a partner
+         before writing — the policy is defence in depth, not the only guard. -->
+    <changeSet id="0004-player-default-partners-rls" author="partnership-domain">
+        <sql splitStatements="false">
+            ALTER TABLE player_default_partners ENABLE ROW LEVEL SECURITY;
+
+            CREATE POLICY player_default_partners_all_own ON player_default_partners
+                FOR ALL
+                USING (
+                    player_id IN (SELECT id FROM player_profiles WHERE user_id = auth.uid())
+                )
+                WITH CHECK (
+                    player_id IN (SELECT id FROM player_profiles WHERE user_id = auth.uid())
+                );
+        </sql>
+        <rollback>
+            DROP POLICY IF EXISTS player_default_partners_all_own ON player_default_partners;
+            ALTER TABLE player_default_partners DISABLE ROW LEVEL SECURITY;
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>
