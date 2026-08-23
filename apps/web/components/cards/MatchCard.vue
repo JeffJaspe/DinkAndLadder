@@ -43,7 +43,7 @@ const player1Won = computed(() => props.winnerId === props.player1.id)
   >
     <!-- Header -->
     <div class="flex items-center justify-between">
-      <span class="text-sm text-text-muted">{{ formattedDate }}</span>
+      <span class="text-sm text-fg-muted">{{ formattedDate }}</span>
       <UiStatusPill :status="status" size="sm" />
     </div>
 
@@ -53,7 +53,7 @@ const player1Won = computed(() => props.winnerId === props.player1.id)
       <div class="flex min-w-0 flex-1 items-center gap-3">
         <div class="relative">
           <div
-            class="flex h-10 w-10 items-center justify-center rounded-full bg-surface-light text-sm font-semibold"
+            class="flex h-10 w-10 items-center justify-center rounded-full bg-surface-3 text-sm font-semibold"
             :class="player1Won ? 'ring-2 ring-success' : ''"
           >
             {{ player1.displayName.charAt(0) }}
@@ -68,14 +68,14 @@ const player1Won = computed(() => props.winnerId === props.player1.id)
           </svg>
         </div>
         <div class="min-w-0">
-          <p class="truncate font-medium text-text-primary">{{ player1.displayName }}</p>
-          <p v-if="partner1" class="truncate text-sm text-text-muted">& {{ partner1.displayName }}</p>
+          <p class="truncate font-medium text-fg-secondary">{{ player1.displayName }}</p>
+          <p v-if="partner1" class="truncate text-sm text-fg-muted">& {{ partner1.displayName }}</p>
         </div>
       </div>
 
       <!-- Score -->
       <div class="flex-shrink-0 text-center">
-        <span class="text-lg font-bold text-text-primary">{{ scoreDisplay }}</span>
+        <span class="text-lg font-bold text-fg-secondary">{{ scoreDisplay }}</span>
         <UiTrendIndicator
           v-if="ratingChange !== undefined"
           :value="ratingChange"
@@ -88,7 +88,7 @@ const player1Won = computed(() => props.winnerId === props.player1.id)
       <div class="flex min-w-0 flex-1 flex-row-reverse items-center gap-3">
         <div class="relative">
           <div
-            class="flex h-10 w-10 items-center justify-center rounded-full bg-surface-light text-sm font-semibold"
+            class="flex h-10 w-10 items-center justify-center rounded-full bg-surface-3 text-sm font-semibold"
             :class="!player1Won ? 'ring-2 ring-success' : ''"
           >
             {{ player2.displayName.charAt(0) }}
@@ -103,8 +103,8 @@ const player1Won = computed(() => props.winnerId === props.player1.id)
           </svg>
         </div>
         <div class="min-w-0 text-right">
-          <p class="truncate font-medium text-text-primary">{{ player2.displayName }}</p>
-          <p v-if="partner2" class="truncate text-sm text-text-muted">& {{ partner2.displayName }}</p>
+          <p class="truncate font-medium text-fg-secondary">{{ player2.displayName }}</p>
+          <p v-if="partner2" class="truncate text-sm text-fg-muted">& {{ partner2.displayName }}</p>
         </div>
       </div>
     </div>

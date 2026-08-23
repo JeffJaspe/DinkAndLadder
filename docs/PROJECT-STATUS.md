@@ -1451,3 +1451,822 @@ Added bracket generation for all tournament formats:
 ### Validated
 
 `typecheck` (clean), `test:unit` bracket.service.spec.ts (13/13), full suite (278/278).
+
+---
+
+## Phase 9: Audit Remediation — Critical & High (2026-08-22)
+
+A read-only audit of all 410 tracked files plus the working tree produced 37
+findings. This pass fixed the 6 critical and 13 high ones. The other 18 are
+logged under "Audit Follow-ups" in `/docs/10-IMPLEMENTATION-BACKLOG.md`.
+
+**No Liquibase changeset was needed.** The two schema mismatches were resolved by
+deleting the code that queried absent columns, not by adding them. Nothing edits
+`0003-add-barangay-column`, so this pass is safe regardless of whether that
+changeset has been applied to the live database yet.
+
+### 1. Quarantined the out-of-MVP surface (F-01,02,03,07,08,09,10,20,30)
+
+See ADR-005. Payments and Public API are "Explicitly Out of MVP" in
+`/docs/03-MVP-SCOPE.md`, so nine findings were closed by removing the surface
+rather than hardening it.
+
+- Stripe/PayMongo webhooks now return **501**. They previously verified a
+  signature, `console.log`-ed the event and returned 200 — so the provider
+  marked it delivered and never retried. 501 keeps events queued upstream.
+- Deleted: `server/middleware/api-key.ts`, `server/api/public/**`,
+  `server/api/v1/api-keys/**`, `server/api/v1/webhooks/**`,
+  `server/domains/apikey/services/webhook.service.ts`,
+  `pages/settings/{api-keys,webhooks}.vue`.
+- `apikey.service.ts` / `apikey.repository.ts` **kept, unwired** — they are the
+  correct implementation. The deleted `webhook.service.ts` was the one the
+  endpoints actually imported, and it derived webhook secrets from
+  `Date.now()` and wrote columns `webhook_deliveries` does not have.
+- No tables dropped.
+- `/settings` is no longer super-admin-gated (nothing privileged is left on it)
+  and is back in the sidebar for everyone. The `super-admin` middleware now
+  guards `/admin/clubs/verification`, which previously had no route guard.
+
+### 2. Barangay feature completed (F-14, F-15)
+
+- `barangay` was silently dropped on every profile save: the PATCH handler's
+  hand-maintained field list omitted it while the column, DTO, editor, search
+  filter and rankings join all had it. Every barangay filter therefore matched
+  zero rows.
+- Fixed structurally, not by adding a string. Body parsing moved into
+  `player-profile.dto.ts` as `parseUpdatePlayerProfileInput`, with the writable
+  fields declared as `Record<OptionalTextField, true>` — **TypeScript now rejects
+  adding a field to the DTO without listing it**, so this class of bug cannot recur.
+- The profile editor used two `setTimeout(500)` calls to wait for PSGC lookups.
+  On a slow response the selects stayed empty and Save then wrote
+  `city: null, barangay: null` over data the user never touched. The picker's
+  `select*` functions now return their load promise, and the editor holds
+  location as form state seeded from the profile, so saving no longer depends on
+  loading succeeding.
+
+### 3. Identity and privacy (F-04, F-05, F-06, F-16)
+
+- **Turnstile now fails closed.** Both auth endpoints wrapped the check in
+  `if (turnstileSecretKey)`, so one missing env var silently removed all bot
+  protection. New `server/utils/require-turnstile.ts` skips only under
+  `import.meta.dev` (loudly); any other environment returns 500.
+- **Display names are no longer derived from email.** `display_name` is
+  published through the public-read RLS policy, and *two* places defaulted it to
+  the email local part — `onboarding.post.ts` and `submit-assessment.post.ts`
+  (the latter is the primary player path and was not in the original finding).
+  Onboarding now collects a display name; both endpoints call the new
+  `PlayerProfileService.ensureProfile`.
+- `ensureProfile` is insert-if-absent, so re-entering onboarding no longer
+  renames an existing player — previously reachable via AccountSwitcher's
+  rate-only redirect.
+- `/api/v1/locations/*` interpolated an unvalidated query param into an external
+  URL path, unauthenticated and uncached. New `server/utils/psgc.ts` validates
+  codes against `^\d{9,10}$` and sets a 24h `Cache-Control`.
+
+### 4. Correctness (F-17, F-18, F-19, F-21)
+
+- **F-17 was worse than filed.** `analytics.service.ts` filtered
+  `player_relationships` on `follower_id`/`followed_id`, which are not columns —
+  they are `from_player_id`/`to_player_id`. PostgREST errored, `Promise.all`
+  destructuring swallowed it, so follower and following counts were **always 0**
+  on every profile. Now delegates to the already-correct
+  `RelationshipRepository.countFollowers`/`countFollowing`, and query errors are
+  checked rather than discarded.
+- `/api/v1/analytics/platform` deleted — it read platform counts through the
+  RLS-bound anon client (so `total_matches` was always 0) and had no consumer;
+  `pages/index.vue` uses `/api/v1/stats/public`, which is correct.
+- Rank queries switched from `.select('id')` + `.length` to
+  `{ count: 'exact', head: true }`; past ~1000 players everyone reported the same
+  rank. `percentile_doubles` is now computed instead of hardcoded null.
+- Bracket generation: all four generators used
+  `sort(() => Math.random() - 0.5)` (not a uniform shuffle) — replaced with
+  Fisher-Yates. First-round bye placement rewritten: 5 entrants in an 8-slot
+  bracket previously emitted a slot with both participants null, status `'bye'`
+  and a null winner.
+
+### Validated
+
+`typecheck` clean · `test:unit` **300/300** (was 278; +22 new) · production
+`build` succeeds · build output confirms the quarantined routes are gone.
+
+`lint` still fails with **66 pre-existing errors** — verified against a clean
+`main` checkout, down from 70 because deleted files took some with them. No new
+lint errors were introduced. This blocks CI and is logged in the backlog.
+
+### Not yet done
+
+- Live walkthrough against Supabase (8 scenarios in the plan file).
+- **Existing live profiles still carry email-derived display names.** That is
+  data, not schema, so no changeset — correct them through the profile UI or a
+  one-off script.
+
+---
+
+## Design system + theming, Phase 1 (2026-08-22)
+
+Spec: `docs/33-DESIGN-SYSTEM-AND-THEMING-SPEC.md`. Phase 1 only — the token
+foundation. Phases 2–6 (codemod, components, shell, screen parity) are not started.
+
+### Decisions taken
+
+- **Light is the product default**, dark is opt-in, `system` remains selectable.
+  Light lives on `:root`, so a first-time visitor needs no class and no script.
+- Colors are CSS custom properties consumed through semantic Tailwind names.
+  No `dark:` variants — an element declares intent once (`bg-surface`) and the
+  theme switch is a single class on `<html>`.
+- Preference persists in a **cookie**, not `localStorage`: the server renders this
+  app and cannot read `localStorage`, which would flash the wrong theme on load.
+- Fonts are **self-hosted** (64KB, latin subsets) rather than CDN-linked.
+
+### Contrast failures found and fixed
+
+The new contrast test rejected four inherited values:
+
+| Token | Was | Now | Measured |
+| --- | --- | --- | --- |
+| dark `fg-muted` | `#6B7B75` | `#8A9A94` | 4.0:1 → 6.6:1 on the canvas |
+| light `fg-muted` | `#77857F` | `#63706A` | 3.65:1 → 4.90:1 |
+| light `primary` | `#0B8D4D` (mockup swatch) | `#0A7F45` | 4.03:1 → 4.80:1 as text, 5.08:1 under white |
+| dark `info` | `#3B82F6` | `#60A5FA` | 3.86:1 → 5.58:1 on a card |
+
+**Documented deviation from the mockup:** dark-mode `on-primary` is near-black
+(`#06170F`), not white. In dark mode the brand green cannot do both jobs — reading
+as text on `#0B0D09` needs luminance ≥0.195, carrying white text at 4.5:1 needs
+≤0.183. Keeping `#4DB175` vivid and putting dark text on the fill gives 6.9:1; the
+mockup's white label measures 2.7:1. Same pattern Material 3 uses for dark themes.
+Reversible in one token if brand fidelity is preferred over AA.
+
+### Files changed
+
+- **New:** `assets/css/tokens.css`, `assets/css/fonts.css`, `composables/useTheme.ts`,
+  `plugins/theme.ts`, `pages/dev/theme.vue` (dev-only preview, 404s in production),
+  `public/fonts/*.woff2` (3 files, 64KB)
+- **Rewritten:** `tailwind.config.ts` — literal hex palette replaced with semantic
+  token-backed colors
+- **Edited:** `nuxt.config.ts` (css order, pre-hydration theme script, font preload,
+  `/dev/*` auth exclusion), `assets/css/main.css` (body base colors, dark-scoped
+  date-picker glyph inversion, tokenized scrollbars)
+- **Migrated:** 13 `components/` files off the removed legacy color names
+  (`text-text-muted` → `text-fg-muted`, `bg-surface-light` → `bg-surface-3`, …)
+
+### Database changes
+
+None. This phase is presentation only.
+
+### Tests
+
+- `tests/unit/design-tokens.spec.ts` — 47 tests: light/dark token parity, channel
+  ranges, and WCAG AA contrast on 21 foreground/background pairs per theme
+- `tests/unit/use-theme.spec.ts` — 7 tests: default, cookie name stability,
+  explicit vs `system` resolution, toggle-against-what-is-on-screen, invalid input
+
+### Validated
+
+`test:unit` **370/370** (was 300; +54 new + 16 from other work) · `typecheck` clean ·
+production `build` succeeds · build output confirms tokens compile with working
+opacity modifiers, both themes ship, fonts are emitted, and the pre-hydration
+script is in the renderer. New/changed files lint clean; the 66 pre-existing lint
+errors elsewhere are untouched.
+
+### Known limitation
+
+~1,900 hardcoded hex classes across 55 files still render dark values in both
+themes. Toggling the theme on a real screen therefore changes very little until
+Phase 2 runs the codemod. `/dev/theme` exists so the token layer can be reviewed
+on its own before that.
+
+### Phase 1 follow-up (2026-08-22)
+
+- **`components/ui/ThemeToggle.vue`** — sun/moon sliding switch replacing the
+  three-way segmented control as the quick toggle. Sun left, moon right, thumb
+  travels between them; `role="switch"` with `aria-checked` so Space/Enter and
+  screen readers work without extra handling; transform transition disabled under
+  `prefers-reduced-motion`. Not dev-only — this is the component Phase 4 mounts in
+  the sidebar footer and the mobile Profile header.
+  The switch is binary by design; `system` stays reachable from Settings, and
+  flipping resolves against what is on screen so a `system` user never gets a no-op.
+- **`pages/dev/theme.vue` now renders real data.** The sample rating/rank cards
+  were the only invented values in the codebase — every other page already fetches
+  from the API. They now read the signed-in player's actual singles rating,
+  provisional flag, matches played, server-computed rank, display name and city
+  from `/api/v1/players/me`, `/api/v1/players/me/ratings` and `/api/v1/rankings` —
+  the same endpoints `pages/dashboard.vue` uses. Loading, error, unrated and
+  unranked states are all handled, and the rating-tier legend underlines the
+  player's real tier.
+
+`test:unit` 370/370 · `typecheck` clean · `build` succeeds · new files lint clean.
+
+No component test: `vitest.config.ts` has no Vue SFC plugin wired in yet, and the
+toggle holds no logic of its own — it delegates to `useTheme()`, which is covered.
+Phase 3 needs SFC mounting for the component gallery and should add it then.
+
+### Verified in a real browser (2026-08-22)
+
+Ran the dev server and drove `/dev/theme` with Playwright rather than assuming it
+worked. Confirmed: `data-theme` flips light↔dark, `--dnl-canvas` goes
+`247 249 248` → `11 13 9`, `--dnl-primary` `10 127 69` → `77 177 117`, the thumb
+travels 5px → 29px, `aria-checked` tracks state, Inter loads, and the `dnl-theme`
+cookie persists the choice so SSR renders `class="dark"` on reload with no flash.
+
+Three real defects the browser run caught, all fixed:
+
+- **Switch thumb was invisible in light mode.** `bg-surface` (white) on
+  `bg-surface-2` (#F2F4F7) is 1.05:1 — fine at 6× zoom, a flat blob at the
+  control's real 56×32px. Added `--dnl-switch-track` / `--dnl-switch-thumb`: the
+  thumb must read as *raised above* the track, and that is opposite directions per
+  theme (light lifts whiter on a grey track; dark lifts to #5A7A70 on #14201C).
+- **Theme transition was being cut off mid-flight.** `markSwitching()` removed
+  `.dnl-theme-switching` after 200ms, but `useHead` patches the `dark` class
+  asynchronously, so colours were still ~80% through when the window closed and
+  froze part-way. Window widened to 500ms.
+- **Tailwind config changes need a dev-server restart.** New color keys did not
+  generate utilities under HMR — `bg-switch-thumb` silently resolved to
+  transparent until the server was restarted. Worth knowing during Phase 2/3.
+
+`test:unit` 370/370 · `typecheck` clean · `build` exit 0 · lint clean on changed files.
+
+## Phase 2 — token codemod applied (2026-08-22)
+
+The app now actually responds to the theme switch. Every hardcoded colour class
+in the UI layer is gone.
+
+### What ran
+
+`scripts/theme-codemod.mjs` (`npm run codemod:theme`, `--dry` to preview):
+
+| | count |
+| --- | --- |
+| Files changed | 42 of 59 |
+| `-[#hex]` classes → tokens | **1,963** |
+| `text-white` / `text-canvas` classified | 484 |
+| → `text-fg` (body copy) | 345 |
+| → `text-on-primary` (label on a brand fill) | 122 |
+| → `text-on-accent` (dark label on a bright fill) | 6 |
+| → kept literal `text-white` (deep red fills) | 11 |
+| Unmapped hex left untouched | 0 |
+
+30 distinct hex values covered the whole codebase. Some map by *prefix*, not just
+value: `#2E4540` is `border-border` as a border but `bg-surface-2` as a fill;
+`#F5A623` is `text-warning` as text but `bg-warning-fill` as a fill.
+
+### Three classifier bugs found while running it
+
+- **`to-` matched inside ordinary utilities.** The "does this element paint its
+  own background" regex had no word boundary, so `pointer-events-auto` and
+  `auto-rows-min` read as gradient stops and short-circuited the classifier.
+- **Ternary branches poisoned each other.** A `:class` is one double-quoted
+  string containing two single-quoted branches, so
+  `isFollowing ? '… hover:bg-danger/20' : 'bg-primary text-white'` let the first
+  branch's red decide the second branch's label. The codemod now recurses into
+  nested quotes and scores each branch on its own.
+- **Class strings in `<script>` were invisible.** Object literals and computed
+  returns (`return 'bg-primary text-white'`) sit in no HTML tag. A second
+  whole-file sweep covers them — deliberately with *no* outer context, since
+  "somewhere in this file" is not a background.
+
+### Left for a human, by design
+
+The codemod reports what it will not guess at. Four survived, three of them
+correctly: two `bg-red-400/80` avatar chips and `bg-danger` in `UiButton` keep a
+white label. The fourth — `trendClass` in `pages/players/[playerId].vue`
+returning a bare `'text-white'` with no fill in scope — was fixed by hand to
+`text-fg`.
+
+### Also fixed
+
+**The date-picker glyph was invisible in dark mode.** The old `filter: invert(1)`
+predated `color-scheme`. Now that tokens.css declares `color-scheme` per theme,
+the browser already draws a light glyph in dark mode and the invert flipped it
+straight back to black-on-black. Removed; `color-scheme` does the work.
+
+### Guard
+
+`npm run check:tokens` (`scripts/check-no-hex-classes.mjs`) fails on any new
+`-[#hex]` class, or any `text-white` not sitting on a red fill. Wire it into CI.
+
+### Validated
+
+`test:unit` 370/370 · `typecheck` clean · production `build` exit 0 · `eslint`
+**0 errors** across `pages components layouts scripts` (14 pre-existing
+`require-default-prop` warnings) · `check:tokens` passes on 59 files.
+
+Driven in a real browser at `localhost:3000`: the landing page renders correctly
+in both themes with real data, tokens resolve to live values
+(`rgb(10,127,69)` light / `rgb(77,177,117)` dark, including alpha variants like
+`rgba(10,127,69,0.1)`), and there are no page errors.
+
+### Note
+
+Tailwind does **not** hot-reload `tailwind.config.ts`. New colour keys silently
+resolve to transparent until the dev server restarts — this cost time twice.
+
+## Phases 3–4 complete, Phase 5 begun (2026-08-22)
+
+### Phase 3 — design system
+
+`@vitejs/plugin-vue` added as a devDependency so Vitest can mount SFCs at all —
+that is why `components/ui/*` had no tests before. 26 component tests now cover
+the parts a screenshot cannot catch: which element renders, what ARIA is
+emitted, whether a disabled control is really inert, whether a value can escape
+its bounds.
+
+- **New:** `UiIcon` (+ `utils/icons.ts`, 45 glyphs), `UiAvatar`, `UiTabs`,
+  `UiSegmented`, `UiSelect`, `UiDataTable`, `UiLineChart`, `UiPodium`,
+  `UiStepper`, `UiErrorState`, `UiToaster` + `useToast()`
+- **Rewritten:** `UiButton` (5 variants; renders `<a>` when given `to`, falls
+  back to `<button>` when disabled), `UiInput` (leading icon, always-present
+  label), `UiModal` (focus trap, Escape, scroll lock, focus restore),
+  `UiEmptyState`, `UiRatingBadge`, `UiTrendIndicator`
+
+**`UiLineChart` uses no charting library.** Inline SVG with a
+visually-hidden `<table>` of the same series, per docs/33 §5.8 — a single
+smoothed line did not justify 40–90KB.
+
+### The rating scale in the mockups does not exist in this platform
+
+The mockups show ELO-style ratings ("1854") with four medal tiers
+(Gold 1900+ … Iron <1400). The real scale is `numeric(5,3)` constrained to
+**2.000–8.000** (DUPR-style) with **nine** named bands in
+`server/domains/rating/data/question-bank.ts`.
+
+`components/ui/RatingBadge.vue` carried a *third*, wrong table (five tiers at
+3.0/3.5/4.5/5.5) matching neither. Per CLAUDE.md §7 the implemented rule wins
+over an invented one: `utils/rating-tiers.ts` now mirrors the nine real bands,
+grouped onto the mockup's four-medal *visual* language, and
+`tests/unit/rating-tiers.spec.ts` fails if the mirror ever drifts from the
+server table. Ratings render at three decimals — two would show genuinely
+different players as the same number.
+
+### Phase 4 — shell
+
+Sidebar user card (avatar, name, rating, tier), `UiThemeToggle` mounted in the
+sidebar footer, mobile drawer and public header, three-way Appearance section in
+Settings, `env(safe-area-inset-bottom)` on the bottom bar, `UiToaster` mounted
+once. "Messages" from the mockup is deliberately absent — messaging is outside
+MVP scope and a nav item that goes nowhere is worse than none.
+
+Two codemod judgement-call misses were found and fixed here: sidebar nav items
+had `hover:text-on-primary` (should be `text-fg`), and the green logo chip had
+`text-fg` (should be `text-on-primary`).
+
+### Phase 5 — Rankings rebuilt on real data
+
+**The Trend column was `Math.floor(Math.random() * 20)`** — a fresh random
+number on every render. This was live in the app, not in any preview page. An
+earlier claim in this log that the only invented values were in `/dev/theme` was
+wrong; the sweep that produced it did not look for `Math.random`.
+
+Also fixed on that page: pagination was seven hardcoded dead buttons reading
+"1 2 3 … 25" on a five-player ladder, and ratings rendered through
+`Math.round()`, so 4.290 and 3.547 both displayed as "4" and "3".
+
+Real trend needed backend work, done through the full layering:
+
+| Layer | Change |
+| --- | --- |
+| DTO | `RankingEntryDto.trend_delta`, new `RankingPageDto` |
+| Repository | `countRankings()`, `getTrendDeltas()` over `rating_transactions` |
+| Service | `RANKING_TREND_DAYS = 7`, joins page + total + deltas |
+| Controller | `meta.total` added; `data` shape unchanged for existing callers |
+| UI | `UiPodium`, `UiDataTable`, `UiTrendIndicator`, real pagination |
+
+`trend_delta` is **null**, not zero, when a player has had no rated match in the
+window — "hasn't played" and "held steady" are different facts and the table
+renders them differently. Five service tests cover that distinction, the total
+count, and the window.
+
+No database migration was needed: `rating_transactions.rating_delta` and
+`created_at` already existed.
+
+### Validated
+
+`test:unit` **408/408** (was 370) · `typecheck` exit 0 · production `build`
+exit 0 · `eslint` **0 errors** across pages/components/composables/utils/layouts/
+scripts/tests/server · `check:tokens` passes on 70 files.
+
+Driven in a real browser: Rankings renders correctly in **both** themes with
+live data — real 3-decimal ratings, real podium, honest `—` trend, "5 ranked
+players" instead of 25 fake pages.
+
+### Note on verification limits
+
+Headless Chromium cannot sign in, so only public routes (`/`, `/rankings`,
+`/dev/theme`) have been verified visually. Dashboard, Player Profile, Club Page,
+Match Details, Matches, Submit Match, Events and Notifications are all
+auth-gated and have **not** been seen rendered.
+
+### Also fixed
+
+Four pre-existing `vue-tsc` errors in test mocks: `EventRepository` gained
+`countBlockingChildren`/`deleteWithChildren` in uncommitted work and the fakes
+were never updated. Earlier "typecheck clean" claims in this log were unreliable
+— the command was being piped to `tail -6`, which showed only the Nuxt banner.
+Typecheck must also be run with the dev server **stopped**: otherwise it races
+`.nuxt` regeneration and reports phantom errors.
+
+## Phase 5 mostly done, Phase 6 green (2026-08-22, later)
+
+### Screens rebuilt
+
+- **Match Details** — the verification timeline the mockups build the screen
+  around. Every step derives from stored facts (`created_at`, each
+  verification's `responded_at`, the match's rating transactions); a step that
+  has not happened is absent rather than guessed. Needed a vertical slice:
+  `RatingRepository.findTransactionsByMatch` → `RatingService.getTransactions
+  ForMatch` → `GET /api/v1/matches/:id/rating-changes`, plus
+  `PlayerProfileRepository.findByIds` for bulk name resolution. Shows **both**
+  sides of the zero-sum swing, which is what pre-empts disputes.
+- **Dashboard** — 12-bar sparkline → `UiLineChart` with the mockup's
+  7D/1M/3M/6M/1Y/ALL range toggles. The bars had no time axis, so two ratings a
+  year apart sat beside two from the same afternoon.
+- **Player Profile** — same chart swap; tabs now `UiTabs`, route-query backed
+  (`?tab=matches`) so a tab is linkable and the back button works.
+- **Submit Match** — score fields are `UiStepper`. Scores became numbers, and
+  validation now rejects a tied set, which also makes an accidental all-zeros
+  submission impossible (the old check only caught it because fields started blank).
+- **Notifications** — grouped under Today / Yesterday / explicit date.
+- **Matches list — new page.** `pages/matches/index.vue` did not exist; the
+  mobile tab and sidebar sent "Matches" straight to the submit form, so there
+  was no way to find the match blocking your rating. Status chips (All /
+  Pending / Verified / Disputed) with live counts, URL-backed.
+
+### Phase 6
+
+`tests/e2e/theme.spec.ts` — 17 tests: light-by-default with no cookie, tokens
+resolving differently per theme, the switch persisting across a reload, the
+thumb travelling left→right, `body` painting the canvas token, every public
+route rendering differently per theme, and **axe (wcag2a/2aa/21a/21aa) on 4
+routes × 2 themes**. `@axe-core/playwright` added as a devDependency.
+
+### Bugs the axe pass found — all real, all fixed
+
+- **No page in the app set a `<title>`.** Every route failed `document-title`.
+  Fixed globally in `app.vue` with a `titleTemplate` function (the `%s` string
+  form cannot express a fallback) plus titles on 17 pages.
+- **`bg-white text-primary` CTA on the landing page** — 2.67:1 in dark, because
+  primary flips to the light green while the button stayed white. Now
+  `bg-canvas text-primary`, which passes in both. The same banner's `text-fg`
+  became `text-on-primary`, and three `bg-white/5` overlays became `bg-fg/5` —
+  they were invisible on a light canvas.
+- **Avatar initials** — tinting the letters *and* the background with the same
+  colour gave 4.13:1 light / 4.11:1 dark. The background now carries the
+  identity and the initials are always `text-fg`.
+- **Dark `fg-secondary` (4.41:1) and `fg-muted` (3.49:1) on `surface-2`.** The
+  token test only checked `canvas` and `surface`, but `surface-2` carries count
+  pills, the Draft pill, segmented tracks and every nav hover. Raised to
+  `#B6BBB7` / `#A2B2AC`, and three `surface-2` pairs added to the token test so
+  this class of gap cannot recur.
+- **Two "Log in" links on `/`** — introduced by the Phase 4 public header, which
+  duplicated the landing page's own. The layout header is now suppressed on `/`,
+  and the landing header gained the theme toggle it was missing.
+- **Dashboard carried its own wrong 5-tier rating table**, so the dashboard and
+  a player's own badge could disagree about their tier. Now `tierForRating`.
+
+Two stale E2E assertions were failing before this work (landing copy changed in
+uncommitted work); both updated.
+
+### Validated
+
+`test:unit` **433/433** · `test:e2e` **39/39** · `typecheck` exit 0 ·
+`build` exit 0 · `eslint` 0 errors · `check:tokens` passes.
+
+### Still outstanding
+
+- Club Page (cover photo, values bullets, 2-up events, club rank)
+- Events screen filters ("All Status" / "All Regions") and image-led cards
+- Dev-only component gallery
+- Verifier display names on Match Details (the match DTO carries ids only)
+- **No authenticated screen has been verified visually** — headless Chromium
+  cannot sign in. Dashboard, Profile, Match Details, Submit, Matches and
+  Notifications are typecheck/test/build-clean but unseen.
+
+## Phases 3–6 complete (2026-08-22, final)
+
+### Remaining Phase 5 screens
+
+- **Events** — added the mockup's status filter and image-led cards. Found and
+  fixed a live bug while doing it: the page's `statusConfig` was keyed on
+  `published`/`in_progress`, but the real `EventStatus` union is
+  `draft | published | active | completed | cancelled`. There is no
+  `in_progress`, and `active` was missing entirely — so every in-progress event
+  rendered with an unstyled status pill. The map is now typed
+  `Record<EventDto['status'], …>`, so adding a status without styling it fails
+  the build.
+- **Club Page** — generated cover banner with the logo tile overlapping it, as
+  drawn.
+- **Match Details** — verifiers and the submitter now show real names. The
+  detail endpoint returns a `players` id→name map, resolved with one bulk
+  lookup, because `match_verifications` has no foreign key to `player_profiles`
+  that PostgREST can traverse.
+
+### `/dev/components` — the gallery earned its keep immediately
+
+Every variant of every primitive, both themes, including the loading, empty and
+error states that get built once and never looked at again.
+
+Axe on it found **24 serious violations in light and 21 in dark** — components
+that never co-occur on a public route, so the route-level sweep could not see
+them. All four causes were systemic:
+
+- **`UiRatingBadge` had the same bug I had just fixed in `UiAvatar`** — tier
+  colour text on a wash of that same colour, 2.4–4.4:1. The wash now carries the
+  identity and the text is `text-fg`. An `opacity-80` on the tier label was
+  compounding it.
+- **`--dnl-primary-soft` was the raw primary in dark mode**, on the assumption
+  every caller would add `/20`. But `bg-primary-soft` is used *without* alpha
+  for the active sidebar item and the highlighted rankings row — so both were a
+  block of vivid green carrying text at **1.0:1**. This was live in the shell.
+  It is now a real solid tint (`#1A3325`), chosen dark enough that a losing
+  trend (`danger`) also clears AA inside that row.
+- **`opacity-70` on segmented-control counts** — dimming already-muted text.
+- **Light `danger`** darkened to `#D01E1E`; `#DC2626` was 4.36:1 on the
+  highlight row.
+
+After the fixes: **zero serious violations in both themes.** Four `primary-soft`
+pairs were added to the token test so this class of bug cannot come back.
+
+### Cover images: not faked
+
+The mockups show photographic club covers and image-led event cards. No
+`cover_image_url`, `logo_url`, or any image column exists on events, clubs, or
+anywhere in the schema. Rather than ship fake photos or a grey box,
+`UiCoverArt` derives a stable gradient and monogram from the entity name — every
+event looks distinct, the same event always looks the same, and nothing is
+invented about the entity. It accepts a `src` already, so it becomes the
+fallback when a real column lands.
+
+### Final validation
+
+`test:unit` **441/441** · `test:e2e` **39/39** · `typecheck` exit 0 ·
+`build` exit 0 · `eslint` **0 errors** · `check:tokens` clean on 74 files ·
+axe clean on 4 public routes x 2 themes and on the full component gallery.
+
+Gaps that remain, and why, are catalogued in docs/33 §11. The largest is that
+**no authenticated screen has been seen rendered** — headless Chromium cannot
+sign in and no seeded account with a known password exists.
+
+## Filters moved server-side (2026-08-22, later still)
+
+Both "client-side filter" gaps from docs/33 §11 are closed. Both were bugs
+waiting to happen rather than merely unpolished: each filtered only the rows
+already loaded, so they worked on today's five players and would have started
+lying silently as the data grew.
+
+### Rankings search
+
+Full slice: `RankingQuery.q` → `ilike` on `display_name` in **both**
+`getRankings` and `countRankings` (using the existing `escapeLikePattern`
+helper, so a user typing `%` searches for a literal `%`) → `q` param on
+`GET /api/v1/rankings` → debounced 300ms input that resets to page 1.
+
+The count applies the same filter, so pagination stays consistent with the
+result set instead of offering pages that no longer exist.
+
+Verified against the live database: `q=claude` returns 2 of 5 with
+`meta.total: 2`, an unknown term returns 0, and the podium correctly hides while
+a search is active.
+
+### Events status filter
+
+No backend work was needed — **the endpoint already accepted `status` and the
+repository already filtered on it**; an earlier note in this log claiming
+otherwise was wrong. The UI now sends the param instead of filtering the loaded
+page in the browser.
+
+### Attempted and abandoned: rendering authenticated screens without an account
+
+Tried forging the client-side Supabase session cookie plus stubbing every
+`/api/v1/**` call in Playwright, so the auth-gated screens could at least be
+seen. It does not work, for two independent reasons:
+
+1. `@supabase/ssr` rejects a hand-built cookie, so `useSupabaseUser()` stays
+   null and the layout renders its signed-out shell.
+2. More fundamentally, `useFetch` runs during SSR, and Playwright can only
+   intercept requests made by the browser. The server-side calls would hit the
+   real backend regardless.
+
+Even had it worked, stubbed data would only have proven layout, not
+integration. The scaffolding was deleted rather than left as a file that claims
+to do something it cannot.
+
+**Verifying authenticated screens needs a real session.** Either credentials for
+an existing account, or explicit approval to register a test user — that writes
+to the live Supabase project, so it is not something to do unasked.
+
+### Validated
+
+`test:unit` **442/442** · `test:e2e` **39/39** · `typecheck` exit 0 ·
+`build` exit 0 · `eslint` 0 errors · `check:tokens` clean on 74 files.
+
+## Rankings visual rework + light-mode depth (2026-08-22, final)
+
+### Podium reworked against a supplied reference
+
+Took the reference's *visual language* — plinths with #1 raised and centred,
+tier-coloured trophies, larger winner avatar, rank numeral watermarked into the
+base, atmospheric glow, two-line player rows. Did **not** take its data: prize
+pools, "earn 2,000 points", a countdown, Daily/Monthly periods and a Reward
+column have no schema behind them. The plinths carry rating, tier, matches
+played and 7-day movement instead, and the table's "Followers" slot became
+Matches (`matches_played`, already in the DTO).
+
+The silhouette took two attempts. Using top margins to push #2 and #3 down
+staggered their *bottoms* and produced three floating cards; the fix is
+`items-end` plus differing plinth heights. Verified all three bottoms land on
+the same pixel.
+
+### Light mode had no depth at all
+
+Reported as "no shade", and correct: the plinth was `#FFFFFF` on a `#F7F9F8`
+canvas — **1.06:1**, literally invisible — with `shadow-card` at 0.08 alpha.
+
+The instructive number is that dark's plinth-to-canvas ratio is only **1.38**.
+Depth in dark comes from a surface being *lighter* than a near-black canvas.
+Light cannot use the same trick: going darker than the canvas reads as a hole,
+not a raised block. Light-mode depth has to come from **shadow**, and there
+essentially wasn't any.
+
+- New `--dnl-plinth` token: `#EFF3F1` light (a visible tint that still keeps
+  `fg-muted` at 4.63:1 on it) / `#1E2E2A` dark.
+- New `--dnl-shadow-raised`, cast upward and wide — a plinth is lit from above
+  and grounded at its base.
+- `--dnl-shadow-card` strengthened in light (0.08 → 0.10 with a wider spread)
+  and `card-hover` to 0.16. Dark shadows left understated, since dark surfaces
+  already separate by lightness. This lifts every card in the app, not just the
+  podium.
+- Plinth borders moved to `border-strong`; `border` was 1.17:1 on the canvas.
+
+### A Tailwind naming collision worth knowing about
+
+`shadow-plinth` silently resolved to *no shadow*. Tailwind derives
+`shadow-<color>` utilities from the colour palette, so a colour named `plinth`
+and a boxShadow named `plinth` both emit `.shadow-plinth` — and the colour rule,
+coming later in the sheet, sets `--tw-shadow: var(--tw-shadow-colored)` and
+blanks it. The computed style showed two transparent shadows and nothing else.
+Renamed the shadow to `raised`. **Never give a boxShadow the same key as a
+colour.**
+
+### Validated
+
+`test:unit` **442/442** · `test:e2e` **39/39** · `typecheck` exit 0 ·
+`build` exit 0 · `eslint` 0 errors · `check:tokens` clean ·
+axe **zero serious violations** on /rankings in both themes.
+
+## Green plinth gradient + podium on the landing page (2026-08-23)
+
+### Mint gradient on the plinths
+
+`--dnl-plinth` moved from neutral grey to mint (`#E8F5EE`) with a new
+`--dnl-plinth-deep` (`#D6ECDF`) for the gradient foot. The podium is the brand
+moment on the page and a green plinth ties it to the identity.
+
+`#E8F5EE` is as saturated as this can go: it holds 12px muted text at 4.62:1,
+and the next step down (`#E2F2E9`) drops to 4.46 and fails AA. The deeper stop
+sits at the foot of the plinth where only the rank watermark lives, so no small
+text is ever on it. Dark gets the same treatment inverted — `#1E2E2A` settling
+to `#16241F` at the foot.
+
+### Landing page rankings now use the same podium
+
+`pages/index.vue`'s Rankings tab renders `UiPodium` for the top three above the
+list, with the same glow. Sharing the component means the landing page and
+`/rankings` cannot drift apart.
+
+### A fourth duplicate rating-tier table, found and removed
+
+`pages/index.vue` carried its own `getRatingTier` — the **fourth** copy in the
+codebase after `RatingBadge`, `dashboard.vue` and the server table. Its names
+disagreed with the rating domain (it called 4.6 "Advanced"; the domain says
+"Expert"), and it used raw Tailwind palette colours (`text-purple-400`,
+`text-yellow-400`) that ignore the theme entirely. It also rendered ratings at
+`toFixed(2)`.
+
+Now delegates to `tierForRating` and `formatRating`, so every surface in the app
+agrees about what tier a rating is. That is all four copies eliminated.
+
+### Validated
+
+`test:unit` **442/442** · `test:e2e` **39/39** · `typecheck` exit 0 ·
+`build` exit 0 · `eslint` 0 errors · `check:tokens` clean · axe **zero serious
+violations** on `/` (rankings tab) and `/rankings`, both themes.
+
+## Podium made three-dimensional (2026-08-23)
+
+Reported as looking 2D, and it was: a rounded rectangle with a vertical
+gradient and a drop shadow reads flat no matter how strong the shadow gets. A
+drop shadow says "this floats above the page", not "this is a solid object".
+
+Three cues, none of which need an image asset:
+
+1. **A trapezoid top face** (`clip-path`, narrower at the back than the front).
+   That single piece of perspective is what tells the eye it is looking slightly
+   down at a solid, and it is the cue that was missing entirely.
+2. **Edge falloff across the front face** — an overlay darkening the left and
+   right, lighter through the middle, as a block lit from the front would be.
+   An overlay rather than a background so it composites over the vertical
+   gradient, and it darkens only the edges, where no text sits.
+3. **A seam at the top edge** — a white inset hairline over a dark border. A
+   block's top edge is the highest-contrast line on it; without it the two faces
+   blur into one painted rectangle.
+
+### Light mode needed the opposite adjustment to dark
+
+Dark had room to make a genuinely lit cap (`#2A4039` against a `#1E2E2A` face).
+Light did not: the face already sat near the canvas ceiling, so the cap could
+only be **1.06:1** brighter — invisible.
+
+The fix was to push the *front face* down instead (`#E8F5EE` → `#D6ECDF`, foot
+`#C7E4D1`), which gives the cap something to separate from. That in turn forced
+the plinth's small text from `fg-muted` to `fg-secondary`: muted would have
+failed on the darker face, secondary holds 5.09:1 even at the gradient's foot.
+New `--dnl-plinth-top` token for the cap.
+
+### Validated
+
+`test:unit` **442/442** · `test:e2e` **39/39** · `typecheck` exit 0 ·
+`build` exit 0 · `eslint` 0 errors · `check:tokens` clean · axe **zero serious
+violations** on `/rankings` in both themes.
+
+## Podium restyled to the second reference (2026-08-23)
+
+Four structural changes, from a leaderboard reference the user supplied:
+
+1. **The three blocks are joined into one stepped platform** rather than three
+   separate cards with gaps. Equal thirds, touching, with only the outer corners
+   rounded — that is what makes them read as one object.
+2. **Large rank numerals on the block faces** instead of a faint watermark.
+   Decorative (`aria-hidden`): the rank is already carried by position, the
+   medal and the table, so its contrast is a styling choice rather than a
+   legibility floor.
+3. **The rating moved off the block into a pill above it.** This is the change
+   that made the rest possible — with no text on the face, the block is free to
+   be a saturated brand colour and reads as an object *on* the page rather than
+   a panel *of* it.
+4. **The medal moved onto the avatar**, the way the reference crowns its winner,
+   instead of sitting on the block edge.
+
+Block palette is the brand green in both themes — light `#6FBF95` → `#57AC80`
+with a `#93D4B2` cap, dark `#2A6B48` → `#1E5236` with a `#3C8A5C` cap. The 3D
+treatment from the previous pass (trapezoid cap, edge falloff, top seam) carries
+over unchanged.
+
+Not borrowed, again: the reference's prize money, points and rewards column. The
+pill shows the rating, which is what this ladder ranks on.
+
+### Validated
+
+`test:unit` **442/442** · `test:e2e` **39/39** · `typecheck` exit 0 ·
+`build` exit 0 · `eslint` 0 errors · `check:tokens` clean · axe **zero serious
+violations** on `/rankings` in both themes.
+
+## Event capacity on the event card (2026-08-23)
+
+Event thumbnails now show remaining slots — "12 of 14 slots left" with a fill
+bar — through the full layering.
+
+| Layer | Change |
+| --- | --- |
+| DTO | `EventDto.registered_count?`, plus `SLOT_OCCUPYING_STATUSES` |
+| Repository | `countByEvents(ids, statuses)` — bulk, keyed by event id |
+| Service | `searchEvents` enriches; optional 5th constructor arg |
+| Controller | list endpoint passes the registration repository |
+| UI | `slotsFor()` + capacity bar on the card |
+
+No migration needed: `event_registrations` and `max_participants` already existed.
+
+### Three things it deliberately refuses to guess
+
+- **A withdrawal frees its slot.** Only `registered` and `checked_in` occupy
+  one, so a cancelled signup does not make an event look full.
+- **Uncapped events show nothing.** `max_participants` is nullable; an event
+  with no limit has no slots to be remaining, and "0 left" would be a lie.
+- **Undefined ≠ zero.** `registered_count` is undefined when the caller never
+  asked for it, which is a different fact from "nobody has signed up". Every
+  other caller of `createEventService` constructs it without the registration
+  repository and keeps working; the field stays undefined for them rather than
+  defaulting to 0.
+
+Over-subscription (manual additions, a race) clamps to "Full" rather than
+rendering a bar past 100% or a negative remainder. Under a quarter remaining
+switches the label and bar to the warning tone.
+
+`countByEvents` is one query for the whole page — a per-event count would have
+made a 20-card listing 21 round trips.
+
+### Found while verifying: the events list is auth-gated but its data is public
+
+`/events` redirects to `/login`, while `/events/:id` and `GET /api/v1/events`
+are both public and the landing page advertises "Browse everything free". The
+same gap exists for `/players` and `/clubs`: the `/x/*` globs in
+`supabase.redirectOptions.exclude` do not match the bare `/x` index route.
+
+Nothing is actually protected by this — the API serving that page is already
+public — so it reads as an oversight rather than a decision. **Not changed:**
+altering auth exclusions is the user's call. It is also why the new capacity bar
+could not be screenshotted; the logic is covered by six unit tests and verified
+against the live API instead (Saulog Tournament 1/16, Open Play 2/14).
+
+### Validated
+
+`test:unit` **448/448** (+6) · `test:e2e` **39/39** · `typecheck` exit 0 ·
+`build` exit 0 · `eslint` 0 errors · `check:tokens` clean.

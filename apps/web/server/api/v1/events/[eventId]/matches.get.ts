@@ -1,5 +1,6 @@
 import { serverSupabaseClient } from '#supabase/server'
 import { apiError } from '~/server/utils/api-error'
+import type { MatchJoinRow } from '~/server/domains/match/dto/match-join-row.dto'
 
 export default defineEventHandler(async (event) => {
   const eventId = getRouterParam(event, 'eventId')
@@ -56,7 +57,7 @@ export default defineEventHandler(async (event) => {
     throw apiError(500, 'INTERNAL_ERROR', 'Could not load matches.')
   }
 
-  const mapped = (matches ?? []).map((m: any) => ({
+  const mapped = (matches ?? []).map((m: MatchJoinRow) => ({
     id: m.id,
     match_type: m.match_type,
     status: m.status,
@@ -66,15 +67,15 @@ export default defineEventHandler(async (event) => {
     played_at: m.played_at,
     submitted_at: m.submitted_at,
     verified_at: m.verified_at,
-    participants: (m.match_participants ?? []).map((p: any) => ({
+    participants: (m.match_participants ?? []).map((p) => ({
       player_id: p.player_id,
       team_number: p.team_number,
       result_status: p.result_status,
       display_name: p.player_profiles?.display_name
     })),
     scores: (m.match_scores ?? [])
-      .sort((a: any, b: any) => a.set_number - b.set_number)
-      .map((s: any) => ({
+      .sort((a, b) => a.set_number - b.set_number)
+      .map((s) => ({
         set_number: s.set_number,
         team1_score: s.team1_score,
         team2_score: s.team2_score

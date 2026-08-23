@@ -1,0 +1,301 @@
+/* ---------------------------------------------------------------------------
+   DinkAndLadder design tokens
+   ---------------------------------------------------------------------------
+   Single source of truth for every themeable color. See
+   docs/33-DESIGN-SYSTEM-AND-THEMING-SPEC.md §3.2 for the table these values
+   come from and the contrast reasoning behind each pair.
+
+   Values are stored as space-separated RGB channels, not `#hex`, so Tailwind's
+   `<alpha-value>` opacity modifiers keep working: `bg-surface/50` compiles to
+   `rgb(var(--dnl-surface) / 0.5)`.
+
+   Light lives on `:root` and is the product default (decision 2026-08-22), so
+   a first-time visitor needs no class and no script to get the right theme.
+   Dark lives on `.dark` and overrides only what differs.
+
+   Do not reference these variables directly from templates. Use the semantic
+   Tailwind names they back (`bg-canvas`, `text-fg-muted`, …) so a token can be
+   retuned in one place.
+--------------------------------------------------------------------------- */
+
+:root {
+  color-scheme: light;
+
+  /* Surfaces */
+  --dnl-canvas: 247 249 248; /* #F7F9F8 — near-white, so white cards still read as raised */
+  --dnl-surface: 255 255 255; /* #FFFFFF */
+  --dnl-surface-2: 242 244 247; /* #F2F4F7 — sidebar, secondary fill */
+  --dnl-surface-3: 232 247 238; /* #E8F7EE — brand tint, hover */
+
+  /* Lines */
+  --dnl-border: 227 232 229; /* #E3E8E5 */
+  --dnl-border-strong: 203 213 208; /* #CBD5D0 — resting input border */
+
+  /* Text */
+  --dnl-fg: 15 26 21; /* #0F1A15 */
+  --dnl-fg-secondary: 79 93 87; /* #4F5D57 */
+  --dnl-fg-muted: 99 112 106; /* #63706A — #77857F was only 3.65:1 on the canvas and failed AA at caption size */
+
+  /* Brand
+     The dark theme's #4DB175 is only ~2.3:1 on white, so light mode needs its
+     own green. The mockup's swatch #0B8D4D measures 4.03:1 on this canvas —
+     close, but under AA — so the token is the nearest darker hue that clears
+     both roles: 4.80:1 as text on the canvas, and 5.08:1 carrying white as a
+     button fill. Hover brightens in light mode and lightens in dark mode; the
+     direction genuinely flips per theme, which is why it is a token. */
+  --dnl-primary: 10 127 69; /* #0A7F45 */
+  --dnl-primary-hover: 15 165 91; /* #0FA55B */
+  --dnl-primary-soft: 232 247 238; /* #E8F7EE — solid tint; an alpha wash reads washed out on white */
+  --dnl-on-primary: 255 255 255;
+
+  /* Accent — deliberately different per theme: mint on light, periwinkle on dark */
+  --dnl-accent: 167 227 193; /* #A7E3C1 */
+  --dnl-accent-soft: 232 247 238; /* #E8F7EE */
+  --dnl-on-accent: 11 59 36; /* #0B3B24 */
+
+  /* Status */
+  --dnl-success: 10 127 69; /* #0A7F45 — success is the brand green; keep them identical */
+  --dnl-success-soft: 232 247 238;
+  --dnl-warning: 180 83 9; /* #B45309 — amber text on white fails AA */
+  --dnl-warning-fill: 245 166 35; /* #F5A623 — brand amber, used as a fill under dark text */
+  --dnl-warning-soft: 254 243 219;
+  --dnl-danger: 208 30 30; /* #D01E1E — #DC2626 was 4.36:1 on the primary-soft highlight row */
+  --dnl-danger-soft: 254 232 232;
+  --dnl-info: 37 99 235; /* #2563EB */
+  --dnl-info-soft: 227 237 254;
+
+  /* Rating tiers — Gold 1900+, Silver 1700-1899, Bronze 1400-1699, Iron <1400 */
+  --dnl-rating-gold: 183 121 31; /* #B7791F */
+  --dnl-rating-silver: 120 113 108; /* #78716C — #C0C0C0 is ~1.6:1 on white */
+  --dnl-rating-bronze: 154 91 34; /* #9A5B22 */
+  --dnl-rating-iron: 107 107 107; /* #6B6B6B */
+
+  /* Switch track and thumb. These need their own tokens because the thumb has
+     to read as *raised above* the track, and that is a different direction per
+     theme: light lifts by going whiter, dark lifts by going lighter than a
+     darker track. Reusing surface/surface-2 gave a 1.05:1 thumb in light mode,
+     which vanished at the control's real 32px size. */
+  --dnl-switch-track: 227 232 229; /* #E3E8E5 */
+  --dnl-switch-thumb: 255 255 255; /* #FFFFFF */
+
+  /* Decorative gradients (stat/hero cards). Light expresses depth with a
+     near-flat gradient plus a shadow rather than a dark-to-darker ramp. */
+  --dnl-grad-from: 255 255 255;
+  --dnl-grad-to: 242 244 247;
+
+  /* Raised block sitting on the canvas — the podium plinth, and anything else
+     that needs to read as standing on the page rather than floating in it.
+     Light and dark get there by opposite routes: dark lifts by going lighter
+     than a near-black canvas, light cannot go darker without reading as a hole,
+     so it stays near-white and leans on the shadow below. */
+  /* Mint rather than neutral grey: the podium is the brand moment on the page
+     and a green plinth ties it to the identity. #E8F5EE is as saturated as this
+     can go while keeping 12px muted text on it at 4.62:1 — the next step down
+     (#E2F2E9) drops to 4.46 and fails. */
+  /* Podium blocks.
+     The rating moved off the block into a pill above it, which frees the face
+     to be a saturated brand colour instead of a near-canvas tint — the blocks
+     now read as objects on the page rather than panels of it. The only thing on
+     the face is the rank numeral, which is decorative (aria-hidden; the rank is
+     already carried by position, medal and the table), so its contrast is a
+     styling choice rather than a legibility floor. */
+  --dnl-plinth: 111 191 149; /* #6FBF95 — face, top of gradient */
+  --dnl-plinth-deep: 87 172 128; /* #57AC80 — face, foot */
+  --dnl-plinth-top: 147 212 178; /* #93D4B2 — the lit cap */
+  --dnl-plinth-numeral: 255 255 255; /* on a saturated face, white reads best */
+
+  /* Elevation.
+     These were 0.08/0.04 and the result was a light theme with no visible
+     depth at all — a white card on an off-white canvas separates by 1.06:1, so
+     the shadow is doing *all* the work and has to be strong enough to be seen.
+     Dark mode is the opposite: its surfaces already separate by lightness, so
+     its shadows stay understated. */
+  --dnl-shadow-card: 0 1px 2px rgb(16 24 20 / 0.06), 0 4px 12px rgb(16 24 20 / 0.1);
+  --dnl-shadow-card-hover: 0 2px 4px rgb(16 24 20 / 0.08), 0 12px 28px rgb(16 24 20 / 0.16);
+  /* Cast upward and wide: a plinth is lit from above and grounded at its base. */
+  --dnl-shadow-raised:
+    0 1px 0 rgb(255 255 255 / 0.7) inset,
+    0 2px 4px rgb(16 24 20 / 0.06),
+    0 14px 28px -10px rgb(16 24 20 / 0.28);
+}
+
+.dark {
+  color-scheme: dark;
+
+  /* Surfaces */
+  --dnl-canvas: 11 13 9; /* #0B0D09 */
+  --dnl-surface: 30 46 42; /* #1E2E2A */
+  --dnl-surface-2: 46 69 64; /* #2E4540 */
+  --dnl-surface-3: 58 87 80; /* #3A5750 */
+
+  /* Lines */
+  --dnl-border: 46 69 64; /* #2E4540 */
+  --dnl-border-strong: 58 87 80; /* #3A5750 */
+
+  /* Text */
+  --dnl-fg: 255 255 255; /* #FFFFFF */
+  --dnl-fg-secondary: 182 187 183; /* #B6BBB7 — the mockup swatch #A6ABA7 is 4.41:1 on surface-2, which the segmented control and nav hover states put text on */
+  --dnl-fg-muted: 162 178 172; /* #A2B2AC — raised twice: #6B7B75 failed on the canvas, then #8A9A94 failed at 3.49:1 on surface-2, which carries the count pills and Draft status */
+
+  /* Brand */
+  --dnl-primary: 77 177 117; /* #4DB175 */
+  --dnl-primary-hover: 95 194 135; /* #5FC287 */
+  /* A usable solid, not the raw primary. It was #4DB175 on the assumption that
+     every caller would add /20 — but bg-primary-soft is used without alpha for
+     the active nav item and the highlighted rankings row, which made both a
+     block of vivid green with 1.0:1 text on it. */
+  --dnl-primary-soft: 26 51 37; /* #1A3325 — dark enough that danger (a losing trend) also clears AA inside the highlighted row */
+  /* Near-black, not white. In dark mode the brand green has to do two jobs, and
+     they are mathematically incompatible: reading as text on the #0B0D09 canvas
+     requires luminance >= 0.195, while carrying white text at 4.5:1 requires
+     <= 0.183. No single green satisfies both. Keeping #4DB175 vivid (7.3:1 on
+     the canvas) and putting dark text on the fill gives 6.9:1 — the same
+     light-surface / dark-label pattern Material 3 uses for dark themes.
+     Deviation from the mockup, which shows a white label at 2.7:1. */
+  --dnl-on-primary: 6 23 15; /* #06170F */
+
+  /* Accent */
+  --dnl-accent: 181 185 240; /* #B5B9F0 */
+  --dnl-accent-soft: 181 185 240;
+  --dnl-on-accent: 11 13 9; /* #0B0D09 */
+
+  /* Status */
+  --dnl-success: 77 177 117;
+  --dnl-success-soft: 77 177 117;
+  --dnl-warning: 245 166 35; /* #F5A623 */
+  --dnl-warning-fill: 245 166 35;
+  --dnl-warning-soft: 245 166 35;
+  --dnl-danger: 255 107 107; /* #FF6B6B */
+  --dnl-danger-soft: 255 107 107;
+  --dnl-info: 96 165 250; /* #60A5FA — #3B82F6 is 3.86:1 on a dark card and fails AA */
+  --dnl-info-soft: 59 130 246;
+
+  /* Rating tiers */
+  --dnl-rating-gold: 245 166 35; /* #F5A623 */
+  --dnl-rating-silver: 192 192 192; /* #C0C0C0 */
+  --dnl-rating-bronze: 205 127 50; /* #CD7F32 */
+  --dnl-rating-iron: 139 139 139; /* #8B8B8B */
+
+  /* Switch — thumb lighter than the track, the inverse of light mode */
+  --dnl-switch-track: 20 32 28; /* #14201C */
+  --dnl-switch-thumb: 90 122 112; /* #5A7A70 */
+
+  /* Decorative gradients */
+  --dnl-grad-from: 26 42 36; /* #1a2a24 */
+  --dnl-grad-to: 20 32 28; /* #14201c */
+
+  --dnl-plinth: 42 107 72; /* #2A6B48 */
+  --dnl-plinth-deep: 30 82 54; /* #1E5236 */
+  --dnl-plinth-top: 60 138 92; /* #3C8A5C */
+  --dnl-plinth-numeral: 207 235 220; /* #CFEBDC */
+
+  /* Elevation */
+  --dnl-shadow-card: 0 2px 8px rgb(0 0 0 / 0.3);
+  --dnl-shadow-card-hover: 0 4px 16px rgb(0 0 0 / 0.4);
+  --dnl-shadow-raised:
+    0 1px 0 rgb(255 255 255 / 0.06) inset,
+    0 2px 4px rgb(0 0 0 / 0.35),
+    0 14px 28px -10px rgb(0 0 0 / 0.6);
+}
+
+/* ---------------------------------------------------------------------------
+   Podium plinth — an extruded block, not a flat card.
+   ---------------------------------------------------------------------------
+   Three cues do the work, because a flat rectangle plus a drop shadow reads as
+   2D no matter how strong the shadow is:
+
+   1. A trapezoid TOP FACE, narrower at the back than the front. That single
+      piece of perspective is what tells the eye it is looking slightly down at
+      a solid object.
+   2. EDGE FALLOFF across the front face — darker at the left and right, lighter
+      through the middle, as a block lit from the front would be. It is an
+      overlay rather than a background so it composites over the vertical
+      gradient, and it darkens only the edges, where no text sits.
+   3. A hairline HIGHLIGHT along the top edge (in shadow-raised, as an inset),
+      which is what makes the top face and front face read as two surfaces
+      meeting rather than one painted rectangle.
+--------------------------------------------------------------------------- */
+.dnl-plinth-top {
+  /* Shaded across its width as well as clipped: a flat fill on a trapezoid
+     still reads as a sticker. */
+  background: linear-gradient(
+    to right,
+    rgb(var(--dnl-plinth)) 0%,
+    rgb(var(--dnl-plinth-top)) 30%,
+    rgb(var(--dnl-plinth-top)) 70%,
+    rgb(var(--dnl-plinth)) 100%
+  );
+  /* Narrower at the back (top edge) than the front — the perspective cue. */
+  clip-path: polygon(7% 0%, 93% 0%, 100% 100%, 0% 100%);
+}
+
+/* The seam where the cap meets the front face. A block's top edge is the
+   highest-contrast line on it, and without this the two faces blur together. */
+.dnl-plinth-face {
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.55);
+  border-top: 1px solid rgb(0 0 0 / 0.1);
+}
+.dark .dnl-plinth-face {
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.07);
+  border-top: 1px solid rgb(0 0 0 / 0.35);
+}
+
+.dnl-plinth-face::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  background: linear-gradient(
+    to right,
+    rgb(0 0 0 / 0.1),
+    rgb(0 0 0 / 0) 24%,
+    rgb(0 0 0 / 0) 76%,
+    rgb(0 0 0 / 0.13)
+  );
+}
+.dark .dnl-plinth-face::after {
+  background: linear-gradient(
+    to right,
+    rgb(0 0 0 / 0.3),
+    rgb(0 0 0 / 0) 22%,
+    rgb(0 0 0 / 0) 78%,
+    rgb(0 0 0 / 0.36)
+  );
+}
+
+/* Decorative glow behind the Rankings podium.
+   Lives here rather than as utility classes because the two themes need
+   different *alpha*, not different colours, and a utility class cannot express
+   that without a `dark:` variant. Light has to stay very faint: at 20% the
+   blurred wash lifted the canvas to #C8E1D4 and took muted caption text under
+   AA, which the axe pass on /rankings caught. */
+.dnl-podium-glow {
+  background: radial-gradient(
+    ellipse 55% 45% at 50% 12%,
+    rgb(var(--dnl-primary) / 0.1),
+    transparent 70%
+  );
+}
+.dark .dnl-podium-glow {
+  background: radial-gradient(
+    ellipse 55% 45% at 50% 12%,
+    rgb(var(--dnl-primary) / 0.16),
+    transparent 70%
+  );
+}
+
+/* The theme flip should feel deliberate rather than instantaneous, but a
+   permanent global transition would tax every hover and every route change.
+   `useTheme()` adds `.dnl-theme-switching` to <html> only for the duration of
+   an actual switch, so the cost is paid once per toggle. Only the three
+   properties that change are animated, so layout never moves, and the whole
+   thing is off under reduced-motion. */
+@media (prefers-reduced-motion: no-preference) {
+  html.dnl-theme-switching,
+  html.dnl-theme-switching *,
+  html.dnl-theme-switching *::before,
+  html.dnl-theme-switching *::after {
+    transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease !important;
+  }
+}

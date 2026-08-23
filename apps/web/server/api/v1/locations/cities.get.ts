@@ -1,30 +1,30 @@
-const PSGC_BASE = 'https://psgc.gitlab.io/api'
+import { assertPsgcCode, fetchPsgc, PSGC_CACHE_CONTROL } from '~/server/utils/psgc'
+import { apiError } from '~/server/utils/api-error'
+
+interface PsgcCityMunicipality {
+  code: string
+  name: string
+  provinceCode?: string
+  regionCode?: string
+  isCity: boolean
+}
 
 export default defineEventHandler(async (event) => {
   const query = getQuery(event)
-  const provinceCode = query.province as string | undefined
-  const regionCode = query.region as string | undefined
+  const hasRegion = query.region !== undefined && query.region !== ''
+  const hasProvince = query.province !== undefined && query.province !== ''
 
-  if (!provinceCode && !regionCode) {
-    throw createError({
-      statusCode: 400,
-      statusMessage: 'Province or region code is required'
-    })
+  if (!hasRegion && !hasProvince) {
+    throw apiError(400, 'VALIDATION_ERROR', 'Provide either a province or a region code.')
   }
 
-  try {
-    // NCR and other regions use the region endpoint, provinces use the province endpoint
-    const endpoint = regionCode
-      ? `${PSGC_BASE}/regions/${regionCode}/cities-municipalities/`
-      : `${PSGC_BASE}/provinces/${provinceCode}/cities-municipalities/`
+  // NCR and the other region-level entities have no parent province, so they
+  // are looked up through the regions endpoint instead.
+  const path = hasRegion
+    ? `/regions/${assertPsgcCode(query.region, 'region')}/cities-municipalities/`
+    : `/provinces/${assertPsgcCode(query.province, 'province')}/cities-municipalities/`
 
-    const data = await $fetch<Array<{ code: string; name: string; provinceCode?: string; regionCode?: string; isCity: boolean }>>(endpoint)
-    return data
-  } catch (error) {
-    console.error('Failed to fetch cities from PSGC API:', error)
-    throw createError({
-      statusCode: 502,
-      statusMessage: 'Failed to fetch cities from external API'
-    })
-  }
+  const data = await fetchPsgc<PsgcCityMunicipality[]>(path, 'cities')
+  setResponseHeader(event, 'Cache-Control', PSGC_CACHE_CONTROL)
+  return data
 })

@@ -17,6 +17,12 @@ export interface RatingRepository {
   getRatingsForPlayers(playerIds: string[], ratingType: RatingType): Promise<PlayerRatingRecord[]>
   getRatingHistory(playerId: string, ratingType: RatingType): Promise<RatingTransactionRecord[]>
   hasTransactionsForMatch(matchId: string): Promise<boolean>
+  /**
+   * Every rating change this match produced, for the Match Details timeline.
+   * A rated match writes one row per participant, so this is what lets the UI
+   * show both sides of a zero-sum swing rather than only the reader's own.
+   */
+  findTransactionsByMatch(matchId: string): Promise<RatingTransactionRecord[]>
   /** Persists every player's new rating state and their immutable transaction row for this
    * match. Sequential Supabase calls, not a single DB transaction — same tradeoff already
    * accepted for match submission (see MatchRepository.create); acceptable for MVP scope. */
@@ -60,6 +66,17 @@ export function createRatingRepository(client: SupabaseClient): RatingRepository
         .eq('player_id', playerId)
         .eq('rating_type', ratingType)
         .order('created_at', { ascending: false })
+
+      if (error) throw error
+      return (data ?? []) as unknown as RatingTransactionRecord[]
+    },
+
+    async findTransactionsByMatch(matchId) {
+      const { data, error } = await client
+        .from('rating_transactions')
+        .select(RATING_TRANSACTION_SELECT)
+        .eq('match_id', matchId)
+        .order('created_at', { ascending: true })
 
       if (error) throw error
       return (data ?? []) as unknown as RatingTransactionRecord[]

@@ -1,240 +1,372 @@
 <script setup lang="ts">
+/**
+ * Rankings — Phase 5 of docs/33 (§5.3).
+ *
+ * Three things were wrong before this pass, all of which the mockup implies but
+ * the page did not deliver:
+ *
+ * 1. The Trend column rendered `Math.floor(Math.random() * 20)` — literally a
+ *    fresh random number on every render. It now shows the player's real net
+ *    rating change over the last 7 days, from `rating_transactions`.
+ * 2. Pagination was seven hardcoded buttons ("1 2 3 … 25") that did nothing,
+ *    on a ladder with five players. It is now driven by `meta.total`.
+ * 3. Ratings rendered as `Math.round(rating_value)`, so a 4.250 and a 3.500
+ *    both showed as "4" and "3". Ratings are `numeric(5,3)`; three decimals is
+ *    the stored precision and the only format that distinguishes players.
+ *
+ * Search is server-side (`q` on the endpoint, `ilike` in SQL) so it matches
+ * across the whole ladder. Filtering in the browser only ever saw the loaded
+ * page, so looking for a player ranked 200th silently found nothing.
+ *
+ * The podium's visual treatment — plinths on a shared baseline, tier trophies,
+ * a raised centre — follows a reference design the user supplied. Its data did
+ * not come with it: that design shows prize pools, a countdown and a rewards
+ * column, none of which exist here, so the plinths carry rating, tier, matches
+ * and movement instead.
+ */
 import type { RankingEntryDto } from '~/server/domains/rating/dto/ranking.dto'
+import type { PlayerProfileDto } from '~/server/domains/player/dto/player-profile.dto'
+import { formatRating, tierForRating } from '~/utils/rating-tiers'
 
-const ratingType = ref<'singles' | 'doubles'>('singles')
-const province = ref('')
+useHead({ title: 'Rankings' })
+
+const PAGE_SIZE = 50
+
+const route = useRoute()
+const router = useRouter()
+
+const ratingType = ref<'singles' | 'doubles'>(
+  route.query.type === 'doubles' ? 'doubles' : 'singles'
+)
+const province = ref(typeof route.query.province === 'string' ? route.query.province : '')
 const searchQuery = ref('')
 
-const {
-  provinces,
-  loadingProvinces,
-  loadProvinces
-} = useLocationPicker()
+/**
+ * Debounced copy of the search box, sent to the API.
+ *
+ * Search used to filter `entries` in the browser, which only ever saw the
+ * loaded page — searching for a player ranked 200th silently found nothing.
+ * The endpoint now takes a `q` param and matches in SQL across the whole
+ * ladder. Debounced so typing does not fire a request per keystroke.
+ */
+const debouncedSearch = ref('')
+let searchTimer: ReturnType<typeof setTimeout> | undefined
 
-onMounted(() => {
-  loadProvinces()
+watch(searchQuery, (value) => {
+  clearTimeout(searchTimer)
+  searchTimer = setTimeout(() => {
+    debouncedSearch.value = value.trim()
+    page.value = 1
+  }, 300)
 })
 
-const {
-  data: response,
-  pending,
-  error
-} = await useFetch<{ data: RankingEntryDto[] }>('/api/v1/rankings', {
-  query: { rating_type: ratingType, province },
-  watch: [ratingType, province]
+onBeforeUnmount(() => clearTimeout(searchTimer))
+const page = ref(Math.max(1, Number(route.query.page) || 1))
+
+const { provinces, loadingProvinces, loadProvinces } = useLocationPicker()
+onMounted(loadProvinces)
+
+// Filters are URL-backed so a filtered ranking is a shareable link.
+watch([ratingType, province, page], () => {
+  router.replace({
+    query: {
+      ...route.query,
+      type: ratingType.value,
+      province: province.value || undefined,
+      page: page.value > 1 ? String(page.value) : undefined
+    }
+  })
 })
 
-const filteredRankings = computed(() => {
-  if (!response.value?.data) return []
-  if (!searchQuery.value) return response.value.data
-  const q = searchQuery.value.toLowerCase()
-  return response.value.data.filter(e => e.display_name.toLowerCase().includes(q))
+// Changing a filter must reset paging, or you land on page 4 of a 1-page list.
+watch([ratingType, province], () => { page.value = 1 })
+
+const offset = computed(() => (page.value - 1) * PAGE_SIZE)
+
+const { data: response, pending, error, refresh } = await useFetch<{
+  data: RankingEntryDto[]
+  meta: { total: number, limit: number, offset: number }
+}>('/api/v1/rankings', {
+  query: { rating_type: ratingType, province, q: debouncedSearch, limit: PAGE_SIZE, offset },
+  watch: [ratingType, province, debouncedSearch, offset]
 })
 
-const topThree = computed(() => filteredRankings.value.slice(0, 3))
-const restOfRankings = computed(() => filteredRankings.value.slice(3))
+// "Where am I?" is the first question anyone asks on a rankings page.
+const { data: myProfile } = await useFetch<PlayerProfileDto>('/api/v1/players/me', {
+  server: false
+})
+
+const entries = computed(() => response.value?.data ?? [])
+const total = computed(() => response.value?.meta?.total ?? 0)
+const totalPages = computed(() => Math.max(1, Math.ceil(total.value / PAGE_SIZE)))
+
+// No client-side filtering: the server returns exactly the matching page.
+const visible = computed(() => entries.value)
+
+/** The podium only makes sense on page one of an unsearched list. */
+const showPodium = computed(
+  () => page.value === 1 && !debouncedSearch.value && visible.value.length >= 1
+)
+const podium = computed(() =>
+  showPodium.value
+    ? visible.value.slice(0, 3).map((e) => ({
+        id: e.player_id,
+        name: e.display_name,
+        rating: e.rating_value,
+        location: e.city ?? e.province,
+        matchesPlayed: e.matches_played,
+        trendDelta: e.trend_delta
+      }))
+    : []
+)
+const tableRows = computed(() => (showPodium.value ? visible.value.slice(3) : visible.value))
+
+const isMe = (entry: RankingEntryDto) => entry.player_id === myProfile.value?.id
+
+const tierName = (rating: number) => tierForRating(rating).name
+
+/**
+ * Compact page list: first, last, and a window around the current page. The old
+ * markup hardcoded "1 2 3 … 25" regardless of how many pages existed.
+ */
+const pageNumbers = computed(() => {
+  const last = totalPages.value
+  const current = page.value
+  const pages = new Set([1, last, current, current - 1, current + 1])
+  return [...pages].filter((n) => n >= 1 && n <= last).sort((a, b) => a - b)
+})
+
+const provinceOptions = computed(() => [
+  { value: '', label: loadingProvinces.value ? 'Loading…' : 'All Provinces' },
+  ...provinces.value.map((p) => ({ value: p.name, label: p.name }))
+])
+
+const columns = [
+  { key: 'rank', label: '#', numeric: true, width: 'w-16' },
+  { key: 'player', label: 'Player' },
+  { key: 'matches', label: 'Matches', numeric: true, hideOnMobile: true },
+  { key: 'rating', label: 'Rating', numeric: true },
+  { key: 'trend', label: 'Trend', numeric: true }
+]
+
+/** Where the reader sits, for the standing callout under the podium. */
+const myEntry = computed(
+  () => entries.value.find((e) => e.player_id === myProfile.value?.id) ?? null
+)
+
+function openPlayer(entry: RankingEntryDto) {
+  return navigateTo(`/players/${entry.player_id}`)
+}
 </script>
 
 <template>
-  <div class="min-h-screen bg-[#0B0D09] p-4 lg:p-6">
-    <!-- Header -->
-    <div class="mb-6">
-      <h1 class="text-2xl font-bold text-white">Rankings</h1>
-      <p class="mt-1 text-sm text-[#6B7B75]">The official rankings of pickleball players in the Philippines.</p>
-    </div>
+  <div class="page-shell relative px-4 py-6 lg:px-6">
+    <!-- Atmospheric arc behind the podium, from the reference design.
+         Decorative and token-based, so it flips with the theme. `z-0` with the
+         content at `z-10` rather than a negative index: `-z-10` put it behind
+         the page background entirely and it never showed. `overflow-clip`
+         stops the oversized ellipse widening the document. -->
+    <div class="dnl-podium-glow pointer-events-none absolute inset-x-0 top-0 z-0 h-[34rem]" aria-hidden="true" />
 
-    <!-- Filters Row -->
-    <div class="mb-6 flex flex-wrap items-center gap-3">
-      <!-- Rating Type Toggle -->
-      <div class="flex rounded-lg bg-[#1E2E2A] p-1">
-        <button
-          v-for="type in ['singles', 'doubles'] as const"
-          :key="type"
-          type="button"
-          class="rounded-md px-4 py-2 text-sm font-medium capitalize transition-colors"
-          :class="type === ratingType
-            ? 'bg-[#4DB175] text-white'
-            : 'text-[#6B7B75] hover:text-white'"
-          @click="ratingType = type"
-        >
-          {{ type }}
-        </button>
-      </div>
-
-      <!-- Province Filter -->
-      <select
-        v-model="province"
-        :disabled="loadingProvinces"
-        class="rounded-lg border border-[#3A5750] bg-[#1E2E2A] px-4 py-2 text-sm text-white focus:border-[#4DB175] focus:outline-none disabled:opacity-50"
-      >
-        <option value="">{{ loadingProvinces ? 'Loading...' : 'All Provinces' }}</option>
-        <option v-for="p in provinces" :key="p.code" :value="p.name">{{ p.name }}</option>
-      </select>
-
-      <!-- Search -->
-      <div class="relative flex-1 lg:max-w-xs">
-        <input
-          v-model="searchQuery"
-          type="search"
-          placeholder="Search players..."
-          class="w-full rounded-lg border border-[#3A5750] bg-[#1E2E2A] py-2 pl-10 pr-4 text-sm text-white placeholder-[#6B7B75] focus:border-[#4DB175] focus:outline-none"
-        />
-        <svg class="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#6B7B75]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-        </svg>
-      </div>
-    </div>
-
-    <!-- Loading -->
-    <div v-if="pending" class="space-y-4">
-      <div class="flex justify-center gap-4 py-8">
-        <div v-for="i in 3" :key="i" class="h-44 w-28 animate-pulse rounded-xl bg-[#1E2E2A]" />
-      </div>
-      <div class="h-64 animate-pulse rounded-xl bg-[#1E2E2A]" />
-    </div>
-
-    <!-- Error -->
-    <div v-else-if="error" class="rounded-xl bg-red-500/10 p-6 text-center">
-      <p class="text-red-400">Could not load rankings. Please try again.</p>
-      <button class="mt-4 rounded-lg bg-[#4DB175] px-4 py-2 text-white" @click="$router.go(0)">
-        Retry
-      </button>
-    </div>
-
-    <!-- Empty -->
-    <div v-else-if="!filteredRankings.length" class="rounded-xl bg-[#1E2E2A] p-12 text-center">
-      <p class="text-4xl">🏆</p>
-      <h3 class="mt-4 text-lg font-semibold text-white">
-        {{ searchQuery ? 'No players found' : 'No ranked players yet' }}
-      </h3>
-      <p class="mt-2 text-sm text-[#6B7B75]">
-        {{ searchQuery ? `No players match '${searchQuery}'` : `Be the first to get ranked in ${ratingType}!` }}
+    <header class="relative z-10 mb-6 text-center sm:text-left">
+      <h1 class="font-display text-heading-1 text-fg">Rankings</h1>
+      <p class="mt-1 text-body-2 text-fg-secondary">
+        The official rankings of pickleball players in the Philippines.
       </p>
-      <NuxtLink to="/matches/submit" class="mt-4 inline-block rounded-lg bg-[#4DB175] px-4 py-2 text-white">
-        Submit a Match
-      </NuxtLink>
-    </div>
+    </header>
 
-    <!-- Rankings Content -->
-    <div v-else class="space-y-6">
-      <!-- Podium (Top 3) -->
-      <div v-if="topThree.length >= 3" class="rounded-xl bg-[#1E2E2A] p-6">
-        <div class="mb-4 text-center">
-          <h2 class="text-lg font-bold text-white">
-            🏆 Top 3 {{ ratingType === 'singles' ? 'Singles' : 'Doubles' }}
-            <span v-if="province" class="text-[#4DB175]">in {{ province }}</span>
-            <span v-else class="text-[#6B7B75]">Nationwide</span>
-          </h2>
-        </div>
-        <div class="flex items-end justify-center gap-4">
-          <!-- 2nd Place -->
-          <NuxtLink
-            :to="`/players/${topThree[1].player_id}`"
-            class="flex flex-col items-center transition-transform hover:scale-105"
-          >
-            <div class="mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-[#2E4540] text-lg font-bold text-[#C0C0C0] ring-2 ring-[#C0C0C0]">
-              {{ topThree[1].display_name.charAt(0) }}
-            </div>
-            <p class="text-xs text-[#A6ABA7]">{{ topThree[1].display_name.split(' ')[0] }}</p>
-            <p class="text-xs text-[#6B7B75]">{{ Math.round(topThree[1].rating_value) }}</p>
-            <div class="mt-2 flex h-16 w-14 items-end justify-center rounded-t-lg bg-[#C0C0C0]/20">
-              <span class="mb-2 text-xl font-bold text-[#C0C0C0]">2</span>
-            </div>
-          </NuxtLink>
-
-          <!-- 1st Place -->
-          <NuxtLink
-            :to="`/players/${topThree[0].player_id}`"
-            class="flex flex-col items-center transition-transform hover:scale-105"
-          >
-            <div class="relative mb-2">
-              <span class="absolute -top-4 left-1/2 -translate-x-1/2 text-lg">👑</span>
-              <div class="flex h-14 w-14 items-center justify-center rounded-full bg-[#2E4540] text-xl font-bold text-[#F5A623] ring-2 ring-[#F5A623]">
-                {{ topThree[0].display_name.charAt(0) }}
-              </div>
-            </div>
-            <p class="text-sm text-[#A6ABA7]">{{ topThree[0].display_name.split(' ')[0] }}</p>
-            <p class="text-xs text-[#6B7B75]">{{ Math.round(topThree[0].rating_value) }}</p>
-            <div class="mt-2 flex h-24 w-16 items-end justify-center rounded-t-lg bg-[#F5A623]/20">
-              <span class="mb-2 text-2xl font-bold text-[#F5A623]">1</span>
-            </div>
-          </NuxtLink>
-
-          <!-- 3rd Place -->
-          <NuxtLink
-            :to="`/players/${topThree[2].player_id}`"
-            class="flex flex-col items-center transition-transform hover:scale-105"
-          >
-            <div class="mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-[#2E4540] text-sm font-bold text-[#CD7F32] ring-2 ring-[#CD7F32]">
-              {{ topThree[2].display_name.charAt(0) }}
-            </div>
-            <p class="text-xs text-[#A6ABA7]">{{ topThree[2].display_name.split(' ')[0] }}</p>
-            <p class="text-xs text-[#6B7B75]">{{ Math.round(topThree[2].rating_value) }}</p>
-            <div class="mt-2 flex h-12 w-14 items-end justify-center rounded-t-lg bg-[#CD7F32]/20">
-              <span class="mb-2 text-xl font-bold text-[#CD7F32]">3</span>
-            </div>
-          </NuxtLink>
-        </div>
-      </div>
-
-      <!-- Rankings Table -->
-      <div class="overflow-x-auto rounded-xl bg-[#1E2E2A]">
-        <table class="w-full text-left">
-          <thead>
-            <tr class="border-b border-[#3A5750]">
-              <th class="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-[#6B7B75]">#</th>
-              <th class="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-[#6B7B75]">Player</th>
-              <th class="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-[#6B7B75]">Location</th>
-              <th class="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-[#6B7B75]">Rating</th>
-              <th class="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-[#6B7B75]">Trend</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr
-              v-for="entry in (topThree.length >= 3 ? restOfRankings : filteredRankings)"
-              :key="entry.player_id"
-              class="border-b border-[#3A5750]/50 transition-colors hover:bg-[#2E4540]/30"
-            >
-              <td class="px-4 py-3">
-                <span class="text-sm text-[#6B7B75]">{{ entry.rank }}</span>
-              </td>
-              <td class="px-4 py-3">
-                <NuxtLink
-                  :to="`/players/${entry.player_id}`"
-                  class="text-sm font-medium text-white hover:text-[#4DB175]"
-                >
-                  {{ entry.display_name }}
-                </NuxtLink>
-              </td>
-              <td class="px-4 py-3 text-sm text-[#6B7B75]">
-                {{ entry.city || 'Unknown' }}
-              </td>
-              <td class="px-4 py-3">
-                <span class="text-sm font-semibold text-[#4DB175]">{{ Math.round(entry.rating_value) }}</span>
-              </td>
-              <td class="px-4 py-3">
-                <span class="inline-flex items-center gap-1 text-sm text-[#4DB175]">
-                  <svg class="h-3 w-3" fill="currentColor" viewBox="0 0 20 20">
-                    <path fill-rule="evenodd" d="M5.293 7.707a1 1 0 010-1.414l4-4a1 1 0 011.414 0l4 4a1 1 0 01-1.414 1.414L11 5.414V17a1 1 0 11-2 0V5.414L6.707 7.707a1 1 0 01-1.414 0z" clip-rule="evenodd" />
-                  </svg>
-                  {{ Math.floor(Math.random() * 20) }}
-                </span>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-
-        <!-- Pagination -->
-        <div class="flex items-center justify-center gap-2 border-t border-[#3A5750] px-4 py-3">
-          <button class="rounded-md px-3 py-1 text-sm text-[#6B7B75] hover:bg-[#2E4540]">&lt;</button>
-          <button class="rounded-md bg-[#4DB175] px-3 py-1 text-sm text-white">1</button>
-          <button class="rounded-md px-3 py-1 text-sm text-[#6B7B75] hover:bg-[#2E4540]">2</button>
-          <button class="rounded-md px-3 py-1 text-sm text-[#6B7B75] hover:bg-[#2E4540]">3</button>
-          <span class="text-[#6B7B75]">...</span>
-          <button class="rounded-md px-3 py-1 text-sm text-[#6B7B75] hover:bg-[#2E4540]">25</button>
-          <button class="rounded-md px-3 py-1 text-sm text-[#6B7B75] hover:bg-[#2E4540]">&gt;</button>
-        </div>
+    <div class="relative z-10 mb-6 flex flex-wrap items-end gap-3">
+      <UiSegmented
+        v-model="ratingType"
+        label="Rating type"
+        :items="[{ value: 'singles', label: 'Singles' }, { value: 'doubles', label: 'Doubles' }]"
+      />
+      <UiSelect
+        v-model="province"
+        aria-label="Province"
+        :options="provinceOptions"
+      />
+      <div class="min-w-[12rem] flex-1 lg:max-w-xs">
+        <UiInput
+          v-model="searchQuery"
+          label="Search players"
+          hide-label
+          type="search"
+          icon="search"
+          placeholder="Search players…"
+        />
       </div>
     </div>
+
+    <UiErrorState
+      v-if="error"
+      message="Could not load the rankings right now."
+      :detail="error.message"
+      @retry="refresh()"
+    />
+
+    <template v-else>
+      <section v-if="showPodium || pending" class="relative z-10 mb-12">
+        <h2 class="mb-6 text-center font-display text-heading-3 text-fg">
+          Top 3 {{ ratingType === 'singles' ? 'Singles' : 'Doubles' }}
+          <span class="text-fg-secondary">· {{ province || 'Nationwide' }}</span>
+        </h2>
+
+        <div v-if="pending" class="flex items-end justify-center gap-4">
+          <div class="mt-12 h-36 w-32 animate-pulse rounded-t-card bg-surface-2" />
+          <div class="h-52 w-36 animate-pulse rounded-t-card bg-surface-2" />
+          <div class="mt-20 h-28 w-32 animate-pulse rounded-t-card bg-surface-2" />
+        </div>
+        <UiPodium
+          v-else
+          :entries="podium"
+          :highlight-id="myProfile?.id ?? null"
+          @select="navigateTo(`/players/${$event.id}`)"
+        />
+
+        <!-- Standing callout, in the spirit of the reference's "you ranked N of
+             M users" pill — but built only from facts we hold: the reader's own
+             rank, the real total, and their movement. Hidden entirely when the
+             reader is not on this ladder, rather than inventing a placeholder. -->
+        <div v-if="myEntry" class="mt-8 flex justify-center">
+          <p class="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 rounded-pill border border-border bg-surface px-4 py-2 text-body-2 text-fg-secondary">
+            <span>You are</span>
+            <strong class="font-semibold text-fg">#{{ myEntry.rank }}</strong>
+            <span>of {{ total }} ranked {{ total === 1 ? 'player' : 'players' }}</span>
+            <span class="text-fg-muted">·</span>
+            <strong class="font-semibold tabular-nums text-fg">{{ formatRating(myEntry.rating_value) }}</strong>
+            <UiTrendIndicator
+              v-if="myEntry.trend_delta !== null"
+              :value="myEntry.trend_delta"
+              size="sm"
+              suffix="in the last 7 days"
+            />
+            <span v-else class="text-caption text-fg-muted">no rated match in the last 7 days</span>
+          </p>
+        </div>
+      </section>
+
+      <UiDataTable
+        :columns="columns"
+        :rows="tableRows"
+        :row-key="(row) => row.player_id"
+        :is-highlighted="isMe"
+        :loading="pending"
+        clickable-rows
+        caption="Player rankings by rating"
+        @row-click="openPlayer"
+      >
+        <template #cell-rank="{ row }">
+          <span
+            class="inline-flex h-7 min-w-[1.75rem] items-center justify-center rounded-button px-1.5 text-caption font-bold tabular-nums"
+            :class="row.rank <= 3 ? 'bg-primary-soft text-primary' : 'text-fg-muted'"
+          >{{ row.rank }}</span>
+        </template>
+
+        <!-- Two-line cell, as the reference does: name over a secondary line.
+             The reference uses an @handle; this platform has no usernames, so
+             the second line carries location, which is what players actually
+             use to place each other. -->
+        <template #cell-player="{ row }">
+          <span class="flex items-center gap-3">
+            <UiAvatar :name="row.display_name" size="md" :highlighted="isMe(row)" />
+            <span class="min-w-0">
+              <span class="flex items-center gap-1.5">
+                <span class="truncate font-medium text-fg">{{ row.display_name }}</span>
+                <span
+                  v-if="isMe(row)"
+                  class="shrink-0 rounded-pill bg-primary-soft px-1.5 py-0.5 text-caption font-medium text-primary"
+                >You</span>
+              </span>
+              <span class="block truncate text-caption text-fg-muted">
+                {{ row.city || row.province || 'Location not set' }}
+              </span>
+            </span>
+          </span>
+        </template>
+
+        <template #cell-matches="{ row }">
+          <span class="tabular-nums text-fg-secondary">{{ row.matches_played }}</span>
+        </template>
+
+        <template #cell-rating="{ row }">
+          <span class="inline-flex flex-col items-end">
+            <span class="font-semibold tabular-nums text-fg">{{ formatRating(row.rating_value) }}</span>
+            <span class="text-caption text-fg-muted">
+              {{ tierName(row.rating_value) }}<template v-if="row.provisional"> · provisional</template>
+            </span>
+          </span>
+        </template>
+
+        <!-- null means "no rated match in the window", which is not the same as
+             a zero delta and must not look like one. -->
+        <template #cell-trend="{ row }">
+          <UiTrendIndicator v-if="row.trend_delta !== null" :value="row.trend_delta" size="sm" />
+          <span v-else class="text-caption text-fg-muted" title="No rated match in the last 7 days">—</span>
+        </template>
+
+        <template #empty>
+          <UiEmptyState
+            v-if="debouncedSearch"
+            compact
+            icon="search"
+            title="No players match that search"
+            :message="`No player matches “${debouncedSearch}”.`"
+          />
+          <UiEmptyState
+            v-else
+            compact
+            icon="trophy"
+            title="No ranked players yet"
+            message="Ratings appear here once matches have been played and verified."
+            action-label="Submit a match"
+            action-to="/matches/submit"
+          />
+        </template>
+      </UiDataTable>
+
+      <nav
+        v-if="totalPages > 1"
+        class="mt-4 flex items-center justify-center gap-1"
+        aria-label="Rankings pages"
+      >
+        <UiButton
+          variant="ghost"
+          size="sm"
+          :disabled="page === 1"
+          aria-label="Previous page"
+          @click="page = Math.max(1, page - 1)"
+        >
+          <UiIcon name="chevron-left" size="h-4 w-4" />
+        </UiButton>
+
+        <template v-for="(n, i) in pageNumbers" :key="n">
+          <span v-if="i > 0 && n - pageNumbers[i - 1]! > 1" class="px-1 text-fg-muted">…</span>
+          <button
+            type="button"
+            class="min-w-[2rem] rounded-button px-2.5 py-1 text-body-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            :class="n === page ? 'bg-primary text-on-primary' : 'text-fg-secondary hover:bg-surface-2'"
+            :aria-current="n === page ? 'page' : undefined"
+            @click="page = n"
+          >{{ n }}</button>
+        </template>
+
+        <UiButton
+          variant="ghost"
+          size="sm"
+          :disabled="page === totalPages"
+          aria-label="Next page"
+          @click="page = Math.min(totalPages, page + 1)"
+        >
+          <UiIcon name="chevron-right" size="h-4 w-4" />
+        </UiButton>
+      </nav>
+
+      <p v-if="total" class="mt-3 text-center text-caption text-fg-muted">
+        {{ total }} ranked {{ total === 1 ? 'player' : 'players' }}
+        <template v-if="province"> in {{ province }}</template>
+        <template v-if="debouncedSearch"> matching “{{ debouncedSearch }}”</template>
+      </p>
+    </template>
   </div>
 </template>

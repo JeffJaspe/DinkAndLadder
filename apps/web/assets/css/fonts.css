@@ -1,0 +1,59 @@
+/* ---------------------------------------------------------------------------
+   Typefaces — Poppins (display) + Inter (body)
+   ---------------------------------------------------------------------------
+   Both were already named in `tailwind.config.ts` but never actually loaded, so
+   every screen fell back to system-ui and none of the mockup's typography was
+   rendering.
+
+   Self-hosted from `public/fonts` rather than linked from the Google CDN:
+     - no third-party request on the critical path of every page load,
+     - no dependency on an external host being reachable (the app must stay
+       portable off Vercel/Supabase per CLAUDE.md §2),
+     - no cross-origin font privacy surface.
+
+   Only the `latin` subsets are shipped — 64KB total. Inter is the variable
+   file, so one download covers 400/500/600/700; Poppins is only used at the two
+   heading weights the mockup specifies (600 SemiBold, 700 Bold).
+
+   `unicode-range` is deliberately omitted. With a single subset per family the
+   browser already falls back per glyph for anything the file lacks (emoji, CJK),
+   which is the behaviour we want, and a hand-written range risks excluding a
+   character the UI actually uses — the ↑ / ↓ trend arrows, for instance.
+
+   `font-display: swap` renders text immediately in the fallback and swaps when
+   the file arrives: a flash of unstyled text, never a flash of invisible text.
+--------------------------------------------------------------------------- */
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 100 900; /* variable */
+  font-display: swap;
+  src: url('/fonts/inter-latin-var.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Poppins';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/poppins-600-latin.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Poppins';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/poppins-700-latin.woff2') format('woff2');
+}
+
+/* Headings use the display face; everything else inherits Inter from `body`.
+   Scoped to the elements rather than set via a utility class so prose written
+   anywhere in the app picks it up without remembering to opt in. */
+h1,
+h2,
+h3,
+.font-display {
+  font-family: 'Poppins', 'Inter', system-ui, sans-serif;
+}

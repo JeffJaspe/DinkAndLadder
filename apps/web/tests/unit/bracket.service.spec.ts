@@ -16,6 +16,7 @@ function createFakeBracketRepository(overrides?: Partial<BracketRepository>): Br
     findByTournamentId: vi.fn().mockResolvedValue([]),
     createMany: vi.fn().mockResolvedValue([]),
     update: vi.fn(),
+    setParticipant: vi.fn().mockResolvedValue(null),
     deleteByTournamentId: vi.fn().mockResolvedValue(undefined),
     ...overrides
   }
@@ -39,6 +40,7 @@ function createFakeRegistrationRepository(
     findById: vi.fn().mockResolvedValue(null),
     findByTournamentAndPlayer: vi.fn().mockResolvedValue(null),
     findByTournamentId: vi.fn().mockResolvedValue([]),
+    findByTournamentIdWithPlayers: vi.fn().mockResolvedValue([]),
     create: vi.fn(),
     updateStatus: vi.fn(),
     countByTournament: vi.fn().mockResolvedValue(0),
@@ -53,6 +55,10 @@ function createFakeEventRepository(overrides?: Partial<EventRepository>): EventR
     update: vi.fn(),
     updateStatus: vi.fn(),
     search: vi.fn().mockResolvedValue([]),
+    // Added to EventRepository alongside cascade delete; the fakes were never
+    // updated, which broke `vue-tsc` for every spec that builds one.
+    countBlockingChildren: vi.fn().mockResolvedValue({ registrations: 0, matches: 0, queueEntries: 0 }),
+    deleteWithChildren: vi.fn().mockResolvedValue(undefined),
     ...overrides
   }
 }
@@ -201,7 +207,7 @@ describe('BracketService', () => {
       const createdMatches: BracketMatchRecord[] = []
       const bracketRepo = createFakeBracketRepository({
         createMany: vi.fn().mockImplementation((matches) => {
-          const created = matches.map((m: any, i: number) => ({
+          const created = matches.map((m: BracketMatchRecord, i: number) => ({
             ...m,
             id: `bm-${i + 1}`,
             created_at: '2026-08-01T00:00:00Z'
@@ -229,6 +235,76 @@ describe('BracketService', () => {
       expect(result.rounds[0].matches).toHaveLength(2)
       expect(result.rounds[1].matches).toHaveLength(1)
     })
+
+    // Regression: non-power-of-two entrant counts used to emit a phantom
+    // first-round slot with both participants null, status 'bye' and a null
+    // winner — a match that advanced nobody.
+    it.each([
+      [3, 4, 1],
+      [5, 8, 3],
+      [6, 8, 2],
+      [7, 8, 1]
+    ])(
+      'seeds %i entrants into a %i-slot bracket with %i byes and no empty slots',
+      async (entrantCount, bracketSize, expectedByes) => {
+        const event = makeEventRecord()
+        const tournament = makeTournamentRecord({ status: 'open' })
+        const registrations = Array.from({ length: entrantCount }, (_, i) =>
+          makeRegistrationRecord(`reg-${i + 1}`, `player-${i + 1}`)
+        )
+
+        let inserted: BracketMatchRecord[] = []
+        const bracketRepo = createFakeBracketRepository({
+          createMany: vi.fn().mockImplementation((matches) => {
+            inserted = matches
+            return Promise.resolve(
+              matches.map((m: BracketMatchRecord, i: number) => ({
+                ...m,
+                id: `bm-${i + 1}`,
+                created_at: '2026-08-01T00:00:00Z'
+              }))
+            )
+          }),
+          deleteByTournamentId: vi.fn().mockResolvedValue(undefined)
+        })
+        const service = createBracketService(
+          bracketRepo,
+          createFakeTournamentRepository({ findById: vi.fn().mockResolvedValue(tournament) }),
+          createFakeRegistrationRepository({
+            findByTournamentId: vi.fn().mockResolvedValue(registrations)
+          }),
+          createFakeEventRepository({ findById: vi.fn().mockResolvedValue(event) })
+        )
+
+        await service.generateBracket('player-1', 'tournament-1')
+
+        const firstRound = inserted.filter((m) => m.round === 1)
+
+        expect(firstRound).toHaveLength(bracketSize / 2)
+        expect(firstRound.filter((m) => m.status === 'bye')).toHaveLength(expectedByes)
+
+        for (const match of firstRound) {
+          expect(
+            match.participant1_registration_id,
+            'no first-round slot may be entirely empty'
+          ).not.toBeNull()
+        }
+
+        for (const bye of firstRound.filter((m) => m.status === 'bye')) {
+          expect(bye.participant2_registration_id).toBeNull()
+          expect(bye.winner_registration_id, 'a bye must advance its entrant').toBe(
+            bye.participant1_registration_id
+          )
+        }
+
+        // Every entrant appears exactly once in round one.
+        const seeded = firstRound.flatMap((m) =>
+          [m.participant1_registration_id, m.participant2_registration_id].filter(Boolean)
+        )
+        expect(new Set(seeded).size).toBe(entrantCount)
+        expect(seeded).toHaveLength(entrantCount)
+      }
+    )
 
     it('throws when not the organizer', async () => {
       const event = makeEventRecord({ created_by_player_id: 'other-player' })
@@ -525,6 +601,193 @@ describe('BracketService', () => {
       await expect(
         service.updateBracketMatch('player-1', 'bracket-match-1', { status: 'completed' })
       ).rejects.toThrow(BracketServiceError)
+    })
+  })
+
+  describe('winner advancement', () => {
+    // Before this existed, an organiser could record every round-one result and
+    // round two stayed empty — the tournament could not progress past round one.
+    function setup(options: {
+      match: BracketMatchRecord
+      siblings: BracketMatchRecord[]
+      format?: TournamentRecord['format']
+    }) {
+      const updated = {
+        ...options.match,
+        winner_registration_id: options.match.participant1_registration_id,
+        status: 'completed' as const
+      }
+      const setParticipant = vi.fn().mockResolvedValue(updated)
+      const bracketRepo = createFakeBracketRepository({
+        findById: vi.fn().mockResolvedValue(options.match),
+        update: vi.fn().mockResolvedValue(updated),
+        findByTournamentId: vi.fn().mockResolvedValue(options.siblings),
+        setParticipant
+      })
+      const service = createBracketService(
+        bracketRepo,
+        createFakeTournamentRepository({
+          findById: vi
+            .fn()
+            .mockResolvedValue(makeTournamentRecord({ format: options.format ?? 'single_elimination' }))
+        }),
+        createFakeRegistrationRepository(),
+        createFakeEventRepository({ findById: vi.fn().mockResolvedValue(makeEventRecord()) })
+      )
+      return { service, setParticipant, winner: updated.winner_registration_id }
+    }
+
+    it('promotes the winner of position 1 into slot 1 of the next round', async () => {
+      const match = makeBracketMatchRecord({ id: 'bm-1', round: 1, position: 1 })
+      const next = makeBracketMatchRecord({
+        id: 'bm-next',
+        round: 2,
+        position: 1,
+        participant1_registration_id: null,
+        participant2_registration_id: null,
+        status: 'pending'
+      })
+      const { service, setParticipant, winner } = setup({ match, siblings: [match, next] })
+
+      await service.updateBracketMatch('player-1', 'bm-1', {
+        winner_registration_id: 'reg-1',
+        status: 'completed'
+      })
+
+      expect(setParticipant).toHaveBeenCalledWith('bm-next', 1, winner, 'pending')
+    })
+
+    it('promotes the winner of position 2 into slot 2 of the same next match', async () => {
+      const match = makeBracketMatchRecord({
+        id: 'bm-2',
+        round: 1,
+        position: 2,
+        participant1_registration_id: 'reg-3',
+        participant2_registration_id: 'reg-4'
+      })
+      const next = makeBracketMatchRecord({
+        id: 'bm-next',
+        round: 2,
+        position: 1,
+        participant1_registration_id: 'reg-1',
+        participant2_registration_id: null,
+        status: 'pending'
+      })
+      const { service, setParticipant } = setup({ match, siblings: [match, next] })
+
+      await service.updateBracketMatch('player-1', 'bm-2', {
+        winner_registration_id: 'reg-3',
+        status: 'completed'
+      })
+
+      // Slot 1 is already taken, so the match becomes playable.
+      expect(setParticipant).toHaveBeenCalledWith('bm-next', 2, 'reg-3', 'ready')
+    })
+
+    it('does nothing after the final, which has no next round', async () => {
+      const final = makeBracketMatchRecord({ id: 'bm-final', round: 3, position: 1 })
+      const { service, setParticipant } = setup({ match: final, siblings: [final] })
+
+      await service.updateBracketMatch('player-1', 'bm-final', {
+        winner_registration_id: 'reg-1',
+        status: 'completed'
+      })
+
+      expect(setParticipant).not.toHaveBeenCalled()
+    })
+
+    it('does not advance in round robin, where every fixture is drawn up front', async () => {
+      const match = makeBracketMatchRecord({ id: 'bm-1', round: 1, position: 1 })
+      const next = makeBracketMatchRecord({ id: 'bm-next', round: 2, position: 1 })
+      const { service, setParticipant } = setup({
+        match,
+        siblings: [match, next],
+        format: 'round_robin'
+      })
+
+      await service.updateBracketMatch('player-1', 'bm-1', {
+        winner_registration_id: 'reg-1',
+        status: 'completed'
+      })
+
+      expect(setParticipant).not.toHaveBeenCalled()
+    })
+
+    it('leaves the losers bracket alone, since its routing is not implemented', async () => {
+      const match = makeBracketMatchRecord({ id: 'bm-l1', round: 101, position: 1 })
+      const next = makeBracketMatchRecord({ id: 'bm-l2', round: 102, position: 1 })
+      const { service, setParticipant } = setup({
+        match,
+        siblings: [match, next],
+        format: 'double_elimination'
+      })
+
+      await service.updateBracketMatch('player-1', 'bm-l1', {
+        winner_registration_id: 'reg-1',
+        status: 'completed'
+      })
+
+      expect(setParticipant).not.toHaveBeenCalled()
+    })
+
+    it('rejects a winner who did not play the match', async () => {
+      const match = makeBracketMatchRecord({ id: 'bm-1' }) // reg-1 vs reg-2
+      const { service } = setup({ match, siblings: [match] })
+
+      await expect(
+        service.updateBracketMatch('player-1', 'bm-1', {
+          winner_registration_id: 'reg-999',
+          status: 'completed'
+        })
+      ).rejects.toThrow(/must be one of the two participants/)
+    })
+  })
+
+  describe('bye propagation at generation time', () => {
+    it('places first-round bye winners into round two', async () => {
+      // 5 entrants → 8-slot bracket → 3 byes. Those three must already occupy
+      // round-two slots, or nothing would ever fill them.
+      const registrations = Array.from({ length: 5 }, (_, i) =>
+        makeRegistrationRecord(`reg-${i + 1}`, `player-${i + 1}`)
+      )
+
+      let inserted: BracketMatchRecord[] = []
+      const bracketRepo = createFakeBracketRepository({
+        createMany: vi.fn().mockImplementation((matches) => {
+          inserted = matches
+          return Promise.resolve(
+            matches.map((m: BracketMatchRecord, i: number) => ({ ...m, id: `bm-${i + 1}`, created_at: 'x' }))
+          )
+        }),
+        deleteByTournamentId: vi.fn().mockResolvedValue(undefined)
+      })
+
+      const service = createBracketService(
+        bracketRepo,
+        createFakeTournamentRepository({
+          findById: vi.fn().mockResolvedValue(makeTournamentRecord({ status: 'open' }))
+        }),
+        createFakeRegistrationRepository({
+          findByTournamentId: vi.fn().mockResolvedValue(registrations)
+        }),
+        createFakeEventRepository({ findById: vi.fn().mockResolvedValue(makeEventRecord()) })
+      )
+
+      await service.generateBracket('player-1', 'tournament-1')
+
+      const byeWinners = inserted
+        .filter((m) => m.round === 1 && m.status === 'bye')
+        .map((m) => m.winner_registration_id)
+      expect(byeWinners).toHaveLength(3)
+
+      const roundTwoOccupants = inserted
+        .filter((m) => m.round === 2)
+        .flatMap((m) => [m.participant1_registration_id, m.participant2_registration_id])
+        .filter(Boolean)
+
+      for (const winner of byeWinners) {
+        expect(roundTwoOccupants, `bye winner ${winner} never reached round two`).toContain(winner)
+      }
     })
   })
 })

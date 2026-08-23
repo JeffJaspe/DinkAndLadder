@@ -1,4 +1,6 @@
 <script setup lang="ts">
+useHead({ title: 'Sign up' })
+
 const supabase = useSupabaseClient()
 const { public: publicConfig } = useRuntimeConfig()
 const email = ref('')
@@ -73,27 +75,27 @@ async function handleGoogleSignUp() {
 </script>
 
 <template>
-  <div class="flex min-h-screen items-center justify-center bg-[#0B0D09] px-4 py-12">
+  <div class="flex min-h-screen items-center justify-center bg-canvas px-4 py-12">
     <UiToast :message="errorMessage" :variant="errorVariant" @close="errorMessage = ''" />
     <div class="w-full max-w-md">
       <!-- Logo -->
       <div class="mb-8 text-center">
         <NuxtLink to="/" class="inline-flex items-center gap-2">
-          <div class="flex h-12 w-12 items-center justify-center rounded-xl bg-[#4DB175] text-xl font-bold text-white">
+          <div class="flex h-12 w-12 items-center justify-center rounded-xl bg-primary text-xl font-bold text-on-primary">
             D
           </div>
         </NuxtLink>
-        <h1 class="mt-4 text-2xl font-bold text-white">Create your account</h1>
-        <p class="mt-2 text-[#6B7B75]">Start tracking your pickleball journey</p>
+        <h1 class="mt-4 text-2xl font-bold text-fg">Create your account</h1>
+        <p class="mt-2 text-fg-muted">Start tracking your pickleball journey</p>
       </div>
 
       <!-- Card -->
-      <div class="rounded-xl bg-[#1E2E2A] p-6">
+      <div class="rounded-xl bg-surface p-6">
         <!-- Google OAuth -->
         <button
           type="button"
           :disabled="googleLoading"
-          class="flex w-full items-center justify-center gap-3 rounded-lg border border-[#3A5750] bg-[#0B0D09] px-4 py-3 font-medium text-white transition-colors hover:bg-[#2E4540] disabled:opacity-50"
+          class="flex w-full items-center justify-center gap-3 rounded-lg border border-border-strong bg-canvas px-4 py-3 font-medium text-fg transition-colors hover:bg-surface-2 disabled:opacity-50"
           @click="handleGoogleSignUp"
         >
           <svg class="h-5 w-5" viewBox="0 0 24 24">
@@ -107,15 +109,15 @@ async function handleGoogleSignUp() {
 
         <!-- Divider -->
         <div class="my-6 flex items-center gap-3">
-          <hr class="flex-1 border-[#3A5750]" />
-          <span class="text-sm text-[#6B7B75]">or</span>
-          <hr class="flex-1 border-[#3A5750]" />
+          <hr class="flex-1 border-border-strong" />
+          <span class="text-sm text-fg-muted">or</span>
+          <hr class="flex-1 border-border-strong" />
         </div>
 
         <!-- Form -->
         <form class="space-y-4" @submit.prevent="handleRegister">
           <div>
-            <label for="register-email" class="mb-1.5 block text-sm font-medium text-[#A6ABA7]">Email</label>
+            <label for="register-email" class="mb-1.5 block text-sm font-medium text-fg-secondary">Email</label>
             <input
               id="register-email"
               v-model="email"
@@ -123,12 +125,12 @@ async function handleGoogleSignUp() {
               required
               autocomplete="email"
               placeholder="you@example.com"
-              class="w-full rounded-lg border border-[#3A5750] bg-[#0B0D09] px-4 py-2.5 text-white placeholder-[#6B7B75] focus:border-[#4DB175] focus:outline-none focus:ring-1 focus:ring-[#4DB175]"
+              class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
             />
           </div>
 
           <div>
-            <label for="register-password" class="mb-1.5 block text-sm font-medium text-[#A6ABA7]">Password</label>
+            <label for="register-password" class="mb-1.5 block text-sm font-medium text-fg-secondary">Password</label>
             <input
               id="register-password"
               v-model="password"
@@ -137,9 +139,9 @@ async function handleGoogleSignUp() {
               autocomplete="new-password"
               minlength="8"
               placeholder="Create a password"
-              class="w-full rounded-lg border border-[#3A5750] bg-[#0B0D09] px-4 py-2.5 text-white placeholder-[#6B7B75] focus:border-[#4DB175] focus:outline-none focus:ring-1 focus:ring-[#4DB175]"
+              class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
             />
-            <p class="mt-1.5 text-xs text-[#6B7B75]">Minimum 8 characters</p>
+            <p class="mt-1.5 text-xs text-fg-muted">Minimum 8 characters</p>
           </div>
 
           <TurnstileWidget
@@ -154,22 +156,22 @@ async function handleGoogleSignUp() {
           <button
             type="submit"
             :disabled="loading || (!!publicConfig.turnstileSiteKey && !turnstileToken)"
-            class="w-full rounded-lg bg-[#4DB175] py-3 font-semibold text-white transition-colors hover:bg-[#5FC287] disabled:opacity-50"
+            class="w-full rounded-lg bg-primary py-3 font-semibold text-on-primary transition-colors hover:bg-primary-hover disabled:opacity-50"
           >
             {{ loading ? 'Creating account…' : 'Register' }}
           </button>
         </form>
 
         <!-- Terms -->
-        <p class="mt-4 text-center text-xs text-[#6B7B75]">
+        <p class="mt-4 text-center text-xs text-fg-muted">
           By signing up, you agree to our Terms of Service and Privacy Policy.
         </p>
       </div>
 
       <!-- Login link -->
-      <p class="mt-6 text-center text-sm text-[#6B7B75]">
+      <p class="mt-6 text-center text-sm text-fg-muted">
         Already have an account?
-        <NuxtLink to="/login" class="font-medium text-[#4DB175] hover:text-[#5FC287]">
+        <NuxtLink to="/login" class="font-medium text-primary hover:text-primary-hover">
           Log in
         </NuxtLink>
       </p>

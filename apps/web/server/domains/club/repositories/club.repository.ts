@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { escapeLikePattern } from '../../shared/escape-like'
 import type { ClubRecord, ClubSearchQuery, ClubVerificationStatus, CreateClubInput } from '../dto/club.dto'
 
 const CLUB_COLUMNS =
@@ -89,7 +90,7 @@ export function createClubRepository(client: SupabaseClient): ClubRepository {
         .eq('status', 'active')
 
       if (query.q) {
-        builder = builder.ilike('name', `%${query.q}%`)
+        builder = builder.ilike('name', `%${escapeLikePattern(query.q)}%`)
       }
       if (query.province) {
         builder = builder.eq('province', query.province)

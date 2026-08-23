@@ -135,20 +135,24 @@ export function useLocationPicker() {
     }
   }
 
-  function selectProvince(code: string) {
+  // These return the in-flight load so callers can await the dependent list
+  // before reading it. Without that, prefilling a saved location had to guess
+  // with setTimeout, and a slow PSGC response left the selects empty — which
+  // then let a plain Save overwrite the stored city/barangay with null.
+  function selectProvince(code: string): Promise<void> {
     selectedProvince.value = code
     selectedCity.value = ''
     selectedBarangay.value = ''
     cities.value = []
     barangays.value = []
-    if (code) loadCities(code)
+    return code ? loadCities(code) : Promise.resolve()
   }
 
-  function selectCity(code: string) {
+  function selectCity(code: string): Promise<void> {
     selectedCity.value = code
     selectedBarangay.value = ''
     barangays.value = []
-    if (code) loadBarangays(code)
+    return code ? loadBarangays(code) : Promise.resolve()
   }
 
   function selectBarangay(code: string) {

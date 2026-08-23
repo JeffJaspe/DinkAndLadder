@@ -82,3 +82,17 @@ export function toTournamentCategoryTemplateDto(
     display_order: record.display_order
   }
 }
+
+/**
+ * Fields an organiser may change on an existing category. Deliberately narrower
+ * than CreateTournamentCategoryInput: tournament_id, template_id and
+ * category_type identify the row's origin and must not be rewritten.
+ */
+export interface UpdateTournamentCategoryInput {
+  name?: string
+  min_rating?: number | null
+  max_rating?: number | null
+  max_participants?: number | null
+  display_order?: number
+  status?: TournamentCategoryStatus
+}

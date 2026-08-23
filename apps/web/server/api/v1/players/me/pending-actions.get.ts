@@ -26,7 +26,12 @@ export default defineEventHandler(async (event) => {
     throw apiError(500, 'INTERNAL_ERROR', 'Could not load your pending actions.')
   }
 
-  const pendingVerifications = (verificationRows ?? []).map((r: any) => ({
+  interface VerificationJoinRow {
+    match_id: string
+    matches?: { match_type?: string; played_at?: string } | null
+  }
+
+  const pendingVerifications = ((verificationRows ?? []) as unknown as VerificationJoinRow[]).map((r) => ({
     type: 'match_verification' as const,
     match_id: r.match_id,
     match_type: r.matches?.match_type,

@@ -99,6 +99,41 @@ filters later straightforward — a new optional field, not a redesign.
 ADR-004 — Tournament/Bracket Rules
 Status: FUTURE
 
+ADR-005 — Out-of-MVP Surface Is Quarantined, Not Hardened
+Status: ACCEPTED (2026-08-22)
+
+Context:
+A full-codebase audit found 37 defects. Nine of them — forgeable webhook secrets,
+payment events silently discarded, a test-mode signature accepted in place of a
+live one, a public API that 401s on every request, unenforced API-key scopes —
+were all in the Payments and Public API surface. `/docs/03-MVP-SCOPE.md` lists
+both under "Explicitly Out of MVP", and CLAUDE.md §6 forbids implementing them
+before the backlog promotes them.
+
+Decision:
+Remove the out-of-scope surface rather than harden it.
+- Stripe and PayMongo webhook handlers return 501. They previously returned 200
+  after logging, so providers marked events delivered and never retried; 501
+  keeps events queued upstream until the domain is actually built.
+- `/api/public/**`, the API-key middleware, and the api-keys and webhooks
+  endpoints are deleted.
+- `apikey.service.ts` and `apikey.repository.ts` are KEPT, unwired. They are the
+  correct implementation (randomBytes secrets, ownership checks, DTO mapping).
+  The insecure duplicate in `webhook.service.ts` — which is what the endpoints
+  actually imported — is the one that was deleted.
+- No tables were dropped. `api_keys`, `webhook_subscriptions`,
+  `webhook_deliveries` and the 013-payment tables remain, unused and
+  RLS-protected, per CLAUDE.md §3 on avoiding destructive migrations.
+
+Consequences:
+Promoting Payments or the Public API means writing the handlers against the
+retained domain code — not restoring the deleted endpoints. Note that
+`webhook_deliveries` does not have the `status`, `attempts` or `response_code`
+columns the deleted code assumed; it has `status_code`. Any future delivery
+logging needs a forward-only changeset first.
+
+Do not re-add these endpoints without a backlog item that promotes them.
+
 ## ADR Rule
 
 Do not silently turn an OPEN ADR into an assumed permanent business rule.

@@ -40,13 +40,35 @@ export default defineEventHandler(async (event) => {
     province: typeof rawQuery.province === 'string' ? rawQuery.province : undefined,
     city: typeof rawQuery.city === 'string' ? rawQuery.city : undefined,
     barangay: typeof rawQuery.barangay === 'string' ? rawQuery.barangay : undefined,
+    q: typeof rawQuery.q === 'string' && rawQuery.q.trim() ? rawQuery.q.trim() : undefined,
     limit,
     offset
   }
 
   const client = await serverSupabaseClient(event)
   const service = createRankingService(createRankingRepository(client))
-  const data = await service.getRankings(query)
 
-  return { data, meta: { rating_type: query.rating_type, limit, offset, count: data.length } }
+  try {
+    const page = await service.getRankings(query)
+    // `data` keeps the same shape every existing caller reads. `meta.total` is
+    // new and is what lets the UI build real pagination instead of a fixed row
+    // of buttons.
+    return {
+      data: page.data,
+      meta: {
+        rating_type: query.rating_type,
+        limit,
+        offset,
+        count: page.data.length,
+        total: page.total
+      }
+    }
+  } catch (err) {
+    // Without this the raw error escaped as an unhandled 500, and because
+    // community.vue awaits this in setup that killed the whole page render — a
+    // transient database hiccup produced a blank screen instead of an empty
+    // rankings table.
+    console.error('[GET /api/v1/rankings] getRankings failed:', err)
+    throw apiError(500, 'INTERNAL_ERROR', 'Could not load rankings right now.')
+  }
 })

@@ -3,6 +3,10 @@ import {
   serverSupabaseUser
 } from '#supabase/server'
 import { apiError } from '~/server/utils/api-error'
+import {
+  singlesRatingOf,
+  type PlayerProfileJoinRow
+} from '~/server/domains/player/dto/player-join-row.dto'
 
 export default defineEventHandler(async (event) => {
   const eventId = getRouterParam(event, 'eventId')
@@ -11,7 +15,7 @@ export default defineEventHandler(async (event) => {
   }
 
   const userClient = await serverSupabaseClient(event)
-  const claims = await serverSupabaseUser(event)
+  const _claims = await serverSupabaseUser(event)
 
   const { data: eventData, error: eventError } = await userClient
     .from('events')
@@ -50,11 +54,19 @@ export default defineEventHandler(async (event) => {
     throw apiError(500, 'INTERNAL_ERROR', 'Could not load registrations.')
   }
 
-  const mapped = (registrations ?? []).map((r: any) => {
+  interface RegistrationJoinRow {
+    id: string
+    event_id: string
+    player_id: string
+    status: string
+    registered_at: string
+    checked_in_at: string | null
+    player_profiles?: PlayerProfileJoinRow | null
+  }
+
+  const mapped = ((registrations ?? []) as unknown as RegistrationJoinRow[]).map((r) => {
     const profile = r.player_profiles
-    const singlesRating = profile?.player_ratings?.find(
-      (pr: any) => pr.rating_type === 'singles'
-    )?.rating_value
+    const singlesRating = singlesRatingOf(profile)
 
     return {
       id: r.id,

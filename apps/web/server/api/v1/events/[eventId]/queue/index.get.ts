@@ -1,5 +1,9 @@
 import { serverSupabaseClient } from '#supabase/server'
 import { apiError } from '~/server/utils/api-error'
+import {
+  singlesRatingOf,
+  type PlayerProfileJoinRow
+} from '~/server/domains/player/dto/player-join-row.dto'
 
 export default defineEventHandler(async (event) => {
   const eventId = getRouterParam(event, 'eventId')
@@ -40,15 +44,29 @@ export default defineEventHandler(async (event) => {
     throw apiError(500, 'INTERNAL_ERROR', 'Could not load the queue.')
   }
 
-  function toPlayerSummary(profile: any) {
-    if (!profile) return undefined
-    const singlesRating = profile.player_ratings?.find(
-      (pr: any) => pr.rating_type === 'singles'
-    )?.rating_value
-    return { id: profile.id, display_name: profile.display_name, rating: singlesRating ?? null }
+  interface QueueJoinRow {
+    id: string
+    event_id: string
+    player_id: string
+    match_type: string
+    partner_id: string | null
+    joined_at: string
+    status: string
+    court_number: number | null
+    player?: PlayerProfileJoinRow | null
+    partner?: PlayerProfileJoinRow | null
   }
 
-  const mapped = (rows ?? []).map((r: any) => ({
+  function toPlayerSummary(profile?: PlayerProfileJoinRow | null) {
+    if (!profile) return undefined
+    return {
+      id: profile.id,
+      display_name: profile.display_name,
+      rating: singlesRatingOf(profile)
+    }
+  }
+
+  const mapped = ((rows ?? []) as unknown as QueueJoinRow[]).map((r) => ({
     id: r.id,
     event_id: r.event_id,
     player_id: r.player_id,

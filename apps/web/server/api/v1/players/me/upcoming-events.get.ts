@@ -42,9 +42,14 @@ export default defineEventHandler(async (event) => {
     throw apiError(500, 'INTERNAL_ERROR', 'Could not load your upcoming events.')
   }
 
-  const mapped = (data ?? [])
-    .filter((r: any) => r.events)
-    .map((r: any) => ({
+  interface RegistrationEventRow {
+    status: string
+    events?: Record<string, unknown> | null
+  }
+
+  const mapped = ((data ?? []) as unknown as RegistrationEventRow[])
+    .filter((r) => r.events)
+    .map((r) => ({
       event: r.events,
       registration_status: r.status
     }))

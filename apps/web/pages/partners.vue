@@ -1,4 +1,6 @@
 <script setup lang="ts">
+useHead({ title: 'Partners' })
+
 interface PartnerDto {
   player_id: string
   display_name: string
@@ -96,30 +98,30 @@ function formatDate(dateStr: string) {
 </script>
 
 <template>
-  <div class="min-h-screen bg-[#0B0D09] p-4 lg:p-6">
-    <div class="mx-auto max-w-2xl">
-      <h1 class="text-2xl font-bold text-white">Duo Partners</h1>
-      <p class="mt-1 text-sm text-[#6B7B75]">Manage your doubles partners for events</p>
+  <div class="min-h-screen bg-canvas p-4 lg:p-6">
+    <div class="page-shell">
+      <h1 class="text-2xl font-bold text-fg">Duo Partners</h1>
+      <p class="mt-1 text-sm text-fg-muted">Manage your doubles partners for events</p>
 
       <!-- Tabs -->
-      <div class="my-6 flex gap-1 rounded-xl bg-[#1E2E2A] p-1">
+      <div class="my-6 flex gap-1 rounded-xl bg-surface p-1">
         <button
           class="flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-colors"
-          :class="activeTab === 'partners' ? 'bg-[#4DB175] text-white' : 'text-[#6B7B75] hover:text-white'"
+          :class="activeTab === 'partners' ? 'bg-primary text-on-primary' : 'text-fg-muted hover:text-on-primary'"
           @click="activeTab = 'partners'"
         >
           My Duo Partners ({{ partners.length }})
         </button>
         <button
           class="flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-colors"
-          :class="activeTab === 'incoming' ? 'bg-[#4DB175] text-white' : 'text-[#6B7B75] hover:text-white'"
+          :class="activeTab === 'incoming' ? 'bg-primary text-on-primary' : 'text-fg-muted hover:text-on-primary'"
           @click="activeTab = 'incoming'"
         >
           Incoming ({{ incomingRequests.length }})
         </button>
         <button
           class="flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-colors"
-          :class="activeTab === 'outgoing' ? 'bg-[#4DB175] text-white' : 'text-[#6B7B75] hover:text-white'"
+          :class="activeTab === 'outgoing' ? 'bg-primary text-on-primary' : 'text-fg-muted hover:text-on-primary'"
           @click="activeTab = 'outgoing'"
         >
           Outgoing ({{ outgoingRequests.length }})
@@ -129,17 +131,17 @@ function formatDate(dateStr: string) {
       <!-- Partners Tab -->
       <div v-if="activeTab === 'partners'">
         <div v-if="partnersPending" class="flex justify-center py-12">
-          <div class="h-8 w-8 animate-spin rounded-full border-4 border-[#4DB175] border-t-transparent" />
+          <div class="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
         </div>
 
-        <div v-else-if="partners.length === 0" class="rounded-xl bg-[#1E2E2A] p-8 text-center">
-          <p class="text-[#6B7B75]">No duo partners yet.</p>
-          <p class="mt-2 text-sm text-[#6B7B75]">
+        <div v-else-if="partners.length === 0" class="rounded-xl bg-surface p-8 text-center">
+          <p class="text-fg-muted">No duo partners yet.</p>
+          <p class="mt-2 text-sm text-fg-muted">
             Find players and send them a duo partner request to play doubles events together.
           </p>
           <NuxtLink
             to="/players"
-            class="mt-4 inline-block rounded-lg bg-[#4DB175] px-6 py-2 text-sm font-medium text-white hover:bg-[#5FC287]"
+            class="mt-4 inline-block rounded-lg bg-primary px-6 py-2 text-sm font-medium text-on-primary hover:bg-primary-hover"
           >
             Find Players
           </NuxtLink>
@@ -149,15 +151,15 @@ function formatDate(dateStr: string) {
           <div
             v-for="partner in partners"
             :key="partner.player_id"
-            class="flex items-center justify-between rounded-xl bg-[#1E2E2A] p-4"
+            class="flex items-center justify-between rounded-xl bg-surface p-4"
           >
             <NuxtLink :to="`/players/${partner.player_id}`" class="flex items-center gap-3">
-              <div class="flex h-12 w-12 items-center justify-center rounded-full bg-[#2E4540] text-lg font-bold text-[#A6ABA7]">
+              <div class="flex h-12 w-12 items-center justify-center rounded-full bg-surface-2 text-lg font-bold text-fg-secondary">
                 {{ partner.display_name.charAt(0).toUpperCase() }}
               </div>
               <div>
-                <p class="font-medium text-white hover:text-[#4DB175]">{{ partner.display_name }}</p>
-                <p class="text-sm text-[#6B7B75]">
+                <p class="font-medium text-fg hover:text-primary">{{ partner.display_name }}</p>
+                <p class="text-sm text-fg-muted">
                   <span v-if="partner.doubles_rating">{{ partner.doubles_rating.toFixed(2) }} doubles</span>
                   <span v-else-if="partner.singles_rating">{{ partner.singles_rating.toFixed(2) }} singles</span>
                   <span v-else>Unrated</span>
@@ -179,24 +181,24 @@ function formatDate(dateStr: string) {
 
       <!-- Incoming Requests Tab -->
       <div v-else-if="activeTab === 'incoming'">
-        <div v-if="incomingRequests.length === 0" class="rounded-xl bg-[#1E2E2A] p-8 text-center">
-          <p class="text-[#6B7B75]">No incoming partner requests.</p>
+        <div v-if="incomingRequests.length === 0" class="rounded-xl bg-surface p-8 text-center">
+          <p class="text-fg-muted">No incoming partner requests.</p>
         </div>
 
         <div v-else class="space-y-3">
           <div
             v-for="request in incomingRequests"
             :key="request.id"
-            class="rounded-xl bg-[#1E2E2A] p-4"
+            class="rounded-xl bg-surface p-4"
           >
             <div class="flex items-center justify-between">
               <NuxtLink :to="`/players/${request.from_player_id}`" class="flex items-center gap-3">
-                <div class="flex h-12 w-12 items-center justify-center rounded-full bg-[#2E4540] text-lg font-bold text-[#A6ABA7]">
+                <div class="flex h-12 w-12 items-center justify-center rounded-full bg-surface-2 text-lg font-bold text-fg-secondary">
                   {{ request.player?.display_name?.charAt(0).toUpperCase() ?? '?' }}
                 </div>
                 <div>
-                  <p class="font-medium text-white hover:text-[#4DB175]">{{ request.player?.display_name ?? 'Unknown' }}</p>
-                  <p class="text-sm text-[#6B7B75]">
+                  <p class="font-medium text-fg hover:text-primary">{{ request.player?.display_name ?? 'Unknown' }}</p>
+                  <p class="text-sm text-fg-muted">
                     {{ request.player?.rating ? `${request.player.rating.toFixed(2)} doubles` : 'Unrated' }}
                     <span class="mx-1">·</span>
                     {{ formatDate(request.created_at) }}
@@ -206,21 +208,21 @@ function formatDate(dateStr: string) {
               <div class="flex gap-2">
                 <button
                   :disabled="acceptingRequest === request.id"
-                  class="rounded-lg bg-[#4DB175] px-4 py-1.5 text-sm font-medium text-white hover:bg-[#5FC287] disabled:opacity-50"
+                  class="rounded-lg bg-primary px-4 py-1.5 text-sm font-medium text-on-primary hover:bg-primary-hover disabled:opacity-50"
                   @click="acceptRequest(request.id)"
                 >
                   {{ acceptingRequest === request.id ? 'Accepting...' : 'Accept' }}
                 </button>
                 <button
                   :disabled="decliningRequest === request.id"
-                  class="rounded-lg border border-[#3A5750] px-4 py-1.5 text-sm font-medium text-[#A6ABA7] hover:bg-[#2E4540] disabled:opacity-50"
+                  class="rounded-lg border border-border-strong px-4 py-1.5 text-sm font-medium text-fg-secondary hover:bg-surface-2 disabled:opacity-50"
                   @click="declineRequest(request.id)"
                 >
                   {{ decliningRequest === request.id ? 'Declining...' : 'Decline' }}
                 </button>
               </div>
             </div>
-            <p v-if="request.message" class="mt-3 rounded-lg bg-[#0B0D09] p-3 text-sm italic text-[#A6ABA7]">
+            <p v-if="request.message" class="mt-3 rounded-lg bg-canvas p-3 text-sm italic text-fg-secondary">
               "{{ request.message }}"
             </p>
           </div>
@@ -229,23 +231,23 @@ function formatDate(dateStr: string) {
 
       <!-- Outgoing Requests Tab -->
       <div v-else-if="activeTab === 'outgoing'">
-        <div v-if="outgoingRequests.length === 0" class="rounded-xl bg-[#1E2E2A] p-8 text-center">
-          <p class="text-[#6B7B75]">No outgoing partner requests.</p>
+        <div v-if="outgoingRequests.length === 0" class="rounded-xl bg-surface p-8 text-center">
+          <p class="text-fg-muted">No outgoing partner requests.</p>
         </div>
 
         <div v-else class="space-y-3">
           <div
             v-for="request in outgoingRequests"
             :key="request.id"
-            class="flex items-center justify-between rounded-xl bg-[#1E2E2A] p-4"
+            class="flex items-center justify-between rounded-xl bg-surface p-4"
           >
             <NuxtLink :to="`/players/${request.to_player_id}`" class="flex items-center gap-3">
-              <div class="flex h-12 w-12 items-center justify-center rounded-full bg-[#2E4540] text-lg font-bold text-[#A6ABA7]">
+              <div class="flex h-12 w-12 items-center justify-center rounded-full bg-surface-2 text-lg font-bold text-fg-secondary">
                 {{ request.player?.display_name?.charAt(0).toUpperCase() ?? '?' }}
               </div>
               <div>
-                <p class="font-medium text-white hover:text-[#4DB175]">{{ request.player?.display_name ?? 'Unknown' }}</p>
-                <p class="text-sm text-[#6B7B75]">
+                <p class="font-medium text-fg hover:text-primary">{{ request.player?.display_name ?? 'Unknown' }}</p>
+                <p class="text-sm text-fg-muted">
                   Pending
                   <span class="mx-1">·</span>
                   Sent {{ formatDate(request.created_at) }}
@@ -265,7 +267,7 @@ function formatDate(dateStr: string) {
 
       <!-- Find Players Link -->
       <div class="mt-8 text-center">
-        <NuxtLink to="/players" class="text-sm text-[#4DB175] hover:underline">
+        <NuxtLink to="/players" class="text-sm text-primary hover:underline">
           Find players to be your duo partner
         </NuxtLink>
       </div>

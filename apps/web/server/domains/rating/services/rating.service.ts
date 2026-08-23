@@ -154,12 +154,17 @@ export interface RatingService {
     ratingType: RatedMatchInput['rating_type']
   ): Promise<import('../dto/rating.dto').RatingTransactionRecord[]>
   applyMatchResult(input: RatedMatchInput): Promise<RatingUpdateResult[]>
+  /** Rating changes produced by one match, for the Match Details timeline. */
+  getTransactionsForMatch(
+    matchId: string
+  ): Promise<import('../dto/rating.dto').RatingTransactionRecord[]>
 }
 
 export function createRatingService(repository: RatingRepository): RatingService {
   return {
     getRating: (playerId, ratingType) => repository.getRating(playerId, ratingType),
     getRatingHistory: (playerId, ratingType) => repository.getRatingHistory(playerId, ratingType),
+    getTransactionsForMatch: (matchId) => repository.findTransactionsByMatch(matchId),
 
     async applyMatchResult(input) {
       if (await repository.hasTransactionsForMatch(input.match_id)) {

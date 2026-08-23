@@ -28,8 +28,19 @@ export default defineEventHandler(async (event) => {
 
   if (error) throw error
 
+  interface ClubRow {
+    id: string
+    name: string
+    description: string | null
+    city: string | null
+    province: string | null
+    verification_status: ClubListItem['verification_status']
+    visibility: string | null
+  }
+  const clubRows = (clubs ?? []) as unknown as ClubRow[]
+
   // Get member counts
-  const clubIds = (clubs ?? []).map((c: any) => c.id)
+  const clubIds = clubRows.map((c) => c.id)
   const { data: memberCounts } = await client
     .from('club_memberships')
     .select('club_id')
@@ -41,7 +52,7 @@ export default defineEventHandler(async (event) => {
     countByClub.set(m.club_id, (countByClub.get(m.club_id) ?? 0) + 1)
   }
 
-  const items: ClubListItem[] = (clubs ?? []).map((c: any) => ({
+  const items: ClubListItem[] = clubRows.map((c) => ({
     id: c.id,
     name: c.name,
     description: c.description,

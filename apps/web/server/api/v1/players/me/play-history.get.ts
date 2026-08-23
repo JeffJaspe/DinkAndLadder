@@ -49,7 +49,25 @@ export default defineEventHandler(async (event) => {
     return { data: { partners: [], opponents: [] } }
   }
 
-  const matchIds = myParticipations.map((p: any) => p.match_id)
+  interface MyParticipationRow {
+    match_id: string
+    team_number: number
+    matches?: { id: string; played_at: string; status: string } | null
+  }
+  interface OtherParticipantRow {
+    match_id: string
+    player_id: string
+    team_number: number
+    player_profiles?: { display_name?: string | null } | null
+  }
+  interface MatchScoreRow {
+    match_id: string
+    team1_score: number
+    team2_score: number
+  }
+
+  const myParts = myParticipations as unknown as MyParticipationRow[]
+  const matchIds = myParts.map((p) => p.match_id)
 
   // Get all participants in these matches
   const { data: allParticipants, error: allError } = await client
@@ -79,7 +97,7 @@ export default defineEventHandler(async (event) => {
 
   const matchResults = new Map<string, { winnedTeam: number | null }>()
   for (const matchId of matchIds) {
-    const matchScores = (scores ?? []).filter((s: any) => s.match_id === matchId)
+    const matchScores = ((scores ?? []) as unknown as MatchScoreRow[]).filter((s) => s.match_id === matchId)
     let team1Sets = 0
     let team2Sets = 0
     for (const s of matchScores) {
@@ -94,10 +112,10 @@ export default defineEventHandler(async (event) => {
   const partnersMap = new Map<string, { displayName: string; matches: string[] }>()
   const opponentsMap = new Map<string, { displayName: string; matches: string[]; wins: number; losses: number }>()
 
-  for (const p of allParticipants ?? []) {
+  for (const p of ((allParticipants ?? []) as unknown as OtherParticipantRow[])) {
     const myTeam = myTeamByMatch.get(p.match_id)
-    const displayName = (p as any).player_profiles?.display_name ?? 'Unknown'
-    const playedAt = myParticipations.find((m: any) => m.match_id === p.match_id)?.matches?.played_at
+    const displayName = p.player_profiles?.display_name ?? 'Unknown'
+    const playedAt = myParts.find((m) => m.match_id === p.match_id)?.matches?.played_at
 
     if (dateFrom && playedAt && new Date(playedAt) < new Date(dateFrom)) continue
     if (dateTo && playedAt && new Date(playedAt) > new Date(dateTo)) continue
@@ -135,7 +153,7 @@ export default defineEventHandler(async (event) => {
   // Convert to arrays sorted by match count
   const partners: PlayHistoryEntry[] = Array.from(partnersMap.entries())
     .map(([playerId, data]) => {
-      const lastMatch = myParticipations.find((m: any) => data.matches.includes(m.match_id))
+      const lastMatch = myParts.find((m) => data.matches.includes(m.match_id))
       return {
         player_id: playerId,
         display_name: data.displayName,
@@ -147,7 +165,7 @@ export default defineEventHandler(async (event) => {
 
   const opponents: OpponentEntry[] = Array.from(opponentsMap.entries())
     .map(([playerId, data]) => {
-      const lastMatch = myParticipations.find((m: any) => data.matches.includes(m.match_id))
+      const lastMatch = myParts.find((m) => data.matches.includes(m.match_id))
       return {
         player_id: playerId,
         display_name: data.displayName,

@@ -1,7 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import {
-  createEventQueueService,
-  EventQueueServiceError
+  createEventQueueService
 } from '../../server/domains/event/services/event-queue.service'
 import type { EventQueueRepository } from '../../server/domains/event/repositories/event-queue.repository'
 import type { EventRegistrationRepository } from '../../server/domains/event/repositories/event-registration.repository'
@@ -91,6 +90,7 @@ function createFakeRegistrationRepository(
     findByEvent: vi.fn().mockResolvedValue([]),
     findByPlayer: vi.fn().mockResolvedValue([]),
     countByEvent: vi.fn().mockResolvedValue(0),
+    countByEvents: vi.fn().mockResolvedValue(new Map<string, number>()),
     create: vi.fn(),
     updateStatus: vi.fn(),
     checkIn: vi.fn(),
@@ -106,6 +106,10 @@ function createFakeEventRepository(overrides?: Partial<EventRepository>): EventR
     update: vi.fn(),
     updateStatus: vi.fn(),
     search: vi.fn().mockResolvedValue([]),
+    // Added to EventRepository alongside cascade delete; the fakes were never
+    // updated, which broke `vue-tsc` for every spec that builds one.
+    countBlockingChildren: vi.fn().mockResolvedValue({ registrations: 0, matches: 0, queueEntries: 0 }),
+    deleteWithChildren: vi.fn().mockResolvedValue(undefined),
     ...overrides
   }
 }

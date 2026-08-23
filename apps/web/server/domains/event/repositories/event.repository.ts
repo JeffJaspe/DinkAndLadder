@@ -13,12 +13,33 @@ const EVENT_COLUMNS =
   'fee_amount, fee_currency, max_participants, queue_enabled, queue_courts, queue_mode, ' +
   'queue_skip_timeout_seconds, created_by_player_id, created_at, updated_at'
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 export interface EventRepository {
   findById(eventId: string): Promise<EventRecord | null>
   create(input: CreateEventInput, createdByPlayerId: string): Promise<EventRecord>
   update(eventId: string, input: UpdateEventInput): Promise<EventRecord>
   updateStatus(eventId: string, status: EventStatus): Promise<EventRecord>
   search(query: EventSearchQuery): Promise<EventRecord[]>
+  /**
+   * Counts the rows that would block a delete. The FK constraints on events are
+   * RESTRICT (no `deleteCascade` exists anywhere in the changelogs), so the
+   * service has to know what is attached before it starts removing anything.
+   */
+  countBlockingChildren(eventId: string): Promise<{
+    registrations: number
+    matches: number
+    queueEntries: number
+  }>
+  /**
+   * Removes an event and everything hanging off it, leaves first.
+   *
+   * There is no client-side transaction available through PostgREST, so this is
+   * a sequence of statements. Deleting leaves before parents means a failure
+   * part-way leaves the event still valid and the operation re-runnable, rather
+   * than leaving orphaned children behind.
+   */
+  deleteWithChildren(eventId: string): Promise<void>
 }
 
 export function createEventRepository(client: SupabaseClient): EventRepository {
@@ -90,11 +111,86 @@ export function createEventRepository(client: SupabaseClient): EventRepository {
       return data as unknown as EventRecord
     },
 
+    async countBlockingChildren(eventId) {
+      const countOf = async (table: string) => {
+        const { count, error } = await client
+          .from(table)
+          .select('id', { count: 'exact', head: true })
+          .eq('event_id', eventId)
+        if (error) throw error
+        return count ?? 0
+      }
+
+      const [registrations, matches, queueEntries] = await Promise.all([
+        countOf('event_registrations'),
+        countOf('matches'),
+        countOf('event_queue')
+      ])
+
+      return { registrations, matches, queueEntries }
+    },
+
+    async deleteWithChildren(eventId) {
+      const { data: tournamentRows, error: tournamentError } = await client
+        .from('tournaments')
+        .select('id')
+        .eq('event_id', eventId)
+
+      if (tournamentError) throw tournamentError
+      const tournamentIds = (tournamentRows ?? []).map((t) => t.id as string)
+
+      if (tournamentIds.length > 0) {
+        // Leaves first: bracket rows and registrations reference tournaments,
+        // categories reference tournaments, tournaments reference the event.
+        for (const table of [
+          'bracket_matches',
+          'tournament_registrations',
+          'tournament_categories'
+        ]) {
+          const { error } = await client.from(table).delete().in('tournament_id', tournamentIds)
+          if (error) throw error
+        }
+
+        const { error: deleteTournamentsError } = await client
+          .from('tournaments')
+          .delete()
+          .eq('event_id', eventId)
+        if (deleteTournamentsError) throw deleteTournamentsError
+      }
+
+      // Announcements also point at the event and would otherwise block it.
+      const { error: announcementError } = await client
+        .from('club_announcements')
+        .delete()
+        .eq('event_id', eventId)
+      if (announcementError) throw announcementError
+
+      const { error } = await client.from('events').delete().eq('id', eventId)
+      if (error) throw error
+    },
+
     async search(query) {
-      let builder = client
-        .from('events')
-        .select(EVENT_COLUMNS)
-        .neq('status', 'draft')
+      let builder = client.from('events').select(EVENT_COLUMNS)
+
+      // Drafts are hidden from the public listing, but an organiser has to be
+      // able to see their own — otherwise an event they created simply vanishes
+      // until it is published, with no way back to it. RLS (events_select_own)
+      // already restricts this to rows they created; the OR only stops the
+      // query from filtering them out before RLS is consulted.
+      if (query.include_drafts_for_player_id) {
+        // This value is interpolated into a PostgREST filter expression, so it
+        // is shape-checked even though it comes from a resolved profile row
+        // rather than the request — an unvalidated id here would be a filter
+        // injection, the same pattern flagged elsewhere in this codebase.
+        if (!UUID_PATTERN.test(query.include_drafts_for_player_id)) {
+          throw new Error('include_drafts_for_player_id must be a UUID')
+        }
+        builder = builder.or(
+          `status.neq.draft,created_by_player_id.eq.${query.include_drafts_for_player_id}`
+        )
+      } else {
+        builder = builder.neq('status', 'draft')
+      }
 
       builder = builder.eq('visibility', query.visibility ?? 'public')
 

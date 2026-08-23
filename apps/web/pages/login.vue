@@ -1,4 +1,6 @@
 <script setup lang="ts">
+useHead({ title: 'Log in' })
+
 const supabase = useSupabaseClient()
 const { public: publicConfig } = useRuntimeConfig()
 const email = ref('')
@@ -86,27 +88,27 @@ async function handleGoogleLogin() {
 </script>
 
 <template>
-  <div class="flex min-h-screen items-center justify-center bg-[#0B0D09] px-4 py-12">
+  <div class="flex min-h-screen items-center justify-center bg-canvas px-4 py-12">
     <UiToast :message="errorMessage" :variant="errorVariant" @close="errorMessage = ''" />
     <div class="w-full max-w-md">
       <!-- Logo -->
       <div class="mb-8 text-center">
         <NuxtLink to="/" class="inline-flex items-center gap-2">
-          <div class="flex h-12 w-12 items-center justify-center rounded-xl bg-[#4DB175] text-xl font-bold text-white">
+          <div class="flex h-12 w-12 items-center justify-center rounded-xl bg-primary text-xl font-bold text-on-primary">
             D
           </div>
         </NuxtLink>
-        <h1 class="mt-4 text-2xl font-bold text-white">Welcome back</h1>
-        <p class="mt-2 text-[#6B7B75]">Sign in to continue to DinkAndLadder</p>
+        <h1 class="mt-4 text-2xl font-bold text-fg">Welcome back</h1>
+        <p class="mt-2 text-fg-muted">Sign in to continue to DinkAndLadder</p>
       </div>
 
       <!-- Card -->
-      <div class="rounded-xl bg-[#1E2E2A] p-6">
+      <div class="rounded-xl bg-surface p-6">
         <!-- Google OAuth -->
         <button
           type="button"
           :disabled="googleLoading"
-          class="flex w-full items-center justify-center gap-3 rounded-lg border border-[#3A5750] bg-[#0B0D09] px-4 py-3 font-medium text-white transition-colors hover:bg-[#2E4540] disabled:opacity-50"
+          class="flex w-full items-center justify-center gap-3 rounded-lg border border-border-strong bg-canvas px-4 py-3 font-medium text-fg transition-colors hover:bg-surface-2 disabled:opacity-50"
           @click="handleGoogleLogin"
         >
           <svg class="h-5 w-5" viewBox="0 0 24 24">
@@ -120,15 +122,15 @@ async function handleGoogleLogin() {
 
         <!-- Divider -->
         <div class="my-6 flex items-center gap-3">
-          <hr class="flex-1 border-[#3A5750]" />
-          <span class="text-sm text-[#6B7B75]">or</span>
-          <hr class="flex-1 border-[#3A5750]" />
+          <hr class="flex-1 border-border-strong" />
+          <span class="text-sm text-fg-muted">or</span>
+          <hr class="flex-1 border-border-strong" />
         </div>
 
         <!-- Form -->
         <form class="space-y-4" @submit.prevent="handleLogin">
           <div>
-            <label for="login-email" class="mb-1.5 block text-sm font-medium text-[#A6ABA7]">Email</label>
+            <label for="login-email" class="mb-1.5 block text-sm font-medium text-fg-secondary">Email</label>
             <input
               id="login-email"
               v-model="email"
@@ -136,12 +138,12 @@ async function handleGoogleLogin() {
               required
               autocomplete="email"
               placeholder="you@example.com"
-              class="w-full rounded-lg border border-[#3A5750] bg-[#0B0D09] px-4 py-2.5 text-white placeholder-[#6B7B75] focus:border-[#4DB175] focus:outline-none focus:ring-1 focus:ring-[#4DB175]"
+              class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
             />
           </div>
 
           <div>
-            <label for="login-password" class="mb-1.5 block text-sm font-medium text-[#A6ABA7]">Password</label>
+            <label for="login-password" class="mb-1.5 block text-sm font-medium text-fg-secondary">Password</label>
             <input
               id="login-password"
               v-model="password"
@@ -149,7 +151,7 @@ async function handleGoogleLogin() {
               required
               autocomplete="current-password"
               placeholder="Enter your password"
-              class="w-full rounded-lg border border-[#3A5750] bg-[#0B0D09] px-4 py-2.5 text-white placeholder-[#6B7B75] focus:border-[#4DB175] focus:outline-none focus:ring-1 focus:ring-[#4DB175]"
+              class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
             />
           </div>
 
@@ -165,7 +167,7 @@ async function handleGoogleLogin() {
           <button
             type="submit"
             :disabled="loading || (!!publicConfig.turnstileSiteKey && !turnstileToken)"
-            class="w-full rounded-lg bg-[#4DB175] py-3 font-semibold text-white transition-colors hover:bg-[#5FC287] disabled:opacity-50"
+            class="w-full rounded-lg bg-primary py-3 font-semibold text-on-primary transition-colors hover:bg-primary-hover disabled:opacity-50"
           >
             {{ loading ? 'Signing in…' : 'Sign in' }}
           </button>
@@ -173,16 +175,16 @@ async function handleGoogleLogin() {
 
         <!-- Links -->
         <div class="mt-6 text-center text-sm">
-          <NuxtLink to="/reset-password" class="text-[#6B7B75] hover:text-[#4DB175]">
+          <NuxtLink to="/reset-password" class="text-fg-muted hover:text-primary">
             Forgot password?
           </NuxtLink>
         </div>
       </div>
 
       <!-- Register link -->
-      <p class="mt-6 text-center text-sm text-[#6B7B75]">
+      <p class="mt-6 text-center text-sm text-fg-muted">
         Don't have an account?
-        <NuxtLink to="/register" class="font-medium text-[#4DB175] hover:text-[#5FC287]">
+        <NuxtLink to="/register" class="font-medium text-primary hover:text-primary-hover">
           Register
         </NuxtLink>
       </p>

@@ -112,3 +112,17 @@ export interface RegisterForTournamentInput {
   partner_player_id?: string | null
   category_id?: string | null
 }
+
+/**
+ * A registration with the player's name resolved.
+ *
+ * The base TournamentRegistrationDto carries only ids, which is all the bracket
+ * generator needs — but any screen listing who has entered has to show names,
+ * and previously had nothing to show. Kept as a separate type so the id-only
+ * read stays cheap for the paths that don't need the join.
+ */
+export interface TournamentRegistrationWithPlayerDto extends TournamentRegistrationDto {
+  display_name: string
+  rating: number | null
+  partner_display_name: string | null
+}

@@ -1,8 +1,8 @@
 import { serverSupabaseClient } from '#supabase/server'
-import { getRequestIP, readBody } from 'h3'
+import { readBody } from 'h3'
 import { loginWithPassword } from '~/server/domains/identity/services/auth.service'
 import { mapAuthError } from '~/server/domains/identity/services/auth-error-mapper'
-import { verifyTurnstileToken, type TurnstileFetcher } from '~/server/utils/turnstile'
+import { requireTurnstile } from '~/server/utils/require-turnstile'
 import { apiError } from '~/server/utils/api-error'
 import type { LoginRequestDto } from '~/server/domains/identity/dto/auth.dto'
 
@@ -21,26 +21,7 @@ export default defineEventHandler(async (event) => {
     throw apiError(400, 'VALIDATION_ERROR', 'email and password are required.')
   }
 
-  // Turnstile is only enforced once a secret key is actually configured — see
-  // docs/31-THIRD-PARTY-SETUP.md. Unconfigured (local dev/CI without a
-  // Cloudflare account yet) intentionally bypasses the check rather than
-  // bricking login.
-  const { turnstileSecretKey } = useRuntimeConfig(event)
-  if (turnstileSecretKey) {
-    // Cast (not just annotate) to sidestep TS trying to structurally reconcile
-    // Nitro's route-literal-typed $fetch against the plain TurnstileFetcher
-    // signature, which blows the type-checker's recursion depth.
-    const fetchJson = $fetch as unknown as TurnstileFetcher
-    const verification = await verifyTurnstileToken(
-      fetchJson,
-      turnstileSecretKey,
-      body.turnstile_token,
-      getRequestIP(event)
-    )
-    if (!verification.success) {
-      throw apiError(403, 'TURNSTILE_VERIFICATION_FAILED', 'Bot verification failed. Please try again.')
-    }
-  }
+  await requireTurnstile(event, body.turnstile_token)
 
   const client = await serverSupabaseClient(event)
   const { error, code, session } = await loginWithPassword(client, body.email, body.password)

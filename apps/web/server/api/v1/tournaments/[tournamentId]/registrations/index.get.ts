@@ -18,6 +18,6 @@ export default defineEventHandler(async (event) => {
   const registrationRepo = createTournamentRegistrationRepository(client)
   const service = createEventService(eventRepo, tournamentRepo, registrationRepo)
 
-  const registrations = await service.getRegistrations(tournamentId)
+  const registrations = await service.getRegistrationsWithPlayers(tournamentId)
   return { registrations }
 })

@@ -10,9 +10,41 @@ const {
   pending,
   error,
   refresh
-} = await useFetch<MatchDto>(() => `/api/v1/matches/${matchId.value}`)
+} = await useFetch<MatchDto & { players: Record<string, string> }>(
+  () => `/api/v1/matches/${matchId.value}`
+)
 
 const { data: myProfile } = await useFetch<PlayerProfileDto>('/api/v1/players/me')
+
+/**
+ * Rating changes this match produced, for the verification timeline's final
+ * step. Empty until the match is rated, which is a normal state — the endpoint
+ * returns [] rather than erroring, so this never blocks the page.
+ */
+const { data: ratingChanges } = await useFetch<{
+  data: Array<{ player_id: string, display_name: string, rating_delta: number, new_rating: number, created_at: string }>
+}>(() => `/api/v1/matches/${matchId.value}/rating-changes`, { server: false })
+
+// The detail endpoint now returns a players map, so the timeline can name who
+// submitted and who verified instead of showing a truncated uuid. The id
+// fallback stays for a profile that has since been deleted.
+const nameForPlayer = (playerId: string) => {
+  if (playerId === myProfile.value?.id) return 'You'
+  return match.value?.players?.[playerId] ?? `Player ${playerId.slice(0, 8)}`
+}
+
+const timelineVerifications = computed(() =>
+  (match.value?.verifications ?? []).map((v) => ({
+    verifier_player_id: v.verifier_player_id,
+    verifier_name: nameForPlayer(v.verifier_player_id),
+    status: v.status,
+    response_note: v.response_note,
+    responded_at: v.responded_at
+  }))
+)
+
+const timelineChanges = computed(() => ratingChanges.value?.data ?? [])
+const ratedAt = computed(() => timelineChanges.value[0]?.created_at ?? null)
 
 const actionError = ref('')
 const actionMessage = ref('')
@@ -87,10 +119,10 @@ async function submitCounter() {
 
 const statusConfig: Record<string, { bg: string; text: string }> = {
   submitted: { bg: 'bg-yellow-500/20', text: 'text-yellow-400' },
-  pending_verification: { bg: 'bg-[#B5B9F0]/20', text: 'text-[#B5B9F0]' },
-  verified: { bg: 'bg-[#4DB175]/20', text: 'text-[#4DB175]' },
+  pending_verification: { bg: 'bg-accent/20', text: 'text-accent' },
+  verified: { bg: 'bg-primary/20', text: 'text-primary' },
   disputed: { bg: 'bg-red-500/20', text: 'text-red-400' },
-  cancelled: { bg: 'bg-[#3A5750]', text: 'text-[#6B7B75]' }
+  cancelled: { bg: 'bg-surface-3', text: 'text-fg-muted' }
 }
 
 async function startVerification() {
@@ -133,11 +165,6 @@ function getTeamPlayers(teamNumber: number) {
   return match.value?.participants.filter(p => p.team_number === teamNumber) ?? []
 }
 
-function getTeamScore(setNumber: number, teamNumber: number) {
-  const score = match.value?.scores.find(s => s.set_number === setNumber)
-  return teamNumber === 1 ? score?.team1_score : score?.team2_score
-}
-
 function didTeamWinSet(setNumber: number, teamNumber: number): boolean {
   const score = match.value?.scores.find(s => s.set_number === setNumber)
   if (!score) return false
@@ -147,12 +174,12 @@ function didTeamWinSet(setNumber: number, teamNumber: number): boolean {
 </script>
 
 <template>
-  <div class="min-h-screen bg-[#0B0D09] p-4 lg:p-6">
-    <div class="mx-auto max-w-2xl">
+  <div class="min-h-screen bg-canvas p-4 lg:p-6">
+    <div class="page-shell">
       <!-- Loading -->
       <div v-if="pending" class="space-y-4">
-        <div class="h-32 animate-pulse rounded-xl bg-[#1E2E2A]" />
-        <div class="h-48 animate-pulse rounded-xl bg-[#1E2E2A]" />
+        <div class="h-32 animate-pulse rounded-xl bg-surface" />
+        <div class="h-48 animate-pulse rounded-xl bg-surface" />
       </div>
 
       <!-- Error -->
@@ -167,7 +194,7 @@ function didTeamWinSet(setNumber: number, teamNumber: number): boolean {
               : 'Could not load this match.'
           }}
         </p>
-        <NuxtLink to="/dashboard" class="mt-4 inline-block text-sm text-[#4DB175] hover:underline">
+        <NuxtLink to="/dashboard" class="mt-4 inline-block text-sm text-primary hover:underline">
           Back to dashboard
         </NuxtLink>
       </div>
@@ -177,13 +204,13 @@ function didTeamWinSet(setNumber: number, teamNumber: number): boolean {
         <!-- Header -->
         <div class="mb-6 flex items-start justify-between">
           <div>
-            <h1 class="text-2xl font-bold text-white">
+            <h1 class="text-2xl font-bold text-fg">
               {{ match.match_type === 'singles' ? 'Singles' : 'Doubles' }} Match
             </h1>
-            <p class="mt-1 text-[#6B7B75]">
+            <p class="mt-1 text-fg-muted">
               {{ new Date(match.played_at).toLocaleDateString() }} at {{ new Date(match.played_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }}
             </p>
-            <p v-if="match.venue" class="text-sm text-[#6B7B75]">{{ match.venue }}</p>
+            <p v-if="match.venue" class="text-sm text-fg-muted">{{ match.venue }}</p>
           </div>
           <span
             class="rounded-md px-3 py-1 text-sm font-medium capitalize"
@@ -194,7 +221,7 @@ function didTeamWinSet(setNumber: number, teamNumber: number): boolean {
         </div>
 
         <!-- Score Card -->
-        <div class="mb-6 rounded-xl bg-[#1E2E2A] p-5">
+        <div class="mb-6 rounded-xl bg-surface p-5">
           <div class="flex items-center justify-between gap-4">
             <!-- Team 1 -->
             <div class="flex-1 text-center">
@@ -203,7 +230,7 @@ function didTeamWinSet(setNumber: number, teamNumber: number): boolean {
                   v-for="p in getTeamPlayers(1)"
                   :key="p.player_id"
                   :to="`/players/${p.player_id}`"
-                  class="block text-sm font-medium text-[#4DB175] hover:underline"
+                  class="block text-sm font-medium text-primary hover:underline"
                 >
                   {{ p.player_id === myProfile?.id ? 'You' : p.player_id.slice(0, 8) }}
                 </NuxtLink>
@@ -215,15 +242,15 @@ function didTeamWinSet(setNumber: number, teamNumber: number): boolean {
               <div
                 v-for="s in match.scores"
                 :key="s.set_number"
-                class="flex flex-col items-center rounded-lg bg-[#0B0D09] px-3 py-2"
+                class="flex flex-col items-center rounded-lg bg-canvas px-3 py-2"
               >
-                <span class="text-xs text-[#6B7B75]">Set {{ s.set_number }}</span>
+                <span class="text-xs text-fg-muted">Set {{ s.set_number }}</span>
                 <div class="flex items-center gap-1 text-lg font-bold">
-                  <span :class="didTeamWinSet(s.set_number, 1) ? 'text-[#4DB175]' : 'text-[#A6ABA7]'">
+                  <span :class="didTeamWinSet(s.set_number, 1) ? 'text-primary' : 'text-fg-secondary'">
                     {{ s.team1_score }}
                   </span>
-                  <span class="text-[#6B7B75]">-</span>
-                  <span :class="didTeamWinSet(s.set_number, 2) ? 'text-[#4DB175]' : 'text-[#A6ABA7]'">
+                  <span class="text-fg-muted">-</span>
+                  <span :class="didTeamWinSet(s.set_number, 2) ? 'text-primary' : 'text-fg-secondary'">
                     {{ s.team2_score }}
                   </span>
                 </div>
@@ -237,7 +264,7 @@ function didTeamWinSet(setNumber: number, teamNumber: number): boolean {
                   v-for="p in getTeamPlayers(2)"
                   :key="p.player_id"
                   :to="`/players/${p.player_id}`"
-                  class="block text-sm font-medium text-[#4DB175] hover:underline"
+                  class="block text-sm font-medium text-primary hover:underline"
                 >
                   {{ p.player_id === myProfile?.id ? 'You' : p.player_id.slice(0, 8) }}
                 </NuxtLink>
@@ -246,69 +273,47 @@ function didTeamWinSet(setNumber: number, teamNumber: number): boolean {
           </div>
         </div>
 
-        <!-- Verification Status -->
-        <div class="mb-6 rounded-xl bg-[#1E2E2A] p-5">
-          <h2 class="mb-4 font-semibold text-white">Verification</h2>
+        <!-- Verification timeline. The mockup's central element: an auditable
+             chain of who did what and when is what makes a disputed result
+             resolvable (docs/33 §5.6). -->
+        <div class="mb-6 rounded-card border border-border bg-surface p-5">
+          <h2 class="mb-4 font-display text-heading-3 text-fg">Timeline</h2>
 
-          <div v-if="match.verifications.length === 0" class="text-center">
-            <p class="text-[#6B7B75]">Verification has not started yet.</p>
-            <button
-              v-if="canInitiate"
-              :disabled="acting"
-              class="mt-4 rounded-lg bg-[#4DB175] px-6 py-2 font-medium text-white hover:bg-[#5FC287] disabled:opacity-50"
-              @click="startVerification"
-            >
-              {{ acting ? 'Starting...' : 'Start Verification' }}
-            </button>
-          </div>
+          <MatchVerificationTimeline
+            :submitted-at="match.created_at"
+            :submitted-by-name="nameForPlayer(match.submitted_by_player_id)"
+            :status="match.status"
+            :verifications="timelineVerifications"
+            :rating-changes="timelineChanges"
+            :rated-at="ratedAt"
+          />
 
-          <div v-else class="space-y-3">
-            <div
-              v-for="v in match.verifications"
-              :key="v.verifier_player_id"
-              class="flex items-center justify-between rounded-lg bg-[#0B0D09] p-3"
-            >
-              <div class="flex items-center gap-3">
-                <div class="flex h-8 w-8 items-center justify-center rounded-full bg-[#2E4540] text-sm font-bold text-[#A6ABA7]">
-                  {{ v.verifier_player_id.charAt(0).toUpperCase() }}
-                </div>
-                <NuxtLink
-                  :to="`/players/${v.verifier_player_id}`"
-                  class="text-sm font-medium text-[#4DB175] hover:underline"
-                >
-                  {{ v.verifier_player_id === myProfile?.id ? 'You' : v.verifier_player_id.slice(0, 8) }}
-                </NuxtLink>
-              </div>
-              <span
-                class="rounded-md px-2 py-0.5 text-xs font-medium capitalize"
-                :class="{
-                  'bg-yellow-500/20 text-yellow-400': v.status === 'pending',
-                  'bg-[#4DB175]/20 text-[#4DB175]': v.status === 'confirmed',
-                  'bg-red-500/20 text-red-400': v.status === 'rejected' || v.status === 'disputed'
-                }"
-              >
-                {{ v.status }}
-              </span>
-            </div>
+          <div v-if="match.verifications.length === 0 && canInitiate" class="mt-4 border-t border-border pt-4">
+            <p class="mb-3 text-body-2 text-fg-secondary">
+              Verification has not started yet. Ask your opponent to confirm the score.
+            </p>
+            <UiButton :loading="acting" @click="startVerification">
+              Start verification
+            </UiButton>
           </div>
         </div>
 
         <!-- Decision Form -->
-        <div v-if="canDecide" class="mb-6 rounded-xl bg-[#1E2E2A] p-5">
-          <h2 class="mb-4 font-semibold text-white">Your Decision</h2>
-          <p class="mb-4 text-sm text-[#6B7B75]">
+        <div v-if="canDecide" class="mb-6 rounded-xl bg-surface p-5">
+          <h2 class="mb-4 font-semibold text-fg">Your Decision</h2>
+          <p class="mb-4 text-sm text-fg-muted">
             Please verify the match details above and confirm or dispute.
           </p>
           <textarea
             v-model="note"
             placeholder="Add an optional note..."
-            class="mb-4 w-full rounded-lg border border-[#3A5750] bg-[#0B0D09] px-4 py-2.5 text-white placeholder-[#6B7B75] focus:border-[#4DB175] focus:outline-none"
+            class="mb-4 w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none"
             rows="2"
           />
           <div class="flex gap-2">
             <button
               :disabled="acting"
-              class="flex-1 rounded-lg bg-[#4DB175] py-2.5 font-medium text-white hover:bg-[#5FC287] disabled:opacity-50"
+              class="flex-1 rounded-lg bg-primary py-2.5 font-medium text-on-primary hover:bg-primary-hover disabled:opacity-50"
               @click="recordDecision('confirmed')"
             >
               Confirm
@@ -331,9 +336,9 @@ function didTeamWinSet(setNumber: number, teamNumber: number): boolean {
         </div>
 
         <!-- Counter-Proposal -->
-        <div v-if="canCounter" class="mb-6 rounded-xl bg-[#1E2E2A] p-5">
+        <div v-if="canCounter" class="mb-6 rounded-xl bg-surface p-5">
           <div class="mb-4 flex items-center justify-between">
-            <h2 class="font-semibold text-white">Disagree with the score?</h2>
+            <h2 class="font-semibold text-fg">Disagree with the score?</h2>
             <button
               v-if="!showCounterForm"
               type="button"
@@ -345,36 +350,36 @@ function didTeamWinSet(setNumber: number, teamNumber: number): boolean {
           </div>
 
           <div v-if="showCounterForm" class="space-y-3">
-            <p class="text-sm text-[#6B7B75]">
+            <p class="text-sm text-fg-muted">
               This records your proposed score and marks the match disputed for organizer review.
             </p>
             <div
               v-for="(set, i) in counterSets"
               :key="i"
-              class="flex items-center gap-3 rounded-lg bg-[#0B0D09] p-3"
+              class="flex items-center gap-3 rounded-lg bg-canvas p-3"
             >
-              <span class="w-14 text-sm text-[#6B7B75]">Set {{ i + 1 }}</span>
+              <span class="w-14 text-sm text-fg-muted">Set {{ i + 1 }}</span>
               <div class="flex flex-1 items-center gap-2">
                 <input
                   v-model="set.team1Score"
                   type="number"
                   min="0"
                   placeholder="T1"
-                  class="w-full rounded-lg border border-[#3A5750] bg-[#1E2E2A] px-3 py-2 text-center text-white focus:border-[#4DB175] focus:outline-none"
+                  class="w-full rounded-lg border border-border-strong bg-surface px-3 py-2 text-center text-fg focus:border-primary focus:outline-none"
                 />
-                <span class="text-[#6B7B75]">-</span>
+                <span class="text-fg-muted">-</span>
                 <input
                   v-model="set.team2Score"
                   type="number"
                   min="0"
                   placeholder="T2"
-                  class="w-full rounded-lg border border-[#3A5750] bg-[#1E2E2A] px-3 py-2 text-center text-white focus:border-[#4DB175] focus:outline-none"
+                  class="w-full rounded-lg border border-border-strong bg-surface px-3 py-2 text-center text-fg focus:border-primary focus:outline-none"
                 />
               </div>
               <button
                 v-if="counterSets.length > 1"
                 type="button"
-                class="text-[#6B7B75] hover:text-red-400"
+                class="text-fg-muted hover:text-red-400"
                 @click="removeCounterSet(i)"
               >
                 <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -385,7 +390,7 @@ function didTeamWinSet(setNumber: number, teamNumber: number): boolean {
             <button
               v-if="counterSets.length < 5"
               type="button"
-              class="text-sm text-[#4DB175] hover:underline"
+              class="text-sm text-primary hover:underline"
               @click="addCounterSet"
             >
               + Add Set
@@ -401,7 +406,7 @@ function didTeamWinSet(setNumber: number, teamNumber: number): boolean {
               </button>
               <button
                 type="button"
-                class="rounded-lg border border-[#3A5750] px-4 py-2.5 text-[#A6ABA7] hover:bg-[#2E4540]"
+                class="rounded-lg border border-border-strong px-4 py-2.5 text-fg-secondary hover:bg-surface-2"
                 @click="showCounterForm = false"
               >
                 Cancel
@@ -411,16 +416,16 @@ function didTeamWinSet(setNumber: number, teamNumber: number): boolean {
         </div>
 
         <!-- Score Proposal History -->
-        <div v-if="match.score_proposals.length > 0" class="mb-6 rounded-xl bg-[#1E2E2A] p-5">
-          <h2 class="mb-4 font-semibold text-white">Proposed Scores</h2>
+        <div v-if="match.score_proposals.length > 0" class="mb-6 rounded-xl bg-surface p-5">
+          <h2 class="mb-4 font-semibold text-fg">Proposed Scores</h2>
           <div class="space-y-3">
             <div
               v-for="proposal in match.score_proposals"
               :key="proposal.id"
-              class="rounded-lg bg-[#0B0D09] p-3"
+              class="rounded-lg bg-canvas p-3"
             >
               <div class="mb-2 flex items-center justify-between">
-                <span class="text-sm text-[#A6ABA7]">
+                <span class="text-sm text-fg-secondary">
                   Round {{ proposal.proposal_round }} by
                   {{ proposal.proposed_by_player_id === myProfile?.id ? 'you' : proposal.proposed_by_player_id.slice(0, 8) }}
                 </span>
@@ -428,8 +433,8 @@ function didTeamWinSet(setNumber: number, teamNumber: number): boolean {
                   {{ proposal.status }}
                 </span>
               </div>
-              <div class="flex gap-2 text-sm text-white">
-                <span v-for="s in proposal.scores" :key="s.set_number" class="rounded bg-[#2E4540] px-2 py-1">
+              <div class="flex gap-2 text-sm text-fg">
+                <span v-for="s in proposal.scores" :key="s.set_number" class="rounded bg-surface-2 px-2 py-1">
                   {{ s.team1_score }}-{{ s.team2_score }}
                 </span>
               </div>
@@ -440,7 +445,7 @@ function didTeamWinSet(setNumber: number, teamNumber: number): boolean {
         <!-- Messages -->
         <div
           v-if="actionMessage"
-          class="mb-6 rounded-xl bg-[#4DB175]/10 p-4 text-center text-[#4DB175] ring-1 ring-[#4DB175]/30"
+          class="mb-6 rounded-xl bg-primary/10 p-4 text-center text-primary ring-1 ring-primary/30"
         >
           {{ actionMessage }}
         </div>
@@ -450,7 +455,7 @@ function didTeamWinSet(setNumber: number, teamNumber: number): boolean {
 
         <!-- Back Link -->
         <div class="text-center">
-          <NuxtLink to="/dashboard" class="text-sm text-[#4DB175] hover:underline">
+          <NuxtLink to="/dashboard" class="text-sm text-primary hover:underline">
             Back to dashboard
           </NuxtLink>
         </div>

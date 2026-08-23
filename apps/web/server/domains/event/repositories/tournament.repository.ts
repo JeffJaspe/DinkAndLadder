@@ -29,6 +29,18 @@ export interface TournamentRegistrationRepository {
     playerId: string
   ): Promise<TournamentRegistrationRecord | null>
   findByTournamentId(tournamentId: string): Promise<TournamentRegistrationRecord[]>
+  /**
+   * Same rows, with each player's (and partner's) display name and singles
+   * rating joined in. Separate from findByTournamentId so the bracket generator
+   * keeps its cheap id-only read.
+   */
+  findByTournamentIdWithPlayers(
+    tournamentId: string
+  ): Promise<Array<TournamentRegistrationRecord & {
+    display_name: string
+    rating: number | null
+    partner_display_name: string | null
+  }>>
   create(
     tournamentId: string,
     playerId: string,
@@ -150,6 +162,44 @@ export function createTournamentRegistrationRepository(
 
       if (error) throw error
       return (data ?? []) as unknown as TournamentRegistrationRecord[]
+    },
+
+    async findByTournamentIdWithPlayers(tournamentId) {
+      // Two embeds off the same table need disambiguating by FK name, hence the
+      // `player:player_profiles!...` aliases. The partner embed is a left join —
+      // singles registrations have no partner.
+      const { data, error } = await client
+        .from('tournament_registrations')
+        .select(
+          `${REGISTRATION_COLUMNS},
+           player:player_profiles!fk_tournament_registrations_player (
+             id, display_name, player_ratings ( rating_type, rating_value )
+           ),
+           partner:player_profiles!fk_tournament_registrations_partner (
+             id, display_name
+           )`
+        )
+        .eq('tournament_id', tournamentId)
+        .not('status', 'eq', 'withdrawn')
+        .order('registered_at', { ascending: true })
+
+      if (error) throw error
+
+      interface JoinedRow extends TournamentRegistrationRecord {
+        player?: {
+          display_name?: string | null
+          player_ratings?: Array<{ rating_type: string; rating_value: number | null }> | null
+        } | null
+        partner?: { display_name?: string | null } | null
+      }
+
+      return ((data ?? []) as unknown as JoinedRow[]).map(({ player, partner, ...row }) => ({
+        ...row,
+        display_name: player?.display_name ?? 'Unknown player',
+        rating:
+          player?.player_ratings?.find((r) => r.rating_type === 'singles')?.rating_value ?? null,
+        partner_display_name: partner?.display_name ?? null
+      }))
     },
 
     async create(tournamentId, playerId, partnerPlayerId, categoryId) {

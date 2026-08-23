@@ -61,6 +61,12 @@ export interface EventDto {
   fee_amount: number | null
   fee_currency: string | null
   max_participants: number | null
+  /**
+   * Slots taken, or undefined when the caller did not ask for it. Undefined and
+   * 0 mean different things — "not counted" versus "nobody has signed up" — so
+   * the UI must not collapse them, and this is deliberately not defaulted.
+   */
+  registered_count?: number
   queue_enabled: boolean
   queue_courts: number
   queue_mode: QueueMode
@@ -146,12 +152,26 @@ export interface EventSearchQuery {
   status?: EventStatus
   visibility?: EventVisibility
   event_type?: EventType
+  /**
+   * When set, unpublished drafts created by this player are included alongside
+   * the public results, so an organiser can see and finish their own drafts.
+   * Everyone else's drafts stay hidden — RLS (events_select_own) is the real
+   * boundary; this only widens what the query asks for.
+   */
+  include_drafts_for_player_id?: string
   limit: number
   offset: number
 }
 
 // Event registration types
 export type EventRegistrationStatus = 'registered' | 'checked_in' | 'withdrawn'
+
+/**
+ * Statuses that occupy a slot. A withdrawal frees the place back up, so it is
+ * deliberately excluded — counting it would show an event as full when it is
+ * not, which is worse than showing no capacity at all.
+ */
+export const SLOT_OCCUPYING_STATUSES: EventRegistrationStatus[] = ['registered', 'checked_in']
 
 export interface EventRegistrationRecord {
   id: string

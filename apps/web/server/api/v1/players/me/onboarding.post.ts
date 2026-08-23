@@ -1,16 +1,24 @@
 import { serverSupabaseClient, serverSupabaseUser } from '#supabase/server'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
 import { createPlayerProfileService } from '~/server/domains/player/services/player-profile.service'
+import { PlayerProfileValidationError } from '~/server/domains/player/dto/player-profile.dto'
 import { apiError } from '~/server/utils/api-error'
 
 interface OnboardingInput {
   account_type: 'player' | 'club'
-  skip_rating?: boolean
+  display_name?: string
 }
 
+/**
+ * `account_type` is validated but intentionally not persisted — no column backs
+ * it, and both paths create the same player_profiles row (see
+ * composables/useAccountMode.ts, where mode is a client-side navigation concept).
+ * Kept in the contract so the choice can be recorded later without a breaking
+ * change; see F-31 in the backlog.
+ */
 export default defineEventHandler(async (event) => {
   const claims = await serverSupabaseUser(event)
-  if (!claims?.email) {
+  if (!claims) {
     throw apiError(401, 'AUTH_REQUIRED', 'Sign in to complete onboarding.')
   }
 
@@ -22,14 +30,20 @@ export default defineEventHandler(async (event) => {
   const client = await serverSupabaseClient(event)
   const service = createPlayerProfileService(createPlayerProfileRepository(client))
 
-  const displayName = claims.email.split('@')[0]
-  const profile = await service.saveOwnProfile(claims.sub, {
-    display_name: displayName
-  })
+  try {
+    // ensureProfile, not saveOwnProfile: re-entering onboarding must never
+    // rename someone who already picked a display name.
+    const profile = await service.ensureProfile(claims.sub, body.display_name)
 
-  return {
-    data: profile,
-    message: 'Onboarding complete',
-    request_id: crypto.randomUUID()
+    return {
+      data: profile,
+      message: 'Onboarding complete',
+      request_id: crypto.randomUUID()
+    }
+  } catch (err) {
+    if (err instanceof PlayerProfileValidationError) {
+      throw apiError(400, 'VALIDATION_ERROR', err.message)
+    }
+    throw err
   }
 })

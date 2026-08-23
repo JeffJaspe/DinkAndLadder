@@ -1,7 +1,13 @@
 import type { BracketRepository } from '../repositories/bracket.repository'
 import type { TournamentRegistrationRepository, TournamentRepository } from '../repositories/tournament.repository'
 import type { EventRepository } from '../repositories/event.repository'
-import type { BracketDto, BracketMatchDto, BracketRoundDto, UpdateBracketMatchInput } from '../dto/bracket.dto'
+import type {
+  BracketDto,
+  BracketMatchDto,
+  BracketMatchRecord,
+  BracketRoundDto,
+  UpdateBracketMatchInput
+} from '../dto/bracket.dto'
 import { toBracketMatchDto } from '../dto/bracket.dto'
 
 export class BracketServiceError extends Error {
@@ -148,61 +154,222 @@ export function createBracketService(
 
       await assertEventOrganizer(playerId, tournament.event_id)
 
+      if (input.winner_registration_id) {
+        assertWinnerIsAParticipant(bracketMatch, input.winner_registration_id)
+      }
+
       const updated = await brackets.update(bracketMatchId, input)
+      await advanceWinner(updated, tournament.format)
       return toBracketMatchDto(updated)
     }
   }
+
+  /**
+   * A recorded winner must be one of the two entrants in that slot. Without this
+   * the PATCH endpoint would accept any registration id and quietly promote a
+   * player who never played the match.
+   */
+  function assertWinnerIsAParticipant(match: BracketMatchRecord, winnerId: string) {
+    if (
+      winnerId !== match.participant1_registration_id &&
+      winnerId !== match.participant2_registration_id
+    ) {
+      throw new BracketServiceError(
+        400,
+        'INVALID_WINNER',
+        'The winner must be one of the two participants in this match.'
+      )
+    }
+  }
+
+  /**
+   * Moves a completed slot's winner into the next round.
+   *
+   * Previously nothing did this: an organiser could record every round-one
+   * result and round two stayed empty, so a tournament could not progress past
+   * its first round.
+   *
+   * Scope, deliberately narrow:
+   *  - single elimination, and the WINNERS side of double elimination (rounds
+   *    below the 100 offset the generator uses for the losers bracket);
+   *  - round robin and pool play have no advancement — every fixture is drawn
+   *    up front — so they are skipped;
+   *  - double elimination's losers bracket is NOT routed. Correct loser
+   *    placement depends on the round-by-round drop pattern, which the current
+   *    generator only approximates, and a wrong route is worse than an empty
+   *    one. Tracked as a backlog item; the winners side still advances.
+   */
+  async function advanceWinner(match: BracketMatchRecord, format: string) {
+    if (format !== 'single_elimination' && format !== 'double_elimination') return
+    if (!match.winner_registration_id) return
+    if (match.status !== 'completed' && match.status !== 'bye') return
+
+    // The losers bracket (100+) and grand final (200) are not routed.
+    const LOSERS_BRACKET_ROUND_OFFSET = 100
+    if (match.round >= LOSERS_BRACKET_ROUND_OFFSET) return
+
+    const next = nextSlotFor(match.round, match.position)
+    const siblings = await brackets.findByTournamentId(
+      match.tournament_id,
+      match.category_id ?? undefined
+    )
+    const target = siblings.find((m) => m.round === next.round && m.position === next.position)
+    if (!target) return // this was the final
+
+    const occupant =
+      next.slot === 1 ? target.participant1_registration_id : target.participant2_registration_id
+    if (occupant === match.winner_registration_id) return // already advanced
+
+    const other =
+      next.slot === 1 ? target.participant2_registration_id : target.participant1_registration_id
+
+    await brackets.setParticipant(
+      target.id,
+      next.slot,
+      match.winner_registration_id,
+      other ? 'ready' : 'pending'
+    )
+  }
+}
+
+/**
+ * Fisher-Yates. `[...ids].sort(() => Math.random() - 0.5)` was used before and
+ * is not a uniform shuffle — the comparator is inconsistent, so the result is
+ * biased toward the input order and the bias varies by engine. Seeding fairness
+ * depends on this being uniform.
+ */
+function shuffle<T>(items: readonly T[]): T[] {
+  const result = [...items]
+  for (let i = result.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[result[i], result[j]] = [result[j], result[i]]
+  }
+  return result
+}
+
+type NewBracketMatch = Omit<import('../dto/bracket.dto').BracketMatchRecord, 'id' | 'created_at'>
+
+/**
+ * Builds round one for a knockout bracket.
+ *
+ * Byes are allocated to the top seeds first and each occupies a whole slot on
+ * its own, then the remaining entrants are paired off. The previous version
+ * walked participants and byes in a single pass, which for 5 entrants in an
+ * 8-slot bracket emitted a fourth slot with both participants null, status
+ * 'bye' and a null winner — a phantom match that advanced nobody.
+ */
+function buildFirstRound(
+  tournamentId: string,
+  seeds: string[],
+  bracketSize: number,
+  categoryId: string | null
+): NewBracketMatch[] {
+  const numByes = bracketSize - seeds.length
+  const matches: NewBracketMatch[] = []
+  let position = 1
+  let index = 0
+
+  for (let i = 0; i < numByes; i++) {
+    const participant = seeds[index++]
+    matches.push({
+      tournament_id: tournamentId,
+      round: 1,
+      position: position++,
+      match_id: null,
+      participant1_registration_id: participant,
+      participant2_registration_id: null,
+      winner_registration_id: participant,
+      status: 'bye',
+      scheduled_at: null,
+      category_id: categoryId
+    })
+  }
+
+  while (index < seeds.length) {
+    const participant1 = seeds[index++]
+    const participant2 = seeds[index++] ?? null
+    matches.push({
+      tournament_id: tournamentId,
+      round: 1,
+      position: position++,
+      match_id: null,
+      participant1_registration_id: participant1,
+      participant2_registration_id: participant2,
+      winner_registration_id: participant2 ? null : participant1,
+      status: participant2 ? 'ready' : 'bye',
+      scheduled_at: null,
+      category_id: categoryId
+    })
+  }
+
+  return matches
+}
+
+/**
+ * Where the winner of a knockout slot goes next.
+ *
+ * Positions are sequential within a round, so pairs collapse: positions 1 and 2
+ * both feed round+1 position 1, filling slot 1 and slot 2 respectively. Returns
+ * null for a round that has no successor (the final) — and for the losers
+ * bracket, which this does not attempt to route (see advanceWinner).
+ */
+export function nextSlotFor(
+  round: number,
+  position: number
+): { round: number; position: number; slot: 1 | 2 } {
+  return {
+    round: round + 1,
+    position: Math.ceil(position / 2),
+    slot: position % 2 === 1 ? 1 : 2
+  }
+}
+
+/**
+ * Walks first-round byes into round two at generation time.
+ *
+ * A bye already knows its winner the moment the bracket is drawn, so leaving it
+ * un-advanced meant round two opened with empty slots that nothing would ever
+ * fill — the bracket looked generated but could not be played past round one.
+ */
+function propagateByes(matches: NewBracketMatch[]): NewBracketMatch[] {
+  const byPosition = new Map<string, NewBracketMatch>()
+  for (const m of matches) {
+    byPosition.set(`${m.round}:${m.position}`, m)
+  }
+
+  for (const m of matches) {
+    if (m.round !== 1 || m.status !== 'bye' || !m.winner_registration_id) continue
+
+    const next = nextSlotFor(m.round, m.position)
+    const target = byPosition.get(`${next.round}:${next.position}`)
+    if (!target) continue
+
+    if (next.slot === 1) target.participant1_registration_id = m.winner_registration_id
+    else target.participant2_registration_id = m.winner_registration_id
+
+    target.status =
+      target.participant1_registration_id && target.participant2_registration_id
+        ? 'ready'
+        : 'pending'
+  }
+
+  return matches
 }
 
 function generateSingleEliminationBracket(
   tournamentId: string,
   registrationIds: string[],
   categoryId: string | null = null
-): Omit<import('../dto/bracket.dto').BracketMatchRecord, 'id' | 'created_at'>[] {
-  const n = registrationIds.length
-  const bracketSize = nextPowerOfTwo(n)
+): NewBracketMatch[] {
+  const bracketSize = nextPowerOfTwo(registrationIds.length)
   const numRounds = Math.log2(bracketSize)
-  const numByes = bracketSize - n
 
-  const shuffled = [...registrationIds].sort(() => Math.random() - 0.5)
-
-  const matches: Omit<import('../dto/bracket.dto').BracketMatchRecord, 'id' | 'created_at'>[] = []
-
-  const firstRoundMatches = bracketSize / 2
-  let participantIndex = 0
-  let byesRemaining = numByes
-
-  for (let position = 1; position <= firstRoundMatches; position++) {
-    const participant1 = shuffled[participantIndex++] ?? null
-
-    let participant2: string | null = null
-    let status: import('../dto/bracket.dto').BracketMatchStatus = 'pending'
-
-    if (byesRemaining > 0 && participantIndex >= n) {
-      status = 'bye'
-      byesRemaining--
-    } else if (participantIndex < shuffled.length) {
-      participant2 = shuffled[participantIndex++] ?? null
-      if (participant1 && participant2) {
-        status = 'ready'
-      }
-    } else {
-      status = 'bye'
-    }
-
-    matches.push({
-      tournament_id: tournamentId,
-      round: 1,
-      position,
-      match_id: null,
-      participant1_registration_id: participant1,
-      participant2_registration_id: participant2,
-      winner_registration_id: status === 'bye' ? participant1 : null,
-      status,
-      scheduled_at: null,
-      category_id: categoryId
-    })
-  }
+  const matches: NewBracketMatch[] = buildFirstRound(
+    tournamentId,
+    shuffle(registrationIds),
+    bracketSize,
+    categoryId
+  )
 
   for (let round = 2; round <= numRounds; round++) {
     const matchesInRound = bracketSize / Math.pow(2, round)
@@ -222,7 +389,7 @@ function generateSingleEliminationBracket(
     }
   }
 
-  return matches
+  return propagateByes(matches)
 }
 
 function nextPowerOfTwo(n: number): number {
@@ -237,49 +404,16 @@ function generateDoubleEliminationBracket(
   tournamentId: string,
   registrationIds: string[],
   categoryId: string | null = null
-): Omit<import('../dto/bracket.dto').BracketMatchRecord, 'id' | 'created_at'>[] {
-  const n = registrationIds.length
-  const bracketSize = nextPowerOfTwo(n)
+): NewBracketMatch[] {
+  const bracketSize = nextPowerOfTwo(registrationIds.length)
   const numWinnersRounds = Math.log2(bracketSize)
-  const numByes = bracketSize - n
 
-  const shuffled = [...registrationIds].sort(() => Math.random() - 0.5)
-  const matches: Omit<import('../dto/bracket.dto').BracketMatchRecord, 'id' | 'created_at'>[] = []
-
-  const firstRoundMatches = bracketSize / 2
-  let participantIndex = 0
-  let byesRemaining = numByes
-
-  for (let position = 1; position <= firstRoundMatches; position++) {
-    const participant1 = shuffled[participantIndex++] ?? null
-    let participant2: string | null = null
-    let status: import('../dto/bracket.dto').BracketMatchStatus = 'pending'
-
-    if (byesRemaining > 0 && participantIndex >= n) {
-      status = 'bye'
-      byesRemaining--
-    } else if (participantIndex < shuffled.length) {
-      participant2 = shuffled[participantIndex++] ?? null
-      if (participant1 && participant2) {
-        status = 'ready'
-      }
-    } else {
-      status = 'bye'
-    }
-
-    matches.push({
-      tournament_id: tournamentId,
-      round: 1,
-      position,
-      match_id: null,
-      participant1_registration_id: participant1,
-      participant2_registration_id: participant2,
-      winner_registration_id: status === 'bye' ? participant1 : null,
-      status,
-      scheduled_at: null,
-      category_id: categoryId
-    })
-  }
+  const matches: NewBracketMatch[] = buildFirstRound(
+    tournamentId,
+    shuffle(registrationIds),
+    bracketSize,
+    categoryId
+  )
 
   for (let round = 2; round <= numWinnersRounds; round++) {
     const matchesInRound = bracketSize / Math.pow(2, round)
@@ -334,7 +468,9 @@ function generateDoubleEliminationBracket(
     category_id: categoryId
   })
 
-  return matches
+  // Winners-bracket byes only. Losers-bracket routing is not implemented — see
+  // the note in advanceWinner.
+  return propagateByes(matches)
 }
 
 function generateRoundRobinBracket(
@@ -346,7 +482,6 @@ function generateRoundRobinBracket(
   const matches: Omit<import('../dto/bracket.dto').BracketMatchRecord, 'id' | 'created_at'>[] = []
 
   const numRounds = n % 2 === 0 ? n - 1 : n
-  const matchesPerRound = Math.floor(n / 2)
 
   const participants = [...registrationIds]
   if (n % 2 !== 0) {
@@ -400,7 +535,7 @@ function generatePoolPlayBracket(
   const numPools = n >= 8 ? Math.ceil(n / 4) : 2
   const pools: string[][] = Array.from({ length: numPools }, () => [])
 
-  const shuffled = [...registrationIds].sort(() => Math.random() - 0.5)
+  const shuffled = shuffle(registrationIds)
   shuffled.forEach((id, i) => {
     pools[i % numPools].push(id)
   })

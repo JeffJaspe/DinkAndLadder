@@ -15,6 +15,17 @@ export interface EventRegistrationRepository {
   ): Promise<EventRegistrationRecord[]>
   findByPlayer(playerId: string): Promise<EventRegistrationRecord[]>
   countByEvent(eventId: string, status?: EventRegistrationStatus[]): Promise<number>
+  /**
+   * Registration counts for many events at once, keyed by event id. Events
+   * with no registrations are absent from the map.
+   *
+   * Exists so the events list does not fire one count per card — a listing of
+   * 20 events would otherwise be 21 round trips.
+   */
+  countByEvents(
+    eventIds: string[],
+    status?: EventRegistrationStatus[]
+  ): Promise<Map<string, number>>
   create(data: {
     event_id: string
     player_id: string
@@ -75,6 +86,34 @@ export function createEventRegistrationRepository(
         throw new Error(`Failed to list player registrations: ${error.message}`)
       }
       return (data ?? []) as EventRegistrationRecord[]
+    },
+
+    async countByEvents(eventIds, status) {
+      const counts = new Map<string, number>()
+      if (!eventIds.length) return counts
+
+      // Rows are fetched and tallied in application code because Supabase's
+      // REST layer has no GROUP BY. Only the event_id column is selected, so
+      // the payload stays small even for a busy event.
+      let query = client
+        .from('event_registrations')
+        .select('event_id')
+        .in('event_id', eventIds)
+
+      if (status && status.length > 0) {
+        query = query.in('status', status)
+      }
+
+      const { data, error } = await query
+
+      if (error) {
+        throw new Error(`Failed to count registrations: ${error.message}`)
+      }
+
+      for (const row of (data ?? []) as { event_id: string }[]) {
+        counts.set(row.event_id, (counts.get(row.event_id) ?? 0) + 1)
+      }
+      return counts
     },
 
     async countByEvent(eventId, status) {

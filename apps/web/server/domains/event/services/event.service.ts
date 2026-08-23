@@ -10,11 +10,13 @@ import type {
   EventSearchQuery,
   UpdateEventInput
 } from '../dto/event.dto'
-import { toEventDto } from '../dto/event.dto'
+import { SLOT_OCCUPYING_STATUSES, toEventDto } from '../dto/event.dto'
+import type { EventRegistrationRepository } from '../repositories/event-registration.repository'
 import type {
   CreateTournamentInput,
   TournamentDto,
   TournamentRegistrationDto,
+  TournamentRegistrationWithPlayerDto,
   UpdateTournamentInput
 } from '../dto/tournament.dto'
 import { toTournamentDto, toTournamentRegistrationDto } from '../dto/tournament.dto'
@@ -34,6 +36,8 @@ export interface EventService {
   getEvent(eventId: string): Promise<EventDto | null>
   updateEvent(playerId: string, eventId: string, input: UpdateEventInput): Promise<EventDto>
   publishEvent(playerId: string, eventId: string): Promise<EventDto>
+  /** Draft-only, and only when nothing is attached. See the implementation. */
+  deleteDraftEvent(playerId: string, eventId: string): Promise<void>
   cancelEvent(playerId: string, eventId: string): Promise<EventDto>
   searchEvents(query: EventSearchQuery): Promise<EventDto[]>
 
@@ -52,6 +56,10 @@ export interface EventService {
     categoryId?: string | null
   ): Promise<TournamentRegistrationDto>
   getRegistrations(tournamentId: string): Promise<TournamentRegistrationDto[]>
+  /** Same list with player names resolved, for screens that show who entered. */
+  getRegistrationsWithPlayers(
+    tournamentId: string
+  ): Promise<TournamentRegistrationWithPlayerDto[]>
   withdrawRegistration(playerId: string, registrationId: string): Promise<TournamentRegistrationDto>
   updateRegistrationStatus(
     playerId: string,
@@ -64,7 +72,14 @@ export function createEventService(
   events: EventRepository,
   tournaments: TournamentRepository,
   registrations: TournamentRegistrationRepository,
-  memberships?: ClubMembershipRepository
+  memberships?: ClubMembershipRepository,
+  /**
+   * Supplied by the list endpoint so search results can carry how many slots
+   * are taken. Optional because every other caller of this service works fine
+   * without it, and making it required would touch five call sites for a field
+   * only one of them uses.
+   */
+  eventRegistrations?: EventRegistrationRepository
 ): EventService {
   async function assertEventOrganizer(playerId: string, eventId: string) {
     const event = await events.findById(eventId)
@@ -155,6 +170,34 @@ export function createEventService(
       return toEventDto(updated)
     },
 
+    async deleteDraftEvent(playerId, eventId) {
+      const event = await assertEventOrganizer(playerId, eventId)
+
+      // Only drafts. A published event may already have people planning around
+      // it, so withdrawing it is `cancelEvent` — which preserves the record —
+      // not deletion.
+      if (event.status !== 'draft') {
+        throw new EventServiceError(
+          409,
+          'INVALID_EVENT_STATE',
+          `Only draft events can be deleted. Cancel this event instead — it is '${event.status}'.`
+        )
+      }
+
+      // A draft cannot normally be registered for or played, so anything here
+      // means the event is not really unused. Refuse rather than destroy it.
+      const blocking = await events.countBlockingChildren(eventId)
+      if (blocking.registrations > 0 || blocking.matches > 0 || blocking.queueEntries > 0) {
+        throw new EventServiceError(
+          409,
+          'EVENT_NOT_EMPTY',
+          'This event already has players or matches attached and cannot be deleted. Cancel it instead.'
+        )
+      }
+
+      await events.deleteWithChildren(eventId)
+    },
+
     async cancelEvent(playerId, eventId) {
       const event = await assertEventOrganizer(playerId, eventId)
       if (event.status === 'cancelled' || event.status === 'completed') {
@@ -170,7 +213,20 @@ export function createEventService(
 
     async searchEvents(query) {
       const records = await events.search(query)
-      return records.map(toEventDto)
+      const dtos = records.map(toEventDto)
+
+      // Capacity is only meaningful for events that declare a limit, so the
+      // count is skipped entirely when none of them do.
+      if (!eventRegistrations || !dtos.some((e) => e.max_participants !== null)) {
+        return dtos
+      }
+
+      const counts = await eventRegistrations.countByEvents(
+        dtos.map((e) => e.id),
+        SLOT_OCCUPYING_STATUSES
+      )
+
+      return dtos.map((e) => ({ ...e, registered_count: counts.get(e.id) ?? 0 }))
     },
 
     async createTournament(playerId, input) {
@@ -257,6 +313,16 @@ export function createEventService(
     async getRegistrations(tournamentId) {
       const records = await registrations.findByTournamentId(tournamentId)
       return records.map(toTournamentRegistrationDto)
+    },
+
+    async getRegistrationsWithPlayers(tournamentId) {
+      const records = await registrations.findByTournamentIdWithPlayers(tournamentId)
+      return records.map((record) => ({
+        ...toTournamentRegistrationDto(record),
+        display_name: record.display_name,
+        rating: record.rating,
+        partner_display_name: record.partner_display_name
+      }))
     },
 
     async withdrawRegistration(playerId, registrationId) {

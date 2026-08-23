@@ -1,7 +1,7 @@
 import type { ActivityRepository } from '../repositories/activity.repository'
 import type { RelationshipRepository } from '../../social/repositories/relationship.repository'
 import type { ClubRepository } from '../../club/repositories/club.repository'
-import type { ActivityDto, ActivityRecord, ActivityType, CreateActivityInput, FeedQuery } from '../dto/activity.dto'
+import type { ActivityDto, ActivityRecord, CreateActivityInput, FeedQuery } from '../dto/activity.dto'
 import { toActivityDto } from '../dto/activity.dto'
 
 export class ActivityServiceError extends Error {

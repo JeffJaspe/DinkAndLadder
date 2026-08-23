@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { escapeLikePattern } from '../../shared/escape-like'
 import type {
   PlayerProfileRecord,
   PlayerSearchQuery,
@@ -13,6 +14,8 @@ const PROFILE_COLUMNS =
 export interface PlayerProfileRepository {
   findById(profileId: string): Promise<PlayerProfileRecord | null>
   findByUserId(userId: string): Promise<PlayerProfileRecord | null>
+  /** Bulk name lookup — avoids N round trips when resolving a list of player ids. */
+  findByIds(profileIds: string[]): Promise<PlayerProfileRecord[]>
   upsertOwnProfile(userId: string, input: UpdatePlayerProfileInput): Promise<PlayerProfileRecord>
   search(query: PlayerSearchQuery): Promise<PlayerSearchResultRow[]>
 }
@@ -28,6 +31,17 @@ export function createPlayerProfileRepository(client: SupabaseClient): PlayerPro
 
       if (error) throw error
       return data as PlayerProfileRecord | null
+    },
+
+    async findByIds(profileIds) {
+      if (!profileIds.length) return []
+      const { data, error } = await client
+        .from('player_profiles')
+        .select(PROFILE_COLUMNS)
+        .in('id', profileIds)
+
+      if (error) throw error
+      return (data ?? []) as unknown as PlayerProfileRecord[]
     },
 
     async findByUserId(userId) {
@@ -62,7 +76,7 @@ export function createPlayerProfileRepository(client: SupabaseClient): PlayerPro
         .eq('profile_visibility', 'public')
 
       if (query.q) {
-        builder = builder.ilike('display_name', `%${query.q}%`)
+        builder = builder.ilike('display_name', `%${escapeLikePattern(query.q)}%`)
       }
       if (query.province) {
         builder = builder.eq('province', query.province)

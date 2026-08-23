@@ -1,5 +1,9 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import type { BracketMatchRecord, BracketMatchStatus, UpdateBracketMatchInput } from '../dto/bracket.dto'
+import type {
+  BracketMatchRecord,
+  BracketMatchStatus,
+  UpdateBracketMatchInput
+} from '../dto/bracket.dto'
 
 const BRACKET_MATCH_COLUMNS =
   'id, tournament_id, round, position, match_id, participant1_registration_id, ' +
@@ -15,6 +19,20 @@ export interface BracketRepository {
   findByTournamentId(tournamentId: string, categoryId?: string | null): Promise<BracketMatchRecord[]>
   createMany(matches: Omit<BracketMatchRecord, 'id' | 'created_at'>[]): Promise<BracketMatchRecord[]>
   update(bracketMatchId: string, input: UpdateBracketMatchInput): Promise<BracketMatchRecord>
+  /**
+   * Places an advancing entrant into a downstream slot.
+   *
+   * Deliberately separate from update(): UpdateBracketMatchInput is the shape
+   * the PATCH endpoint accepts from an organiser, and participants must not be
+   * settable from there — who occupies a slot is derived from results, never
+   * supplied by the caller. Only the service's advancement logic calls this.
+   */
+  setParticipant(
+    bracketMatchId: string,
+    slot: 1 | 2,
+    registrationId: string,
+    status: BracketMatchStatus
+  ): Promise<BracketMatchRecord>
   deleteByTournamentId(tournamentId: string, categoryId?: string | null): Promise<void>
 }
 
@@ -68,6 +86,21 @@ export function createBracketRepository(client: SupabaseClient): BracketReposito
       const { data, error } = await client
         .from('bracket_matches')
         .update(updateData)
+        .eq('id', bracketMatchId)
+        .select(BRACKET_MATCH_COLUMNS)
+        .single()
+
+      if (error) throw error
+      return data as unknown as BracketMatchRecord
+    },
+
+    async setParticipant(bracketMatchId, slot, registrationId, status) {
+      const column =
+        slot === 1 ? 'participant1_registration_id' : 'participant2_registration_id'
+
+      const { data, error } = await client
+        .from('bracket_matches')
+        .update({ [column]: registrationId, status })
         .eq('id', bracketMatchId)
         .select(BRACKET_MATCH_COLUMNS)
         .single()

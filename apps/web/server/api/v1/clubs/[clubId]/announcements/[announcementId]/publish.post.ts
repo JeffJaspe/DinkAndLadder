@@ -54,10 +54,10 @@ export default defineEventHandler(async (event) => {
           if (memberProfile) {
             await notificationService.notify({
               user_id: memberProfile.user_id,
-              type: 'club.announcement' as any,
+              type: 'club.announcement',
               title: `New Announcement in ${club.name}`,
               body: announcement.title,
-              reference_type: 'club_announcement' as any,
+              reference_type: 'club_announcement',
               reference_id: announcement.id
             }).catch(() => {})
           }

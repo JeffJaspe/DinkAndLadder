@@ -45,15 +45,21 @@ export default defineEventHandler(async (event) => {
     throw apiError(500, 'INTERNAL_ERROR', 'Could not load event rankings.')
   }
 
-  const byPlayer = new Map<string, AggregateRow>()
-
-  for (const m of matches ?? []) {
-    const scores = (m as any).match_scores as Array<{ set_number: number; team1_score: number; team2_score: number }>
-    const participants = (m as any).match_participants as Array<{
+  interface EventRankingMatchRow {
+    match_scores?: Array<{ set_number: number; team1_score: number; team2_score: number }> | null
+    match_participants?: Array<{
       player_id: string
       team_number: 1 | 2
       player_profiles: { id: string; display_name: string } | null
-    }>
+    }> | null
+  }
+
+  const byPlayer = new Map<string, AggregateRow>()
+
+  for (const m of matches ?? []) {
+    const row = m as unknown as EventRankingMatchRow
+    const scores = row.match_scores ?? []
+    const participants = row.match_participants ?? []
     if (scores.length === 0 || participants.length === 0) continue
 
     const team1Sets = scores.filter((s) => s.team1_score > s.team2_score).length

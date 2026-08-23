@@ -9,6 +9,10 @@ export interface ShoutoutRepository {
   deactivate(playerId: string): Promise<void>
 }
 
+interface ShoutoutJoinRow extends ShoutoutRecord {
+  player_profiles?: { display_name?: string | null } | null
+}
+
 export function createShoutoutRepository(client: SupabaseClient): ShoutoutRepository {
   return {
     async findActiveByPlayerId(playerId) {
@@ -38,10 +42,14 @@ export function createShoutoutRepository(client: SupabaseClient): ShoutoutReposi
 
       if (error) throw error
 
-      return (data ?? []).map((row: any) => ({
-        ...row,
-        display_name: row.player_profiles?.display_name ?? 'Unknown'
-      }))
+      // Drop the embedded profile off the result — the DTO carries the flat
+      // display_name, not the join.
+      return ((data ?? []) as unknown as ShoutoutJoinRow[]).map(
+        ({ player_profiles, ...row }) => ({
+          ...row,
+          display_name: player_profiles?.display_name ?? 'Unknown'
+        })
+      )
     },
 
     async create(data) {

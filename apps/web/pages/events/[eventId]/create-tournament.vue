@@ -7,7 +7,6 @@ const form = reactive({
   name: '',
   format: 'single_elimination' as 'single_elimination' | 'double_elimination' | 'round_robin' | 'swiss',
   match_type: 'singles' as 'singles' | 'doubles',
-  max_participants: 32,
   min_rating: null as number | null,
   max_rating: null as number | null
 })
@@ -26,7 +25,6 @@ const formats = [
   { value: 'swiss', label: 'Swiss System' }
 ]
 
-const participantOptions = [8, 16, 32, 64, 128]
 
 const ratingTemplates = [
   { value: 'novice', label: 'Novice', description: 'Up to 2.5', min: null, max: 2.5 },
@@ -91,15 +89,14 @@ async function submit() {
         name: form.name,
         format: form.format,
         match_type: form.match_type,
-        max_participants: form.max_participants,
         min_rating: form.min_rating,
         max_rating: form.max_rating,
         auto_join: true
       }
     })
     router.push(`/tournaments/${created.id}`)
-  } catch (e: any) {
-    errorMessage.value = e?.data?.statusMessage || 'Something went wrong.'
+  } catch (e) {
+    errorMessage.value = apiErrorMessage(e, 'Something went wrong.')
   } finally {
     submitting.value = false
   }
@@ -107,52 +104,52 @@ async function submit() {
 </script>
 
 <template>
-  <div class="min-h-screen bg-[#0B0D09] p-4 lg:p-6">
+  <div class="min-h-screen bg-canvas p-4 lg:p-6">
     <div class="mx-auto max-w-2xl">
       <!-- Header -->
       <div class="mb-6">
-        <NuxtLink :to="`/events/${eventId}`" class="mb-4 inline-flex items-center gap-2 text-sm text-[#6B7B75] hover:text-white">
+        <NuxtLink :to="`/events/${eventId}`" class="mb-4 inline-flex items-center gap-2 text-sm text-fg-muted hover:text-fg">
           <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
           </svg>
           Back to Event
         </NuxtLink>
-        <h1 class="text-2xl font-bold text-white">Create Category</h1>
-        <p class="mt-1 text-sm text-[#6B7B75]">Add a new category to this event</p>
+        <h1 class="text-2xl font-bold text-fg">Create Category</h1>
+        <p class="mt-1 text-sm text-fg-muted">Add a new category to this event</p>
       </div>
 
       <!-- Form -->
       <form class="space-y-6" @submit.prevent="submit">
         <!-- Basic Info -->
-        <div class="rounded-xl bg-[#1E2E2A] p-5">
-          <h2 class="mb-4 font-semibold text-white">Category Details</h2>
+        <div class="rounded-xl bg-surface p-5">
+          <h2 class="mb-4 font-semibold text-fg">Category Details</h2>
           <div class="space-y-4">
             <div>
-              <label class="mb-1.5 block text-sm text-[#A6ABA7]">Category Name</label>
+              <label class="mb-1.5 block text-sm text-fg-secondary">Category Name</label>
               <input
                 v-model="form.name"
                 type="text"
                 required
                 placeholder="e.g., Men's Singles Open"
-                class="w-full rounded-lg border border-[#3A5750] bg-[#0B0D09] px-4 py-2.5 text-white placeholder-[#6B7B75] focus:border-[#4DB175] focus:outline-none"
+                class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none"
               />
             </div>
 
             <div class="grid gap-4 sm:grid-cols-2">
               <div>
-                <label class="mb-1.5 block text-sm text-[#A6ABA7]">Format</label>
+                <label class="mb-1.5 block text-sm text-fg-secondary">Format</label>
                 <select
                   v-model="form.format"
-                  class="w-full rounded-lg border border-[#3A5750] bg-[#0B0D09] px-4 py-2.5 text-white focus:border-[#4DB175] focus:outline-none"
+                  class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg focus:border-primary focus:outline-none"
                 >
                   <option v-for="f in formats" :key="f.value" :value="f.value">{{ f.label }}</option>
                 </select>
               </div>
               <div>
-                <label class="mb-1.5 block text-sm text-[#A6ABA7]">Match Type</label>
+                <label class="mb-1.5 block text-sm text-fg-secondary">Match Type</label>
                 <select
                   v-model="form.match_type"
-                  class="w-full rounded-lg border border-[#3A5750] bg-[#0B0D09] px-4 py-2.5 text-white focus:border-[#4DB175] focus:outline-none"
+                  class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg focus:border-primary focus:outline-none"
                 >
                   <option value="singles">Singles</option>
                   <option value="doubles">Doubles</option>
@@ -160,30 +157,21 @@ async function submit() {
               </div>
             </div>
 
-            <div>
-              <label class="mb-1.5 block text-sm text-[#A6ABA7]">Max Participants</label>
-              <select
-                v-model="form.max_participants"
-                class="w-full rounded-lg border border-[#3A5750] bg-[#0B0D09] px-4 py-2.5 text-white focus:border-[#4DB175] focus:outline-none"
-              >
-                <option v-for="n in participantOptions" :key="n" :value="n">{{ n }} players</option>
-              </select>
-            </div>
           </div>
         </div>
 
         <!-- Rating Bracket -->
-        <div class="rounded-xl bg-[#1E2E2A] p-5">
-          <h2 class="mb-2 font-semibold text-white">Rating Bracket</h2>
-          <p class="mb-4 text-sm text-[#6B7B75]">
+        <div class="rounded-xl bg-surface p-5">
+          <h2 class="mb-2 font-semibold text-fg">Rating Bracket</h2>
+          <p class="mb-4 text-sm text-fg-muted">
             Optional — set a rating-based restriction for this category. Leave empty for open registration.
           </p>
 
           <!-- Current Rating Display -->
-          <div v-if="currentRatingDisplay" class="mb-4 flex items-center justify-between rounded-lg bg-[#0B0D09] p-3">
+          <div v-if="currentRatingDisplay" class="mb-4 flex items-center justify-between rounded-lg bg-canvas p-3">
             <div>
-              <p class="text-sm text-[#A6ABA7]">Current bracket</p>
-              <p class="font-medium text-white">{{ currentRatingDisplay }}</p>
+              <p class="text-sm text-fg-secondary">Current bracket</p>
+              <p class="font-medium text-fg">{{ currentRatingDisplay }}</p>
             </div>
             <button
               type="button"
@@ -199,7 +187,7 @@ async function submit() {
             <div class="flex gap-2">
               <select
                 v-model="selectedTemplate"
-                class="flex-1 rounded-lg border border-[#3A5750] bg-[#0B0D09] px-4 py-2.5 text-white focus:border-[#4DB175] focus:outline-none"
+                class="flex-1 rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg focus:border-primary focus:outline-none"
               >
                 <option value="">Select a template</option>
                 <option v-for="t in ratingTemplates" :key="t.value" :value="t.value">
@@ -209,7 +197,7 @@ async function submit() {
               <button
                 type="button"
                 :disabled="!selectedTemplate"
-                class="rounded-lg bg-[#4DB175] px-4 py-2.5 font-medium text-white hover:bg-[#5FC287] disabled:opacity-50"
+                class="rounded-lg bg-primary px-4 py-2.5 font-medium text-on-primary hover:bg-primary-hover disabled:opacity-50"
                 @click="applyTemplate"
               >
                 Add
@@ -218,7 +206,7 @@ async function submit() {
 
             <button
               type="button"
-              class="flex items-center gap-2 text-sm text-[#4DB175] hover:text-[#5FC287]"
+              class="flex items-center gap-2 text-sm text-primary hover:text-primary-hover"
               @click="showCustomRating = true"
             >
               <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -232,20 +220,20 @@ async function submit() {
           <div v-else class="space-y-3">
             <div class="grid gap-3 sm:grid-cols-2">
               <div>
-                <label class="mb-1.5 block text-sm text-[#A6ABA7]">Minimum Rating</label>
+                <label class="mb-1.5 block text-sm text-fg-secondary">Minimum Rating</label>
                 <select
                   v-model="customMinRating"
-                  class="w-full rounded-lg border border-[#3A5750] bg-[#0B0D09] px-4 py-2.5 text-white focus:border-[#4DB175] focus:outline-none"
+                  class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg focus:border-primary focus:outline-none"
                 >
                   <option value="">No minimum</option>
                   <option v-for="r in ratingOptions" :key="r" :value="r">{{ r.toFixed(1) }}</option>
                 </select>
               </div>
               <div>
-                <label class="mb-1.5 block text-sm text-[#A6ABA7]">Maximum Rating</label>
+                <label class="mb-1.5 block text-sm text-fg-secondary">Maximum Rating</label>
                 <select
                   v-model="customMaxRating"
-                  class="w-full rounded-lg border border-[#3A5750] bg-[#0B0D09] px-4 py-2.5 text-white focus:border-[#4DB175] focus:outline-none"
+                  class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg focus:border-primary focus:outline-none"
                 >
                   <option value="">No maximum</option>
                   <option v-for="r in ratingOptions" :key="r" :value="r">{{ r.toFixed(1) }}</option>
@@ -255,14 +243,14 @@ async function submit() {
             <div class="flex gap-2">
               <button
                 type="button"
-                class="rounded-lg border border-[#3A5750] px-4 py-2 text-sm text-[#A6ABA7] hover:bg-[#2E4540]"
+                class="rounded-lg border border-border-strong px-4 py-2 text-sm text-fg-secondary hover:bg-surface-2"
                 @click="showCustomRating = false"
               >
                 Cancel
               </button>
               <button
                 type="button"
-                class="rounded-lg bg-[#4DB175] px-4 py-2 text-sm font-medium text-white hover:bg-[#5FC287]"
+                class="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-on-primary hover:bg-primary-hover"
                 @click="applyCustomRating"
               >
                 Apply
@@ -272,8 +260,8 @@ async function submit() {
         </div>
 
         <!-- Auto-join notice -->
-        <div class="rounded-lg bg-[#4DB175]/10 p-4">
-          <p class="text-sm text-[#4DB175]">
+        <div class="rounded-lg bg-primary/10 p-4">
+          <p class="text-sm text-primary">
             You will be automatically registered as a participant when you create this category.
           </p>
         </div>
@@ -287,14 +275,14 @@ async function submit() {
         <div class="flex gap-3">
           <NuxtLink
             :to="`/events/${eventId}`"
-            class="flex-1 rounded-xl border border-[#3A5750] py-3 text-center font-medium text-[#A6ABA7] hover:bg-[#2E4540]"
+            class="flex-1 rounded-xl border border-border-strong py-3 text-center font-medium text-fg-secondary hover:bg-surface-2"
           >
             Cancel
           </NuxtLink>
           <button
             type="submit"
             :disabled="submitting"
-            class="flex-1 rounded-xl bg-[#4DB175] py-3 font-medium text-white hover:bg-[#5FC287] disabled:opacity-50"
+            class="flex-1 rounded-xl bg-primary py-3 font-medium text-on-primary hover:bg-primary-hover disabled:opacity-50"
           >
             {{ submitting ? 'Creating...' : 'Create Category' }}
           </button>

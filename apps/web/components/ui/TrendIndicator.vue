@@ -1,72 +1,51 @@
 <script setup lang="ts">
-interface Props {
-  value: number
-  showValue?: boolean
-  size?: 'sm' | 'md'
-}
+/**
+ * The ↑/↓ trend column from the Rankings table and the "+12 from last 7 days"
+ * line on the rating cards.
+ *
+ * Direction is carried by an arrow as well as colour: a red/green pair alone is
+ * invisible to the ~8% of men with red-green colour blindness, and this is the
+ * one signal the rankings page exists to convey.
+ */
+import { formatRatingDelta } from '~/utils/rating-tiers'
 
-const props = withDefaults(defineProps<Props>(), {
-  showValue: true,
-  size: 'md'
-})
+const props = withDefaults(
+  defineProps<{
+    value: number | null | undefined
+    showValue?: boolean
+    size?: 'sm' | 'md'
+    /** Trailing context, e.g. "from last 7 days". */
+    suffix?: string | null
+  }>(),
+  { showValue: true, size: 'md', suffix: null }
+)
 
 const direction = computed(() => {
-  if (props.value > 0) return 'up'
-  if (props.value < 0) return 'down'
-  return 'neutral'
+  if (props.value === null || props.value === undefined || props.value === 0) return 'flat'
+  return props.value > 0 ? 'up' : 'down'
 })
 
-const colorClass = computed(() => {
-  switch (direction.value) {
-    case 'up': return 'text-success'
-    case 'down': return 'text-error'
-    default: return 'text-text-muted'
-  }
-})
+const TONE = {
+  up: 'text-success',
+  down: 'text-danger',
+  flat: 'text-fg-muted'
+} as const
 
-const sizeClasses = computed(() => {
-  return props.size === 'sm' ? 'text-xs gap-0.5' : 'text-sm gap-1'
-})
+const ICON = { up: 'arrow-up', down: 'arrow-down', flat: 'minus' } as const
 
-const iconSize = computed(() => {
-  return props.size === 'sm' ? 'h-3 w-3' : 'h-4 w-4'
-})
-
-const formattedValue = computed(() => {
-  if (props.value > 0) return `+${props.value.toFixed(3)}`
-  return props.value.toFixed(3)
-})
+const srLabel = computed(() =>
+  direction.value === 'flat' ? 'no change' : direction.value === 'up' ? 'up' : 'down'
+)
 </script>
 
 <template>
-  <span class="inline-flex items-center font-medium" :class="[colorClass, sizeClasses]">
-    <svg
-      v-if="direction === 'up'"
-      :class="iconSize"
-      fill="none"
-      stroke="currentColor"
-      viewBox="0 0 24 24"
-    >
-      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 10l7-7m0 0l7 7m-7-7v18" />
-    </svg>
-    <svg
-      v-else-if="direction === 'down'"
-      :class="iconSize"
-      fill="none"
-      stroke="currentColor"
-      viewBox="0 0 24 24"
-    >
-      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 14l-7 7m0 0l-7-7m7 7V3" />
-    </svg>
-    <svg
-      v-else
-      :class="iconSize"
-      fill="none"
-      stroke="currentColor"
-      viewBox="0 0 24 24"
-    >
-      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 12H4" />
-    </svg>
-    <span v-if="showValue">{{ formattedValue }}</span>
+  <span
+    class="inline-flex items-center font-medium tabular-nums"
+    :class="[TONE[direction], size === 'sm' ? 'gap-0.5 text-caption' : 'gap-1 text-body-2']"
+  >
+    <UiIcon :name="ICON[direction]" :size="size === 'sm' ? 'h-3 w-3' : 'h-4 w-4'" :stroke-width="2.5" />
+    <span class="sr-only">{{ srLabel }}</span>
+    <span v-if="showValue">{{ formatRatingDelta(value) }}</span>
+    <span v-if="suffix" class="font-normal text-fg-muted">{{ suffix }}</span>
   </span>
 </template>

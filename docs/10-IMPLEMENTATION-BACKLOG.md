@@ -215,3 +215,124 @@ Per `docs/32-DASHBOARD-SPECIFICATION.md`:
 ### 4. Production Cleanup (Later)
 - [ ] Wipe all test data
 - [ ] Fresh production start
+
+---
+
+## Audit Follow-ups (deferred from the 2026-08-22 remediation pass)
+
+A full-codebase audit produced 37 findings. The 6 critical and 13 high ones were
+fixed in that pass (see PROJECT-STATUS.md "Phase 9"). These 18 were deliberately
+deferred — none block the MVP. IDs match the audit report.
+
+### Promote next
+- [ ] **F-34 — Testing gap.** `tests/integration/` is empty (`vitest.config.ts`
+      is already wired to run it). Seven services have no unit test: analytics,
+      badge, partnership, sponsorship, platform-admin, shoutout, webhook. The
+      seven e2e specs total ~160 lines and only assert signed-out redirects and
+      401s — no authenticated journey is covered. **Every Correctness finding in
+      that pass would have been caught by an integration test**, and CLAUDE.md's
+      Definition of Done already requires them.
+- [x] **Lint is red on `main`.** DONE (2026-08-22) — 66 → 0 errors. `pnpm --filter web run lint` fails with 66
+      pre-existing errors (mostly `no-explicit-any` and unused vars in specs).
+      CI runs lint, so the pipeline cannot go green until this is cleared.
+      Confirmed pre-existing, not introduced by the remediation pass.
+
+### Correctness
+- [x] F-22 — DONE (2026-08-22): winners now advance (single elim + double-elim winners side); first-round byes propagate at generation; winner validated as a participant; 7 new tests. Losers-bracket routing still open — see below. Original note:  Bracket winners never advance. `updateBracketMatch` writes the
+      winner but nothing populates the next round, so tournaments stall after
+      round one.
+- [ ] F-23 — `confirmedRegs` in `bracket.service.ts` also includes `pending`
+      registrations. Decide the rule, then make the name match it. The adjacent
+      category filter also treats `undefined` and `null` differently from
+      `deleteByTournamentId`.
+- [x] F-24 — DONE (2026-08-22): reads created_at from auth.users via the Admin API instead of JWT claims, degrading gracefully. Original note:  `/api/v1/me/auth-info` returns `created_at: undefined`.
+      `serverSupabaseUser` returns JWT claims, which have no `created_at`.
+      Either drop the field or read it from the `users` table.
+- [ ] F-25 — Verification roll-up race. `recordVerificationDecision` recomputes
+      match status from an in-memory snapshot, so two simultaneous confirmations
+      can leave a match `pending_verification` — and it never gets rated.
+- [ ] F-26 — `highest_singles_rating` / `highest_doubles_rating` return the
+      *current* rating. Compute from `rating_transactions`.
+- [ ] F-27 — Feed params unvalidated: `types` is cast without a membership
+      check, a malformed `since` 500s instead of 400ing, `offset` accepts
+      negatives, and `getCirclePlayerIds` builds an unbounded `.in()` that will
+      eventually exceed the request URL limit.
+- [x] F-28 — DONE (2026-08-22): the query is skipped for a memberless club instead of sending 'none'; the error is now checked. Original note:  `getClubStats` sends the literal `'none'` where a uuid is expected
+      when a club has no members; the error is swallowed. Skip the query instead.
+- [ ] F-29 — `events_select_public` uses `status != 'draft'`, which is NULL-unsafe.
+      Use `IS DISTINCT FROM` (forward-only changeset).
+- [x] F-32 — DONE (2026-08-22): get_club_match_stats is now called; tournaments_hosted counted via events; member_growth_rate computed. Original note:  `getClubStats` hardcodes `matches_this_month`, `tournaments_hosted`
+      and `member_growth_rate` to 0, and `active_members` duplicates
+      `total_members`. Cheap win: `get_club_match_stats` already exists in
+      `014-analytics.changelog.xml` and is currently unused.
+
+### Security (low severity)
+- [ ] F-11 — `getRequestIP` is called without `{ xForwardedFor: true }`, so
+      Turnstile receives the proxy's IP. Decide based on the deploy topology —
+      trusting the header when not behind a proxy makes it spoofable.
+- [x] F-12 — DONE (2026-08-22): shared escapeLikePattern in server/domains/shared, applied to player and club search, 5 tests. Original note:  `%` and `_` are not escaped before reaching `ilike` in the player
+      and club search repositories.
+
+### Hygiene
+- [ ] F-31 — Onboarding validates `account_type` and then ignores it (no column
+      backs it). Either persist the choice or drop the parameter.
+- [ ] F-33 — `components/EmptyState.vue` and `components/ui/EmptyState.vue` are
+      two different unused implementations. `PlatformStatsDto` is now unreferenced
+      after the platform endpoint was deleted.
+- [ ] F-35 — Three error conventions coexist. Remaining raw `createError` callers
+      return a body the app-wide `fetchError.data?.message` convention cannot read.
+- [ ] F-36 — `serverSupabaseUser`'s result is named `claims` in most handlers and
+      `user` in others. The `user` naming is what invited F-24.
+- [x] F-37 — DONE (2026-08-22): all 52 `no-explicit-any` and 12 unused vars cleared; PSGC console.logs removed; shared `utils/api-error-message.ts` and typed Supabase join rows introduced. Original note:  `catch (e: any)` and `data: any[]` across pages despite
+      `typescript.strict`; concentrated in `pages/events/[eventId]/index.vue`.
+- [ ] Nuxt config drift: `@nuxtjs/supabase` warns that
+      `~/types/database.types.ts` is missing, so `Database = unknown` and no
+      query is type-checked against the real schema. Generating it would have
+      caught F-17 (`follower_id` is not a column) at compile time.
+
+### Opened by the 2026-08-22 follow-up pass
+
+- [ ] **Double-elimination losers-bracket routing.** F-22 implemented advancement
+      for single elimination and the winners side of double elimination. Losers
+      are still not routed: correct placement depends on the round-by-round drop
+      pattern, and the current generator only approximates the losers structure
+      (`Math.max(1, matchesInRound)` in `generateDoubleEliminationBracket`).
+      A wrong route is worse than an empty one, so it was left explicit rather
+      than guessed. Fixing it means designing the losers bracket properly first.
+- [ ] **Pool-play playoff seeding.** Pool rounds and playoff rounds are both
+      generated, but nothing computes pool standings or seeds the playoff from
+      them, so playoff slots stay empty. Same shape of gap F-22 closed for
+      knockout.
+- [ ] **Bracket cards show registration ids, not names.** `BracketMatchCard`
+      renders `registration_id.slice(0, 8)` because the bracket endpoint does not
+      join player names. Needs the join, then the card can show real names.
+
+### Opened by the 2026-08-23 UI pass
+
+- [ ] **Public index routes redirect to login while their data is public.**
+      `/events` sends a signed-out visitor to `/login`, but `/events/:id` renders
+      fine and `GET /api/v1/events` returns the same data unauthenticated. The
+      landing page advertises "Browse everything free — sign up to compete", so
+      the redirect contradicts both the API and the stated product intent.
+
+      Cause: the globs in `supabase.redirectOptions.exclude` (`nuxt.config.ts`)
+      are `/events/*`, `/players/*`, `/clubs/*` — and a trailing `/*` does not
+      match the bare index route. So the *detail* pages are public and the
+      *list* pages are not.
+
+      Affected: `/events`, `/players`, `/clubs`. Confirmed by loading `/events`
+      signed out: HTTP 200, final URL `/login`.
+
+      Fix is to add the bare paths to the exclude list. Nothing is protected by
+      the current behaviour — the endpoints those pages call are already public,
+      and RLS is the real boundary — so this is an oversight rather than a
+      security control. It was left alone because changing auth configuration is
+      a product decision, not a styling one.
+
+      Worth checking the whole exclude list at the same time for the same
+      trailing-glob mistake, and worth an E2E test asserting each intended-public
+      route renders signed out, so the next addition cannot regress silently.
+
+      Side effect while it stands: the events list cannot be verified in a
+      headless browser, so the capacity bar added on 2026-08-23 is covered by
+      unit tests and a live API check rather than a screenshot.

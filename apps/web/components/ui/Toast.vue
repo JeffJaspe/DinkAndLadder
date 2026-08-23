@@ -24,7 +24,7 @@ onBeforeUnmount(() => {
 const variantClasses = computed(() => {
   switch (props.variant) {
     case 'success':
-      return 'border-[#4DB175]/40 bg-[#132A20] text-[#7CDBA3]'
+      return 'border-primary/40 bg-surface text-primary-hover'
     case 'warning':
       return 'border-amber-500/40 bg-amber-950/90 text-amber-300'
     case 'info':

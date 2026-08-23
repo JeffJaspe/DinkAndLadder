@@ -48,10 +48,10 @@ export default defineEventHandler(async (event) => {
         )
         await notificationService.notify({
           user_id: requesterProfile.user_id,
-          type: 'partner.request_accepted' as any,
+          type: 'partner.request_accepted',
           title: 'Partner Request Accepted',
           body: `${profile.display_name} accepted your partner request!`,
-          reference_type: 'partnership' as any,
+          reference_type: 'partnership',
           reference_id: profile.id
         })
       }

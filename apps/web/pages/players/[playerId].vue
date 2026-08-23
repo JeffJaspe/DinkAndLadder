@@ -130,7 +130,20 @@ const pendingRequest = computed(() => {
 })
 
 const partnerLoading = ref(false)
-const activeTab = ref<'overview' | 'matches' | 'stats' | 'achievements' | 'activity' | 'clubs'>('overview')
+const PROFILE_TABS = [
+  { value: 'overview', label: 'Overview' },
+  { value: 'matches', label: 'Matches' },
+  { value: 'stats', label: 'Stats' },
+  { value: 'achievements', label: 'Achievements' },
+  { value: 'activity', label: 'Activity' },
+  { value: 'clubs', label: 'Clubs' }
+]
+
+// Seeded from `?tab=` so a linked tab opens on that tab; UiTabs keeps the query
+// in sync from there.
+const activeTab = ref<string>(
+  PROFILE_TABS.some(t => t.value === route.query.tab) ? String(route.query.tab) : 'overview'
+)
 
 const { data: clubsData } = await useFetch<{ items: Array<{ club: { id: string; name: string; is_verified: boolean } }> }>(
   () => `/api/v1/players/${playerId.value}/clubs`
@@ -202,23 +215,17 @@ function formatRelativeTime(dateStr: string): string {
 }
 
 const ratingHistoryPoints = computed(() => ratingHistoryData.value?.history ?? [])
-const ratingHistoryBars = computed(() => {
-  const points = ratingHistoryPoints.value
-  if (points.length === 0) return []
-  const values = points.map(p => p.rating_value)
-  const min = Math.min(...values)
-  const max = Math.max(...values)
-  const range = max - min || 1
-  // Floor bars at 20% so a flat history (min === max) still reads as a bar chart
-  // rather than a row of invisible slivers.
-  return points.map(p => ({ heightPct: 20 + ((p.rating_value - min) / range) * 70 }))
-})
-const ratingHistoryRangeLabel = computed(() => {
-  const points = ratingHistoryPoints.value
-  if (points.length === 0) return null
-  const fmt = (d: string) => new Date(d).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-  return { start: fmt(points[0].date), end: fmt(points[points.length - 1].date) }
-})
+/**
+ * Rating History (docs/33 §5.4).
+ *
+ * Was a bar sparkline with no time axis, so two ratings a year apart sat beside
+ * two from the same afternoon and the shape meant nothing. `UiLineChart` plots
+ * against real dates and carries a visually-hidden data table, so the series is
+ * not a black hole for screen readers.
+ */
+const ratingChartPoints = computed(() =>
+  ratingHistoryPoints.value.map(p => ({ date: p.date, value: p.rating_value }))
+)
 
 const trendLabel = computed(() => {
   if (stats.value?.rating_trend === 'rising') return 'Rising ↑'
@@ -226,9 +233,9 @@ const trendLabel = computed(() => {
   return 'Stable'
 })
 const trendClass = computed(() => {
-  if (stats.value?.rating_trend === 'rising') return 'text-[#4DB175]'
+  if (stats.value?.rating_trend === 'rising') return 'text-primary'
   if (stats.value?.rating_trend === 'falling') return 'text-red-400'
-  return 'text-white'
+  return 'text-fg'
 })
 
 const activities = computed(() => activitiesData.value?.activities ?? [])
@@ -278,37 +285,37 @@ function formatActivityText(activity: ActivityDto): string {
 </script>
 
 <template>
-  <div class="min-h-screen bg-[#0B0D09] p-4 lg:p-6">
+  <div class="min-h-screen bg-canvas p-4 lg:p-6">
     <!-- Loading -->
-    <div v-if="pending" class="mx-auto max-w-3xl space-y-4">
+    <div v-if="pending" class="page-shell space-y-4">
       <div class="flex items-start gap-4">
-        <div class="h-20 w-20 animate-pulse rounded-full bg-[#1E2E2A]" />
+        <div class="h-20 w-20 animate-pulse rounded-full bg-surface" />
         <div class="flex-1 space-y-2">
-          <div class="h-6 w-48 animate-pulse rounded bg-[#1E2E2A]" />
-          <div class="h-4 w-32 animate-pulse rounded bg-[#1E2E2A]" />
+          <div class="h-6 w-48 animate-pulse rounded bg-surface" />
+          <div class="h-4 w-32 animate-pulse rounded bg-surface" />
         </div>
       </div>
-      <div class="h-48 animate-pulse rounded-xl bg-[#1E2E2A]" />
+      <div class="h-48 animate-pulse rounded-xl bg-surface" />
     </div>
 
     <!-- Error -->
-    <div v-else-if="error" class="mx-auto max-w-3xl rounded-xl bg-[#1E2E2A] p-8 text-center">
+    <div v-else-if="error" class="page-shell rounded-xl bg-surface p-8 text-center">
       <p class="text-4xl">🔒</p>
-      <h2 class="mt-4 text-xl font-semibold text-white">
+      <h2 class="mt-4 text-xl font-semibold text-fg">
         {{ error.statusCode === 404 ? 'Profile Not Found' : 'Error Loading Profile' }}
       </h2>
-      <p class="mt-2 text-sm text-[#6B7B75]">
+      <p class="mt-2 text-sm text-fg-muted">
         {{ error.statusCode === 404 ? 'This profile is private or does not exist.' : 'Please try again later.' }}
       </p>
-      <NuxtLink to="/players" class="mt-4 inline-block rounded-lg bg-[#4DB175] px-4 py-2 text-white">
+      <NuxtLink to="/players" class="mt-4 inline-block rounded-lg bg-primary px-4 py-2 text-on-primary">
         Browse Players
       </NuxtLink>
     </div>
 
     <!-- Profile -->
-    <div v-else-if="profile" class="mx-auto max-w-3xl space-y-6">
+    <div v-else-if="profile" class="page-shell space-y-6">
       <!-- Back Button -->
-      <NuxtLink to="/players" class="inline-flex items-center gap-2 text-sm text-[#6B7B75] hover:text-white">
+      <NuxtLink to="/players" class="inline-flex items-center gap-2 text-sm text-fg-muted hover:text-fg">
         <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
         </svg>
@@ -316,39 +323,39 @@ function formatActivityText(activity: ActivityDto): string {
       </NuxtLink>
 
       <!-- Header Card -->
-      <div class="rounded-xl bg-[#1E2E2A] p-6">
+      <div class="rounded-xl bg-surface p-6">
         <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <!-- Avatar & Info -->
           <div class="flex items-start gap-4">
             <div class="relative">
-              <div class="flex h-20 w-20 flex-shrink-0 items-center justify-center rounded-full bg-[#2E4540] text-3xl font-bold text-white ring-4 ring-[#4DB175]">
+              <div class="flex h-20 w-20 flex-shrink-0 items-center justify-center rounded-full bg-surface-2 text-3xl font-bold text-fg ring-4 ring-primary">
                 {{ profile.display_name?.charAt(0).toUpperCase() }}
               </div>
             </div>
             <div>
               <div class="flex items-center gap-2">
-                <h1 class="text-2xl font-bold text-white">{{ profile.display_name }}</h1>
+                <h1 class="text-2xl font-bold text-fg">{{ profile.display_name }}</h1>
                 <span v-if="selectedBadge" :title="selectedBadge.name" class="text-xl">{{ selectedBadge.icon }}</span>
               </div>
-              <p v-if="profile.city || profile.province" class="mt-1 text-sm text-[#6B7B75]">
+              <p v-if="profile.city || profile.province" class="mt-1 text-sm text-fg-muted">
                 {{ [profile.city, profile.province].filter(Boolean).join(', ') }}
               </p>
-              <p v-if="profile.bio" class="mt-2 text-sm text-[#A6ABA7]">{{ profile.bio }}</p>
+              <p v-if="profile.bio" class="mt-2 text-sm text-fg-secondary">{{ profile.bio }}</p>
             </div>
           </div>
 
           <!-- Rating & Action -->
           <div class="flex flex-col items-end gap-2">
             <div class="text-right">
-              <p class="text-xs uppercase text-[#6B7B75]">RATING</p>
-              <p class="text-3xl font-bold text-[#4DB175]">{{ displayRating > 0 ? displayRating.toFixed(2) : '—' }}</p>
+              <p class="text-xs uppercase text-fg-muted">RATING</p>
+              <p class="text-3xl font-bold text-primary">{{ displayRating > 0 ? displayRating.toFixed(2) : '—' }}</p>
             </div>
             <!-- Partner button (replaces Follow) -->
             <template v-if="user && !isOwnProfile">
               <!-- Already partners -->
               <button
                 v-if="isPartner"
-                class="rounded-lg border border-[#4DB175] px-5 py-2 text-sm font-medium text-[#4DB175] transition-colors hover:border-red-400 hover:text-red-400"
+                class="rounded-lg border border-primary px-5 py-2 text-sm font-medium text-primary transition-colors hover:border-red-400 hover:text-red-400"
                 :disabled="partnerLoading"
                 @click="removePartner"
               >
@@ -357,7 +364,7 @@ function formatActivityText(activity: ActivityDto): string {
               <!-- Pending request -->
               <button
                 v-else-if="pendingRequest"
-                class="rounded-lg border border-[#F5A623] px-5 py-2 text-sm font-medium text-[#F5A623] transition-colors hover:border-red-400 hover:text-red-400"
+                class="rounded-lg border border-warning-fill px-5 py-2 text-sm font-medium text-warning transition-colors hover:border-red-400 hover:text-red-400"
                 :disabled="partnerLoading"
                 @click="cancelPartnerRequest"
               >
@@ -366,7 +373,7 @@ function formatActivityText(activity: ActivityDto): string {
               <!-- Not partners -->
               <button
                 v-else
-                class="rounded-lg bg-[#4DB175] px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-[#5FC287]"
+                class="rounded-lg bg-primary px-5 py-2 text-sm font-medium text-on-primary transition-colors hover:bg-primary-hover"
                 :disabled="partnerLoading"
                 @click="sendPartnerRequest"
               >
@@ -377,83 +384,68 @@ function formatActivityText(activity: ActivityDto): string {
         </div>
 
         <!-- Stats Row -->
-        <div class="mt-6 grid grid-cols-4 gap-4 border-t border-[#3A5750] pt-4">
+        <div class="mt-6 grid grid-cols-4 gap-4 border-t border-border-strong pt-4">
           <div class="text-center">
-            <p class="text-xl font-bold text-white">{{ stats?.total_matches ?? 0 }}</p>
-            <p class="text-xs text-[#6B7B75]">Matches</p>
+            <p class="text-xl font-bold text-fg">{{ stats?.total_matches ?? 0 }}</p>
+            <p class="text-xs text-fg-muted">Matches</p>
           </div>
           <div class="text-center">
-            <p class="text-xl font-bold text-white">{{ stats ? `${stats.win_rate}%` : '—' }}</p>
-            <p class="text-xs text-[#6B7B75]">Win Rate</p>
+            <p class="text-xl font-bold text-fg">{{ stats ? `${stats.win_rate}%` : '—' }}</p>
+            <p class="text-xs text-fg-muted">Win Rate</p>
           </div>
           <div class="text-center">
-            <p class="text-xl font-bold text-white">{{ stats ? `${stats.wins}-${stats.losses}` : '—' }}</p>
-            <p class="text-xs text-[#6B7B75]">W - L</p>
+            <p class="text-xl font-bold text-fg">{{ stats ? `${stats.wins}-${stats.losses}` : '—' }}</p>
+            <p class="text-xs text-fg-muted">W - L</p>
           </div>
           <div class="text-center">
-            <p class="text-xl font-bold text-white">{{ stats?.achievements_count ?? 0 }}</p>
-            <p class="text-xs text-[#6B7B75]">Achievements</p>
+            <p class="text-xl font-bold text-fg">{{ stats?.achievements_count ?? 0 }}</p>
+            <p class="text-xs text-fg-muted">Achievements</p>
           </div>
         </div>
       </div>
 
-      <!-- Tabs -->
-      <div class="flex gap-1 rounded-xl bg-[#1E2E2A] p-1">
-        <button
-          v-for="tab in ['overview', 'matches', 'stats', 'achievements', 'activity', 'clubs'] as const"
-          :key="tab"
-          class="flex-1 rounded-lg py-2 text-xs font-medium capitalize transition-colors"
-          :class="activeTab === tab
-            ? 'bg-[#4DB175] text-white'
-            : 'text-[#6B7B75] hover:text-white'"
-          @click="activeTab = tab"
-        >
-          {{ tab }}
-        </button>
-      </div>
+      <!-- Tabs are route-query backed (`?tab=matches`), so a tab is linkable
+           and the browser back button steps between them — docs/33 §5.4. -->
+      <UiTabs v-model="activeTab" :tabs="PROFILE_TABS" />
 
       <!-- Tab Content -->
       <div class="space-y-4">
         <!-- Overview Tab -->
         <template v-if="activeTab === 'overview'">
           <!-- Rating History -->
-          <div class="rounded-xl bg-[#1E2E2A] p-5">
+          <div class="rounded-card border border-border bg-surface p-5">
             <div class="mb-4 flex items-center justify-between">
-              <span class="text-sm font-medium text-white">Rating History (singles, last 180 days)</span>
+              <span class="text-body-2 font-medium text-fg">Rating History</span>
+              <span class="text-caption text-fg-muted">singles · last 180 days</span>
             </div>
-            <div v-if="ratingHistoryBars.length > 0" class="flex h-32 items-end gap-1">
-              <div v-for="(bar, i) in ratingHistoryBars" :key="i" class="flex-1 rounded-t bg-[#4DB175]/30" :style="{ height: `${bar.heightPct}%` }" />
-            </div>
-            <p v-else class="flex h-32 items-center justify-center text-sm text-[#6B7B75]">
-              Not enough rating history yet
-            </p>
-            <div v-if="ratingHistoryRangeLabel" class="mt-2 flex justify-between text-xs text-[#6B7B75]">
-              <span>{{ ratingHistoryRangeLabel.start }}</span>
-              <span>{{ ratingHistoryRangeLabel.end }}</span>
-            </div>
+            <UiLineChart
+              :points="ratingChartPoints"
+              label="Singles rating over the last 180 days"
+              empty-message="Not enough rating history yet — play a verified match to start tracking progress."
+            />
           </div>
 
           <!-- Dominant Hand & Preferred Position -->
           <div class="grid gap-4 sm:grid-cols-2">
-            <div class="rounded-xl bg-[#1E2E2A] p-4">
-              <p class="text-xs text-[#6B7B75]">Dominant Hand</p>
-              <p class="mt-1 font-medium capitalize text-white">{{ profile.dominant_hand || 'Not set' }}</p>
+            <div class="rounded-xl bg-surface p-4">
+              <p class="text-xs text-fg-muted">Dominant Hand</p>
+              <p class="mt-1 font-medium capitalize text-fg">{{ profile.dominant_hand || 'Not set' }}</p>
             </div>
-            <div class="rounded-xl bg-[#1E2E2A] p-4">
-              <p class="text-xs text-[#6B7B75]">Preferred Position</p>
-              <p class="mt-1 font-medium capitalize text-white">{{ profile.preferred_position || 'Not set' }}</p>
+            <div class="rounded-xl bg-surface p-4">
+              <p class="text-xs text-fg-muted">Preferred Position</p>
+              <p class="mt-1 font-medium capitalize text-fg">{{ profile.preferred_position || 'Not set' }}</p>
             </div>
           </div>
         </template>
 
         <!-- Matches Tab -->
         <template v-if="activeTab === 'matches'">
-          <div class="rounded-xl bg-[#1E2E2A] p-5">
-            <h3 class="mb-4 text-sm font-medium text-white">Recent Matches</h3>
-            <div v-if="!isOwnProfile" class="py-6 text-center text-sm text-[#6B7B75]">
+          <div class="rounded-xl bg-surface p-5">
+            <h3 class="mb-4 text-sm font-medium text-fg">Recent Matches</h3>
+            <div v-if="!isOwnProfile" class="py-6 text-center text-sm text-fg-muted">
               Match history is only visible to the player themselves.
             </div>
-            <div v-else-if="!myMatchesData?.data.length" class="py-6 text-center text-sm text-[#6B7B75]">
+            <div v-else-if="!myMatchesData?.data.length" class="py-6 text-center text-sm text-fg-muted">
               No matches yet.
             </div>
             <div v-else class="space-y-3">
@@ -461,20 +453,20 @@ function formatActivityText(activity: ActivityDto): string {
                 v-for="match in myMatchesData.data"
                 :key="match.id"
                 :to="`/matches/${match.id}`"
-                class="flex items-center justify-between rounded-lg bg-[#0B0D09] p-3 transition-all hover:bg-[#2E4540]"
+                class="flex items-center justify-between rounded-lg bg-canvas p-3 transition-all hover:bg-surface-2"
               >
                 <div>
-                  <p class="text-sm text-white">vs {{ getOpponentNames(match) }}</p>
-                  <p class="text-xs text-[#6B7B75]">{{ formatScore(match) }}</p>
+                  <p class="text-sm text-fg">vs {{ getOpponentNames(match) }}</p>
+                  <p class="text-xs text-fg-muted">{{ formatScore(match) }}</p>
                 </div>
                 <div class="text-right">
                   <span
                     class="rounded-md px-2 py-0.5 text-xs font-medium"
-                    :class="didIWin(match) === true ? 'bg-[#4DB175]/20 text-[#4DB175]' : didIWin(match) === false ? 'bg-red-500/20 text-red-400' : 'bg-[#2E4540] text-[#A6ABA7]'"
+                    :class="didIWin(match) === true ? 'bg-primary/20 text-primary' : didIWin(match) === false ? 'bg-red-500/20 text-red-400' : 'bg-surface-2 text-fg-secondary'"
                   >
                     {{ didIWin(match) === true ? 'Won' : didIWin(match) === false ? 'Lost' : 'Played' }}
                   </span>
-                  <p class="mt-1 text-xs text-[#6B7B75]">{{ formatRelativeTime(match.played_at) }}</p>
+                  <p class="mt-1 text-xs text-fg-muted">{{ formatRelativeTime(match.played_at) }}</p>
                 </div>
               </NuxtLink>
             </div>
@@ -483,24 +475,24 @@ function formatActivityText(activity: ActivityDto): string {
 
         <!-- Stats Tab -->
         <template v-if="activeTab === 'stats'">
-          <div class="rounded-xl bg-[#1E2E2A] p-5">
-            <h3 class="mb-4 text-sm font-medium text-white">Performance Stats</h3>
+          <div class="rounded-xl bg-surface p-5">
+            <h3 class="mb-4 text-sm font-medium text-fg">Performance Stats</h3>
             <div class="grid gap-4 sm:grid-cols-2">
-              <div class="rounded-lg bg-[#0B0D09] p-3">
-                <p class="text-xs text-[#6B7B75]">Singles / Doubles Played</p>
-                <p class="text-xl font-bold text-white">{{ stats?.singles_matches ?? 0 }} / {{ stats?.doubles_matches ?? 0 }}</p>
+              <div class="rounded-lg bg-canvas p-3">
+                <p class="text-xs text-fg-muted">Singles / Doubles Played</p>
+                <p class="text-xl font-bold text-fg">{{ stats?.singles_matches ?? 0 }} / {{ stats?.doubles_matches ?? 0 }}</p>
               </div>
-              <div class="rounded-lg bg-[#0B0D09] p-3">
-                <p class="text-xs text-[#6B7B75]">Matches This Month</p>
-                <p class="text-xl font-bold text-white">{{ stats?.matches_this_month ?? 0 }}</p>
+              <div class="rounded-lg bg-canvas p-3">
+                <p class="text-xs text-fg-muted">Matches This Month</p>
+                <p class="text-xl font-bold text-fg">{{ stats?.matches_this_month ?? 0 }}</p>
               </div>
-              <div class="rounded-lg bg-[#0B0D09] p-3">
-                <p class="text-xs text-[#6B7B75]">Rating Trend</p>
+              <div class="rounded-lg bg-canvas p-3">
+                <p class="text-xs text-fg-muted">Rating Trend</p>
                 <p class="text-xl font-bold" :class="trendClass">{{ trendLabel }}</p>
               </div>
-              <div class="rounded-lg bg-[#0B0D09] p-3">
-                <p class="text-xs text-[#6B7B75]">Tournaments Played</p>
-                <p class="text-xl font-bold text-white">{{ stats?.tournaments_participated ?? 0 }}</p>
+              <div class="rounded-lg bg-canvas p-3">
+                <p class="text-xs text-fg-muted">Tournaments Played</p>
+                <p class="text-xl font-bold text-fg">{{ stats?.tournaments_participated ?? 0 }}</p>
               </div>
             </div>
           </div>
@@ -508,38 +500,38 @@ function formatActivityText(activity: ActivityDto): string {
 
         <!-- Achievements Tab -->
         <template v-if="activeTab === 'achievements'">
-          <div class="rounded-xl bg-[#1E2E2A] p-5">
-            <h3 class="mb-4 text-sm font-medium text-white">Achievements</h3>
+          <div class="rounded-xl bg-surface p-5">
+            <h3 class="mb-4 text-sm font-medium text-fg">Achievements</h3>
             <div v-if="achievements.length > 0" class="grid grid-cols-2 gap-3 sm:grid-cols-3">
               <div
                 v-for="pa in achievements"
                 :key="pa.achievement_id"
-                class="rounded-lg bg-[#0B0D09] p-3 text-center"
+                class="rounded-lg bg-canvas p-3 text-center"
               >
-                <div class="mx-auto mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-[#F5A623]/20 text-[#F5A623]">
+                <div class="mx-auto mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-warning-fill/20 text-warning">
                   🏆
                 </div>
-                <p class="text-xs font-medium text-white">{{ pa.achievement.name }}</p>
-                <p class="text-xs text-[#6B7B75]">+{{ pa.achievement.points }} pts</p>
+                <p class="text-xs font-medium text-fg">{{ pa.achievement.name }}</p>
+                <p class="text-xs text-fg-muted">+{{ pa.achievement.points }} pts</p>
               </div>
             </div>
-            <p v-else class="text-center text-[#6B7B75]">No achievements yet</p>
+            <p v-else class="text-center text-fg-muted">No achievements yet</p>
           </div>
         </template>
 
         <!-- Activity Tab -->
         <template v-if="activeTab === 'activity'">
-          <div class="rounded-xl bg-[#1E2E2A] p-5">
-            <h3 class="mb-4 text-sm font-medium text-white">Recent Activity</h3>
-            <div v-if="activities.length === 0" class="py-6 text-center text-sm text-[#6B7B75]">
+          <div class="rounded-xl bg-surface p-5">
+            <h3 class="mb-4 text-sm font-medium text-fg">Recent Activity</h3>
+            <div v-if="activities.length === 0" class="py-6 text-center text-sm text-fg-muted">
               No recent activity.
             </div>
             <div v-else class="space-y-3">
-              <div v-for="a in activities" :key="a.id" class="flex items-center gap-3 rounded-lg bg-[#0B0D09] p-3">
+              <div v-for="a in activities" :key="a.id" class="flex items-center gap-3 rounded-lg bg-canvas p-3">
                 <span class="text-lg">{{ getActivityIcon(a.activity_type) }}</span>
                 <div>
-                  <p class="text-sm text-white capitalize">{{ formatActivityText(a) }}</p>
-                  <p class="text-xs text-[#6B7B75]">{{ formatRelativeTime(a.created_at) }}</p>
+                  <p class="text-sm text-fg capitalize">{{ formatActivityText(a) }}</p>
+                  <p class="text-xs text-fg-muted">{{ formatRelativeTime(a.created_at) }}</p>
                 </div>
               </div>
             </div>
@@ -548,9 +540,9 @@ function formatActivityText(activity: ActivityDto): string {
 
         <!-- Clubs Tab -->
         <template v-if="activeTab === 'clubs'">
-          <div class="rounded-xl bg-[#1E2E2A] p-5">
-            <h3 class="mb-4 text-sm font-medium text-white">Club Memberships</h3>
-            <div v-if="!clubsData?.items?.length" class="py-6 text-center text-sm text-[#6B7B75]">
+          <div class="rounded-xl bg-surface p-5">
+            <h3 class="mb-4 text-sm font-medium text-fg">Club Memberships</h3>
+            <div v-if="!clubsData?.items?.length" class="py-6 text-center text-sm text-fg-muted">
               Not a member of any clubs.
             </div>
             <div v-else class="space-y-3">
@@ -558,15 +550,15 @@ function formatActivityText(activity: ActivityDto): string {
                 v-for="membership in clubsData.items"
                 :key="membership.club.id"
                 :to="`/clubs/${membership.club.id}`"
-                class="flex items-center gap-3 rounded-lg bg-[#0B0D09] p-3 transition-all hover:bg-[#2E4540]"
+                class="flex items-center gap-3 rounded-lg bg-canvas p-3 transition-all hover:bg-surface-2"
               >
-                <div class="flex h-10 w-10 items-center justify-center rounded-lg bg-[#2E4540] text-lg font-bold text-[#A6ABA7]">
+                <div class="flex h-10 w-10 items-center justify-center rounded-lg bg-surface-2 text-lg font-bold text-fg-secondary">
                   {{ membership.club.name.charAt(0).toUpperCase() }}
                 </div>
                 <div class="flex-1">
-                  <p class="text-sm font-medium text-white">{{ membership.club.name }}</p>
+                  <p class="text-sm font-medium text-fg">{{ membership.club.name }}</p>
                 </div>
-                <div v-if="membership.club.is_verified" class="flex items-center gap-1 text-xs text-[#4DB175]">
+                <div v-if="membership.club.is_verified" class="flex items-center gap-1 text-xs text-primary">
                   <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
                   </svg>

@@ -1,8 +1,6 @@
 import type { PartnershipRepository } from '../repositories/partnership.repository'
 import type { PlayerProfileRepository } from '../../player/repositories/player-profile.repository'
 import type { RatingRepository } from '../../rating/repositories/rating.repository'
-import type { EventRepository } from '../../event/repositories/event.repository'
-import type { TournamentRegistrationRepository } from '../../event/repositories/tournament.repository'
 import type { PartnerDto, PartnerRequestDto } from '../dto/partnership.dto'
 import { toPartnerRequestDto } from '../dto/partnership.dto'
 
@@ -37,9 +35,7 @@ export interface PartnershipService {
 export function createPartnershipService(
   partnerships: PartnershipRepository,
   players: PlayerProfileRepository,
-  ratings?: RatingRepository,
-  events?: EventRepository,
-  registrations?: TournamentRegistrationRepository
+  ratings?: RatingRepository
 ): PartnershipService {
   async function enrichPartner(
     partnerId: string,

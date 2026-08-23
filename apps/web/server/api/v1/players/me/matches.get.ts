@@ -1,6 +1,7 @@
 import { serverSupabaseClient, serverSupabaseUser } from '#supabase/server'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
 import { apiError } from '~/server/utils/api-error'
+import type { MatchJoinRow } from '~/server/domains/match/dto/match-join-row.dto'
 
 /**
  * User-scoped client only — matches_select_participant RLS (008-security.changelog.xml)
@@ -62,22 +63,22 @@ export default defineEventHandler(async (event) => {
     throw apiError(500, 'INTERNAL_ERROR', 'Could not load your matches.')
   }
 
-  const mapped = (matches ?? []).map((m: any) => ({
+  const mapped = (matches ?? []).map((m: MatchJoinRow) => ({
     id: m.id,
     match_type: m.match_type,
     status: m.status,
     event_id: m.event_id,
     affects_rating: m.affects_rating,
     played_at: m.played_at,
-    participants: (m.match_participants ?? []).map((p: any) => ({
+    participants: (m.match_participants ?? []).map((p) => ({
       player_id: p.player_id,
       team_number: p.team_number,
       result_status: p.result_status,
       display_name: p.player_profiles?.display_name
     })),
     scores: (m.match_scores ?? [])
-      .sort((a: any, b: any) => a.set_number - b.set_number)
-      .map((s: any) => ({
+      .sort((a, b) => a.set_number - b.set_number)
+      .map((s) => ({
         set_number: s.set_number,
         team1_score: s.team1_score,
         team2_score: s.team2_score

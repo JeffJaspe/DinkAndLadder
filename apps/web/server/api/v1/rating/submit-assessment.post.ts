@@ -1,6 +1,7 @@
 import { serverSupabaseClient, serverSupabaseServiceRole, serverSupabaseUser } from '#supabase/server'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
 import { createPlayerProfileService } from '~/server/domains/player/services/player-profile.service'
+import { PlayerProfileValidationError } from '~/server/domains/player/dto/player-profile.dto'
 import { createRatingRepository } from '~/server/domains/rating/repositories/rating.repository'
 import { createRatingService } from '~/server/domains/rating/services/rating.service'
 import {
@@ -16,6 +17,8 @@ interface AssessmentAnswer {
 }
 
 interface SubmitAssessmentInput {
+  /** Required only when this user has no profile yet — see ensureProfile. */
+  display_name?: string
   answers: AssessmentAnswer[]
 }
 
@@ -66,9 +69,19 @@ export default defineEventHandler(async (event) => {
     }
   }
 
+  // ensureProfile, not saveOwnProfile with an email-derived name: display_name
+  // is published via the public-read RLS policy on player_profiles, so
+  // defaulting it to the email local part leaked a real name onto a public
+  // profile. It also must not overwrite a name an existing player already set.
   const profileService = createPlayerProfileService(profileRepository)
-  const displayName = claims.email.split('@')[0]
-  await profileService.saveOwnProfile(claims.sub, { display_name: displayName })
+  try {
+    await profileService.ensureProfile(claims.sub, body.display_name)
+  } catch (err) {
+    if (err instanceof PlayerProfileValidationError) {
+      throw apiError(400, 'VALIDATION_ERROR', err.message)
+    }
+    throw err
+  }
 
   const { data: profile } = await client
     .from('player_profiles')

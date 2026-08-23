@@ -101,7 +101,7 @@ describe('SubscriptionService', () => {
       const service = createSubscriptionService(repo)
       vi.mocked(repo.listActivePlans).mockResolvedValue([createMockPlan({ plan_type: 'club' })])
 
-      const plans = await service.listPlans('club')
+      await service.listPlans('club')
 
       expect(repo.listActivePlans).toHaveBeenCalledWith('club')
     })

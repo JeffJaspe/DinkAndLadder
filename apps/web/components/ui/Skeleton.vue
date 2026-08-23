@@ -11,7 +11,7 @@ const props = withDefaults(defineProps<Props>(), {
   lines: 1
 })
 
-const baseClass = 'animate-pulse bg-surface-light'
+const baseClass = 'animate-pulse bg-surface-3'
 
 const variantClasses = computed(() => {
   switch (props.variant) {

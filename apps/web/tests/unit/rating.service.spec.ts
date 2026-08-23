@@ -49,6 +49,9 @@ function createFakeRatingRepository(seed: PlayerRatingRecord[] = []) {
     async getRatingHistory() {
       return []
     },
+    async findTransactionsByMatch() {
+      return []
+    },
     async hasTransactionsForMatch(matchId) {
       return ratedMatchIds.has(matchId)
     },

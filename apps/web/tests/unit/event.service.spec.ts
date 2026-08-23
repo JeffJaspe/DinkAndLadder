@@ -16,6 +16,10 @@ function createFakeEventRepository(overrides?: Partial<EventRepository>): EventR
     update: vi.fn(),
     updateStatus: vi.fn(),
     search: vi.fn().mockResolvedValue([]),
+    // Added to EventRepository alongside cascade delete; the fakes were never
+    // updated, which broke `vue-tsc` for every spec that builds one.
+    countBlockingChildren: vi.fn().mockResolvedValue({ registrations: 0, matches: 0, queueEntries: 0 }),
+    deleteWithChildren: vi.fn().mockResolvedValue(undefined),
     ...overrides
   }
 }
@@ -38,6 +42,7 @@ function createFakeRegistrationRepository(
     findById: vi.fn().mockResolvedValue(null),
     findByTournamentAndPlayer: vi.fn().mockResolvedValue(null),
     findByTournamentId: vi.fn().mockResolvedValue([]),
+    findByTournamentIdWithPlayers: vi.fn().mockResolvedValue([]),
     create: vi.fn(),
     updateStatus: vi.fn(),
     countByTournament: vi.fn().mockResolvedValue(0),

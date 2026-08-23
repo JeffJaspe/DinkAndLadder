@@ -82,7 +82,24 @@ onMounted(async () => {
   step.value = 'type'
 })
 
+/**
+ * Collected here rather than defaulted server-side. display_name is published
+ * through the public-read policy on player_profiles, and the previous default
+ * was the local part of the user's email address — so signing up as
+ * firstname.lastname@work.com published a real name before the user saw any
+ * settings screen.
+ */
+const displayName = ref('')
+const displayNameError = ref('')
+
+const isDisplayNameValid = computed(() => displayName.value.trim().length >= 2)
+
 function selectAccountType(type: 'player' | 'club') {
+  if (!isDisplayNameValid.value) {
+    displayNameError.value = 'Enter a display name of at least 2 characters.'
+    return
+  }
+  displayNameError.value = ''
   accountType.value = type
   if (type === 'player') {
     loadQuestions()
@@ -135,7 +152,7 @@ async function submitAssessment() {
 
     const response = await $fetch<{ data: RatingResult }>('/api/v1/rating/submit-assessment', {
       method: 'POST',
-      body: { answers: answerPayload }
+      body: { answers: answerPayload, display_name: displayName.value.trim() }
     })
 
     ratingResult.value = response.data
@@ -155,7 +172,7 @@ async function continueToClubCreation() {
   try {
     await $fetch('/api/v1/players/me/onboarding', {
       method: 'POST',
-      body: { account_type: 'club' }
+      body: { account_type: 'club', display_name: displayName.value.trim() }
     })
     await navigateTo('/create-club')
   } finally {
@@ -197,11 +214,11 @@ const categoryLabel = (category: string) => {
 </script>
 
 <template>
-  <div class="flex min-h-screen items-center justify-center bg-[#0B0D09] px-4 py-12">
+  <div class="flex min-h-screen items-center justify-center bg-canvas px-4 py-12">
     <div class="w-full max-w-lg">
       <!-- Logo -->
       <div class="mb-8 text-center">
-        <div class="mx-auto flex h-14 w-14 items-center justify-center rounded-xl bg-[#4DB175] text-2xl font-bold text-white">
+        <div class="mx-auto flex h-14 w-14 items-center justify-center rounded-xl bg-primary text-2xl font-bold text-on-primary">
           D
         </div>
       </div>
@@ -209,42 +226,67 @@ const categoryLabel = (category: string) => {
       <!-- Step: Account Type Selection -->
       <div v-if="step === 'type'" class="space-y-6">
         <div class="text-center">
-          <h1 class="text-2xl font-bold text-white">Welcome to DinkAndLadder!</h1>
-          <p class="mt-2 text-[#6B7B75]">How will you be using the platform?</p>
+          <h1 class="text-2xl font-bold text-fg">Welcome to DinkAndLadder!</h1>
+          <p class="mt-2 text-fg-muted">First, what should we call you?</p>
         </div>
+
+        <div class="rounded-xl bg-surface p-5">
+          <label for="display-name" class="block text-sm font-medium text-fg">
+            Display name
+          </label>
+          <input
+            id="display-name"
+            v-model="displayName"
+            type="text"
+            maxlength="50"
+            autocomplete="nickname"
+            placeholder="e.g. Jeff J."
+            class="mt-2 w-full rounded-lg border border-border-strong bg-canvas px-3 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none"
+            @input="displayNameError = ''"
+          >
+          <p v-if="displayNameError" class="mt-2 text-sm text-red-400">
+            {{ displayNameError }}
+          </p>
+          <p v-else class="mt-2 text-xs text-fg-muted">
+            This is shown publicly on your profile, in rankings and in search. You can change it
+            any time in Settings.
+          </p>
+        </div>
+
+        <p class="text-center text-fg-muted">How will you be using the platform?</p>
 
         <div class="grid gap-4 sm:grid-cols-2">
           <button
             type="button"
             :disabled="loading"
-            class="group rounded-xl border-2 border-[#3A5750] bg-[#1E2E2A] p-6 text-left transition-all hover:border-[#4DB175] hover:bg-[#2E4540] disabled:opacity-50"
+            class="group rounded-xl border-2 border-border-strong bg-surface p-6 text-left transition-all hover:border-primary hover:bg-surface-2 disabled:opacity-50"
             @click="selectAccountType('player')"
           >
-            <div class="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-[#4DB175]/20 text-2xl">
+            <div class="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-primary/20 text-2xl">
               🏓
             </div>
-            <h3 class="text-lg font-semibold text-white">I'm a Player</h3>
-            <p class="mt-2 text-sm text-[#6B7B75]">
+            <h3 class="text-lg font-semibold text-fg">I'm a Player</h3>
+            <p class="mt-2 text-sm text-fg-muted">
               Track your matches, build your rating, join clubs and compete in tournaments.
             </p>
           </button>
 
           <button
             type="button"
-            class="group rounded-xl border-2 border-[#3A5750] bg-[#1E2E2A] p-6 text-left transition-all hover:border-[#4DB175] hover:bg-[#2E4540]"
+            class="group rounded-xl border-2 border-border-strong bg-surface p-6 text-left transition-all hover:border-primary hover:bg-surface-2"
             @click="selectAccountType('club')"
           >
-            <div class="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-[#F5A623]/20 text-2xl">
+            <div class="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-warning-fill/20 text-2xl">
               🏆
             </div>
-            <h3 class="text-lg font-semibold text-white">I'm a Club Organizer</h3>
-            <p class="mt-2 text-sm text-[#6B7B75]">
+            <h3 class="text-lg font-semibold text-fg">I'm a Club Organizer</h3>
+            <p class="mt-2 text-sm text-fg-muted">
               Create your club, organize open play sessions and tournaments, manage members.
             </p>
           </button>
         </div>
 
-        <p class="text-center text-xs text-[#6B7B75]">
+        <p class="text-center text-xs text-fg-muted">
           You can always change this later or do both!
         </p>
       </div>
@@ -254,22 +296,22 @@ const categoryLabel = (category: string) => {
         <!-- Progress Bar -->
         <div class="space-y-2">
           <div class="flex items-center justify-between text-sm">
-            <span class="text-[#6B7B75]">Question {{ currentQuestionIndex + 1 }} of {{ questions.length }}</span>
-            <span class="rounded-full bg-[#4DB175]/20 px-3 py-1 text-xs text-[#4DB175]">
+            <span class="text-fg-muted">Question {{ currentQuestionIndex + 1 }} of {{ questions.length }}</span>
+            <span class="rounded-full bg-primary/20 px-3 py-1 text-xs text-primary">
               {{ categoryLabel(currentQuestion.category) }}
             </span>
           </div>
-          <div class="h-2 overflow-hidden rounded-full bg-[#1E2E2A]">
+          <div class="h-2 overflow-hidden rounded-full bg-surface">
             <div
-              class="h-full rounded-full bg-[#4DB175] transition-all duration-500"
+              class="h-full rounded-full bg-primary transition-all duration-500"
               :style="{ width: `${progress}%` }"
             />
           </div>
         </div>
 
         <!-- Question Card -->
-        <div class="rounded-xl bg-[#1E2E2A] p-6">
-          <h2 class="mb-6 text-lg font-semibold text-white">
+        <div class="rounded-xl bg-surface p-6">
+          <h2 class="mb-6 text-lg font-semibold text-fg">
             {{ currentQuestion.question }}
           </h2>
 
@@ -279,8 +321,8 @@ const categoryLabel = (category: string) => {
               :key="index"
               type="button"
               :disabled="loading"
-              class="w-full rounded-lg border-2 border-[#3A5750] bg-[#0B0D09] p-4 text-left text-white transition-all hover:border-[#4DB175] hover:bg-[#2E4540] disabled:opacity-50"
-              :class="{ 'border-[#4DB175] bg-[#2E4540]': answers[currentQuestion.id] === index }"
+              class="w-full rounded-lg border-2 border-border-strong bg-canvas p-4 text-left text-fg transition-all hover:border-primary hover:bg-surface-2 disabled:opacity-50"
+              :class="{ 'border-primary bg-surface-2': answers[currentQuestion.id] === index }"
               @click="selectAnswer(index)"
             >
               {{ choice }}
@@ -292,7 +334,7 @@ const categoryLabel = (category: string) => {
         <div class="flex gap-3">
           <button
             type="button"
-            class="flex-1 rounded-lg border border-[#3A5750] py-3 text-sm text-[#A6ABA7] hover:bg-[#2E4540]"
+            class="flex-1 rounded-lg border border-border-strong py-3 text-sm text-fg-secondary hover:bg-surface-2"
             @click="goBack"
           >
             Back
@@ -304,7 +346,7 @@ const categoryLabel = (category: string) => {
       <div v-else-if="step === 'result' && ratingResult" class="space-y-6">
         <!-- Celebration Modal -->
         <div
-          class="relative overflow-hidden rounded-xl bg-[#1E2E2A] p-8 text-center"
+          class="relative overflow-hidden rounded-xl bg-surface p-8 text-center"
           :class="{ 'animate-celebration': showCelebration }"
         >
           <!-- Confetti Effect -->
@@ -328,13 +370,13 @@ const categoryLabel = (category: string) => {
 
           <!-- Congratulations Text -->
           <h1
-            class="mb-2 text-2xl font-bold text-white"
+            class="mb-2 text-2xl font-bold text-fg"
             :class="{ 'animate-fade-in': showCelebration }"
           >
             Congratulations!
           </h1>
 
-          <p class="mb-6 text-[#6B7B75]" :class="{ 'animate-fade-in-delay': showCelebration }">
+          <p class="mb-6 text-fg-muted" :class="{ 'animate-fade-in-delay': showCelebration }">
             Your initial rating has been determined
           </p>
 
@@ -347,25 +389,25 @@ const categoryLabel = (category: string) => {
               {{ ratingResult.rating.toFixed(2) }}
             </div>
             <div
-              class="inline-block rounded-full px-4 py-1 text-lg font-semibold text-white"
+              class="inline-block rounded-full px-4 py-1 text-lg font-semibold text-fg"
               :style="{ backgroundColor: ratingResult.tier.color }"
             >
               {{ ratingResult.tier.name }}
             </div>
           </div>
 
-          <p class="text-sm text-[#6B7B75]">
+          <p class="text-sm text-fg-muted">
             {{ ratingResult.tier.description }}
           </p>
 
           <!-- Rating Scale -->
           <div class="mt-6 space-y-2">
-            <div class="flex items-center justify-between text-xs text-[#6B7B75]">
+            <div class="flex items-center justify-between text-xs text-fg-muted">
               <span>2.0</span>
               <span>Your Rating</span>
               <span>8.0</span>
             </div>
-            <div class="relative h-3 overflow-hidden rounded-full bg-gradient-to-r from-[#6B7B75] via-[#4DB175] to-[#F5A623]">
+            <div class="relative h-3 overflow-hidden rounded-full bg-gradient-to-r from-fg-muted via-primary to-warning-fill">
               <div
                 class="absolute top-0 h-full w-1 bg-white shadow-lg"
                 :style="{ left: `${((ratingResult.rating - 2) / 6) * 100}%` }"
@@ -377,13 +419,13 @@ const categoryLabel = (category: string) => {
         <!-- Continue Button -->
         <button
           type="button"
-          class="w-full rounded-lg bg-[#4DB175] py-4 text-lg font-semibold text-white transition-colors hover:bg-[#5FC287]"
+          class="w-full rounded-lg bg-primary py-4 text-lg font-semibold text-on-primary transition-colors hover:bg-primary-hover"
           @click="goToDashboard"
         >
           Start Playing
         </button>
 
-        <p class="text-center text-xs text-[#6B7B75]">
+        <p class="text-center text-xs text-fg-muted">
           Your rating will adjust as you play more matches
         </p>
       </div>
@@ -391,37 +433,37 @@ const categoryLabel = (category: string) => {
       <!-- Step: Club Creation Prompt -->
       <div v-else-if="step === 'club'" class="space-y-6">
         <div class="text-center">
-          <h1 class="text-2xl font-bold text-white">Create Your Club</h1>
-          <p class="mt-2 text-[#6B7B75]">Set up your club and start organizing events</p>
+          <h1 class="text-2xl font-bold text-fg">Create Your Club</h1>
+          <p class="mt-2 text-fg-muted">Set up your club and start organizing events</p>
         </div>
 
-        <div class="rounded-xl bg-[#1E2E2A] p-6">
+        <div class="rounded-xl bg-surface p-6">
           <div class="space-y-4">
             <div class="flex items-start gap-3">
-              <div class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-[#4DB175]/20 text-sm text-[#4DB175]">
+              <div class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-primary/20 text-sm text-primary">
                 1
               </div>
               <div>
-                <p class="font-medium text-white">Create your club</p>
-                <p class="text-sm text-[#6B7B75]">Set up your club name, location, and details</p>
+                <p class="font-medium text-fg">Create your club</p>
+                <p class="text-sm text-fg-muted">Set up your club name, location, and details</p>
               </div>
             </div>
             <div class="flex items-start gap-3">
-              <div class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-[#4DB175]/20 text-sm text-[#4DB175]">
+              <div class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-primary/20 text-sm text-primary">
                 2
               </div>
               <div>
-                <p class="font-medium text-white">Invite members</p>
-                <p class="text-sm text-[#6B7B75]">Share your club and grow your community</p>
+                <p class="font-medium text-fg">Invite members</p>
+                <p class="text-sm text-fg-muted">Share your club and grow your community</p>
               </div>
             </div>
             <div class="flex items-start gap-3">
-              <div class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-[#4DB175]/20 text-sm text-[#4DB175]">
+              <div class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-primary/20 text-sm text-primary">
                 3
               </div>
               <div>
-                <p class="font-medium text-white">Organize events</p>
-                <p class="text-sm text-[#6B7B75]">Create open play sessions and tournaments</p>
+                <p class="font-medium text-fg">Organize events</p>
+                <p class="text-sm text-fg-muted">Create open play sessions and tournaments</p>
               </div>
             </div>
           </div>
@@ -429,7 +471,7 @@ const categoryLabel = (category: string) => {
           <button
             type="button"
             :disabled="loading"
-            class="mt-6 w-full rounded-lg bg-[#4DB175] py-3 font-semibold text-white transition-colors hover:bg-[#5FC287] disabled:opacity-50"
+            class="mt-6 w-full rounded-lg bg-primary py-3 font-semibold text-on-primary transition-colors hover:bg-primary-hover disabled:opacity-50"
             @click="continueToClubCreation"
           >
             {{ loading ? 'Setting up...' : 'Create Your Club' }}
@@ -437,7 +479,7 @@ const categoryLabel = (category: string) => {
 
           <button
             type="button"
-            class="mt-3 w-full rounded-lg border border-[#3A5750] py-3 text-sm text-[#A6ABA7] hover:bg-[#2E4540]"
+            class="mt-3 w-full rounded-lg border border-border-strong py-3 text-sm text-fg-secondary hover:bg-surface-2"
             @click="step = 'type'"
           >
             Back
@@ -447,7 +489,7 @@ const categoryLabel = (category: string) => {
 
       <!-- Loading State (initial check or action in progress) -->
       <div v-else-if="step === 'loading' || loading" class="flex items-center justify-center py-12">
-        <div class="h-12 w-12 animate-spin rounded-full border-4 border-[#4DB175] border-t-transparent" />
+        <div class="h-12 w-12 animate-spin rounded-full border-4 border-primary border-t-transparent" />
       </div>
     </div>
   </div>

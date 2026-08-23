@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createPlayerProfileService } from '../../server/domains/player/services/player-profile.service'
 import type { PlayerProfileRepository } from '../../server/domains/player/repositories/player-profile.repository'
+import { PlayerProfileValidationError } from '../../server/domains/player/dto/player-profile.dto'
 import type {
   PlayerProfileRecord,
   UpdatePlayerProfileInput
@@ -17,6 +18,9 @@ function createFakePlayerProfileRepository(
   return {
     async findById(profileId) {
       return rowsById.get(profileId) ?? null
+    },
+    async findByIds() {
+      return []
     },
     async findByUserId(userId) {
       return rowsByUserId.get(userId) ?? null
@@ -100,5 +104,72 @@ describe('PlayerProfileService', () => {
     const service = createPlayerProfileService(repository)
 
     expect(await service.getById('does-not-exist')).toBeNull()
+  })
+})
+
+describe('PlayerProfileService.ensureProfile', () => {
+  let repository: PlayerProfileRepository
+
+  beforeEach(() => {
+    repository = createFakePlayerProfileRepository()
+  })
+
+  it('creates a profile with the supplied display name when none exists', async () => {
+    const service = createPlayerProfileService(repository)
+
+    const profile = await service.ensureProfile('user-1', 'Ada L.')
+
+    expect(profile.display_name).toBe('Ada L.')
+    expect(await service.getOwnProfile('user-1')).not.toBeNull()
+  })
+
+  it('trims the supplied display name', async () => {
+    const service = createPlayerProfileService(repository)
+
+    expect((await service.ensureProfile('user-1', '  Ada L.  ')).display_name).toBe('Ada L.')
+  })
+
+  it('never renames an existing profile, however it is re-entered', async () => {
+    // The bug this guards: onboarding used to upsert, so re-entering the flow
+    // (reachable from AccountSwitcher's rate-only redirect) silently replaced a
+    // name the player had chosen.
+    const service = createPlayerProfileService(repository)
+    await service.saveOwnProfile('user-1', { display_name: 'Ada L.', city: 'Manila' })
+
+    const again = await service.ensureProfile('user-1', 'someone-else')
+
+    expect(again.display_name).toBe('Ada L.')
+    expect(again.city).toBe('Manila')
+  })
+
+  it('returns the existing profile even when no display name is supplied', async () => {
+    const service = createPlayerProfileService(repository)
+    await service.saveOwnProfile('user-1', { display_name: 'Ada L.' })
+
+    // The rate-only flow submits an assessment without a name; an existing
+    // profile must satisfy the call rather than erroring.
+    const again = await service.ensureProfile('user-1')
+
+    expect(again.display_name).toBe('Ada L.')
+  })
+
+  it('refuses to create a profile without a display name rather than inventing one', async () => {
+    const service = createPlayerProfileService(repository)
+
+    await expect(service.ensureProfile('user-1')).rejects.toThrow(PlayerProfileValidationError)
+    await expect(service.ensureProfile('user-1', '   ')).rejects.toThrow(
+      PlayerProfileValidationError
+    )
+    await expect(service.ensureProfile('user-1', null)).rejects.toThrow(
+      PlayerProfileValidationError
+    )
+  })
+
+  it('does not create a profile when validation fails', async () => {
+    const service = createPlayerProfileService(repository)
+
+    await expect(service.ensureProfile('user-1')).rejects.toThrow()
+
+    expect(await service.getOwnProfile('user-1')).toBeNull()
   })
 })

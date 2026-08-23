@@ -1,26 +1,16 @@
 <script setup lang="ts">
-definePageMeta({
-  middleware: ['super-admin']
-})
+// No super-admin gate: with API keys and webhooks removed (out of MVP scope —
+// see /docs/03-MVP-SCOPE.md), everything left here is ordinary per-user settings.
+import type { IconName } from '~/utils/icons'
 
-const settingsLinks = [
+useHead({ title: 'Settings' })
+
+const settingsLinks: { title: string, description: string, href: string, icon: IconName }[] = [
   {
     title: 'Profile',
     description: 'Edit your display name, bio, and preferences',
     href: '/profile/edit',
     icon: 'user'
-  },
-  {
-    title: 'API Keys',
-    description: 'Manage API keys for programmatic access',
-    href: '/settings/api-keys',
-    icon: 'key'
-  },
-  {
-    title: 'Webhooks',
-    description: 'Configure webhooks to receive event notifications',
-    href: '/settings/webhooks',
-    icon: 'webhook'
   },
   {
     title: 'Notifications',
@@ -29,43 +19,82 @@ const settingsLinks = [
     icon: 'bell'
   }
 ]
+
+/**
+ * Appearance lives here as a three-way control, not the sidebar's two-position
+ * switch. A durable preference belongs in Settings, and this is the only
+ * surface where `system` — follow the OS — can actually be expressed
+ * (docs/33 §3.5).
+ */
+const { preference, resolvedTheme, setTheme } = useTheme()
+
+const THEME_OPTIONS: { value: ThemePreference, label: string, icon: IconName, hint: string }[] = [
+  { value: 'light', label: 'Light', icon: 'sun', hint: 'Always light' },
+  { value: 'dark', label: 'Dark', icon: 'moon', hint: 'Always dark' },
+  { value: 'system', label: 'System', icon: 'settings', hint: 'Match your device' }
+]
 </script>
 
 <template>
-  <div class="min-h-screen bg-[#0B0D09] p-4 lg:p-6">
+  <div class="page-shell px-4 py-6 lg:px-6">
     <div class="mx-auto max-w-2xl">
-      <h1 class="mb-6 text-2xl font-bold text-white">Settings</h1>
+      <h1 class="mb-6 font-display text-heading-1 text-fg">Settings</h1>
 
-      <div class="space-y-3">
-        <NuxtLink
-          v-for="link in settingsLinks"
-          :key="link.href"
-          :to="link.href"
-          class="flex items-center gap-4 rounded-xl bg-[#1E2E2A] p-4 transition-all hover:bg-[#2E4540]"
-        >
-          <div class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-[#2E4540]">
-            <svg v-if="link.icon === 'user'" class="h-5 w-5 text-[#A6ABA7]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-            </svg>
-            <svg v-else-if="link.icon === 'key'" class="h-5 w-5 text-[#A6ABA7]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
-            </svg>
-            <svg v-else-if="link.icon === 'webhook'" class="h-5 w-5 text-[#A6ABA7]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-            </svg>
-            <svg v-else-if="link.icon === 'bell'" class="h-5 w-5 text-[#A6ABA7]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-            </svg>
+      <section class="mb-6">
+        <h2 class="mb-2 text-caption font-semibold uppercase tracking-wide text-fg-muted">
+          Appearance
+        </h2>
+
+        <div class="rounded-card border border-border bg-surface p-4">
+          <div class="grid gap-2 sm:grid-cols-3" role="radiogroup" aria-label="Theme">
+            <button
+              v-for="option in THEME_OPTIONS"
+              :key="option.value"
+              type="button"
+              role="radio"
+              :aria-checked="preference === option.value"
+              class="flex flex-col items-center gap-1.5 rounded-button border p-3 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              :class="preference === option.value
+                ? 'border-primary bg-primary-soft text-primary'
+                : 'border-border text-fg-secondary hover:border-border-strong hover:bg-surface-2 hover:text-fg'"
+              @click="setTheme(option.value)"
+            >
+              <UiIcon :name="option.icon" size="h-5 w-5" />
+              <span class="text-body-2 font-medium">{{ option.label }}</span>
+              <span class="text-caption text-fg-muted">{{ option.hint }}</span>
+            </button>
           </div>
-          <div class="flex-1">
-            <h2 class="font-medium text-white">{{ link.title }}</h2>
-            <p class="mt-0.5 text-sm text-[#6B7B75]">{{ link.description }}</p>
-          </div>
-          <svg class="h-5 w-5 text-[#6B7B75]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-          </svg>
-        </NuxtLink>
-      </div>
+
+          <p class="mt-3 text-caption text-fg-muted">
+            Currently showing <strong class="text-fg">{{ resolvedTheme }}</strong>.
+            Your choice is saved to this browser and applies the moment a page loads.
+          </p>
+        </div>
+      </section>
+
+      <section>
+        <h2 class="mb-2 text-caption font-semibold uppercase tracking-wide text-fg-muted">
+          Account
+        </h2>
+
+        <div class="space-y-3">
+          <NuxtLink
+            v-for="link in settingsLinks"
+            :key="link.href"
+            :to="link.href"
+            class="flex items-center gap-4 rounded-card border border-border bg-surface p-4 transition-colors hover:bg-surface-2"
+          >
+            <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-button bg-surface-2 text-fg-secondary">
+              <UiIcon :name="link.icon" />
+            </span>
+            <span class="flex-1">
+              <span class="block font-medium text-fg">{{ link.title }}</span>
+              <span class="mt-0.5 block text-body-2 text-fg-muted">{{ link.description }}</span>
+            </span>
+            <UiIcon name="chevron-right" class="text-fg-muted" />
+          </NuxtLink>
+        </div>
+      </section>
     </div>
   </div>
 </template>

@@ -1,6 +1,13 @@
 <script setup lang="ts">
 import type { ClubDto } from '~/server/domains/club/dto/club.dto'
 
+// Route-level guard so a non-admin is redirected rather than shown a 403 shell.
+// The API is still the real authority — listPendingVerification checks the
+// caller server-side; this is defence in depth, not the only check.
+definePageMeta({
+  middleware: ['super-admin']
+})
+
 const {
   data: response,
   pending,
@@ -44,13 +51,13 @@ async function reject(clubId: string) {
 </script>
 
 <template>
-  <div class="min-h-screen bg-[#0B0D09] p-4 lg:p-6">
-    <div class="mx-auto max-w-3xl">
-      <h1 class="text-2xl font-bold text-white">Club Verification Requests</h1>
-      <p class="mt-1 text-sm text-[#6B7B75]">Super admin only.</p>
+  <div class="min-h-screen bg-canvas p-4 lg:p-6">
+    <div class="page-shell">
+      <h1 class="text-2xl font-bold text-fg">Club Verification Requests</h1>
+      <p class="mt-1 text-sm text-fg-muted">Super admin only.</p>
 
       <div v-if="pending" class="mt-6 space-y-3">
-        <div v-for="i in 3" :key="i" class="h-20 animate-pulse rounded-xl bg-[#1E2E2A]" />
+        <div v-for="i in 3" :key="i" class="h-20 animate-pulse rounded-xl bg-surface" />
       </div>
 
       <div v-else-if="notAuthorized" class="mt-6 rounded-xl bg-red-500/10 p-6 text-center">
@@ -61,18 +68,18 @@ async function reject(clubId: string) {
         <p class="text-red-400">Could not load pending verification requests.</p>
       </div>
 
-      <div v-else-if="!clubs.length" class="mt-6 rounded-xl bg-[#1E2E2A] p-8 text-center">
-        <p class="text-[#6B7B75]">No pending verification requests.</p>
+      <div v-else-if="!clubs.length" class="mt-6 rounded-xl bg-surface p-8 text-center">
+        <p class="text-fg-muted">No pending verification requests.</p>
       </div>
 
       <div v-else class="mt-6 space-y-3">
         <p v-if="actionError" class="rounded-lg bg-red-500/10 p-3 text-sm text-red-400">{{ actionError }}</p>
-        <div v-for="club in clubs" :key="club.id" class="flex items-center justify-between rounded-xl bg-[#1E2E2A] p-4">
+        <div v-for="club in clubs" :key="club.id" class="flex items-center justify-between rounded-xl bg-surface p-4">
           <div>
-            <NuxtLink :to="`/clubs/${club.id}`" class="font-medium text-white hover:text-[#4DB175]">
+            <NuxtLink :to="`/clubs/${club.id}`" class="font-medium text-fg hover:text-primary">
               {{ club.name }}
             </NuxtLink>
-            <p class="text-xs text-[#6B7B75]">
+            <p class="text-xs text-fg-muted">
               Requested {{ club.verification_requested_at ? new Date(club.verification_requested_at).toLocaleDateString() : '—' }}
             </p>
           </div>
@@ -80,7 +87,7 @@ async function reject(clubId: string) {
             <button
               type="button"
               :disabled="actionLoadingId === club.id"
-              class="rounded-lg bg-[#4DB175] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#5FC287] disabled:opacity-50"
+              class="rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-on-primary hover:bg-primary-hover disabled:opacity-50"
               @click="approve(club.id)"
             >
               Approve
@@ -88,7 +95,7 @@ async function reject(clubId: string) {
             <button
               type="button"
               :disabled="actionLoadingId === club.id"
-              class="rounded-lg border border-[#3A5750] px-3 py-1.5 text-sm text-[#A6ABA7] hover:bg-[#2E4540] disabled:opacity-50"
+              class="rounded-lg border border-border-strong px-3 py-1.5 text-sm text-fg-secondary hover:bg-surface-2 disabled:opacity-50"
               @click="reject(club.id)"
             >
               Reject

@@ -11,6 +11,7 @@ export type NotificationType =
   | 'partner.request_received'
   | 'partner.request_accepted'
   | 'partner.request_declined'
+  | 'club.announcement'
 
 export type NotificationReferenceType =
   | 'club_membership'
@@ -19,6 +20,7 @@ export type NotificationReferenceType =
   | 'player_rating'
   | 'partner_request'
   | 'partnership'
+  | 'club_announcement'
 
 export interface NotificationRecord {
   id: string

@@ -12,7 +12,7 @@ Before changing code:
 2. Read `/docs/PLAN.md`.
 3. Read `/docs/PROJECT-STATUS.md`.
 4. Read the relevant domain and feature specifications.
-5. Check `/docs/IMPLEMENTATION-BACKLOG.md`.
+5. Check `/docs/10-IMPLEMENTATION-BACKLOG.md`.
 6. Identify the first unfinished task in the required sequence.
 
 Do not ask the user to restate project context that is already documented.

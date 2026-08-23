@@ -2,7 +2,8 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type {
   CreateTournamentCategoryInput,
   TournamentCategoryRecord,
-  TournamentCategoryTemplateRecord
+  TournamentCategoryTemplateRecord,
+  UpdateTournamentCategoryInput
 } from '../dto/tournament-category.dto'
 
 const CATEGORY_COLUMNS =
@@ -15,6 +16,10 @@ export interface TournamentCategoryRepository {
   findById(categoryId: string): Promise<TournamentCategoryRecord | null>
   findByTournamentId(tournamentId: string): Promise<TournamentCategoryRecord[]>
   create(input: CreateTournamentCategoryInput): Promise<TournamentCategoryRecord>
+  update(
+    categoryId: string,
+    input: UpdateTournamentCategoryInput
+  ): Promise<TournamentCategoryRecord>
   listTemplates(): Promise<TournamentCategoryTemplateRecord[]>
 }
 
@@ -57,6 +62,28 @@ export function createTournamentCategoryRepository(
           max_participants: input.max_participants ?? null,
           display_order: input.display_order ?? 0
         })
+        .select(CATEGORY_COLUMNS)
+        .single()
+
+      if (error) throw error
+      return data as unknown as TournamentCategoryRecord
+    },
+
+    async update(categoryId, input) {
+      // Only copy keys the caller actually supplied, so a partial patch does
+      // not blank the fields it left out.
+      const patch: Record<string, unknown> = { updated_at: new Date().toISOString() }
+      if (input.name !== undefined) patch.name = input.name
+      if (input.min_rating !== undefined) patch.min_rating = input.min_rating
+      if (input.max_rating !== undefined) patch.max_rating = input.max_rating
+      if (input.max_participants !== undefined) patch.max_participants = input.max_participants
+      if (input.display_order !== undefined) patch.display_order = input.display_order
+      if (input.status !== undefined) patch.status = input.status
+
+      const { data, error } = await client
+        .from('tournament_categories')
+        .update(patch)
+        .eq('id', categoryId)
         .select(CATEGORY_COLUMNS)
         .single()
 

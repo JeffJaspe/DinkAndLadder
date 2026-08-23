@@ -51,7 +51,7 @@ function handleFollowClick() {
         />
         <div
           v-else
-          class="flex h-12 w-12 items-center justify-center rounded-full bg-surface-light text-lg font-semibold text-text-secondary"
+          class="flex h-12 w-12 items-center justify-center rounded-full bg-surface-3 text-lg font-semibold text-fg"
         >
           {{ displayName.charAt(0).toUpperCase() }}
         </div>
@@ -65,10 +65,10 @@ function handleFollowClick() {
 
       <!-- Info -->
       <div class="min-w-0 flex-1">
-        <h3 class="truncate font-semibold text-text-primary group-hover:text-primary">
+        <h3 class="truncate font-semibold text-fg-secondary group-hover:text-primary">
           {{ displayName }}
         </h3>
-        <p v-if="location" class="mt-0.5 truncate text-sm text-text-muted">
+        <p v-if="location" class="mt-0.5 truncate text-sm text-fg-muted">
           {{ location }}
         </p>
 
@@ -84,8 +84,8 @@ function handleFollowClick() {
         v-if="showFollow"
         class="flex-shrink-0 rounded-button px-3 py-1.5 text-sm font-medium transition-colors"
         :class="isFollowing
-          ? 'bg-surface-light text-text-secondary hover:bg-error/20 hover:text-error'
-          : 'bg-primary text-white hover:bg-primary-light'"
+          ? 'bg-surface-3 text-fg hover:bg-danger/20 hover:text-danger'
+          : 'bg-primary text-on-primary hover:bg-primary-hover'"
         @click.prevent="handleFollowClick"
       >
         {{ isFollowing ? 'Unfollow' : 'Follow' }}

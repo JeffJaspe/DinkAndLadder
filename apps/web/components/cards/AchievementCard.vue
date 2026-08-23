@@ -22,7 +22,7 @@ const progressPercent = computed(() => {
 })
 
 const rarityColors: Record<string, string> = {
-  common: 'text-text-secondary',
+  common: 'text-fg',
   uncommon: 'text-success',
   rare: 'text-info',
   epic: 'text-accent',
@@ -30,7 +30,7 @@ const rarityColors: Record<string, string> = {
 }
 
 const rarityBg: Record<string, string> = {
-  common: 'bg-surface-light',
+  common: 'bg-surface-3',
   uncommon: 'bg-success/10',
   rare: 'bg-info/10',
   epic: 'bg-accent/10',
@@ -58,7 +58,7 @@ const rarityBg: Record<string, string> = {
       <!-- Content -->
       <div class="min-w-0 flex-1">
         <div class="flex items-start justify-between gap-2">
-          <h3 class="font-semibold text-text-primary">{{ name }}</h3>
+          <h3 class="font-semibold text-fg-secondary">{{ name }}</h3>
           <span
             class="flex-shrink-0 rounded-badge px-2 py-0.5 text-xs font-medium"
             :class="rarityColors[rarity || 'common']"
@@ -67,15 +67,15 @@ const rarityBg: Record<string, string> = {
           </span>
         </div>
 
-        <p class="mt-1 text-sm text-text-muted">{{ description }}</p>
+        <p class="mt-1 text-sm text-fg-muted">{{ description }}</p>
 
         <!-- Progress bar -->
         <div v-if="!isUnlocked && progressMax" class="mt-3">
-          <div class="flex items-center justify-between text-xs text-text-muted">
+          <div class="flex items-center justify-between text-xs text-fg-muted">
             <span>Progress</span>
             <span>{{ progress || 0 }} / {{ progressMax }}</span>
           </div>
-          <div class="mt-1 h-1.5 overflow-hidden rounded-full bg-surface-light">
+          <div class="mt-1 h-1.5 overflow-hidden rounded-full bg-surface-3">
             <div
               class="h-full rounded-full bg-primary transition-all"
               :style="{ width: `${progressPercent}%` }"
@@ -84,7 +84,7 @@ const rarityBg: Record<string, string> = {
         </div>
 
         <!-- Unlocked date -->
-        <p v-if="isUnlocked && unlockedAt" class="mt-2 text-xs text-text-muted">
+        <p v-if="isUnlocked && unlockedAt" class="mt-2 text-xs text-fg-muted">
           Unlocked {{ new Date(unlockedAt).toLocaleDateString() }}
         </p>
       </div>

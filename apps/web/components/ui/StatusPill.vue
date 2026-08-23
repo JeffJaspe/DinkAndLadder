@@ -13,13 +13,13 @@ const props = withDefaults(defineProps<Props>(), {
 const statusConfig: Record<Status, { bg: string; text: string; icon: string; label: string }> = {
   pending: { bg: 'bg-warning/20', text: 'text-warning', icon: 'clock', label: 'Pending' },
   verified: { bg: 'bg-success/20', text: 'text-success', icon: 'check', label: 'Verified' },
-  disputed: { bg: 'bg-error/20', text: 'text-error', icon: 'alert', label: 'Disputed' },
-  draft: { bg: 'bg-text-muted/20', text: 'text-text-muted', icon: 'edit', label: 'Draft' },
+  disputed: { bg: 'bg-danger/20', text: 'text-danger', icon: 'alert', label: 'Disputed' },
+  draft: { bg: 'bg-fg-muted/20', text: 'text-fg-muted', icon: 'edit', label: 'Draft' },
   open: { bg: 'bg-success/20', text: 'text-success', icon: 'check', label: 'Open' },
-  closed: { bg: 'bg-text-muted/20', text: 'text-text-muted', icon: 'x', label: 'Closed' },
-  cancelled: { bg: 'bg-error/20', text: 'text-error', icon: 'x', label: 'Cancelled' },
+  closed: { bg: 'bg-fg-muted/20', text: 'text-fg-muted', icon: 'x', label: 'Closed' },
+  cancelled: { bg: 'bg-danger/20', text: 'text-danger', icon: 'x', label: 'Cancelled' },
   active: { bg: 'bg-success/20', text: 'text-success', icon: 'check', label: 'Active' },
-  inactive: { bg: 'bg-text-muted/20', text: 'text-text-muted', icon: 'x', label: 'Inactive' }
+  inactive: { bg: 'bg-fg-muted/20', text: 'text-fg-muted', icon: 'x', label: 'Inactive' }
 }
 
 const config = computed(() => statusConfig[props.status])

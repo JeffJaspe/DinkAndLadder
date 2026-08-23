@@ -32,15 +32,15 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="flex min-h-screen items-center justify-center bg-[#0B0D09] p-4">
-    <div class="w-full max-w-sm rounded-xl bg-[#1E2E2A] p-8 text-center">
+  <div class="flex min-h-screen items-center justify-center bg-canvas p-4">
+    <div class="w-full max-w-sm rounded-xl bg-surface p-8 text-center">
       <!-- Loading State -->
       <template v-if="!errorMessage">
         <div class="mb-4 flex justify-center">
-          <div class="h-12 w-12 animate-spin rounded-full border-4 border-[#4DB175] border-t-transparent" />
+          <div class="h-12 w-12 animate-spin rounded-full border-4 border-primary border-t-transparent" />
         </div>
-        <h1 class="text-xl font-semibold text-white">Confirming your account</h1>
-        <p class="mt-2 text-[#6B7B75]">Please wait while we verify your email...</p>
+        <h1 class="text-xl font-semibold text-fg">Confirming your account</h1>
+        <p class="mt-2 text-fg-muted">Please wait while we verify your email...</p>
       </template>
 
       <!-- Error State -->
@@ -52,11 +52,11 @@ onMounted(async () => {
             </svg>
           </div>
         </div>
-        <h1 class="text-xl font-semibold text-white">Confirmation Failed</h1>
+        <h1 class="text-xl font-semibold text-fg">Confirmation Failed</h1>
         <p class="mt-2 text-red-400">{{ errorMessage }}</p>
         <NuxtLink
           to="/login"
-          class="mt-6 inline-block rounded-lg bg-[#4DB175] px-6 py-2 font-medium text-white hover:bg-[#5FC287]"
+          class="mt-6 inline-block rounded-lg bg-primary px-6 py-2 font-medium text-on-primary hover:bg-primary-hover"
         >
           Go to Login
         </NuxtLink>

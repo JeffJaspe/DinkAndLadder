@@ -14,7 +14,9 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test:unit": "vitest run",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "check:tokens": "node scripts/check-no-hex-classes.mjs",
+    "codemod:theme": "node scripts/theme-codemod.mjs"
   },
   "dependencies": {
     "@nuxt/eslint": "^1.17.0",
@@ -26,9 +28,11 @@
     "vue-router": "^4.5.0"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
     "@nuxt/test-utils": "^3.23.0",
     "@nuxtjs/tailwindcss": "^6.14.0",
     "@playwright/test": "^1.62.1",
+    "@vitejs/plugin-vue": "^6.0.8",
     "@vue/test-utils": "^2.4.11",
     "eslint-config-prettier": "^10.1.8",
     "happy-dom": "^20.11.2",

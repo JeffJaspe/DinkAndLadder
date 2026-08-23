@@ -1,26 +1,17 @@
-const PSGC_BASE = 'https://psgc.gitlab.io/api'
+import { assertPsgcCode, fetchPsgc, PSGC_CACHE_CONTROL } from '~/server/utils/psgc'
+
+interface PsgcBarangay {
+  code: string
+  name: string
+}
 
 export default defineEventHandler(async (event) => {
-  const query = getQuery(event)
-  const cityCode = query.city as string
+  const city = assertPsgcCode(getQuery(event).city, 'city')
 
-  if (!cityCode) {
-    throw createError({
-      statusCode: 400,
-      statusMessage: 'City code is required'
-    })
-  }
-
-  try {
-    const data = await $fetch<Array<{ code: string; name: string }>>(
-      `${PSGC_BASE}/cities-municipalities/${cityCode}/barangays/`
-    )
-    return data
-  } catch (error) {
-    console.error('Failed to fetch barangays from PSGC API:', error)
-    throw createError({
-      statusCode: 502,
-      statusMessage: 'Failed to fetch barangays from external API'
-    })
-  }
+  const data = await fetchPsgc<PsgcBarangay[]>(
+    `/cities-municipalities/${city}/barangays/`,
+    'barangays'
+  )
+  setResponseHeader(event, 'Cache-Control', PSGC_CACHE_CONTROL)
+  return data
 })

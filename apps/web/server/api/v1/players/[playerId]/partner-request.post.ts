@@ -46,10 +46,10 @@ export default defineEventHandler(async (event) => {
       )
       await notificationService.notify({
         user_id: targetProfile.user_id,
-        type: 'partner.request_received' as any,
+        type: 'partner.request_received',
         title: 'New Partner Request',
         body: `${profile.display_name} wants to be your partner.`,
-        reference_type: 'partner_request' as any,
+        reference_type: 'partner_request',
         reference_id: request.id
       })
     }
