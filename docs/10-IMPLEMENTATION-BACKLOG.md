@@ -241,10 +241,21 @@ deferred — none block the MVP. IDs match the audit report.
 - [x] F-22 — DONE (2026-08-22): winners now advance (single elim + double-elim winners side); first-round byes propagate at generation; winner validated as a participant; 7 new tests. Losers-bracket routing still open — see below. Original note:  Bracket winners never advance. `updateBracketMatch` writes the
       winner but nothing populates the next round, so tournaments stall after
       round one.
-- [ ] F-23 — `confirmedRegs` in `bracket.service.ts` also includes `pending`
-      registrations. Decide the rule, then make the name match it. The adjacent
-      category filter also treats `undefined` and `null` differently from
-      `deleteByTournamentId`.
+- [x] F-23 — DONE (2026-08-24). Decision taken: **a bracket seeds confirmed
+      registrations only.** A pending registration is awaiting the organiser’s
+      approval and does not hold a place, which is what the vacancy counts on
+      the tournament page already assumed — so a category could read "full"
+      while the bracket contained people nobody had approved. Seeds are now
+      also ordered by rating descending (unrated last, `registered_at` breaking
+      ties), which is what `buildFirstRound`’s "byes to the top seeds first"
+      always claimed and nothing satisfied; the shuffle that used to precede it
+      is gone, so the pre-generation preview on the tournament page shows the
+      real draw rather than an illustration. `INSUFFICIENT_PARTICIPANTS` now
+      names the cause ("N confirmed, M still awaiting approval"). 6 new tests.
+      Original note:  `confirmedRegs` in `bracket.service.ts` also includes
+      `pending` registrations. Decide the rule, then make the name match it.
+      The adjacent category filter also treats `undefined` and `null`
+      differently from `deleteByTournamentId`.
 - [x] F-24 — DONE (2026-08-22): reads created_at from auth.users via the Admin API instead of JWT claims, degrading gracefully. Original note:  `/api/v1/me/auth-info` returns `created_at: undefined`.
       `serverSupabaseUser` returns JWT claims, which have no `created_at`.
       Either drop the field or read it from the `users` table.
@@ -297,6 +308,109 @@ deferred — none block the MVP. IDs match the audit report.
       `~/types/database.types.ts` is missing, so `Database = unknown` and no
       query is type-checked against the real schema. Generating it would have
       caught F-17 (`follower_id` is not a column) at compile time.
+
+### Opened by the 2026-08-24 tournament viewing redesign
+
+- [x] **Tournament middle layer collapsed.** DONE (2026-08-24): an event with
+      `event_type='tournament'` creates its one tournament in `createEvent`;
+      `/events/:eventId` is the tournament header with categories as cards
+      beneath it; `/tournaments/:id` is a 301 redirect and the "Add Tournament"
+      flow is deleted.
+- [x] **Bracket slots can be linked to a played match.** DONE (2026-08-24):
+      `BracketService.recordMatchResult` +
+      `POST /api/v1/bracket-matches/:id/result`. Nothing wrote
+      `bracket_matches.match_id` before this, so no draw could ever show a score.
+- [x] **Migration `029-tournament-visibility` applied.** DONE (2026-08-24):
+      three additive SELECT policies closing pre-existing RLS gaps the redesign
+      made visible. Confirmed live — an anonymous read of
+      `tournament_registrations` for a public event now returns rows, so bracket
+      slots resolve to names instead of "TBD". The two match-table policies are
+      scoped to `event_id IS NOT NULL`; every match in the database today is
+      casual, so their positive path is exercised the first time a tournament
+      result is recorded.
+- [x] **Singles or doubles is per category.** DONE (2026-08-24): migration
+      `030-category-match-type`, applied. Chosen when a category is created,
+      labelled on the card, and read by the partner rule on registration and by
+      the match `recordMatchResult` creates. `tournaments.match_type` remains the
+      default and fallback.
+- [ ] **`tournaments.match_type` is now only a default.** Every category states
+      its own type, so the tournament-level column is read only when a category
+      does not (older rows, the category-less path). Consider whether the
+      tournament still needs it once no category can be created without one —
+      dropping it would be destructive and touches three services, so it is not
+      obviously worth doing.
+- [ ] **A recorded result cannot be corrected.** `recordMatchResult` refuses a
+      second result for a slot (`RESULT_ALREADY_RECORDED`) because undoing one
+      means orphaning the match it created and pulling the advanced winner back
+      out of the next round. A typo in a score currently needs a database edit.
+      Design the un-record path before building it.
+- [ ] **`match_participants.result_status` is never written.** It defaults to
+      `'pending'` and stays there for every match in the system, verified ones
+      included — `recordMatchResult` follows the existing behaviour rather than
+      diverging. Either populate it wherever a winner is known or drop the
+      column.
+- [ ] **Ratings do not move on a tournament result.** `recordMatchResult` marks
+      the match `verified`, and `affects_rating` is true for a tournament event,
+      but nothing in the codebase applies a rating change on verification. The
+      rating pipeline is only reachable through its own service today.
+- [ ] **`events.status` never reaches `active` or `completed`.** Pre-existing and
+      untouched by this work: `event.service.ts` only does `draft → published`
+      and `→ cancelled`, so `pages/index.vue`'s "past events" list is permanently
+      empty and every gate written against `'active'` can never open. Category
+      completion is now organiser-driven and independent of this, but the event
+      lifecycle itself is still a hole.
+- [ ] **`docs/20-EVENT-SPECIFICATION.md` predates categories entirely** and its
+      status lifecycle (`registration_closed`, `in_progress`) never matched the
+      code. It also documents API paths that were never shipped. Rewrite or mark
+      superseded.
+
+### Opened/closed by the 2026-08-25 formats and bracket-redesign pass
+
+- [x] **Format is per category, and the vocabulary is fixed at five.** DONE
+      (2026-08-25): migration `031-tournament-format`. `pool_play` renamed to
+      `round_robin_single_elimination`; `round_robin_double_elimination` added
+      with a new generator; CHECK constraints on both `tournaments.format` and
+      the new nullable `tournament_categories.format`. Labels and descriptions
+      live once, in `utils/tournament-formats.ts`. See ADR-004.
+- [x] **Pool → playoff seeding.** DONE (2026-08-25). A staged format used to
+      generate its playoff skeleton and never fill it — `advanceWinner` returned
+      early for anything that was not an elimination, so an organiser could play
+      every pool fixture and the knockout stayed TBDs forever.
+      `seedPlayoffsFromPools` now fills round 51 when the last pool fixture is
+      decided. Rule (ADR-004): top two per pool, wins → point difference →
+      head-to-head, winners seeded ahead of runners-up.
+- [x] **The draw renders as a draw.** DONE (2026-08-25): `BracketTree.vue` with
+      CSS connector elbows and a Champion panel, `BracketGroupTables.vue` for the
+      group stage, and set scores on every bracket slot (the data was already on
+      `BracketMatchDto.scores`; nothing rendered it).
+- [x] **A published category can be edited.** DONE (2026-08-25): name, capacity,
+      rating band, match type and format. `match_type` locks once anyone has
+      entered (`MATCH_TYPE_LOCKED`).
+- [x] **Rating bands are keyed by band AND match type.** DONE (2026-08-25):
+      "4.5 Singles" no longer consumes the 4.5 band for doubles.
+- [x] **Event-header capacity hidden for tournaments.** DONE (2026-08-25):
+      capacity is per category; the event-wide count matched nothing enterable.
+- [x] **Running standings on the Schedule tab.** DONE (2026-08-25):
+      `computeStandingsGroups`, live W–L above "Up next". The Results tab stays
+      gated on the organiser marking the category complete — that gate is what
+      stops an abandoned draw publishing a winner on its own.
+
+- [ ] **King of the Court.** Considered and excluded (ADR-004). It cannot be
+      pre-drawn: who plays next depends on who just won, so it needs a
+      progressive generator that appends a match per recorded result, plus a
+      challenger queue and a lap count. Its own piece of work.
+- [ ] **Losers-bracket routing now affects two formats.** The pre-existing gap
+      (see 2026-08-22 below) applies to `round_robin_double_elimination` as well,
+      since it reuses the same skeleton at the playoff offset. The draw view says
+      so explicitly rather than leaving an organiser to discover it.
+- [ ] **Playoff seeding cannot use point difference from bracket rows alone.**
+      `qualifiersFromPools` reads `BracketMatchRecord`, which carries no scores,
+      so `pointDiff` is always 0 and the comparator falls through to
+      head-to-head. The field and the rule are in place; populating it means
+      joining `match_scores` in the seeding path.
+- [ ] **`tournaments.format` is now only a default**, the same way
+      `tournaments.match_type` is. Same reasoning applies: dropping it would be
+      destructive and it is still the fallback for the category-less path.
 
 ### Opened by the 2026-08-22 follow-up pass
 

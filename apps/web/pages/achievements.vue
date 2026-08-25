@@ -93,7 +93,7 @@ const tierConfig: Record<string, { bg: string; text: string; label: string }> = 
           :class="
             selectedCategory === null
               ? 'bg-primary text-on-primary'
-              : 'bg-surface text-fg-secondary hover:text-on-primary'
+              : 'bg-surface text-fg-secondary hover:bg-surface-2 hover:text-fg'
           "
           @click="selectedCategory = null"
         >
@@ -106,7 +106,7 @@ const tierConfig: Record<string, { bg: string; text: string; label: string }> = 
           :class="
             selectedCategory === cat
               ? 'bg-primary text-on-primary'
-              : 'bg-surface text-fg-secondary hover:text-on-primary'
+              : 'bg-surface text-fg-secondary hover:bg-surface-2 hover:text-fg'
           "
           @click="selectedCategory = cat"
         >

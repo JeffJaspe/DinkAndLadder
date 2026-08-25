@@ -1,6 +1,8 @@
 <script setup lang="ts">
 useHead({ title: 'Log in' })
 
+const { appName } = useBranding()
+
 const supabase = useSupabaseClient()
 const { public: publicConfig } = useRuntimeConfig()
 const email = ref('')
@@ -96,14 +98,10 @@ async function handleGoogleLogin() {
       <!-- Logo -->
       <div class="mb-8 text-center">
         <NuxtLink to="/" class="inline-flex items-center gap-2">
-          <div
-            class="flex h-12 w-12 items-center justify-center rounded-xl bg-primary text-xl font-bold text-on-primary"
-          >
-            D
-          </div>
+          <UiBrandMark size="xl" :show-name="false" />
         </NuxtLink>
         <h1 class="mt-4 text-2xl font-bold text-fg">Welcome back</h1>
-        <p class="mt-2 text-fg-muted">Sign in to continue to DinkAndLadder</p>
+        <p class="mt-2 text-fg-muted">Sign in to continue to {{ appName }}</p>
       </div>
 
       <!-- Card -->

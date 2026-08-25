@@ -1,6 +1,11 @@
 <script setup lang="ts">
 import type { MyClubMembershipDto } from '~/server/domains/club/dto/club-membership.dto'
 import type { EventType, QueueMode } from '~/server/domains/event/dto/event.dto'
+import type {
+  TournamentFormat,
+  TournamentMatchType
+} from '~/server/domains/event/dto/tournament.dto'
+import { TOURNAMENT_FORMATS } from '~/utils/tournament-formats'
 
 interface MineResponse {
   items: MyClubMembershipDto[]
@@ -65,6 +70,8 @@ const form = reactive({
   venue: '',
   start_date: '',
   end_date: '',
+  start_time: '',
+  end_time: '',
   registration_opens: '',
   registration_closes: '',
   fee_amount: '',
@@ -72,8 +79,41 @@ const form = reactive({
   queue_enabled: false,
   queue_mode: 'first_come' as QueueMode,
   queue_courts: '',
-  visibility: 'public' as 'public' | 'private' | 'registered_only'
+  visibility: 'public' as 'public' | 'private' | 'registered_only',
+  // Only sent for a tournament event, where they configure the one tournament
+  // created alongside it. There is no separate "add tournament" step any more.
+  tournament_format: 'single_elimination' as TournamentFormat,
+  tournament_match_type: 'doubles' as TournamentMatchType
 })
+
+const isTournament = computed(() => form.event_type === 'tournament')
+
+/**
+ * Hourly suggestions rather than a bare <input type="time">. Sessions here are
+ * booked on the hour, and a select is far less fiddly on a phone than a time
+ * spinner. 05:00 covers the earliest morning session, 22:00 the latest evening
+ * one. Time is optional throughout — a multi-day tournament rarely has one
+ * meaningful start time — so the empty option comes first.
+ */
+const TIME_OPTIONS = [
+  { value: '', label: 'No time set' },
+  ...Array.from({ length: 18 }, (_, index) => {
+    const value = `${String(5 + index).padStart(2, '0')}:00`
+    return { value, label: formatEventTime(value) }
+  })
+]
+
+// Picking a start time proposes an hour-long session, which is the common case;
+// it only fills a blank or plainly wrong end, never overwrites a deliberate one.
+watch(
+  () => form.start_time,
+  (startTime) => {
+    if (!startTime) return
+    if (form.end_time && form.end_time > startTime) return
+    const nextHour = Number(startTime.slice(0, 2)) + 1
+    form.end_time = nextHour <= 23 ? `${String(nextHour).padStart(2, '0')}:00` : ''
+  }
+)
 
 const submitting = ref(false)
 const errorMessage = ref('')
@@ -127,6 +167,8 @@ async function submit() {
         city: cityName.value || null,
         start_date: form.start_date,
         end_date: form.end_date,
+        start_time: form.start_time || null,
+        end_time: form.end_time || null,
         registration_opens: form.registration_opens || null,
         registration_closes: form.registration_closes || null,
         fee_amount: form.fee_amount ? parseFloat(form.fee_amount) : null,
@@ -135,7 +177,13 @@ async function submit() {
         queue_enabled: form.queue_enabled,
         queue_mode: form.queue_mode,
         queue_courts: form.queue_courts ? parseInt(form.queue_courts) : undefined,
-        visibility: form.visibility
+        visibility: form.visibility,
+        ...(isTournament.value
+          ? {
+              tournament_format: form.tournament_format,
+              tournament_match_type: form.tournament_match_type
+            }
+          : {})
       }
     })
     router.push(`/events/${created.id}`)
@@ -324,6 +372,18 @@ async function submit() {
                   class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg focus:border-primary focus:outline-none"
                 />
               </div>
+              <UiSelect
+                v-model="form.start_time"
+                class="w-full"
+                label="Start Time"
+                :options="TIME_OPTIONS"
+              />
+              <UiSelect
+                v-model="form.end_time"
+                class="w-full"
+                label="End Time"
+                :options="TIME_OPTIONS"
+              />
             </div>
             <div class="grid gap-4 sm:grid-cols-2">
               <div>
@@ -374,8 +434,70 @@ async function submit() {
           </div>
         </div>
 
-        <!-- Queue Mode -->
-        <div class="rounded-xl bg-surface p-5 shadow-card">
+        <!-- Tournament shape. Replaces the old create-tournament page, whose
+             heading read "Create Category" while it created a tournament. -->
+        <div v-if="isTournament" class="rounded-xl bg-surface p-5 shadow-card">
+          <h2 class="font-semibold text-fg">Tournament format</h2>
+          <p class="mt-0.5 text-sm text-fg-muted">
+            The default every category in this tournament starts from. You add the categories
+            themselves on the event page, and each one can be changed to a different format there.
+          </p>
+
+          <div class="mt-4 space-y-3">
+            <label
+              v-for="option in TOURNAMENT_FORMATS"
+              :key="option.value"
+              class="flex cursor-pointer items-start gap-3 rounded-lg border-2 p-3 transition-all"
+              :class="
+                form.tournament_format === option.value
+                  ? 'border-primary bg-primary/5'
+                  : 'border-border-strong hover:border-primary/40'
+              "
+            >
+              <input
+                v-model="form.tournament_format"
+                type="radio"
+                :value="option.value"
+                class="mt-0.5 accent-primary"
+              />
+              <span class="min-w-0">
+                <span class="block text-sm font-medium text-fg">{{ option.label }}</span>
+                <span class="block text-xs text-fg-muted">{{ option.description }}</span>
+              </span>
+            </label>
+          </div>
+
+          <div class="mt-4">
+            <span class="mb-1.5 block text-xs text-fg-secondary">Match type</span>
+            <div class="flex gap-2">
+              <label
+                v-for="type in ['singles', 'doubles'] as const"
+                :key="type"
+                class="flex cursor-pointer items-center gap-2 rounded-lg border-2 px-3 py-2 text-sm capitalize transition-all"
+                :class="
+                  form.tournament_match_type === type
+                    ? 'border-primary bg-primary/5 text-fg'
+                    : 'border-border-strong text-fg-secondary hover:border-primary/40'
+                "
+              >
+                <input
+                  v-model="form.tournament_match_type"
+                  type="radio"
+                  :value="type"
+                  class="accent-primary"
+                />
+                {{ type }}
+              </label>
+            </div>
+            <p class="mt-1.5 text-xs text-fg-muted">
+              Doubles asks each entrant for a partner when they register.
+            </p>
+          </div>
+        </div>
+
+        <!-- Queue Mode. Not offered for a tournament: a draw decides who plays
+             whom, so there is nothing to queue for. -->
+        <div v-if="!isTournament" class="rounded-xl bg-surface p-5 shadow-card">
           <div class="mb-4 flex items-center justify-between">
             <div>
               <h2 class="font-semibold text-fg">Match Queue</h2>

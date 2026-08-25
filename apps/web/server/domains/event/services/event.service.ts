@@ -7,19 +7,52 @@ import type { ClubMembershipRepository } from '../../club/repositories/club-memb
 import type {
   CreateEventInput,
   EventDto,
+  EventRecord,
   EventSearchQuery,
   UpdateEventInput
 } from '../dto/event.dto'
 import { SLOT_OCCUPYING_STATUSES, toEventDto } from '../dto/event.dto'
 import type { EventRegistrationRepository } from '../repositories/event-registration.repository'
+import type { TournamentCategoryRepository } from '../repositories/tournament-category.repository'
+import type { PartnershipRepository } from '../../partnership/repositories/partnership.repository'
+import type { RatingRepository } from '../../rating/repositories/rating.repository'
+import type { ClubRepository } from '../../club/repositories/club.repository'
+import { resolveMatchType } from '../dto/tournament-category.dto'
+import { bandExclusionReason } from '~/utils/rating-bands'
 import type {
   CreateTournamentInput,
   TournamentDto,
+  TournamentMatchType,
   TournamentRegistrationDto,
   TournamentRegistrationWithPlayerDto,
   UpdateTournamentInput
 } from '../dto/tournament.dto'
-import { toTournamentDto, toTournamentRegistrationDto } from '../dto/tournament.dto'
+import {
+  resolveEntrantRating,
+  toTournamentDto,
+  toTournamentRegistrationDto
+} from '../dto/tournament.dto'
+
+/** `HH:MM` or `HH:MM:SS` on a 24-hour clock — what an <input type="time"> emits. */
+const TIME_PATTERN = /^([01][0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?$/
+
+/**
+ * The one-entry-per-category trigger rejecting an insert, as it reaches us
+ * through PostgREST.
+ *
+ * It raises `unique_violation` (23505) deliberately so that a lost race and an
+ * ordinary duplicate are the same class of failure; the message prefix is what
+ * separates it from a real unique index firing on some other column.
+ */
+function isOneEntryPerCategoryViolation(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false
+  const candidate = err as { code?: unknown; message?: unknown }
+  return (
+    candidate.code === '23505' &&
+    typeof candidate.message === 'string' &&
+    candidate.message.includes('ONE_ENTRY_PER_CATEGORY')
+  )
+}
 
 export class EventServiceError extends Error {
   constructor(
@@ -43,6 +76,15 @@ export interface EventService {
 
   createTournament(playerId: string, input: CreateTournamentInput): Promise<TournamentDto>
   getTournaments(eventId: string): Promise<TournamentDto[]>
+  /**
+   * The one tournament a tournament event runs.
+   *
+   * "The first, ignore the rest" is a business rule, not a rendering detail, so
+   * it lives here rather than in a page reaching for `[0]`. Ordered by
+   * creation, so renaming a tournament cannot silently change which one the
+   * event shows.
+   */
+  getPrimaryTournament(eventId: string): Promise<TournamentDto | null>
   updateTournament(
     playerId: string,
     tournamentId: string,
@@ -77,7 +119,31 @@ export function createEventService(
    * without it, and making it required would touch five call sites for a field
    * only one of them uses.
    */
-  eventRegistrations?: EventRegistrationRepository
+  eventRegistrations?: EventRegistrationRepository,
+  /**
+   * Only needed to read a category's match type when someone registers.
+   * Optional for the same reason `memberships` is: without it registration
+   * falls back to the tournament's type, which is what it always used.
+   */
+  categories?: TournamentCategoryRepository,
+  /**
+   * Only needed to confirm a named partner actually agreed to be one. Optional
+   * like the rest, and its absence degrades to the previous behaviour — any
+   * player id accepted — rather than failing every doubles entry closed.
+   */
+  partnerships?: PartnershipRepository,
+  /**
+   * Only needed to enforce a category's rating band. Optional like the rest;
+   * without it a banded category admits anyone, which is what happened before
+   * this check existed at all.
+   */
+  ratings?: RatingRepository,
+  /**
+   * Only needed to read a club's verification status, which is what decides
+   * how many events it may run. Optional like the rest; without it no limit
+   * applies, which is the behaviour that existed before there were any.
+   */
+  clubs?: ClubRepository
 ): EventService {
   async function assertEventOrganizer(playerId: string, eventId: string) {
     const event = await events.findById(eventId)
@@ -138,6 +204,154 @@ export function createEventService(
     )
   }
 
+  /**
+   * One entry per person per category — as the registrant OR as a partner.
+   *
+   * A doubles entry is one row carrying two people, and the old check read
+   * `player_id` on its own, so the named partner was invisible: they could
+   * enter the same category again in their own right, or be named by a second
+   * pair, and the generator would seed the same person into two slots of one
+   * draw. All four combinations are refused here, and the message names who
+   * and how, because "already registered" does not tell an organiser staring
+   * at a list of forty entries where to look.
+   *
+   * Scoped to the category, not the tournament: entering the 3.5 Singles and
+   * the 3.5 Doubles of one weekend is legitimate, and the old tournament-wide
+   * check made it impossible.
+   */
+  async function assertNeitherIsAlreadyInCategory(
+    tournamentId: string,
+    categoryId: string | null,
+    playerId: string,
+    partnerPlayerId: string | null
+  ) {
+    const entrants = await registrations.findCategoryEntrants(tournamentId, categoryId)
+    if (!entrants.length) return
+
+    const held = new Map(entrants.map((entrant) => [entrant.player_id, entrant]))
+
+    const clash = held.get(playerId)
+    if (clash) {
+      throw new EventServiceError(
+        409,
+        'ALREADY_IN_CATEGORY',
+        clash.as_partner
+          ? 'You are already in this category as another player’s partner.'
+          : 'You are already registered in this category.'
+      )
+    }
+
+    if (partnerPlayerId) {
+      const partnerClash = held.get(partnerPlayerId)
+      if (partnerClash) {
+        throw new EventServiceError(
+          409,
+          'PARTNER_ALREADY_IN_CATEGORY',
+          partnerClash.as_partner
+            ? 'That player is already in this category as someone else’s partner.'
+            : 'That player is already registered in this category in their own right.'
+        )
+      }
+    }
+  }
+
+  /**
+   * Both halves of an entry have to be in the band, not just whoever pressed
+   * the button.
+   *
+   * This check used to live in the registrations controller, which put business
+   * logic in a place CLAUDE.md §1 reserves for wiring, and it had two bugs
+   * worth naming: it read the TOURNAMENT's match type, so a doubles category
+   * inside a singles tournament was judged on singles ratings; and it examined
+   * the registrant alone, so a 3.2 player could carry a 4.9 partner into a 3.5
+   * draw. Both are fixed by going through `resolveMatchType` and by looping.
+   *
+   * Degrades to no check when the rating repository was not supplied, matching
+   * how `memberships` and `categories` behave.
+   */
+  async function assertBothMeetTheBand(
+    category: { min_rating: number | null; max_rating: number | null } | null,
+    matchType: TournamentMatchType,
+    playerId: string,
+    partnerPlayerId: string | null
+  ) {
+    if (!category || !ratings) return
+    if (category.min_rating == null && category.max_rating == null) return
+
+    for (const [id, who] of [
+      [playerId, 'you'],
+      [partnerPlayerId, 'partner']
+    ] as const) {
+      if (!id) continue
+
+      const rating = await ratings.getRating(id, matchType)
+      const value = rating?.rating_value ?? null
+      const reason = bandExclusionReason(value, category.min_rating, category.max_rating)
+      if (!reason) continue
+
+      throw new EventServiceError(
+        400,
+        who === 'you' ? 'RATING_OUT_OF_BAND' : 'PARTNER_RATING_OUT_OF_BAND',
+        who === 'you' ? reason : `Your partner cannot enter this category. ${reason}`
+      )
+    }
+  }
+
+  /**
+   * What an unverified club may have running at once.
+   *
+   * Nothing limited this before, so a club could accumulate drafts and live
+   * events without bound — and verification, which has a full approval flow
+   * already built, bought nothing. These are the limits that make the tier
+   * mean something.
+   *
+   * A verified club is unlimited. An unverified one gets one live tournament,
+   * one live open play, and one draft: enough to run a real weekend and plan
+   * the next, not enough to use the platform as free listing space.
+   *
+   * Cancelled and completed events do not count. An event that has had its
+   * weekend must not block the next one, and a cancelled one never happened.
+   *
+   * Degrades to no limit when the club repository was not supplied, matching
+   * how `memberships` and `categories` behave — a caller that did not wire it
+   * keeps the behaviour it had rather than failing closed.
+   */
+  async function assertWithinClubLimits(
+    clubId: string,
+    intent: 'draft' | 'publish',
+    eventType: string
+  ) {
+    if (!clubs) return
+
+    const club = await clubs.findById(clubId)
+    if (!club || club.verification_status === 'verified') return
+
+    const counts = await events.countByClubForLimits(clubId)
+
+    if (intent === 'draft') {
+      if (counts.drafts >= 1) {
+        throw new EventServiceError(
+          409,
+          'CLUB_DRAFT_LIMIT',
+          'An unverified club can keep one draft at a time. Publish or delete the one you have, or get the club verified for unlimited drafts.'
+        )
+      }
+      return
+    }
+
+    const isTournament = eventType === 'tournament'
+    const live = isTournament ? counts.liveTournaments : counts.liveOpenPlay
+    if (live >= 1) {
+      throw new EventServiceError(
+        409,
+        'CLUB_EVENT_LIMIT',
+        isTournament
+          ? 'An unverified club can run one tournament at a time. Finish or cancel the current one, or get the club verified.'
+          : 'An unverified club can run one open play event at a time. Finish or cancel the current one, or get the club verified.'
+      )
+    }
+  }
+
   async function assertClubAdmin(playerId: string, clubId: string) {
     if (!memberships) {
       throw new EventServiceError(500, 'INTERNAL_ERROR', 'Membership repository not available.')
@@ -160,9 +374,80 @@ export function createEventService(
     return membership
   }
 
+  /**
+   * Ordering only means something inside one day. A two-day event that starts
+   * at 18:00 on Friday and ends at 11:00 on Saturday is ordered correctly even
+   * though 11:00 < 18:00, so the comparison is skipped unless the dates match.
+   * Mirrors chk_event_time_order in 028-event-time.
+   */
+  function assertTimesOrdered(
+    startDate: string | null | undefined,
+    endDate: string | null | undefined,
+    startTime: string | null | undefined,
+    endTime: string | null | undefined
+  ) {
+    for (const value of [startTime, endTime]) {
+      if (value != null && !TIME_PATTERN.test(value)) {
+        throw new EventServiceError(
+          400,
+          'VALIDATION_ERROR',
+          'Times must be given as HH:MM using a 24-hour clock.'
+        )
+      }
+    }
+    if (!startTime || !endTime) return
+    if (!startDate || !endDate || startDate !== endDate) return
+    // Zero-padded 24-hour strings compare correctly as strings.
+    if (endTime <= startTime) {
+      throw new EventServiceError(
+        400,
+        'VALIDATION_ERROR',
+        'The end time must be after the start time on a single-day event.'
+      )
+    }
+  }
+
+  /**
+   * A tournament event has exactly one tournament, created with the event.
+   *
+   * The middle level used to be built by hand through an "Add Tournament"
+   * screen, which is what made an event look like a folder of tournaments that
+   * were themselves folders of categories. Categories are the thing players
+   * actually enter, so the tournament is now an implementation detail the
+   * organiser never has to think about.
+   *
+   * Idempotent by the existing-rows check, which also repairs an event that
+   * somehow has none. Never creates a second one.
+   */
+  async function ensureTournament(
+    event: EventRecord,
+    shape: Pick<CreateEventInput, 'tournament_format' | 'tournament_match_type'> = {}
+  ) {
+    if (event.event_type !== 'tournament') return
+
+    const existing = await tournaments.findByEventId(event.id)
+    if (existing.length) return
+
+    await tournaments.create({
+      event_id: event.id,
+      name: event.name,
+      // Defaults rather than a hard requirement: an event created through an
+      // older client, or switched to a tournament after the fact, still gets a
+      // usable draw. match_type is NOT NULL in the schema and decides whether
+      // registration demands a partner, so it must never be left to chance.
+      format: shape.tournament_format ?? 'single_elimination',
+      match_type: shape.tournament_match_type ?? 'doubles',
+      min_rating: null,
+      max_rating: null,
+      max_participants: event.max_participants ?? null
+    })
+  }
+
   return {
     async createEvent(playerId, input) {
       await assertClubAdmin(playerId, input.club_id)
+      // Every event is created as a draft, so this is the draft allowance.
+      await assertWithinClubLimits(input.club_id, 'draft', input.event_type)
 
       // Default registration_closes to start_date with time set to start of day
       if (!input.registration_closes && input.start_date) {
@@ -182,7 +467,10 @@ export function createEventService(
         }
       }
 
+      assertTimesOrdered(input.start_date, input.end_date, input.start_time, input.end_time)
+
       const event = await events.create(input, playerId)
+      await ensureTournament(event, input)
       return toEventDto(event)
     },
 
@@ -207,7 +495,19 @@ export function createEventService(
         }
       }
 
+      assertTimesOrdered(
+        input.start_date ?? existingEvent.start_date,
+        input.end_date ?? existingEvent.end_date,
+        input.start_time !== undefined ? input.start_time : existingEvent.start_time,
+        input.end_time !== undefined ? input.end_time : existingEvent.end_time
+      )
+
       const event = await events.update(eventId, input)
+      // Covers an organiser switching an existing event over to a tournament
+      // after it was created; a no-op for every other type and for an event
+      // that already has one. Takes the defaults — format and match type are
+      // not editable through this path.
+      await ensureTournament(event)
       return toEventDto(event)
     },
 
@@ -220,6 +520,13 @@ export function createEventService(
           `Cannot publish an event that is already '${event.status}'.`
         )
       }
+      // Publishing is what puts it in front of players, so this is where the
+      // live-event allowance bites — not at creation, where it would stop a
+      // club drafting next month's weekend while this month's is running.
+      if (event.club_id) {
+        await assertWithinClubLimits(event.club_id, 'publish', event.event_type)
+      }
+
       const updated = await events.updateStatus(eventId, 'published')
       return toEventDto(updated)
     },
@@ -238,14 +545,29 @@ export function createEventService(
         )
       }
 
-      // A draft cannot normally be registered for or played, so anything here
-      // means the event is not really unused. Refuse rather than destroy it.
+      /**
+       * A draft with children is cleaned up, not refused.
+       *
+       * This used to throw EVENT_NOT_EMPTY the moment anything was attached,
+       * which in practice meant a club that had set up categories on a draft
+       * could never delete it — and with the one-draft limit above, could never
+       * create another either. The two rules together would have been a trap.
+       *
+       * Safe because a draft is not playable: `register` requires the event to
+       * be published or active, so no rated match can exist behind one. Nothing
+       * here touches `matches`, which stay as the record of things that
+       * happened.
+       *
+       * The one thing this must keep pace with is new tables hanging off an
+       * event: every FK in this schema is RESTRICT, so a child the repository
+       * does not know to delete turns this into a 500.
+       */
       const blocking = await events.countBlockingChildren(eventId)
-      if (blocking.registrations > 0 || blocking.matches > 0 || blocking.queueEntries > 0) {
+      if (blocking.matches > 0) {
         throw new EventServiceError(
           409,
-          'EVENT_NOT_EMPTY',
-          'This event already has players or matches attached and cannot be deleted. Cancel it instead.'
+          'EVENT_HAS_MATCHES',
+          'This draft has matches attached, which are a record of play. Cancel it instead of deleting it.'
         )
       }
 
@@ -314,6 +636,11 @@ export function createEventService(
       return records.map(toTournamentDto)
     },
 
+    async getPrimaryTournament(eventId) {
+      const records = await tournaments.findByEventId(eventId)
+      return records.length ? toTournamentDto(records[0]) : null
+    },
+
     async updateTournament(playerId, tournamentId, input) {
       const tournament = await tournaments.findById(tournamentId)
       if (!tournament) {
@@ -351,17 +678,61 @@ export function createEventService(
         }
       }
 
-      const existing = await registrations.findByTournamentAndPlayer(tournamentId, playerId)
-      if (existing) {
-        throw new EventServiceError(409, 'ALREADY_REGISTERED', 'You are already registered.')
-      }
+      // Follows the CATEGORY, not the tournament: one weekend can run a
+      // singles draw and a doubles draw, and demanding a partner for the
+      // singles one would make it impossible to enter.
+      const category = categoryId && categories ? await categories.findById(categoryId) : null
+      const matchType = resolveMatchType(category, tournament.match_type)
 
-      if (tournament.match_type === 'doubles' && !partnerPlayerId) {
+      if (matchType === 'doubles' && !partnerPlayerId) {
         throw new EventServiceError(
           400,
           'PARTNER_REQUIRED',
-          'A partner is required for doubles tournaments.'
+          'A partner is required to enter a doubles category.'
         )
+      }
+
+      if (partnerPlayerId && partnerPlayerId === playerId) {
+        throw new EventServiceError(400, 'SELF_PARTNER', 'You cannot enter as your own partner.')
+      }
+
+      // A partner has to have agreed to be one. Without this any player id at
+      // all was accepted, so a person could be entered into a tournament — and
+      // billed for it — by a stranger.
+      if (partnerPlayerId && partnerships) {
+        const partnership = await partnerships.findPartnershipBetween(playerId, partnerPlayerId)
+        if (!partnership) {
+          throw new EventServiceError(
+            400,
+            'NOT_A_PARTNER',
+            'You can only enter with a confirmed duo partner. Send them a partner request from Community first.'
+          )
+        }
+      }
+
+      await assertNeitherIsAlreadyInCategory(
+        tournamentId,
+        categoryId ?? null,
+        playerId,
+        partnerPlayerId
+      )
+
+      await assertBothMeetTheBand(category, matchType, playerId, partnerPlayerId)
+
+      // The CATEGORY's limit, which nothing enforced: the UI disabled its own
+      // button on a full category and the API happily accepted the entry anyway,
+      // so anyone posting directly — or racing the page — got in regardless.
+      if (category?.max_participants) {
+        const entrants = await registrations.findCategoryEntrants(tournamentId, categoryId ?? null)
+        // Entries, not people: a doubles pair is one slot in a draw of eight.
+        const taken = new Set(entrants.map((e) => e.registration_id)).size
+        if (taken >= category.max_participants) {
+          throw new EventServiceError(
+            409,
+            'CATEGORY_FULL',
+            'This category has reached its maximum number of entries.'
+          )
+        }
       }
 
       if (tournament.max_participants) {
@@ -375,13 +746,28 @@ export function createEventService(
         }
       }
 
-      const registration = await registrations.create(
-        tournamentId,
-        playerId,
-        partnerPlayerId,
-        categoryId ?? null
-      )
-      return toTournamentRegistrationDto(registration)
+      try {
+        const registration = await registrations.create(
+          tournamentId,
+          playerId,
+          partnerPlayerId,
+          categoryId ?? null
+        )
+        return toTournamentRegistrationDto(registration)
+      } catch (err) {
+        // The DB trigger is the backstop for the invariant above, and it fires
+        // when two entries naming the same free partner race each other past
+        // the pre-check. Mapped to the same 409 so a race and an ordinary
+        // duplicate read identically to the caller.
+        if (isOneEntryPerCategoryViolation(err)) {
+          throw new EventServiceError(
+            409,
+            'ALREADY_IN_CATEGORY',
+            'Someone on this entry was just registered in this category by another request.'
+          )
+        }
+        throw err
+      }
     },
 
     async getRegistrations(tournamentId) {
@@ -391,10 +777,31 @@ export function createEventService(
 
     async getRegistrationsWithPlayers(tournamentId) {
       const records = await registrations.findByTournamentIdWithPlayers(tournamentId)
+      if (!records.length) return []
+
+      const tournament = await tournaments.findById(tournamentId)
+      const fallbackType = tournament?.match_type ?? 'doubles'
+
+      // Which rating each entry is judged by follows its own category, so one
+      // read of the categories covers a list that may span several draws. Kept
+      // to a single fetch rather than one per row.
+      const byCategory = new Map<string, { match_type: TournamentMatchType | null }>()
+      if (categories) {
+        for (const category of await categories.findByTournamentId(tournamentId)) {
+          byCategory.set(category.id, category)
+        }
+      }
+
       return records.map((record) => ({
         ...toTournamentRegistrationDto(record),
         display_name: record.display_name,
-        rating: record.rating,
+        rating: resolveEntrantRating(
+          record,
+          resolveMatchType(
+            record.category_id ? (byCategory.get(record.category_id) ?? null) : null,
+            fallbackType
+          )
+        ),
         partner_display_name: record.partner_display_name
       }))
     },

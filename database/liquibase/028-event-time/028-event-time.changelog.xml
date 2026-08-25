@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Event start and end time.
+
+     events.start_date and end_date are plain `date` columns
+     (006-event.changelog.xml, changeSet 0001), so an open play could say which
+     day it ran but never what time it started — the single most asked-for
+     detail on a session that fills in an evening.
+
+     Why two nullable `time` columns rather than converting the dates to
+     timestamptz: conversion is destructive and every event query, card, filter
+     and sort in the application reads start_date/end_date as dates today. A
+     timestamptz migration would have to rewrite all of them at once, and would
+     silently reinterpret every existing row against a timezone nobody recorded.
+     Additive nullable columns leave every existing event rendering exactly as
+     it does now — the UI shows the time when it is there and the date alone
+     when it is not — and keep the door open to a later conversion once every
+     row has one.
+
+     Times are wall-clock local to the venue, deliberately. `time` (not
+     `timetz`) because "play starts at 6pm" is a fact about the court, not about
+     an offset, and every venue in scope is in one timezone.
+
+     No RLS change: the events policies (008-security) are row-level and
+     column-agnostic, so new columns inherit them. -->
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+    <changeSet id="0001-add-event-start-end-time" author="event-domain">
+        <addColumn tableName="events">
+            <column name="start_time" type="time"/>
+            <column name="end_time" type="time"/>
+        </addColumn>
+        <rollback>
+            <dropColumn tableName="events" columnName="start_time"/>
+            <dropColumn tableName="events" columnName="end_time"/>
+        </rollback>
+    </changeSet>
+
+    <!-- Ordering within a single day is the only ordering these two columns can
+         express: an event spanning several days legitimately ends earlier in
+         the clock than it starts. The service applies the same rule before the
+         write so the user gets a field error rather than a constraint
+         violation; this is the backstop. -->
+    <changeSet id="0002-event-time-order-constraint" author="event-domain">
+        <sql>
+            ALTER TABLE events
+                ADD CONSTRAINT chk_event_time_order
+                CHECK (
+                    start_time IS NULL
+                    OR end_time IS NULL
+                    OR start_date IS DISTINCT FROM end_date
+                    OR end_time &gt; start_time
+                );
+        </sql>
+        <rollback>
+            ALTER TABLE events DROP CONSTRAINT chk_event_time_order;
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

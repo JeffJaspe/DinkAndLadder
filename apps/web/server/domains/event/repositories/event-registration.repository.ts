@@ -36,6 +36,12 @@ export interface EventRegistrationRepository {
     event_id: string
     player_id: string
     status?: EventRegistrationStatus
+    /**
+     * Who did the registering, when it was not the player themselves — the
+     * team-up owner bringing them to a session. Null for a self-registration,
+     * which is every row that existed before rosters.
+     */
+    registered_by_player_id?: string | null
   }): Promise<EventRegistrationRecord>
   updateStatus(id: string, status: EventRegistrationStatus): Promise<EventRegistrationRecord | null>
   checkIn(id: string): Promise<EventRegistrationRecord | null>
@@ -163,7 +169,8 @@ export function createEventRegistrationRepository(
         .insert({
           event_id: data.event_id,
           player_id: data.player_id,
-          status: data.status ?? 'registered'
+          status: data.status ?? 'registered',
+          registered_by_player_id: data.registered_by_player_id ?? null
         })
         .select()
         .single()

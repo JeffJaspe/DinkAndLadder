@@ -1,0 +1,197 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The convenience fee, and where money is meant to go.
+
+     WHAT THIS IS AND IS NOT
+
+     Payments are explicitly out of MVP (docs/03-MVP-SCOPE.md) and both gateway
+     webhooks are deliberate 501s. This changeset builds the DATA MODEL and the
+     numbers behind the flow so the registration screen can show a player what
+     they would pay, and so a SuperAdmin can set the fee. It moves no money and
+     stores no secret.
+
+     THE SETTLEMENT SHAPE
+
+     The intent is that a player pays the entry fee DIRECT to the club, through
+     the club's own PayMongo link, and the platform takes only its convenience
+     fee into its own account. The platform never holds club funds — which is
+     the point: holding them would make this a money service business.
+
+     That shape is why `club_payment_accounts` stores only a public reference to
+     the club's own link. There is deliberately no column for a club secret: the
+     platform never needs to charge on the club's behalf, only to send the payer
+     there.
+
+     Whether it lands as two charges or one split charge depends on what the
+     PayMongo account supports, and that is a provider question rather than a
+     code one — recorded as ADR-005, not guessed at here.
+
+     THE FEE RULES
+
+     A rule matches on the BASE AMOUNT band (`min_amount_cents` to
+     `max_amount_cents`), then applies either a percentage or a fixed amount.
+     Both were asked for, and both need a range, because a flat 5% is wrong at
+     both ends: trivial on a 200-peso entry and punitive on a 5,000-peso one.
+     `min_fee_cents` / `max_fee_cents` clamp a percentage so it stays sane at
+     the edges of its band.
+
+     Amounts are integer CENTS throughout, matching `payment_transactions` from
+     013-payment. Money in a float is a bug waiting for a rounding error.
+
+     `events.fee_amount` stays the base — the request was that the tournament's
+     fee applies across its categories, so no per-category price column is
+     added. A doubles entry is that fee twice, because it is two players. -->
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+    <changeSet id="0001-create-platform-fee-rules" author="platform-fees">
+        <createTable tableName="platform_fee_rules">
+            <column name="id" type="uuid" defaultValueComputed="gen_random_uuid()">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="fee_type" type="text">
+                <constraints nullable="false"/>
+            </column>
+            <!-- Percent (5.00 = 5%) for a percentage rule, cents for a fixed one. -->
+            <column name="value" type="numeric(10,2)">
+                <constraints nullable="false"/>
+            </column>
+            <!-- The band of BASE amount this rule applies to. -->
+            <column name="min_amount_cents" type="integer" defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+            <!-- Null means "no upper bound" — the top band of the ladder. -->
+            <column name="max_amount_cents" type="integer">
+                <constraints nullable="true"/>
+            </column>
+            <!-- Floor and cap on the COMPUTED fee. Only meaningful for a
+                 percentage rule; a fixed one is already its own answer. -->
+            <column name="min_fee_cents" type="integer">
+                <constraints nullable="true"/>
+            </column>
+            <column name="max_fee_cents" type="integer">
+                <constraints nullable="true"/>
+            </column>
+            <column name="currency" type="varchar(3)" defaultValue="PHP">
+                <constraints nullable="false"/>
+            </column>
+            <column name="is_active" type="boolean" defaultValueBoolean="true">
+                <constraints nullable="false"/>
+            </column>
+            <column name="sort_order" type="integer" defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_at" type="timestamptz" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+            <column name="updated_at" type="timestamptz" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <sql>
+            ALTER TABLE platform_fee_rules ADD CONSTRAINT ck_platform_fee_rules_type
+                CHECK (fee_type IN ('percentage', 'fixed'));
+            ALTER TABLE platform_fee_rules ADD CONSTRAINT ck_platform_fee_rules_value
+                CHECK (value >= 0);
+            ALTER TABLE platform_fee_rules ADD CONSTRAINT ck_platform_fee_rules_band
+                CHECK (max_amount_cents IS NULL OR max_amount_cents >= min_amount_cents);
+            ALTER TABLE platform_fee_rules ADD CONSTRAINT ck_platform_fee_rules_clamp
+                CHECK (max_fee_cents IS NULL OR min_fee_cents IS NULL OR max_fee_cents >= min_fee_cents);
+        </sql>
+        <rollback>
+            <dropTable tableName="platform_fee_rules"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="0002-fee-rules-rls" author="platform-fees">
+        <comment>
+            Readable by anyone — the registration screen has to quote the total before
+            a player commits, and a fee nobody can see before paying it is a bad fee.
+            Writable by nobody through PostgREST: the admin endpoints use the service
+            role, mirroring how platform_config is handled in 018.
+        </comment>
+        <sql>
+            ALTER TABLE platform_fee_rules ENABLE ROW LEVEL SECURITY;
+            CREATE POLICY platform_fee_rules_select_all ON platform_fee_rules
+                FOR SELECT USING (true);
+        </sql>
+        <rollback>
+            DROP POLICY IF EXISTS platform_fee_rules_select_all ON platform_fee_rules;
+            ALTER TABLE platform_fee_rules DISABLE ROW LEVEL SECURITY;
+        </rollback>
+    </changeSet>
+
+    <changeSet id="0003-seed-fee-rules" author="platform-fees">
+        <comment>
+            A starting ladder, not a pricing decision: percentage at the bottom where a
+            flat fee would dwarf the entry, fixed at the top where a percentage would
+            balloon. SuperAdmin edits these; they exist so the screen has something to
+            quote on day one.
+        </comment>
+        <insert tableName="platform_fee_rules">
+            <column name="fee_type" value="percentage"/>
+            <column name="value" valueNumeric="5.00"/>
+            <column name="min_amount_cents" valueNumeric="0"/>
+            <column name="max_amount_cents" valueNumeric="100000"/>
+            <column name="min_fee_cents" valueNumeric="1000"/>
+            <column name="max_fee_cents" valueNumeric="5000"/>
+            <column name="sort_order" valueNumeric="1"/>
+        </insert>
+        <insert tableName="platform_fee_rules">
+            <column name="fee_type" value="fixed"/>
+            <column name="value" valueNumeric="7500"/>
+            <column name="min_amount_cents" valueNumeric="100001"/>
+            <column name="max_amount_cents" valueComputed="NULL"/>
+            <column name="sort_order" valueNumeric="2"/>
+        </insert>
+        <rollback>
+            <delete tableName="platform_fee_rules"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="0004-create-club-payment-accounts" author="platform-fees">
+        <createTable tableName="club_payment_accounts">
+            <column name="id" type="uuid" defaultValueComputed="gen_random_uuid()">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="club_id" type="uuid">
+                <constraints nullable="false" unique="true"
+                             uniqueConstraintName="uq_club_payment_accounts_club"
+                             foreignKeyName="fk_club_payment_accounts_club"
+                             references="clubs(id)"/>
+            </column>
+            <column name="provider" type="text" defaultValue="paymongo">
+                <constraints nullable="false"/>
+            </column>
+            <!-- The club's OWN public link or account reference. No secret is
+                 stored: the platform never charges on the club's behalf, it
+                 only sends the payer to the club's checkout. -->
+            <column name="account_ref" type="text">
+                <constraints nullable="false"/>
+            </column>
+            <column name="display_name" type="text"/>
+            <column name="status" type="text" defaultValue="unverified">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_at" type="timestamptz" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+            <column name="updated_at" type="timestamptz" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <sql>
+            ALTER TABLE club_payment_accounts ADD CONSTRAINT ck_club_payment_accounts_provider
+                CHECK (provider IN ('paymongo'));
+            ALTER TABLE club_payment_accounts ADD CONSTRAINT ck_club_payment_accounts_status
+                CHECK (status IN ('unverified', 'verified', 'suspended'));
+            ALTER TABLE club_payment_accounts ENABLE ROW LEVEL SECURITY;
+        </sql>
+        <rollback>
+            <dropTable tableName="club_payment_accounts"/>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

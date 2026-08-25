@@ -14,7 +14,7 @@ const user = useSupabaseUser()
  * text, because splitting someone else's sentence to colour half of it guesses
  * at emphasis they did not ask for.
  */
-const { hero } = useBranding()
+const { appName, hero } = useBranding()
 
 const heroBackground = computed(() => {
   if (!hero.value.background_url) return null
@@ -60,6 +60,36 @@ const landingTabs: ReadonlyArray<{ id: LandingTabId; label: string; icon: IconNa
   { id: 'clubs', label: 'Clubs', icon: 'clubs' },
   { id: 'players', label: 'Players', icon: 'players' }
 ]
+
+/**
+ * Landing nav on a phone. The five section pills were a fixed strip that only
+ * scrolled sideways, so the last tabs were reachable only by dragging a row
+ * most people do not notice is scrollable. Below `sm` the strip is replaced by
+ * a panel that also carries Log in / Get Started, which the header cannot fit
+ * at that width. Structure follows the app drawer in `layouts/default.vue`.
+ */
+const menuOpen = ref(false)
+const menuButton = ref<HTMLButtonElement | null>(null)
+
+function selectTab(id: LandingTabId) {
+  activeTab.value = id
+  closeMenu()
+}
+
+function closeMenu() {
+  if (!menuOpen.value) return
+  menuOpen.value = false
+  // Focus returns to the control that opened the panel rather than to the top
+  // of the document.
+  nextTick(() => menuButton.value?.focus())
+}
+
+// The panel is teleported to <body>, so Escape has to be caught globally.
+function onKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape') closeMenu()
+}
+onMounted(() => window.addEventListener('keydown', onKeydown))
+onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 
 const { data: eventsData } = await useFetch<{ events: EventDto[] }>('/api/v1/events')
 const { data: singlesRankings } = await useFetch<{ data: RankingEntryDto[] }>('/api/v1/rankings', {
@@ -151,26 +181,32 @@ const stats = computed(() => ({
 
     <header class="fixed left-0 right-0 top-0 z-50 bg-canvas/80 backdrop-blur-xl">
       <div class="mx-auto flex h-16 max-w-6xl items-center justify-between px-4">
-        <div class="flex items-center gap-3">
-          <div
-            class="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-primary-hover text-sm font-bold text-on-primary shadow-lg shadow-primary/20"
-          >
-            D
-          </div>
-          <span class="text-lg font-semibold text-fg">DinkAndLadder</span>
-        </div>
+        <UiBrandMark size="lg" gradient name-class="text-lg font-semibold" />
         <div class="flex items-center gap-2">
           <UiThemeToggle size="sm" />
-          <NuxtLink
-            to="/login"
-            class="rounded-lg px-4 py-2 text-sm font-medium text-fg-secondary transition-colors hover:text-fg"
-            >Log in</NuxtLink
+          <div class="hidden items-center gap-2 sm:flex">
+            <NuxtLink
+              to="/login"
+              class="rounded-lg px-4 py-2 text-sm font-medium text-fg-secondary transition-colors hover:text-fg"
+              >Log in</NuxtLink
+            >
+            <NuxtLink
+              to="/register"
+              class="rounded-xl bg-gradient-to-r from-primary to-primary-hover px-5 py-2.5 text-sm font-semibold text-on-primary shadow-lg shadow-primary/25 transition-all hover:shadow-xl hover:shadow-primary/30"
+              >Get Started</NuxtLink
+            >
+          </div>
+          <button
+            ref="menuButton"
+            type="button"
+            class="rounded-xl p-2 text-fg-muted transition-colors hover:bg-fg/5 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary sm:hidden"
+            aria-label="Open menu"
+            aria-haspopup="dialog"
+            :aria-expanded="menuOpen"
+            @click="menuOpen = true"
           >
-          <NuxtLink
-            to="/register"
-            class="rounded-xl bg-gradient-to-r from-primary to-primary-hover px-5 py-2.5 text-sm font-semibold text-on-primary shadow-lg shadow-primary/25 transition-all hover:shadow-xl hover:shadow-primary/30"
-            >Get Started</NuxtLink
-          >
+            <UiIcon name="menu" :stroke-width="2" />
+          </button>
         </div>
       </div>
     </header>
@@ -179,7 +215,7 @@ const stats = computed(() => ({
          was justify-start inside a max-w-6xl container, so five pills packed
          against the left edge under the brand and, below ~640px, overflowed
          with no way to reach the last tab. -->
-    <nav class="fixed left-0 right-0 top-16 z-40 bg-canvas/60 backdrop-blur-lg">
+    <nav class="fixed left-0 right-0 top-16 z-40 hidden bg-canvas/60 backdrop-blur-lg sm:block">
       <div
         class="dnl-navstrip mx-auto flex max-w-6xl justify-start gap-1 px-4 py-3 sm:justify-center"
       >
@@ -215,11 +251,72 @@ const stats = computed(() => ({
       </div>
     </nav>
 
-    <main class="relative mx-auto max-w-6xl px-4 pb-12 pt-36">
+    <!-- Mobile nav panel. Same shape as the app drawer: scrim, sheet, close
+         button; selecting a tab closes it so the page is not left behind an
+         open panel. -->
+    <Teleport to="body">
+      <div v-if="menuOpen" class="fixed inset-0 z-[60] sm:hidden">
+        <div class="absolute inset-0 bg-black/60" @click="closeMenu" />
+        <aside
+          class="dnl-navpanel absolute right-0 top-0 flex h-full w-72 max-w-[85%] flex-col bg-canvas shadow-raised"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Menu"
+        >
+          <div class="flex h-16 shrink-0 items-center justify-between border-b border-border px-4">
+            <span class="text-lg font-semibold text-fg">{{ appName }}</span>
+            <button
+              type="button"
+              class="rounded-xl p-2 text-fg-muted transition-colors hover:bg-fg/5 hover:text-fg"
+              aria-label="Close menu"
+              @click="closeMenu"
+            >
+              <UiIcon name="x" :stroke-width="2" />
+            </button>
+          </div>
+
+          <nav class="flex-1 space-y-1 overflow-y-auto p-3">
+            <button
+              v-for="tab in landingTabs"
+              :key="tab.id"
+              type="button"
+              class="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors"
+              :class="
+                activeTab === tab.id
+                  ? 'bg-primary-soft text-primary'
+                  : 'text-fg-secondary hover:bg-fg/5 hover:text-fg'
+              "
+              :aria-current="activeTab === tab.id ? 'page' : undefined"
+              @click="selectTab(tab.id)"
+            >
+              <UiIcon :name="tab.icon" :stroke-width="activeTab === tab.id ? 2.2 : 1.8" />
+              {{ tab.label }}
+            </button>
+          </nav>
+
+          <div class="shrink-0 space-y-2 border-t border-border p-3">
+            <NuxtLink
+              to="/login"
+              class="block rounded-xl px-4 py-2.5 text-center text-sm font-medium text-fg-secondary transition-colors hover:bg-fg/5 hover:text-fg"
+              @click="closeMenu"
+              >Log in</NuxtLink
+            >
+            <NuxtLink
+              to="/register"
+              class="block rounded-xl bg-gradient-to-r from-primary to-primary-hover px-5 py-2.5 text-center text-sm font-semibold text-on-primary shadow-lg shadow-primary/25"
+              @click="closeMenu"
+              >Get Started</NuxtLink
+            >
+          </div>
+        </aside>
+      </div>
+    </Teleport>
+
+    <main class="relative mx-auto max-w-6xl px-4 pb-12 pt-20 sm:pt-36">
       <!-- HOME -->
       <div v-if="activeTab === 'home'" class="space-y-10">
         <div
-          class="relative overflow-hidden rounded-3xl p-8 sm:p-12"
+          class="relative overflow-hidden rounded-3xl p-8 shadow-raised sm:p-12"
           :class="
             heroBackground ? 'bg-canvas' : 'bg-gradient-to-br from-grad-from via-surface to-canvas'
           "
@@ -279,19 +376,19 @@ const stats = computed(() => ({
         </div>
 
         <div class="grid grid-cols-2 gap-4 sm:grid-cols-4">
-          <div class="rounded-2xl bg-gradient-to-br from-grad-from to-grad-to p-5">
+          <div class="rounded-2xl bg-gradient-to-br from-grad-from to-grad-to p-5 shadow-card">
             <p class="text-3xl font-bold text-fg">{{ stats.players.toLocaleString() }}</p>
             <p class="mt-1 text-sm text-fg-muted">Rated Players</p>
           </div>
-          <div class="rounded-2xl bg-gradient-to-br from-grad-from to-grad-to p-5">
+          <div class="rounded-2xl bg-gradient-to-br from-grad-from to-grad-to p-5 shadow-card">
             <p class="text-3xl font-bold text-fg">{{ stats.matches.toLocaleString() }}</p>
             <p class="mt-1 text-sm text-fg-muted">Verified Matches</p>
           </div>
-          <div class="rounded-2xl bg-gradient-to-br from-grad-from to-grad-to p-5">
+          <div class="rounded-2xl bg-gradient-to-br from-grad-from to-grad-to p-5 shadow-card">
             <p class="text-3xl font-bold text-fg">{{ stats.clubs }}</p>
             <p class="mt-1 text-sm text-fg-muted">Active Clubs</p>
           </div>
-          <div class="rounded-2xl bg-gradient-to-br from-grad-from to-grad-to p-5">
+          <div class="rounded-2xl bg-gradient-to-br from-grad-from to-grad-to p-5 shadow-card">
             <p class="text-3xl font-bold text-fg">{{ stats.tournaments }}</p>
             <p class="mt-1 text-sm text-fg-muted">Tournaments</p>
           </div>
@@ -299,7 +396,7 @@ const stats = computed(() => ({
 
         <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <button
-            class="group rounded-2xl bg-gradient-to-br from-grad-from to-grad-to p-6 text-left transition-all hover:from-grad-from hover:to-surface"
+            class="group rounded-2xl bg-gradient-to-br from-grad-from to-grad-to p-6 text-left shadow-card transition-all hover:shadow-card-hover hover:from-grad-from hover:to-surface"
             @click="activeTab = 'rankings'"
           >
             <div
@@ -311,7 +408,7 @@ const stats = computed(() => ({
             <p class="mt-1 text-sm text-fg-muted">See top-rated players</p>
           </button>
           <button
-            class="group rounded-2xl bg-gradient-to-br from-grad-from to-grad-to p-6 text-left transition-all hover:from-grad-from hover:to-grad-to"
+            class="group rounded-2xl bg-gradient-to-br from-grad-from to-grad-to p-6 text-left shadow-card transition-all hover:shadow-card-hover hover:from-grad-from hover:to-grad-to"
             @click="activeTab = 'events'"
           >
             <div
@@ -323,7 +420,7 @@ const stats = computed(() => ({
             <p class="mt-1 text-sm text-fg-muted">Tournaments & open play</p>
           </button>
           <button
-            class="group rounded-2xl bg-gradient-to-br from-grad-from to-grad-to p-6 text-left transition-all hover:from-grad-from hover:to-grad-to"
+            class="group rounded-2xl bg-gradient-to-br from-grad-from to-grad-to p-6 text-left shadow-card transition-all hover:shadow-card-hover hover:from-grad-from hover:to-grad-to"
             @click="activeTab = 'clubs'"
           >
             <div
@@ -335,7 +432,7 @@ const stats = computed(() => ({
             <p class="mt-1 text-sm text-fg-muted">Find local communities</p>
           </button>
           <button
-            class="group rounded-2xl bg-gradient-to-br from-grad-from to-grad-to p-6 text-left transition-all hover:from-grad-from hover:to-grad-to"
+            class="group rounded-2xl bg-gradient-to-br from-grad-from to-grad-to p-6 text-left shadow-card transition-all hover:shadow-card-hover hover:from-grad-from hover:to-grad-to"
             @click="activeTab = 'players'"
           >
             <div
@@ -348,7 +445,7 @@ const stats = computed(() => ({
           </button>
         </div>
 
-        <div class="rounded-3xl bg-gradient-to-br from-grad-from to-grad-to p-8">
+        <div class="rounded-3xl bg-gradient-to-br from-grad-from to-grad-to p-8 shadow-card">
           <div class="mb-6 flex items-center gap-3">
             <span class="text-2xl">🏸</span>
             <h2 class="text-2xl font-bold text-fg">For Players</h2>
@@ -407,7 +504,7 @@ const stats = computed(() => ({
           </div>
         </div>
 
-        <div class="rounded-3xl bg-gradient-to-br from-grad-from to-grad-to p-8">
+        <div class="rounded-3xl bg-gradient-to-br from-grad-from to-grad-to p-8 shadow-card">
           <div class="mb-6 flex items-center gap-3">
             <span class="text-2xl">🏢</span>
             <h2 class="text-2xl font-bold text-fg">For Club Organizers</h2>
@@ -467,7 +564,7 @@ const stats = computed(() => ({
           </div>
         </div>
 
-        <div class="rounded-3xl bg-gradient-to-br from-grad-from to-grad-to p-8">
+        <div class="rounded-3xl bg-gradient-to-br from-grad-from to-grad-to p-8 shadow-card">
           <h2 class="mb-8 text-center text-2xl font-bold text-fg">How It Works</h2>
           <div class="grid gap-6 sm:grid-cols-4">
             <div class="text-center">
@@ -510,7 +607,7 @@ const stats = computed(() => ({
         </div>
 
         <div
-          class="relative overflow-hidden rounded-3xl bg-gradient-to-r from-primary to-primary-hover p-8 text-center sm:p-12"
+          class="relative overflow-hidden rounded-3xl bg-gradient-to-r from-primary to-primary-hover p-8 text-center shadow-raised sm:p-12"
         >
           <div
             class="absolute -right-10 -top-10 h-40 w-40 rounded-full bg-on-primary/10 blur-2xl"
@@ -540,7 +637,7 @@ const stats = computed(() => ({
               :class="
                 rankingType === 'singles'
                   ? 'bg-gradient-to-r from-primary to-primary-hover text-on-primary shadow-lg'
-                  : 'text-fg-muted hover:text-on-primary'
+                  : 'text-fg-muted hover:text-fg'
               "
               @click="rankingType = 'singles'"
             >
@@ -551,7 +648,7 @@ const stats = computed(() => ({
               :class="
                 rankingType === 'doubles'
                   ? 'bg-gradient-to-r from-primary to-primary-hover text-on-primary shadow-lg'
-                  : 'text-fg-muted hover:text-on-primary'
+                  : 'text-fg-muted hover:text-fg'
               "
               @click="rankingType = 'doubles'"
             >
@@ -561,7 +658,7 @@ const stats = computed(() => ({
         </div>
         <div
           v-if="rankings.length === 0"
-          class="rounded-2xl bg-gradient-to-br from-grad-from to-grad-to p-12 text-center"
+          class="rounded-2xl bg-gradient-to-br from-grad-from to-grad-to p-12 text-center shadow-card"
         >
           <p class="text-lg text-fg-muted">No ranked players yet.</p>
           <NuxtLink
@@ -590,7 +687,7 @@ const stats = computed(() => ({
           </h3>
           <div
             v-if="upcomingEvents.length === 0"
-            class="rounded-2xl bg-gradient-to-br from-grad-from to-grad-to p-10 text-center"
+            class="rounded-2xl bg-gradient-to-br from-grad-from to-grad-to p-10 text-center shadow-card"
           >
             <p class="text-fg-muted">No upcoming events</p>
           </div>
@@ -599,7 +696,7 @@ const stats = computed(() => ({
               v-for="event in upcomingEvents"
               :key="event.id"
               :to="`/events/${event.id}`"
-              class="group rounded-2xl bg-gradient-to-br from-grad-from to-grad-to p-5 transition-all hover:from-grad-from hover:to-grad-to"
+              class="group rounded-2xl bg-gradient-to-br from-grad-from to-grad-to p-5 shadow-card transition-all hover:shadow-card-hover hover:from-grad-from hover:to-grad-to"
             >
               <div class="flex items-start justify-between gap-4">
                 <div>
@@ -635,7 +732,7 @@ const stats = computed(() => ({
               v-for="event in pastEvents.slice(0, 5)"
               :key="event.id"
               :to="`/events/${event.id}`"
-              class="flex items-center justify-between rounded-xl bg-grad-to/50 p-4 transition-all hover:bg-grad-from"
+              class="flex items-center justify-between rounded-xl bg-grad-to/50 p-4 shadow-card transition-all hover:shadow-card-hover hover:bg-grad-from"
             >
               <div>
                 <h4 class="font-medium text-fg-secondary">{{ event.name }}</h4>
@@ -652,7 +749,7 @@ const stats = computed(() => ({
         <h2 class="text-2xl font-bold text-fg">Clubs</h2>
         <div
           v-if="clubs.length === 0"
-          class="rounded-2xl bg-gradient-to-br from-grad-from to-grad-to p-12 text-center"
+          class="rounded-2xl bg-gradient-to-br from-grad-from to-grad-to p-12 text-center shadow-card"
         >
           <p class="text-lg text-fg-muted">No clubs yet.</p>
           <NuxtLink
@@ -666,7 +763,7 @@ const stats = computed(() => ({
             v-for="club in clubs"
             :key="club.id"
             :to="`/clubs/${club.id}`"
-            class="group rounded-2xl bg-gradient-to-br from-grad-from to-grad-to p-5 transition-all hover:from-grad-from hover:to-grad-to"
+            class="group rounded-2xl bg-gradient-to-br from-grad-from to-grad-to p-5 shadow-card transition-all hover:shadow-card-hover hover:from-grad-from hover:to-grad-to"
           >
             <div class="flex items-start gap-4">
               <div
@@ -701,7 +798,7 @@ const stats = computed(() => ({
         </div>
         <div
           v-if="allPlayers.length === 0"
-          class="rounded-2xl bg-gradient-to-br from-grad-from to-grad-to p-12 text-center"
+          class="rounded-2xl bg-gradient-to-br from-grad-from to-grad-to p-12 text-center shadow-card"
         >
           <p class="text-lg text-fg-muted">No players yet.</p>
           <NuxtLink
@@ -715,7 +812,7 @@ const stats = computed(() => ({
             v-for="player in allPlayers"
             :key="player.id"
             :to="`/players/${player.id}`"
-            class="group flex items-center gap-3 rounded-2xl bg-gradient-to-br from-grad-from to-grad-to p-4 transition-all hover:from-grad-from hover:to-grad-to"
+            class="group flex items-center gap-3 rounded-2xl bg-gradient-to-br from-grad-from to-grad-to p-4 shadow-card transition-all hover:shadow-card-hover hover:from-grad-from hover:to-grad-to"
           >
             <div
               class="flex h-11 w-11 items-center justify-center rounded-xl bg-surface-2 font-bold text-primary"
@@ -740,14 +837,7 @@ const stats = computed(() => ({
 
     <footer class="relative mt-12 bg-canvas px-4 py-8">
       <div class="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 sm:flex-row">
-        <div class="flex items-center gap-2">
-          <div
-            class="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-primary-hover text-xs font-bold text-on-primary"
-          >
-            D
-          </div>
-          <span class="text-sm font-medium text-fg">DinkAndLadder</span>
-        </div>
+        <UiBrandMark size="sm" gradient name-class="text-sm font-medium" />
         <p class="text-xs text-fg-muted">© 2026 Jeff Jaspe. All Rights Reserved.</p>
       </div>
     </footer>

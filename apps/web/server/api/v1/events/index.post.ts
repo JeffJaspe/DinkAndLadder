@@ -15,6 +15,7 @@ import {
 import type { CreateEventInput } from '~/server/domains/event/dto/event.dto'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
 import { createClubMembershipRepository } from '~/server/domains/club/repositories/club-membership.repository'
+import { createClubRepository } from '~/server/domains/club/repositories/club.repository'
 
 export default defineEventHandler(async (event) => {
   const user = await serverSupabaseUser(event)
@@ -43,7 +44,19 @@ export default defineEventHandler(async (event) => {
   const tournamentRepo = createTournamentRepository(serviceClient)
   const registrationRepo = createTournamentRegistrationRepository(serviceClient)
   const membershipRepo = createClubMembershipRepository(client)
-  const service = createEventService(eventRepo, tournamentRepo, registrationRepo, membershipRepo)
+  // The club repository is what lets the service read verification status and
+  // apply the draft allowance an unverified club is held to.
+  const service = createEventService(
+    eventRepo,
+    tournamentRepo,
+    registrationRepo,
+    membershipRepo,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    createClubRepository(serviceClient)
+  )
 
   try {
     const createdEvent = await service.createEvent(profile.id, input)

@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Tournament visibility: the entrant list, and the scores of a tournament match.
+
+     Three SELECT policies, all additive. Each one adds a second, event-scoped
+     way to see rows that are already visible to a narrower audience; PostgreSQL
+     ORs permissive policies together, so nothing visible today stops being
+     visible.
+
+     Why these are needed.
+
+     `tournament_registrations` had exactly one SELECT policy —
+     tournament_registrations_select_own (008-security, changeSet 0030) — which
+     matches only the viewer's own registration and their partner's. That is
+     right for a registration the viewer owns, but it is the only rule there is,
+     so nobody can see anybody else's entry. Two consequences, the second much
+     worse than the first:
+
+       1. A category's player list is empty for everyone except each individual
+          registrant looking at their own row.
+       2. BracketService.getBracket resolves the NAMES on a draw from these same
+          rows (findByTournamentIdWithPlayers), through the user client. With no
+          readable registrations, every slot in every published bracket renders
+          as "TBD" to every viewer who is not that entrant.
+
+     A tournament draw is a public document. The new policy mirrors
+     bracket_matches_select_visible (008-security, changeSet 0031) exactly, one
+     join further out: if you can see the bracket, you can see who is in it.
+
+     `match_scores` and `match_participants` have the same shape of gap —
+     match_scores_select_participant / match_participants_select_participant
+     (008-security, changeSet 0016) admit only the people who played. 017 later
+     added matches_select_event, so a match ROW became visible to anyone who can
+     see its event, but the score and the teams were never given the equivalent:
+     a result is visible without its score. The two policies here mirror
+     matches_select_event (017, changeSet 0028) through the match_id, reusing
+     fn_can_view_event_matches (017, changeSet 0027).
+
+     Scoped deliberately to matches that belong to an event. A casual match
+     between two players carries no event_id and stays participant-only, exactly
+     as it is today; only a match played under an event the viewer can already
+     watch becomes readable.
+
+     `IS DISTINCT FROM 'draft'` rather than `!= 'draft'` in the first policy:
+     status is nullable text with no CHECK constraint, and `!=` against NULL
+     yields NULL, which RLS treats as a failed match. This is the same
+     NULL-safety fix F-29 records against events_select_public.
+
+     No schema change, no data change, no drops. -->
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+    <changeSet id="0001-tournament-registrations-select-visible" author="tournament-visibility">
+        <sql>
+            CREATE POLICY tournament_registrations_select_visible ON tournament_registrations
+                FOR SELECT
+                USING (
+                    tournament_id IN (
+                        SELECT t.id FROM tournaments t
+                        JOIN events e ON t.event_id = e.id
+                        WHERE (e.visibility = 'public' AND e.status IS DISTINCT FROM 'draft')
+                           OR e.created_by_player_id IN (SELECT id FROM player_profiles WHERE user_id = auth.uid())
+                    )
+                );
+        </sql>
+        <rollback>
+            DROP POLICY IF EXISTS tournament_registrations_select_visible ON tournament_registrations;
+        </rollback>
+    </changeSet>
+
+    <changeSet id="0002-match-participants-select-event" author="tournament-visibility">
+        <sql>
+            CREATE POLICY match_participants_select_event ON match_participants
+                FOR SELECT
+                USING (
+                    match_id IN (
+                        SELECT m.id FROM matches m
+                        WHERE m.event_id IS NOT NULL AND fn_can_view_event_matches(m.event_id)
+                    )
+                );
+        </sql>
+        <rollback>
+            DROP POLICY IF EXISTS match_participants_select_event ON match_participants;
+        </rollback>
+    </changeSet>
+
+    <changeSet id="0003-match-scores-select-event" author="tournament-visibility">
+        <sql>
+            CREATE POLICY match_scores_select_event ON match_scores
+                FOR SELECT
+                USING (
+                    match_id IN (
+                        SELECT m.id FROM matches m
+                        WHERE m.event_id IS NOT NULL AND fn_can_view_event_matches(m.event_id)
+                    )
+                );
+        </sql>
+        <rollback>
+            DROP POLICY IF EXISTS match_scores_select_event ON match_scores;
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

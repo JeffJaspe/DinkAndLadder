@@ -1,0 +1,122 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Team Up: the people you may bring to an open play session.
+
+     NOT THE SAME THING AS A DUO PARTNER, and deliberately a separate table.
+
+     `partnerships` (019) is a MUTUAL, symmetric agreement — the pair who enter
+     a doubles category together — with one marked as your default duo (027). It
+     answers "who do I play WITH".
+
+     A team-up answers a different question: "who may I register ON BEHALF OF".
+     That is directional. I add you to my team; you are not thereby adding me to
+     yours. Folding the two together would mean either making the roster mutual
+     (so adding four people to a session roster creates four doubles partners
+     you never agreed to) or making partnership directional (which would break
+     the pairing rule the whole tournament domain rests on).
+
+     It still needs ACCEPTANCE, for the reason the directionality exists:
+     registering somebody for an event commits their time and, once payments are
+     on, their money. `chk_no_self_team_up` and the unique pair constraint mirror
+     019's shape so the two read alike where they genuinely are alike.
+
+     `registered_by_player_id` on `event_registrations` records who did the
+     registering. Nullable, because every existing row was self-registered and
+     backfilling a value would invent a fact. -->
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+    <changeSet id="0001-create-team-ups" author="team-up">
+        <createTable tableName="team_ups">
+            <column name="id" type="uuid" defaultValueComputed="gen_random_uuid()">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <!-- The roster's owner: the one who may register the member. -->
+            <column name="owner_player_id" type="uuid">
+                <constraints nullable="false"
+                             foreignKeyName="fk_team_ups_owner"
+                             references="player_profiles(id)"
+                             deleteCascade="true"/>
+            </column>
+            <column name="member_player_id" type="uuid">
+                <constraints nullable="false"
+                             foreignKeyName="fk_team_ups_member"
+                             references="player_profiles(id)"
+                             deleteCascade="true"/>
+            </column>
+            <column name="status" type="text" defaultValue="pending">
+                <constraints nullable="false"/>
+            </column>
+            <column name="message" type="text"/>
+            <column name="responded_at" type="timestamptz"/>
+            <column name="created_at" type="timestamptz" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <sql>
+            ALTER TABLE team_ups ADD CONSTRAINT ck_team_ups_status
+                CHECK (status IN ('pending', 'accepted', 'declined'));
+            ALTER TABLE team_ups ADD CONSTRAINT chk_no_self_team_up
+                CHECK (owner_player_id &lt;&gt; member_player_id);
+            ALTER TABLE team_ups ADD CONSTRAINT uq_team_ups_pair
+                UNIQUE (owner_player_id, member_player_id);
+        </sql>
+        <rollback>
+            <dropTable tableName="team_ups"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="0002-team-ups-indexes" author="team-up">
+        <createIndex tableName="team_ups" indexName="idx_team_ups_owner">
+            <column name="owner_player_id"/>
+        </createIndex>
+        <createIndex tableName="team_ups" indexName="idx_team_ups_member">
+            <column name="member_player_id"/>
+        </createIndex>
+        <rollback>
+            <dropIndex tableName="team_ups" indexName="idx_team_ups_owner"/>
+            <dropIndex tableName="team_ups" indexName="idx_team_ups_member"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="0003-team-ups-rls" author="team-up">
+        <comment>
+            Visible to the two people it concerns and nobody else — a roster is not
+            public information. Writes go through the API on the service role, the same
+            shape the partnership endpoints use.
+        </comment>
+        <sql>
+            ALTER TABLE team_ups ENABLE ROW LEVEL SECURITY;
+            CREATE POLICY team_ups_select_own ON team_ups
+                FOR SELECT
+                USING (
+                    owner_player_id IN (SELECT id FROM player_profiles WHERE user_id = auth.uid())
+                    OR member_player_id IN (SELECT id FROM player_profiles WHERE user_id = auth.uid())
+                );
+        </sql>
+        <rollback>
+            DROP POLICY IF EXISTS team_ups_select_own ON team_ups;
+            ALTER TABLE team_ups DISABLE ROW LEVEL SECURITY;
+        </rollback>
+    </changeSet>
+
+    <changeSet id="0004-registered-by-on-event-registrations" author="team-up">
+        <comment>
+            Who did the registering. Nullable: every existing row registered itself, and
+            writing a value into them would invent a fact that was never recorded.
+        </comment>
+        <addColumn tableName="event_registrations">
+            <column name="registered_by_player_id" type="uuid">
+                <constraints nullable="true"
+                             foreignKeyName="fk_event_registrations_registered_by"
+                             references="player_profiles(id)"/>
+            </column>
+        </addColumn>
+        <rollback>
+            <dropColumn tableName="event_registrations" columnName="registered_by_player_id"/>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

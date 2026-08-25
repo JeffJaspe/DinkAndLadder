@@ -109,3 +109,20 @@ body {
     transform: scaleX(1);
   }
 }
+
+/* The landing page's mobile nav panel. Slides in from the right, and is a
+   plain appearance under reduced motion — same treatment as .dnl-tab-underline
+   above. */
+@media (prefers-reduced-motion: no-preference) {
+  .dnl-navpanel {
+    animation: dnl-navpanel-in 200ms ease-out;
+  }
+}
+@keyframes dnl-navpanel-in {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}

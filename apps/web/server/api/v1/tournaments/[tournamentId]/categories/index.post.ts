@@ -9,6 +9,7 @@ import { createTournamentCategoryRepository } from '~/server/domains/event/repos
 import { createTournamentCategoryService } from '~/server/domains/event/services/tournament-category.service'
 import { EventServiceError } from '~/server/domains/event/services/event.service'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
+import type { TournamentFormat } from '~/server/domains/event/dto/tournament.dto'
 
 interface CreateCategoryBody {
   template_id?: string
@@ -16,6 +17,8 @@ interface CreateCategoryBody {
   min_rating?: number | null
   max_rating?: number | null
   max_participants?: number | null
+  match_type?: 'singles' | 'doubles' | null
+  format?: TournamentFormat | null
   display_order?: number
 }
 
@@ -50,7 +53,9 @@ export default defineEventHandler(async (event) => {
       const category = await service.createFromTemplate(profile.id, tournamentId, {
         template_id: body.template_id,
         max_participants: body.max_participants,
-        display_order: body.display_order
+        display_order: body.display_order,
+        match_type: body.match_type,
+        format: body.format
       })
       return category
     }
@@ -67,7 +72,8 @@ export default defineEventHandler(async (event) => {
       min_rating: body.min_rating,
       max_rating: body.max_rating,
       max_participants: body.max_participants,
-      display_order: body.display_order
+      display_order: body.display_order,
+      match_type: body.match_type
     })
     return category
   } catch (err) {

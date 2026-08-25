@@ -11,6 +11,25 @@ function createFakeMatchRepository(): MatchRepository {
   const rows = new Map<string, MatchRecord>()
 
   return {
+    // Read-only lookup used by the bracket to line scores up with a draw;
+    // nothing in the match workflow calls it.
+    async findScoreRowsByMatchIds(matchIds: string[]) {
+      return matchIds
+        .map((id) => rows.get(id))
+        .filter((row): row is MatchRecord => Boolean(row))
+        .map((row) => ({
+          match_id: row.id,
+          participants: row.match_participants.map((p) => ({
+            player_id: p.player_id,
+            team_number: p.team_number
+          })),
+          scores: row.match_scores.map((s) => ({
+            set_number: s.set_number,
+            team1_score: s.team1_score,
+            team2_score: s.team2_score
+          }))
+        }))
+    },
     async findById(matchId) {
       const row = rows.get(matchId)
       return row

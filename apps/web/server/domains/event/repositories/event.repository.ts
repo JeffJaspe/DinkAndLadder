@@ -9,6 +9,7 @@ import type {
 
 const EVENT_COLUMNS =
   'id, club_id, name, description, venue, province, city, start_date, end_date, ' +
+  'start_time, end_time, ' +
   'registration_opens, registration_closes, status, visibility, event_type, ' +
   'fee_amount, fee_currency, max_participants, queue_enabled, queue_courts, queue_mode, ' +
   'queue_skip_timeout_seconds, created_by_player_id, created_at, updated_at'
@@ -40,6 +41,19 @@ export interface EventRepository {
    * than leaving orphaned children behind.
    */
   deleteWithChildren(eventId: string): Promise<void>
+  /**
+   * How many events a club is holding, split the two ways the limits care
+   * about: drafts (unpublished, however many types) and live events per type.
+   *
+   * `tournament` counts on its own; every other event type is open play as far
+   * as a player is concerned (see the split in pages/index.vue), so they are
+   * counted together.
+   */
+  countByClubForLimits(clubId: string): Promise<{
+    drafts: number
+    liveTournaments: number
+    liveOpenPlay: number
+  }>
 }
 
 export function createEventRepository(client: SupabaseClient): EventRepository {
@@ -67,6 +81,8 @@ export function createEventRepository(client: SupabaseClient): EventRepository {
           city: input.city ?? null,
           start_date: input.start_date,
           end_date: input.end_date,
+          start_time: input.start_time ?? null,
+          end_time: input.end_time ?? null,
           registration_opens: input.registration_opens ?? null,
           registration_closes: input.registration_closes ?? null,
           visibility: input.visibility ?? 'public',
@@ -128,6 +144,33 @@ export function createEventRepository(client: SupabaseClient): EventRepository {
       ])
 
       return { registrations, matches, queueEntries }
+    },
+
+    async countByClubForLimits(clubId) {
+      // One read rather than three counts: a club has tens of events, not
+      // thousands, and three round trips to answer one question is worse.
+      const { data, error } = await client
+        .from('events')
+        .select('status, event_type')
+        .eq('club_id', clubId)
+        .neq('status', 'cancelled')
+
+      if (error) throw error
+
+      const rows = (data ?? []) as Array<{ status: string; event_type: string }>
+      return {
+        drafts: rows.filter((r) => r.status === 'draft').length,
+        // "Live" means it has been put in front of players. A completed event
+        // has had its weekend and must not block the next one.
+        liveTournaments: rows.filter(
+          (r) =>
+            r.event_type === 'tournament' && (r.status === 'published' || r.status === 'active')
+        ).length,
+        liveOpenPlay: rows.filter(
+          (r) =>
+            r.event_type !== 'tournament' && (r.status === 'published' || r.status === 'active')
+        ).length
+      }
     },
 
     async deleteWithChildren(eventId) {

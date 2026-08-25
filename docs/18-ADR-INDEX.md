@@ -97,7 +97,68 @@ still open, not filtered on, and not to be invented:
 filters later straightforward — a new optional field, not a redesign.
 
 ADR-004 — Tournament/Bracket Rules
-Status: FUTURE
+Status: PARTIALLY ACCEPTED (2026-08-25)
+
+Context:
+CLAUDE.md §7 lists "tournament rule variations" as a business decision that was
+deliberately not finalised, and this ADR was reserved for it. Two parts of it had
+to be settled to ship per-category formats (Liquibase 031-tournament-format),
+because the code cannot draw a bracket without them. The rest stays FUTURE.
+
+DECIDED — the format vocabulary.
+Five formats, and only these five:
+
+  round_robin                      Everyone plays everyone
+  single_elimination               One loss and you're out
+  double_elimination               Two losses and you're out
+  round_robin_single_elimination   Group stage then knockout
+  round_robin_double_elimination   Group stage then double-elim playoffs
+
+`pool_play` was renamed to `round_robin_single_elimination`. It always was that;
+the vague name only became actively misleading once the double-elim variant sat
+beside it. The list lives in `apps/web/utils/tournament-formats.ts` and is
+mirrored by a CHECK constraint on both `tournaments.format` and
+`tournament_categories.format`.
+
+King of the Court was considered and EXCLUDED. It cannot be pre-drawn as a fixed
+bracket — who plays next depends on who just won — so it needs a progressive
+generator that appends a match per recorded result. That is its own piece of
+work, not a fifth entry in a switch statement.
+
+DECIDED — format is a property of the CATEGORY, not the tournament.
+`tournament_categories.format` is nullable, meaning "inherit from the
+tournament", exactly as `match_type` does since 030. One weekend routinely runs
+an open round robin alongside a 4.5 knockout, and those are two categories of one
+event, not two events. `resolveFormat(category, tournament.format)` is the single
+resolution point.
+
+DECIDED — pool → playoff qualification.
+The top TWO of every pool qualify, ranked by:
+  1. wins, descending
+  2. point difference, descending
+  3. head-to-head, where the two actually met
+  4. registration id, so the draw does not wander between renders
+
+Pool winners are seeded ahead of every runner-up, which puts the two qualifiers
+out of one pool on opposite halves of the playoff draw rather than meeting again
+in the first round. `QUALIFIERS_PER_POOL` and the comparator are exported from
+one place each (`utils/bracket-rounds.ts` and `bracket.service.ts`) so a
+different rule replaces them without touching the generator.
+
+This was a real gap, not a refinement: before it, a staged format generated its
+playoff skeleton and nothing ever filled it — an organiser could play every pool
+fixture and the knockout stayed a column of TBDs forever.
+
+STILL OPEN:
+- Losers-bracket ROUTING for both double-elimination formats. The draw is
+  generated but not routed; correct loser placement depends on a round-by-round
+  drop pattern the current generator only approximates, and a wrong route is
+  worse than an empty one. Organisers place losers by hand today.
+- Seeding method beyond rating-descending (no snake seeding, no protected seeds).
+- Consolation/plate draws, third-place playoffs.
+- Whether a bye should count toward standings (currently it does not — see
+  `computeCategoryStandings`).
+- Retirements and walkovers as distinct outcomes from an ordinary result.
 
 ADR-005 — Out-of-MVP Surface Is Quarantined, Not Hardened
 Status: ACCEPTED (2026-08-22)
@@ -133,6 +194,67 @@ columns the deleted code assumed; it has `status_code`. Any future delivery
 logging needs a forward-only changeset first.
 
 Do not re-add these endpoints without a backlog item that promotes them.
+
+---
+
+## ADR-006: How the entry fee and the convenience fee settle
+
+Status: **OPEN** — data model and quoting built; no money moves.
+
+Context:
+A player entering a tournament pays two things at once: the club's entry fee,
+and the platform's convenience fee. The intent is that the entry fee goes
+DIRECT to the organising club, through the club's own PayMongo link, and the
+platform collects only its convenience fee into its own account. The platform
+never holds club funds — holding them would make DinkAndLadder a money service
+business, with the licensing that implies.
+
+The unresolved question is how that lands mechanically. Two shapes are
+possible and they are not equivalent:
+
+1. **Two charges.** The payer is sent to the club's checkout for the entry fee,
+   then to the platform's for the convenience fee. Works on any PayMongo
+   account, needs no special onboarding, and is two checkout steps for the
+   payer — with a real failure mode where the first succeeds and the second
+   does not.
+2. **One split charge.** A single payment is split at the provider between the
+   club's account and the platform's. One step for the payer and no partial
+   state, but it depends on PayMongo marketplace/split support being available
+   on the account, which is a commercial arrangement rather than an API call.
+
+This is a provider and commercial question, not a code one, so it is recorded
+rather than guessed.
+
+What has been built (034-platform-fees):
+- `platform_fee_rules` — the ladder: percentage or fixed, banded on the base
+  amount, with a floor and cap for percentages. Publicly readable so the
+  registration screen can quote a total before a player commits.
+- `club_payment_accounts` — the club's OWN public link reference. There is
+  deliberately no column for a club secret: the platform never charges on the
+  club's behalf, it only sends the payer there.
+- `utils/convenience-fee.ts` — the maths, shared by the quote and by whatever
+  eventually charges, so the fee a player is shown is the fee they are charged.
+- A Super Admin console at `/admin/fees` with a live preview.
+
+What has NOT been built:
+No charge, no checkout session, no webhook handling. Both gateway webhooks
+remain deliberate 501s (see ADR-004 above). The registration dialog quotes the
+total and says plainly that online payment is not switched on and the organiser
+will say how to pay.
+
+Consequences:
+Choosing shape 1 means a `payment_transactions` row per leg and a reconciliation
+job for the half-paid case. Choosing shape 2 means onboarding every verified club
+into the platform's PayMongo marketplace before they can collect at all, which
+makes verification a hard gate on taking money rather than a soft one.
+
+Secret keys stay in server environment variables (`nuxt.config.ts` runtime
+config) and are never stored in the database, whichever shape is chosen: a
+DB-stored secret is readable by anything holding the service-role key and ends
+up in backups.
+
+Decide before enabling payments. Do not let the quoting code imply either shape.
+
 
 ## ADR Rule
 

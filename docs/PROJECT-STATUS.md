@@ -3229,3 +3229,1003 @@ a live database, which is worth asking about rather than assuming.
 
 Every screen this pass touched except the landing page and the two directories
 is behind a login, and no authenticated walkthrough has been run.
+
+## Community trimmed to its own content, ranking filter consolidated (2026-08-23)
+
+`pages/community.vue` had four tabs, two of which were duplicates of better
+pages:
+
+- **Rankings** — a second, lower-fidelity leaderboard: its own emoji-crown
+  podium, and `Math.round()` on `rating_value`, so a 4.250 and a 3.500 both read
+  as "4" and "3" on a `numeric(5,3)` column. Removed.
+- **Clubs** — listed every club, which is exactly what `/clubs` (Discover Clubs)
+  is for. Removed. `GET /api/v1/clubs/all` stays; `pages/index.vue` still uses it.
+
+What that tab did own was the **Province → City → Barangay cascade**, which
+`/rankings` did not have — it filtered by province only. The cascade moved to
+`pages/rankings.vue`, so there is now one ranking surface and it can answer "who
+is the best in my barangay?".
+
+Details worth knowing:
+
+- The `/rankings` URL now carries `province`, `city` and `barangay` as PSGC
+  **names**, not codes — that is what `GET /api/v1/rankings` already filters on
+  (the endpoint has accepted `city`/`barangay` since MVP-007; only the UI was
+  behind), and it keeps a pasted link readable. Rehydrating a shared link walks
+  the cascade one level at a time, awaiting each list, because a child list does
+  not exist until its parent has loaded.
+- `components/ui/Select.vue` gained a `disabled` prop. Dependent selects need
+  it: a city list has nothing to offer until a province is picked, and the
+  hand-rolled selects this replaced were already doing it natively.
+- Community now shows Partners and Opponents only — the part no other page
+  shows — and its subtitle no longer promises clubs.
+
+Validation: `typecheck` clean, `eslint` clean on the changed files,
+`prettier --check` clean on them, 544 unit tests passing, `nuxt build`
+succeeding. Not verified in a browser — `/community` is behind a login.
+
+### Two fixes from actually driving that page (2026-08-24)
+
+Both found in a browser, neither by any check that passes on green:
+
+- **A shared barangay link restored only its province.** `restoreLocationFromQuery`
+  read `route.query.city` *after* awaiting the province's city list — but
+  selecting the province moves `provinceName`, which fires the URL-sync watcher,
+  which rewrites the query from state where the city is still empty. The city
+  was gone before it was read. The three wanted names are now snapshotted before
+  the first await. Verified: `?type=doubles&province=Bohol&city=City+of+Tagbilaran&barangay=Cogon`
+  restores all three selects and renders "Top 3 Doubles · Cogon".
+- **The dependent selects read as instructions.** They inherited Community's
+  "Select province" / "Select city" placeholders, which — greyed out, next to an
+  enabled "All Provinces" — made the filter row look like three controls where
+  two were broken. They now name their own level ("All Cities", "All Barangays");
+  the disabled state alone says "not yet".
+
+## Duo partners moved under Community (2026-08-24)
+
+The sidebar had a top-level **Partners** item for one doubles setting, while
+Community — which holds every other list of people — had its own first tab also
+called "Partners", meaning something else entirely (play history, not
+partnerships). Two different things, one word, two places.
+
+Now:
+
+- `components/community/DuoPartnersPanel.vue` holds the whole former `/partners`
+  page: duo list with the star control, remove, incoming and outgoing requests,
+  every action unchanged. Its three sections render as a `UiSegmented` control
+  rather than a second pill tab bar — stacking two identical tab bars read as if
+  the tabs had broken.
+- `pages/community.vue` is **Partners / Teammates / Opponents**. Teammates is the
+  old play-history "Partners" list, renamed for what it is: anyone you have
+  played alongside, open play included, no agreement required. Opponents is
+  unchanged. The tab is URL-backed (`?tab=`).
+- `pages/partners.vue` is a redirect to `/community?tab=partners`, following the
+  `/verified-clubs` precedent — the path sat in the sidebar and is bookmarkable.
+  It stays outside the Supabase `exclude` list, so a signed-out visitor still
+  lands on `/login` exactly as before.
+- `layouts/default.vue` drops the Partners nav item. Nothing else in the app
+  linked to `/partners`.
+
+Validation: typecheck clean, eslint clean, prettier clean, 544 unit tests
+passing, build succeeding, and the compiled route manifest carries the
+`/partners → /community?tab=partners` redirect.
+
+**Not verified in a browser.** Both routes are behind auth and this environment
+has no test-account credentials, so the tab switching, the segmented sections
+and the redirect landing on the right tab have not been driven live.
+
+## Eleven fixes from using the live app (2026-08-24)
+
+Six phases from one plan, in dependency order: design-system fixes, an event-time
+migration, bracket correctness, the tournament page restructure, queue fairness,
+and duo-request parity.
+
+### A — Design system
+
+- **The invisible hover.** Six hand-rolled tab bars used `hover:text-on-primary`
+  on a `bg-surface` tab. `--dnl-on-primary` is white in light and near-black in
+  dark (`tokens.css:49`, `:160`), so the label vanished on hover in **both**
+  themes. Now `hover:text-fg`, with `hover:bg-surface-2` where the bar sits on a
+  surface (`surface-3` where the tab is already `surface-2`).
+  `components/ui/Tabs.vue` was already right and is the reference.
+- **Landing page had no depth in light mode.** `pages/index.vue` had *zero*
+  `shadow-card` usages across ~30 card containers, on a theme whose light
+  palette deliberately leans on shadow for separation (a white card on an
+  off-white canvas separates by 1.06:1 — the shadow does all the work).
+  21 containers now carry `shadow-card`, interactive ones
+  `hover:shadow-card-hover`, and the hero and primary CTA `shadow-raised`.
+  No token changes.
+- **Landing burger menu.** Below `sm` the five section pills were a fixed strip
+  that only scrolled sideways, so the last tabs were reachable only by dragging
+  a row most people do not notice is scrollable. The strip is now `sm:block`
+  only; below that a burger opens a panel carrying the five sections plus Log in
+  and Get Started, which the header cannot fit at that width. Structure follows
+  the app drawer in `layouts/default.vue`: scrim, sheet, close button, Escape to
+  close, focus returned to the burger. The slide-in is behind
+  `prefers-reduced-motion: no-preference`, same as `.dnl-tab-underline`.
+- **`alert()` / `confirm()` retired.** `pages/events/[eventId]/index.vue` was the
+  last file using them — eight calls. Withdraw, publish and delete are now
+  `UiModal` (which already had the focus trap, focus restore, Escape and
+  destructive styling and was used by nothing but `pages/dev/components.vue`);
+  failures are toasts. The dialog stays up while the action runs so its loading
+  spinner is visible, and closes in `finally`.
+
+### B — Event start and end time (Liquibase 028)
+
+`events.start_date` / `end_date` are plain `date` columns, so an open play could
+say which day it ran but never what time it started.
+
+**Architectural decision: two nullable `time` columns, not a `timestamptz`
+conversion.** Conversion is destructive, every event query, card, filter and sort
+reads those two columns as dates today, and it would silently reinterpret every
+existing row against a timezone nobody recorded. Additive nullable columns leave
+every existing event rendering exactly as it does now — time when present, date
+alone when not — and keep a later conversion open. `time` rather than `timetz`:
+"play starts at 6pm" is a fact about the court, not about an offset.
+
+- `028-event-time` adds `start_time` / `end_time` plus `chk_event_time_order`,
+  which only compares the clock when `start_date = end_date` — a Friday-evening
+  to Saturday-morning event is correctly ordered even though 11:00 reads as
+  earlier than 18:00. `event.service.ts` applies the same rule before the write
+  so the caller gets a sentence rather than a constraint violation.
+- `create-event.vue` offers hourly `UiSelect`s from 05:00 to 22:00; picking a
+  start proposes start + 1h, and only fills a blank or plainly wrong end.
+- `utils/event-time.ts` formats them **without `new Date()`**, which would
+  attach today’s date and the viewer’s timezone to a value that has neither.
+  Shown on the event page header, its Info tab, the events list and `EventCard`.
+
+**Applied 2026-08-24** (201 changesets total). It was shipped unapplied first, and
+that broke every event screen: `EVENT_COLUMNS` selects `start_time, end_time`, so
+PostgREST rejected the whole query with `42703 column events.start_time does not
+exist` and `/events` showed "Could not load events." Verified after applying: the
+full column list returns rows, `GET /api/v1/events` and the detail endpoint both
+200, and existing events carry `start_time: null` so they render date-only as
+designed.
+
+**Lesson worth keeping:** code that hard-depends on an unapplied changeset should
+not be merged ahead of the migration. Either apply the migration first, or make
+the column selection tolerant until it lands.
+
+### D — Brackets: real names, real seeds
+
+- **F-23 closed.** Seeding is confirmed-only; see the backlog entry for the
+  decision and its consequences.
+- **Seeds ordered by rating**, unrated last, `registered_at` breaking ties. The
+  `shuffle()` that ran immediately afterwards is deleted: with it, seed order was
+  meaningless and the pre-generation preview could not tell the truth. Pool play
+  benefits too — seeded input turns its `i % numPools` distribution into a real
+  one, so the top seeds land in different pools instead of possibly all in one.
+- **Names instead of hex.** `BracketMatchDto` gained `participant1`/`participant2`
+  (`BracketParticipantDto`: name, rating, doubles partner) alongside the existing
+  ids, hydrated in `getBracket` and `generateBracket` from
+  `findByTournamentIdWithPlayers` — one extra query per bracket load.
+  `BracketMatchCard.vue` renders the name, a `UiRatingBadge` and `with <partner>`;
+  the `registration_id.slice(0, 8)` hack is gone.
+  The unit tests caught a real bug here: `created.map(toBracketMatchDto)` handed
+  `Array#map`’s index to the new participants parameter.
+
+### E — Tournament page, organised by category
+
+> **SUPERSEDED (2026-08-24)** by the tournament viewing redesign at the end of
+> this file. The two stacked tab bars, the "Manage categories" disclosure, the
+> Queue and Matches views and the `/tournaments/:id` page itself are all gone;
+> `utils/bracket-rounds.ts` and `utils/category-standings.ts` survive unchanged.
+
+`pages/tournaments/[tournamentId].vue` was 1141 lines of single scroll — header,
+then every category at once, then every registration in the tournament, then the
+bracket — so answering "who is in the 4.0s and when do they play?" meant reading
+past everything else. It is now category-first:
+
+- A `UiTabs` bar per category (`?category=`, count = confirmed), falling back to
+  one "All players" tab so the flat, category-less path still works end to end.
+- **Register sits directly under it** — the logic and the doubles partner picker
+  moved unchanged; they were correct and only hard to find.
+- A second `UiTabs` (`?view=`) over six views, each its own component under
+  `components/tournament/`: Players, Ranking, Queue, Matches, Matchups, Info.
+- **Matchups is where format variation lives.** The generator encodes phase in the
+  round number (pools at 10+, playoffs 50+, losers 100+, grand final 200); that
+  logic moved to `utils/bracket-rounds.ts`, and the view renders whatever phases
+  are present in playing order — Pools → Playoffs, or Winners → Losers → Grand
+  Final — with no phase heading at all when there is only one. Before generation
+  it shows the real seed order rather than a row of placeholders.
+- **Standings come from bracket results**, not `matches`: `matches` links to a
+  tournament only through `bracket_matches.match_id`, while
+  `bracket_matches.category_id` is a real indexed column. The rule lives in
+  `utils/category-standings.ts` so it is testable without mounting a component.
+  A bye is **not** counted as a win.
+- Matches links to the match page rather than showing a score: a bracket slot
+  carries `match_id` and nothing about what was played.
+- The registration list that rendered `player_id.slice(0, 8)` is gone; adding
+  categories moved behind a "Manage categories" disclosure, since it is a
+  tournament-level job rather than a per-category one.
+
+### C — Open play queue, first come first served
+
+The data was already FIFO (`event-queue.repository.ts` orders by `joined_at`
+ascending); nothing said so and the organiser picked arbitrary pairs.
+
+- `matchNextPair` takes the two longest-waiting entries **of the same match
+  type** and delegates to `matchEntries`, so the court-in-use and status checks
+  are not duplicated. Selection is server-side: two organisers tapping at once
+  would otherwise both send the same pair computed from their own stale copy.
+  `POST /events/{id}/queue/match-next`.
+- Each waiting row shows its position (`#1`, `#2`, …, the first highlighted) and
+  how long it has waited, from `joined_at`, ticking once a minute.
+- The primary action is **Match next**, which names the two players before it is
+  pressed. The two hand-pick dropdowns moved behind a "pick manually" disclosure
+  — kept for injuries and no-shows. Skip is unchanged.
+
+### F — Duo requests behave like friend requests
+
+- `GET /players/me/partner-requests/count` — its own endpoint rather than
+  `incoming` plus `.length`, because the sidebar asks on every page and `incoming`
+  enriches each request with a profile and rating a badge has no use for.
+- `composables/usePartnerRequestCount.ts` shares one `useFetch` key between the
+  sidebar and Community. Accept and decline refresh it, so the badge clears
+  without a reload.
+- `NavItem` gained `badge?: number`; Community carries the count in the desktop
+  sidebar and the mobile drawer, and the Partners tab on `/community` repeats it.
+- **Decline now notifies the sender**, which accept already did — a declined
+  request used to leave the requester watching something that had quietly stopped
+  being pending.
+- Incoming requests join `GET /players/me/pending-actions` beside match
+  verifications and club memberships.
+- **`pages/players/[playerId].vue` handles the incoming direction.** If that
+  player had already sent a request, the button read "Request as Duo Partner" and
+  pressing it failed with `INCOMING_REQUEST_EXISTS` — the server telling the user
+  to accept an invitation the page never showed them. It now offers Accept and
+  Decline.
+
+**Deviation from the plan:** the mobile bottom bar does not carry the badge. Its
+five slots are the primary mobile navigation and its centre "+" is deliberately
+centred, so adding Community would have displaced Home or broken that layout. The
+badge markup is in place if a bottom-bar item is ever given a count; on a phone
+the count shows in the drawer.
+
+### Validation
+
+`typecheck` clean, `eslint` clean on every changed file, `prettier --check` clean
+on them, **576 unit tests passing** (was 544; 32 added across event-time
+formatting and validation, bracket seeding and hydration, category standings, and
+`matchNextPair`), `nuxt build` succeeding with both new endpoints in the route
+manifest.
+
+**Not verified in a browser.** Migration 028 is applied. Every screen this
+touched except the landing page is behind a login. The live walkthrough in the
+plan — 375px burger, light-mode shadows, hovering every tab in both themes, the
+themed dialogs, an open play with a start time, three players queueing and
+"Match next" pairing #1 and #2, a two-category tournament through all six views,
+and a duo request from a second account — has not been run.
+
+---
+
+## Tournament viewing redesign — two levels, one card per category (2026-08-24)
+
+The tournament UI was confusing in a structural way, not a cosmetic one.
+
+**Three levels where the product has two.** The model is
+`events → tournaments → tournament_categories`, so an event page listed
+*tournaments*, each of which then listed *categories*. The middle level carried
+almost nothing of its own — a tournament has no dates (they live on the event),
+only a format, a match type and a rating band. The page that created it
+(`pages/events/[eventId]/create-tournament.vue`) had an `<h1>` reading **"Create
+Category"** and an error saying *"Category name is required"*, while the button
+that opened it said **"Add Tournament"**: three names for two concepts.
+
+**Everything category-scoped was spread across a matrix** — two stacked `UiTabs`
+bars (category, then one of six views) with the register button wedged between
+them — and two of those six views were wrong. "Queue" rendered bracket-derived
+order of play, not a queue; the real queue is an event feature keyed off
+`events.queue_enabled`, one click away, sharing the word. "Ranking" rendered
+standings before a single match had been played.
+
+### What it is now
+
+`/events/:eventId` **is** the tournament header. Categories are cards directly
+beneath it. Each card owns its own registration, players, schedule, draw and
+result; nothing category-scoped lives at page level, and no view anywhere
+consolidates players across categories.
+
+- `createEvent` now creates the tournament alongside a `event_type='tournament'`
+  event (`ensureTournament`, idempotent, also fires when an event is switched to
+  that type). The "Add Tournament" flow and its page are deleted;
+  `pages/create-event.vue` gained the format and match-type fields instead —
+  four real formats, no `swiss`, and `pool_play` included.
+- `getPrimaryTournament` puts "render the first, ignore the rest" in the service
+  rather than a page reaching for `[0]`. Events with several tournament rows are
+  treated as dev data.
+- `pages/tournaments/[tournamentId].vue` is a 301 redirect to its event,
+  carrying `?category=` through so an old link opens that card.
+- One bracket request covers the page. A collapsed card still shows what is on
+  next, so every category's draw is needed at load; the endpoint already returns
+  every match when `category_id` is omitted. `groupByRound` buckets by round
+  number across the whole tournament, so the split has to flatten, partition by
+  `category_id`, then regroup — otherwise one category shows another's matches.
+- Standings appear only once an organiser marks the category complete
+  (`tournament_categories.status = 'completed''). Deliberately not derived from
+  the draw being decided: an abandoned category should not publish a result on
+  its own.
+
+### Scores, and the two things that were quietly broken
+
+Inline set scores were asked for, and building them surfaced why no bracket has
+ever shown one.
+
+**Nothing ever wrote `bracket_matches.match_id`.** Every generator writes
+`match_id: null` (nine call sites), the only writer was
+`bracket.repository.update()`, and the `PATCH /api/v1/bracket-matches/:id`
+endpoint that reaches it had no UI caller. A draw could name a winner but never a
+score. `BracketService.recordMatchResult` is the missing half: it creates the
+match, links it, settles the slot and advances the winner, behind
+`POST /api/v1/bracket-matches/:id/result`. An organiser recording a draw result
+marks the match `verified` — asking the pair who just lost to confirm the
+bracket is backwards.
+
+**Score orientation is a real correctness trap.** `match_scores` is keyed to
+team1/team2, decided when a match is submitted; a bracket slot is decided when
+the draw is made, and nothing keeps the two in step. `orientScores` derives the
+mapping from who actually played, resolves a doubles slot through either partner,
+and returns **nothing** rather than guessing when the mapping is ambiguous — a
+reversed score reads as entirely plausible and would be believed. Recording
+fixes participant1 as team 1, so a result written here reads back in the
+orientation it was entered.
+
+The score lookup lives on the **match** repository, not the bracket one:
+`match_scores`/`match_participants` are match-domain tables (CLAUDE.md §4), and
+`bracket.repository.ts` does no hydration — that happens in `bracket.service.ts`.
+
+### Migration 029 — three RLS gaps this exposed
+
+`tournament_registrations` had exactly one SELECT policy,
+`tournament_registrations_select_own` (008-security `0030`), matching only the
+viewer's own entry. `getBracket` resolves participant **names** from those rows
+through the user client, so **every slot in every published bracket rendered
+"TBD" to anyone who was not that entrant**, and a category player list showed
+only yourself. That was live, hidden behind a tab; the redesign puts it on every
+card.
+
+`match_scores` and `match_participants` had the same shape of gap — 008-security
+`0016` admits only the people who played. 017 later added `matches_select_event`
+so a match row became visible to anyone who can see its event, but the score and
+the teams were never given the equivalent.
+
+`029-tournament-visibility` adds three additive SELECT policies mirroring
+`bracket_matches_select_visible` and `matches_select_event`. Scoped to matches
+carrying an `event_id`, so a casual match stays participant-only.
+
+### Components
+
+New: `CategorySection.vue` (owns the data and every mutation, so the cards stay
+presentational and mountable), `CategoryCard.vue`, `CategoryUpNext.vue`,
+`CategorySchedule.vue`, `CategoryMatchRow.vue`, `CategoryCreateCard.vue`.
+`CategoryOrderOfPlay.vue` became `CategorySchedule.vue`; `CategoryMatches.vue` is
+deleted — its score-less list of completed matches is now the schedule's
+Completed section, with real scores. `CategoryPlayers`, `CategoryMatchups`,
+`CategoryStandings` and `CategoryInfo` survive.
+`utils/bracket-schedule.ts` holds the shared reading of a draw as an order of
+play, so the collapsed strip and the expanded list can never disagree.
+
+### Validation
+
+`typecheck` clean, `eslint` 0 errors, `nuxt build` succeeding, **637 unit tests
+passing** (was 576; 61 added across score orientation, score hydration,
+`recordMatchResult`, tournament auto-creation, `getPrimaryTournament`, the
+schedule utils and the category card).
+
+**Migration 029 is applied** (2026-08-24). `liquibase status` reports the
+database up to date at 204 changesets.
+
+Verified against the live database after applying:
+
+- `tournament_registrations_select_visible` **works** — an anonymous PostgREST
+  read of `tournament_registrations` now returns entries for a public,
+  non-draft event's tournament. Before 029 that call returned `[]` for everyone,
+  which is what made every bracket slot render "TBD".
+- `match_scores_select_event` and `match_participants_select_event` return
+  nothing anonymously, which is **correct** rather than broken: all 8 matches in
+  the database carry `event_id IS NULL` (they are casual), and both policies are
+  deliberately scoped to matches that belong to an event. The negative case —
+  a casual match's score staying private — is therefore confirmed. The positive
+  path cannot be exercised until a tournament result is recorded through
+  `recordMatchResult`, since nothing has ever created an event-linked match.
+
+### Singles or doubles, per category (migration 030)
+
+`match_type` lived only on `tournaments` (006-event, changeSet 0003), so every
+category of one tournament had to be the same. That is wrong for the ordinary
+case — "Men's Doubles 4.0" and "Singles Open" are two categories of one weekend
+— and it is why nothing on a category card could label it: there was no
+category-level value to show.
+
+`030-category-match-type` adds a nullable `match_type` to
+`tournament_categories` with a CHECK, and backfills existing rows from their
+tournament. Nullable means "inherit": a category created by an older client
+still resolves to something sensible rather than failing an insert.
+`tournaments.match_type` deliberately stays, as the default a new category
+inherits and the fallback for the category-less path.
+
+`resolveMatchType(category, tournamentMatchType)` is the single reader, and it
+drives behaviour rather than only display:
+
+- **The partner rule on registration** now follows the category. A singles
+  category of a doubles tournament used to answer PARTNER_REQUIRED and could not
+  be entered at all.
+- **The match created by `recordMatchResult`** is stamped with the category's
+  type, so a mixed weekend does not mislabel one draw in players' records.
+- **The card** shows it as a pill beside the category name, and the create-card
+  offers it as a singles/doubles choice starting from the tournament's own type.
+
+`EventService` and `BracketService` each take an optional
+`TournamentCategoryRepository` for this; without it both fall back to the
+tournament's type, which is exactly what they did before.
+
+**Applied 2026-08-24.** `liquibase status` reports the database up to date at
+207 changesets. Verified: all 4 existing categories carry a `match_type` equal
+to their tournament's, and none is left null.
+
+### Validation (final)
+
+`typecheck` clean, `eslint` 0 errors, `prettier` clean on every file this work
+touched, `nuxt build` succeeding, **645 unit tests passing** (was 576 before the
+redesign).
+
+**Still not verified in a browser.** The live walkthrough in the plan has not
+been run.
+
+## Per-category formats, the bracket redesign, and category editing (2026-08-25)
+
+Seven things, driven by using the live app.
+
+### 1. Five formats, chosen per category — Liquibase `031-tournament-format`
+
+The format vocabulary is now exactly the five the product offers, each carrying
+the one line that explains it at the point of choice:
+
+| value | label | description |
+| --- | --- | --- |
+| `round_robin` | Round Robin | Everyone plays everyone |
+| `single_elimination` | Single Elimination | One loss and you're out |
+| `double_elimination` | Double Elimination | Two losses and you're out |
+| `round_robin_single_elimination` | Round Robin → Single Elimination | Group stage then knockout |
+| `round_robin_double_elimination` | Round Robin → Double Elimination | Group stage then double-elim playoffs |
+
+`pool_play` was **renamed** to `round_robin_single_elimination` (changeSet 0002).
+It always was that; the vague name only became actively misleading once the
+double-elim variant sat beside it. Both `tournaments.format` and the new
+`tournament_categories.format` now carry a CHECK constraint against the list —
+`tournaments.format` had carried none since 006-event, so a typo could be stored
+and then fall through the generator's `switch` to single elimination without
+anyone being told.
+
+**King of the Court was considered and excluded** (ADR-004). It cannot be
+pre-drawn as a fixed bracket, and needs a progressive generator that is its own
+piece of work.
+
+`tournament_categories.format` is nullable, meaning "inherit from the
+tournament", on the identical pattern `match_type` uses since 030 — addColumn →
+CHECK → backfill. `resolveFormat(category, tournament.format)` sits beside
+`resolveMatchType` and is the single resolution point for the generator, the draw
+view and the settings form.
+
+The list itself lives in **one** place, `apps/web/utils/tournament-formats.ts`.
+It was previously inlined in `create-event.vue` and duplicated as a label-only
+map in `CategoryInfo.vue`, and the two had already drifted.
+
+**New generator: `generateRoundRobinDoubleEliminationBracket`.** Pools at the 10
+offset, then the same three pieces plain double elimination lays out — winners at
+50, losers at 100, grand final at 200 — so `phaseOf` reads it as Pools →
+Playoffs → Losers → Grand Final with no new phase vocabulary. `buildGroupStage`
+and `buildEmptyKnockout` were extracted so the two staged formats share their
+common halves rather than copying them.
+
+**A real hole closed: pool → playoff seeding.** `advanceWinner` used to return
+early unless the format was an elimination, so a staged format generated its
+playoff skeleton and *nothing ever filled it* — an organiser could play every
+pool fixture and the knockout stayed a column of TBDs forever. It now advances on
+any knockout round (the format is still consulted, because a pure round robin
+numbers its rounds from 1 exactly as a knockout does), and `seedPlayoffsFromPools`
+fills round 51 the moment the last pool fixture is decided. Idempotent by
+inspection, so a correction to a finished group stage does not reshuffle a
+playoff already under way.
+
+The qualification rule is a **product decision**, recorded in ADR-004: top two
+per pool, ranked wins → point difference → head-to-head, with pool winners seeded
+ahead of every runner-up so the two out of one pool land on opposite halves.
+
+### 2. The draw is drawn as a draw
+
+`BracketMatchDto.scores` has carried oriented set scores all along; nothing
+rendered them on the bracket, only the schedule row. And the rounds were plain
+stacked columns with no lines, so the one question a draw exists to answer — who
+plays the winner of this — was the one thing it did not show.
+
+- **`BracketTree.vue`** (new) — a knockout phase as a column-per-round rail with
+  CSS connector elbows and a **Champion** panel. No SVG and no measurement:
+  `space-around` puts the two feeders of a slot at 25%/75% of their pair and the
+  slot they feed at 50% of the same band, so the elbow is three pseudo-elements
+  that stay correct at any width, card height, or round count.
+- **`BracketGroupTables.vue`** (new) — the group stage as tables, one per pool,
+  with the qualifying line marked. A pool is a round robin, and a round robin is
+  read as a table.
+- **`BracketMatchCard.vue`** — one score column per set on each slot row, plus a
+  `dense` form for tree nodes. The rating badge stands down once a score exists;
+  there is not room for both, and the score is the more useful.
+- **`CategoryMatchups.vue`** — now the format switch, and it names the format and
+  its description at the top so a player looking at someone else's draw can tell
+  whether one loss ends their day.
+- `championOf` / `finalMatchOf` in `utils/bracket-rounds.ts` — the champion is
+  whoever won the last match, not whoever has most wins; with byes those differ.
+
+### 3. Event-header capacity, for tournaments
+
+`2 / 16 players — 14 slots left` is gone from a tournament's header and its
+details list. Capacity is a category's business — the 3.5s and the Open draw fill
+independently — so one event-wide number matched nothing anybody could enter.
+Open play and leagues keep it, where the event really is the thing with a limit.
+
+### 4. Rating bands are used up by a match type, not on their own
+
+`usedTemplateIds` keyed on template id alone, so adding "4.5 Singles" removed 4.5
+from the picker entirely and "4.5 Doubles" — the other half of the pair a weekend
+most often runs — could never be created. Now keyed on the `(band, match_type)`
+pair, and because `matchType` is a `ref` in the create card the list re-filters
+live as the organiser toggles. No migration: there was never a DB uniqueness
+constraint here.
+
+### 5. The singles/doubles pill in light mode
+
+`--dnl-accent` is mint `#A7E3C1` in light mode, so `bg-accent/15 text-accent` was
+pale mint on near-white — the pill was there and could not be read. The token set
+already defines the pair for exactly this: `accent-soft` as fill, `on-accent`
+(`#0B3B24`) as text. Same swap on the "Full" status tone; the two bare-text uses
+(`isFull` vacancy line, "Awaiting approval") moved to `text-warning`.
+
+### 6. Editing a published category
+
+The Settings tab already had an "Edit category" button gated only on `canManage`
+— what was missing were the fields. It reached the name and the size only, so
+correcting a rating band or switching a category to a round robin meant deleting
+it and losing every entry. It now covers name, capacity, rating band, match type
+and format, with the format's description under the select and a note that the
+draw must be regenerated. The emit moved from three positional args to
+`(categoryId, UpdateTournamentCategoryInput)`.
+
+`match_type` **locks** once anyone has entered (`MATCH_TYPE_LOCKED`, 409): every
+doubles entry carries a partner a switch to singles would orphan. Format changes
+are always allowed — they redraw a bracket, they strand nobody.
+
+### 7. Running standings on the Schedule tab
+
+`computeCategoryStandings` and the standings component already existed; the only
+thing gating them was the Results tab appearing solely once the organiser marks
+the category complete. That gate is deliberate for *final* standings and stays.
+The Schedule tab now carries the live W–L table above "Up next" — group tables
+for the staged formats and a single table otherwise — which is the scoreboard
+everybody at the venue asks about between matches. `computeStandingsGroups` is
+the new util; it keeps each pool to its own entrants, because a merged table
+would rank people who never played each other.
+
+### Applied
+
+**Applied 2026-08-25.** All five changesets ran; `liquibase status` reports the
+database up to date at **212 changesets** (was 207). Verified through PostgREST:
+the one tournament reads `single_elimination`, all five categories carry a
+non-null `format` equal to their tournament's, and no `pool_play` survives
+anywhere.
+
+The two CHECK constraints (0003, 0004) are inferred rather than directly
+observed — Liquibase's default snapshot does not capture check constraints (the
+pre-existing `ck_tournament_categories_match_type` from 030 is absent from it
+too). The inference is sound: `ALTER TABLE … ADD CONSTRAINT` either succeeds or
+aborts the update, and both changesets are recorded as applied.
+
+### Validation
+
+`typecheck` clean, `eslint` 0 errors (8 pre-existing warnings in unrelated
+files), `check:tokens` clean across 91 files, `nuxt build` succeeding, **710 unit
+tests passing** (was 645).
+
+New specs: `tournament-formats.spec.ts`, `bracket-tree.spec.ts`,
+`category-create-card.spec.ts`. Extended: `bracket.service.spec.ts` (per-category
+format, staged advancement, pool seeding), `tournament-category.service.spec.ts`
+(format validation and inheritance, `MATCH_TYPE_LOCKED`),
+`category-standings.spec.ts` (group tables), `category-card.spec.ts` (contrast
+and format labelling).
+
+**Still not verified in a browser.** The live walkthrough has not been run.
+
+---
+
+## One entry per person per category, and a ladder without overlaps (2026-08-25, later)
+
+Phase 1 of the tournament work. Two problems, both reported from the live app.
+
+### 1. A doubles partner was invisible to the system
+
+A doubles entry is ONE row — `player_id` plus `partner_player_id` — so a partner
+exists in a category only as a value in somebody else's column. Nothing read that
+column when deciding whether an entry was allowed: the duplicate check filtered
+on `(tournament_id, player_id)` alone, and no index backed it. The reported
+screen:
+
+```
+Elbuff The great        2.910      <- Elbuff's own entry
+ronahbiejacobjaspe      2.800
+  with Elbuff The great            <- Elbuff again, same category
+```
+
+One person, two slots in one draw, seeded twice by `generateBracket` and drawable
+against themself.
+
+**The rule is now one entry per person per category, as registrant OR partner** —
+all four combinations of (already in as / entering as) refused, checked against
+both people named on an incoming entry.
+
+`findByTournamentAndPlayer` is gone, replaced by `findCategoryEntrants`, which
+flattens each row into its one or two occupants so a caller cannot check one
+column and forget the other. Being **category**-scoped rather than
+tournament-scoped also fixes the opposite bug: entering both the 3.5 Singles and
+the 3.5 Doubles was blocked, while `CategoryCreateCard` advertised that you may.
+
+The DB backstop is a **trigger**, not a unique index, and the distinction matters:
+a player who is `player_id` on one row and `partner_player_id` on another
+violates the rule while satisfying two separate partial indexes, because each
+index only ever sees one column. No single-table UNIQUE or EXCLUDE treats two
+columns as one set. `fn_assert_one_entry_per_category` takes
+`pg_advisory_xact_lock` on the category scope first — without it two transactions
+naming the same free partner both see an empty conflict set and both commit — and
+raises `23505`, which the service maps back onto its own 409 so a lost race and
+an ordinary duplicate read identically.
+
+Three further holes closed while in here: entering as your own partner (nothing
+prevented it, now a CHECK constraint too), naming a partner who never agreed
+(any player id was accepted, so a stranger could enter you and bill you), and a
+category's `max_participants`, which only the UI enforced — the API accepted the
+entry anyway, so anyone posting directly or racing the page got in regardless.
+
+On screen, `CategorySection`'s `mine` matched `player_id` alone, so the named
+partner was told they were not in a category they were already entered in and
+shown a Register button the server would refuse. Partners already holding a slot
+are now filtered out of the picker, and "all of your linked partners are already
+in this category" is deliberately distinct from "no partners yet" — the two point
+at different fixes.
+
+### 2. The rating ladder overlapped at every boundary
+
+Intermediate 3.0–3.5 and Advanced 3.5–4.5 both claimed 3.5, and the check was
+inclusive at both ends, so a 3.5 player was eligible for both. The ladder is now
+2.0–2.4, 2.5–2.9, 3.0–3.5, 3.6–4.5, 4.6–5.5, 5.6+ — no shared numbers. **The
+bottom two bands were not in the request and are the one thing here worth a
+second look.**
+
+Ratings are `numeric(5,3)`, so a ladder written in tenths leaves gaps: 3.550 is
+above 3.5 and below 3.6 and belongs to no band. `utils/rating-bands.ts` rounds to
+one decimal before comparing — 3.550 → 3.6 → Advanced, 3.549 → 3.5 →
+Intermediate — which is gapless and explainable to the player it affects. A test
+walks every thousandth from 2.000 to 8.000 and asserts each matches exactly one
+band. The same helper generates both the server's refusal and the card's label,
+so the number a player is refused by is the number they were shown.
+
+The band check itself **moved out of the registrations controller into
+EventService** (CLAUDE.md §1 — controllers are wiring). It had two bugs there: it
+read the TOURNAMENT's match type, so a doubles category inside a singles
+tournament was judged on singles ratings; and it examined the registrant alone,
+so a 3.2 player could carry a 4.9 partner into a 3.5 draw.
+
+Relatedly, `findByTournamentIdWithPlayers` hardcoded `rating_type === 'singles'`,
+so every doubles draw was seeded — and labelled — by everyone's singles form. The
+repository now returns both ratings and `resolveEntrantRating` picks one by the
+category's match type, falling back to the other rather than to null: a player
+with only a singles rating entering their first doubles category is better seeded
+on stale evidence than dropped to the bottom as unrated.
+
+### Validation
+
+`typecheck` clean, `eslint` 0 errors (8 pre-existing warnings in unrelated
+files), `check:tokens` clean across 91 files, `nuxt build` succeeding, **755 unit
+tests passing** (was 710). New: `rating-bands.spec.ts`. Extended:
+`event.service.spec.ts` (all four rows of the invariant, self-partner,
+non-partner, category capacity, the trigger's race rejection and its
+non-duplicate sibling, five band cases), `category-card.spec.ts` (partner sees
+their status, band reason replaces Register, all-taken vs none-linked).
+
+### NOT applied
+
+**Changeset 032 has not been run against the live database.** The Liquibase CLI
+is not installed on this machine and `database/.env` does not exist, so the
+schema is one changeset behind the code. Until it is applied the trigger, the
+CHECK constraint and the new ladder are absent — the service-level checks still
+hold, but the DB backstop and the reseeded templates do not. Not verified in a
+browser either.
+
+### Applied
+
+**Applied 2026-08-25.** All six changesets ran; `liquibase status` reports the
+database up to date at **218 changesets** (was 212). Verified through PostgREST:
+the seven templates carry the new ladder with no shared numbers.
+
+Two things the live data then showed.
+
+**The backfill skipped `Beginner` (2.5–3.0), correctly.** That category holds two
+confirmed entries, and the guard exists so a band cannot move under players
+already standing in it. It keeps the old boundary until an organiser changes it
+by hand — which is the intended outcome, not a failure.
+
+**The reported duplicate is still in the data**, in that same category:
+
+```
+c77235f0  player_id=211d7251                          confirmed
+fd7c72ce  player_id=58ab7e99  partner=211d7251        confirmed
+```
+
+The trigger is `BEFORE INSERT OR UPDATE` and does not validate rows that already
+exist, so it neither rejects these nor rewrites them. Clearing it is an organiser
+action: reject or withdraw one of the two.
+
+Which surfaced a real bug in the first cut of the trigger. It treated only
+`withdrawn` as releasing a slot, so **rejecting** an entry would have been
+refused by the very constraint meant to make the cleanup possible — the rejected
+row still counted as occupying its place, and a rejected player could never
+re-enter. Both statuses now release the slot, on both sides of the check, driven
+by a new `SLOT_HOLDING_REGISTRATION_STATUSES` in `tournament.dto.ts` that the
+repository filter and the trigger mirror. Changeset 0004 carries
+`runOnChange="true"` precisely so a function body can be corrected in place; the
+fix re-applied as a single changeset with no new one added.
+
+**763 unit tests passing** after the fix (was 755).
+
+---
+
+## Category endings, and a lifecycle for the draw (2026-08-25, later still)
+
+Phases 2 and 3 of the tournament work.
+
+### Categories: one open at a time, and two ways to end one
+
+Every card could be open at once. On a weekend running six categories that made
+the page six stacked full-height panels and put the card you wanted below the
+fold, so `openIds: Set<string>` is now `openId: ref<string | null>` and the open
+card carries a ring and a lifted header — with one open at a time, which one it
+is has to be visible at a glance.
+
+**Withdrawing is per category now**, and only while the entry is still pending.
+The endpoint has existed since the tournament domain was built and nothing ever
+called it; the only Withdraw on screen was in the event header, which targets
+`event_registrations` — a different table that means nothing for a category
+entry, so a player who had entered two categories pressed it and nothing they
+could see changed. That button is gone for tournament events. Once an organiser
+has confirmed an entry there may be a drawn bracket and a paid fee behind it, so
+leaving is a conversation with them rather than a button, and any refund is
+theirs to make.
+
+**Mark complete now waits for every match to have a result.** It used to be
+available at any time, with a note offering to finish anyway if the category was
+abandoned — which meant the commonest misclick on the card published a
+half-played table as the category's result. Abandonment has its own answer now:
+
+**Trash this category** — a red, confirmed, hard delete of the category, its
+entries and its draw, for one that is postponed or will not run. Hard because
+the project's rule is that soft deletion is for personal data and for records of
+things that happened, and a category nobody played is neither. Refused once any
+result exists (`CATEGORY_HAS_RESULTS`): at that point it *is* a record, and the
+matches behind those results have already moved people's ratings. The delete is
+leaves-first — bracket slots, then entries, then the category — because every FK
+in this schema is RESTRICT and nothing cascades.
+
+### The draw gets a lifecycle
+
+```
+open -> generate -> lock -> complete
+        (private,   (public,  (standings
+         redrawable) playable)  published)
+```
+
+A bracket had none of this. Generation was destructive, repeatable, and public
+the instant it existed, with no undo. Three consequences, all of them things a
+real organiser hits in the first hour:
+
+**An organiser experimenting was broadcasting.** Trying three seedings pushed all
+three to every entrant, and a player refreshing the page watched their
+first-round opponent change under them. `getBracket` now takes a viewer: an
+unlocked draw comes back with `rounds: []` to anyone but the organiser, and the
+card falls back to the placeholder shape and the entrant list — which is what a
+player actually needs before a draw is final. The page fetches one bracket for
+the whole tournament rather than one per card, so the gate cannot be a single
+yes/no; each match is kept or dropped by **its own category's** lock, or the
+combined fetch would leak an unpublished draw on every visit.
+
+**Generate at 6-of-16 produced a draw the next two entrants could not join.** The
+only way back was to regenerate. It now refuses unless the category is full
+(`CATEGORY_NOT_FULL`) and the message names both ways out — approve the entries
+still waiting, or lower the size in Settings, which is a decision with a number
+attached rather than an accident. A category with no stated capacity keeps the
+old rule: two is enough.
+
+**Undo Generate** returns to "not drawn yet", which was unreachable once the
+button had been pressed even once by mistake. Refused on a locked draw, and
+refused once any result exists — the bracket rows would go but the `matches` they
+point at carry verified results that have already moved ratings, and deleting a
+rating-bearing record to tidy up a draw is the wrong trade. Regenerating had this
+exact hole and silently orphaned those rows; it now refuses too, via the lock.
+
+**Lock** freezes the draw, publishes it, and is what makes results recordable —
+`recordMatchResult` now requires it, because recording into a draw that can still
+be redrawn is how those orphans were created. Unlock is refused once a result
+exists.
+
+The lock lives on `tournament_categories` *and* `tournaments`, resolved by
+`resolveBracketLock` — the same two-table contract `resolveMatchType` (030) and
+`resolveFormat` (031) already use, because a tournament may legitimately run one
+flat draw with no category row to carry the lock.
+
+### Applied
+
+**Applied 2026-08-25.** Both changesets ran; `liquibase status` reports the
+database up to date at **220 changesets** (was 218). Verified through PostgREST:
+all five categories and the one tournament carry the two columns, every one null
+— every existing draw is unlocked, which is the correct starting state.
+
+### Validation
+
+`typecheck` clean, `eslint` 0 errors (8 pre-existing warnings in unrelated
+files), `check:tokens` clean across 91 files, **796 unit tests passing** (was
+778). New: `bracket-lifecycle.spec.ts` (18 tests — per-category visibility
+filtering, the fullness gate, undo and lock guards).
+
+Sixteen existing bracket specs had to be re-pointed at a locked fixture. That is
+the behaviour change stated plainly: a draw you can read, and a draw you can
+write a score to, are both necessarily locked draws now. A
+`makeLockedTournamentRecord` helper names the distinction so the next person
+does not have to infer it.
+
+### Not yet done
+
+The **Draw tab UI for all of this** — Generate disabled with its reason, Undo,
+Lock, and the "organiser is still finalising the draw" state for players — is
+not built. The service and endpoints are complete and tested; nothing on screen
+calls them yet. Not verified in a browser.
+
+---
+
+## Fees, rosters, club limits, and the draw made legible (2026-08-25, final)
+
+Phases 4 to 8 of the tournament work, plus the Draw-tab UI that Phase 3 was
+missing.
+
+### The connector lines, fixed by stating the geometry
+
+The tree distributed matches with `justify-around` and assumed that placed the
+two feeders of a slot at exactly 25% and 75% of their pair. It does not, and
+four separate things exploited the gap: a `gap-3` between the flex children
+shifted every centre by `gap/4`; cards are not equal height (a bye carries an
+extra line, a card with set scores is taller than one without) and
+`space-around` centres by FREE space; the losers bracket does not halve (an
+8-draw emits 2, 2, 1, 1), so pairing two-at-a-time drew joiners into rounds with
+two slots; and an odd match count left a lone stub running into empty space.
+
+Every one of those is the same mistake — inferring position from layout. Each
+round is now a CSS grid over shared leaf rows with a round-*i* match spanning
+`2^i` of them, so a card's centre is arithmetic and card height, gaps and parity
+stop mattering. `bracketGridRows` holds the maths and is unit-tested; CSS
+geometry is not testable in jsdom, so the part that *is* testable moved out of
+it. It also reports whether the rounds genuinely form a tree, and a losers
+bracket or a round robin renders as plain columns — no lines at all beats lines
+that misrepresent which match feeds which.
+
+`FormatDiagram` puts a picture beside the format name. A sentence distinguishes
+a knockout from a round robin; it does not let an organiser picture "round robin
+into single elimination", and Generate is hard to take back once entrants have
+seen the draw.
+
+**A Matches tab**, ordered by what needs doing — Ready to play, Waiting, Played
+— reusing the same score row the Schedule tab uses. The draw answers "who plays
+the winner of this", which makes it a poor place to type into: the card needing
+a result is wherever the tree puts it, while an organiser at a venue is scanning
+for the next unplayed match.
+
+### The Draw tab controls
+
+Phase 3's rules were live on the database and unreachable from the UI. Now, in
+lifecycle order: **Generate** (disabled with its reason when the category is
+short), **Undo generate**, and **Lock bracket** beside it, live only once there
+is a draw to freeze. Locked, those give way to a *Draw locked* marker and an
+**Unlock** that withdraws once a result exists. A player looking before the lock
+is told the organiser is still finalising it and pointed at the Players tab,
+rather than shown an empty panel.
+
+### Money, quoted but not moved
+
+`events.fee_amount` was rendered and never charged, and nothing anywhere said
+that a doubles entry costs twice the printed number — a pair is two players on
+one row.
+
+`platform_fee_rules` is the convenience-fee ladder: percentage or fixed, banded
+on the base amount, with a floor and cap for percentages. Both shapes were asked
+for and both are needed, because a flat 5% is trivial on a ₱200 entry and
+punitive on a ₱5,000 one. `utils/convenience-fee.ts` holds the maths in integer
+cents and is shared by the quote and by whatever eventually charges — a fee
+quoted at one number and charged at another is the worst bug available in this
+area. 23 tests, including the clamps, the no-rule case, and the guard that a fee
+never exceeds the amount it is a fee on.
+
+The register button now opens a summary: entry × 1 or × 2 with the partner
+named, the convenience fee on its own line, and the total. It says plainly that
+the entry goes to the club and only the convenience fee is the platform's, and
+that online payment is not switched on yet.
+
+`/admin/fees` is the Super Admin console, with a live preview computed by the
+same function the registration screen uses. `club_payment_accounts` stores the
+club's own public link reference and deliberately has **no column for a club
+secret**: the platform never charges on the club's behalf.
+
+**ADR-006** records what is not decided — whether this settles as two charges or
+one split charge — because that is a provider and commercial question, not a
+code one. Note it is ADR-**006**; ADR-005 was already taken.
+
+### Team Up
+
+A roster, not a partnership, and a separate table for a reason. `partnerships`
+is mutual and symmetric — the pair who enter a doubles category together.
+A team-up is directional: I may bring you to an open play session; you are not
+thereby able to bring me. Folding them together would mean either creating
+doubles partnerships nobody agreed to, or making partnership directional and
+breaking the pairing rule the tournament domain rests on.
+
+It still needs acceptance, because registering somebody commits their evening
+and, once payments are live, their money. `POST /events/:id/register` takes
+`player_ids`, checks every name against an accepted team-up, and counts the
+whole group against capacity — entering four into two remaining places used to
+half-succeed. `registered_by_player_id` records who did it.
+
+Team Up sits **beside** the Duo Partner button on a profile, not instead of it,
+and Community gains a fourth tab.
+
+### Club limits, and the trap they nearly created
+
+Nothing limited an unverified club, so verification — which has a full approval
+flow already built — bought a club nothing. Now: one live tournament, one live
+open play, one draft; verified clubs unlimited. Cancelled and completed events
+do not count, so a club is not blocked by a weekend that has already happened.
+
+That immediately exposed a trap. `deleteDraftEvent` refused the moment anything
+was attached, so a club that had set up a category on its one permitted draft
+could neither delete it nor create another. Draft deletion now **cleans up**
+instead, which is safe because a draft is not playable (`register` requires
+published or active, so nothing rated can be behind one). Matches are still
+refused — those are a record of play.
+
+### Verified club offering
+
+`docs/36-VERIFIED-CLUB-OFFERING.md`. The short version: price on **online fee
+collection**, because it is the only item that pays for itself for the club and
+the only one that genuinely requires verification rather than merely being gated
+behind it. The strongest hook is **rated events**, which is also the item with
+the clearest integrity argument. The doc is equally explicit about what must NOT
+go behind the gate — basic event creation, anything player-facing, the bracket
+generator itself.
+
+### Applied
+
+**Applied 2026-08-25.** 034-platform-fees and 035-team-up ran; `liquibase status`
+reports the database up to date at **228 changesets** (was 220). Verified through
+PostgREST: the fee ladder reads with the anon key (the registration screen has to
+quote a total) and rejects an anonymous insert with 401.
+
+### Validation
+
+`typecheck` clean, `eslint` 0 errors (8 pre-existing warnings in unrelated
+files), `check:tokens` clean across 96 files, `nuxt build` succeeding, **881 unit
+tests passing** (was 778 at the end of Phase 2).
+
+New specs: `bracket-grid`, `category-matchups-controls`, `category-matches`,
+`convenience-fee`, `team-up.service`, `club-event-limits`.
+
+Three existing specs changed behaviour deliberately rather than being repaired:
+`bracket-tree` no longer counts a `.bracket-pair` wrapper that the grid rewrite
+removed, and `event-delete` now asserts that a draft with entries is cleared
+rather than refused.
+
+### Still not verified in a browser
+
+None of this has been driven in the running app. The live walkthrough in the
+plan is the outstanding work.

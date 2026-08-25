@@ -5,6 +5,11 @@ import {
 } from '#supabase/server'
 import { createEventRegistrationRepository } from '~/server/domains/event/repositories/event-registration.repository'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
+import { createTeamUpRepository } from '~/server/domains/partnership/repositories/team-up.repository'
+import {
+  createTeamUpService,
+  TeamUpServiceError
+} from '~/server/domains/partnership/services/team-up.service'
 import { apiError } from '~/server/utils/api-error'
 
 export default defineEventHandler(async (event) => {
@@ -31,9 +36,41 @@ export default defineEventHandler(async (event) => {
   const serviceClient = serverSupabaseServiceRole(event)
   const registrationRepo = createEventRegistrationRepository(serviceClient)
 
-  const existing = await registrationRepo.findByEventAndPlayer(eventId, playerProfile.id)
-  if (existing && existing.status !== 'withdrawn') {
-    throw apiError(409, 'ALREADY_REGISTERED', 'You are already registered for this event.')
+  /**
+   * Open play can be entered for several people at once — you turn up with
+   * three from your team and enter them all. `player_ids` names those extras;
+   * omitting it registers only the caller, which is what every existing client
+   * does.
+   */
+  const body = await readBody<{ player_ids?: string[] }>(event).catch(() => undefined)
+  const requested = Array.isArray(body?.player_ids) ? body.player_ids : []
+
+  // The caller is always in, and the set dedupes a client that sends them twice.
+  const everyone = [...new Set([playerProfile.id, ...requested])]
+
+  // Consent: registering somebody commits their evening, so it takes an
+  // accepted team-up. Self-registration needs no permission and is skipped.
+  if (everyone.length > 1) {
+    const teamService = createTeamUpService(createTeamUpRepository(serviceClient))
+    try {
+      await teamService.assertCanRegister(playerProfile.id, everyone)
+    } catch (err) {
+      if (err instanceof TeamUpServiceError) throw apiError(err.status, err.code, err.message)
+      throw err
+    }
+  }
+
+  for (const playerId of everyone) {
+    const existing = await registrationRepo.findByEventAndPlayer(eventId, playerId)
+    if (existing && existing.status !== 'withdrawn') {
+      throw apiError(
+        409,
+        'ALREADY_REGISTERED',
+        playerId === playerProfile.id
+          ? 'You are already registered for this event.'
+          : 'One of the players you selected is already registered for this event.'
+      )
+    }
   }
 
   const { data: eventData, error: eventError } = await serviceClient
@@ -66,21 +103,42 @@ export default defineEventHandler(async (event) => {
 
   if (eventData.max_participants) {
     const currentCount = await registrationRepo.countByEvent(eventId, ['registered', 'checked_in'])
-    if (currentCount >= eventData.max_participants) {
-      throw apiError(409, 'EVENT_FULL', 'This event has reached maximum capacity.')
+    // The whole group has to fit, not just the first of them — otherwise
+    // entering four into two remaining places half-succeeds.
+    if (currentCount + everyone.length > eventData.max_participants) {
+      const left = Math.max(0, eventData.max_participants - currentCount)
+      throw apiError(
+        409,
+        'EVENT_FULL',
+        everyone.length > 1
+          ? `Only ${left} ${left === 1 ? 'place is' : 'places are'} left — you tried to enter ${everyone.length}.`
+          : 'This event has reached maximum capacity.'
+      )
     }
   }
 
   try {
-    const registration = await registrationRepo.create({
-      event_id: eventId,
-      player_id: playerProfile.id,
-      status: 'registered'
-    })
+    const registrations = []
+    for (const playerId of everyone) {
+      registrations.push(
+        await registrationRepo.create({
+          event_id: eventId,
+          player_id: playerId,
+          status: 'registered',
+          // Null for the caller's own row: they registered themselves, and
+          // recording them as their own registrar would be noise.
+          registered_by_player_id: playerId === playerProfile.id ? null : playerProfile.id
+        })
+      )
+    }
 
     return {
-      data: registration,
-      message: 'Successfully registered for event',
+      data: registrations[0],
+      registrations,
+      message:
+        registrations.length > 1
+          ? `Registered ${registrations.length} players for the event`
+          : 'Successfully registered for event',
       request_id: crypto.randomUUID()
     }
   } catch (err) {

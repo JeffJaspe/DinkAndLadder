@@ -29,6 +29,21 @@ export interface EventQueueService {
     queueId2: string,
     courtNumber: number
   ): Promise<{ first: EventQueueRecord; second: EventQueueRecord }>
+  /**
+   * Pairs the two longest-waiting entries of the same match type.
+   *
+   * The selection happens here rather than in the browser on purpose: two
+   * organisers tapping "Match next" at the same moment would otherwise both
+   * compute the same head of the queue from their own stale copy and send it as
+   * an explicit pair. Reading the queue inside the request narrows that to the
+   * ordinary write race, which the 'waiting' status check already loses safely.
+   */
+  matchNextPair(
+    actingPlayerId: string,
+    eventId: string,
+    courtNumber: number,
+    matchType?: 'singles' | 'doubles'
+  ): Promise<{ first: EventQueueRecord; second: EventQueueRecord }>
   skipEntry(actingPlayerId: string, eventId: string, queueId: string): Promise<EventQueueRecord>
 }
 
@@ -67,7 +82,9 @@ export function createEventQueueService(
   registrations: EventRegistrationRepository,
   events: EventRepository
 ): EventQueueService {
-  return {
+  // Named rather than returned inline so matchNextPair can delegate to
+  // matchEntries without depending on `this`, which a destructured service loses.
+  const service: EventQueueService = {
     async listQueue(eventId) {
       return queue.findByEvent(eventId)
     },
@@ -165,6 +182,40 @@ export function createEventQueueService(
       return { first: updatedFirst, second: updatedSecond }
     },
 
+    async matchNextPair(actingPlayerId, eventId, courtNumber, matchType) {
+      await assertOrganizer(events, eventId, actingPlayerId)
+
+      // `findWaiting` already orders by joined_at ascending, so the head of this
+      // list is first come, first served — the fairness the UI now claims.
+      const waiting = await queue.findWaiting(eventId, matchType)
+
+      // Singles cannot be paired against doubles. With no match type given, the
+      // longest wait decides which format goes on next, and the pair is taken
+      // from that format only.
+      const first = waiting[0]
+      if (!first) {
+        throw new EventQueueServiceError(
+          409,
+          'INSUFFICIENT_QUEUE',
+          'Nobody is waiting in the queue.'
+        )
+      }
+      const second = waiting.find(
+        (entry) => entry.id !== first.id && entry.match_type === first.match_type
+      )
+      if (!second) {
+        throw new EventQueueServiceError(
+          409,
+          'INSUFFICIENT_QUEUE',
+          `Only one ${first.match_type} entry is waiting; two are needed for a match.`
+        )
+      }
+
+      // Delegates so the court-in-use and status checks live in exactly one
+      // place rather than being restated here and drifting.
+      return service.matchEntries(actingPlayerId, eventId, first.id, second.id, courtNumber)
+    },
+
     async skipEntry(actingPlayerId, eventId, queueId) {
       await assertOrganizer(events, eventId, actingPlayerId)
 
@@ -185,4 +236,6 @@ export function createEventQueueService(
       return updated
     }
   }
+
+  return service
 }

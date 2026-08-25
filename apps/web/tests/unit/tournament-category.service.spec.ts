@@ -29,6 +29,8 @@ function makeTournament(overrides?: Partial<TournamentRecord>): TournamentRecord
     max_rating: null,
     max_participants: null,
     status: 'draft',
+    bracket_locked_at: null,
+    bracket_locked_by_player_id: null,
     created_at: '2026-08-01T00:00:00Z',
     updated_at: '2026-08-01T00:00:00Z',
     ...overrides
@@ -70,9 +72,16 @@ describe('TournamentCategoryService', () => {
   let categoryRepository: TournamentCategoryRepository
   let tournamentRepository: TournamentRepository
   let eventRepository: EventRepository
+  /** Bracket state the category service reads but does not own. */
+  let recordedResults: number
+  let undecidedMatches: number
+  let deleted: string[]
 
   beforeEach(() => {
     created = []
+    recordedResults = 0
+    undecidedMatches = 0
+    deleted = []
 
     categoryRepository = {
       async findById(id) {
@@ -92,7 +101,11 @@ describe('TournamentCategoryService', () => {
           max_rating: input.max_rating ?? null,
           max_participants: input.max_participants ?? null,
           display_order: input.display_order ?? 0,
+          match_type: input.match_type ?? null,
+          format: input.format ?? null,
           status: 'open',
+          bracket_locked_at: null,
+          bracket_locked_by_player_id: null,
           created_at: '2026-08-01T00:00:00Z',
           updated_at: '2026-08-01T00:00:00Z'
         }
@@ -109,10 +122,29 @@ describe('TournamentCategoryService', () => {
         if (input.max_participants !== undefined) existing.max_participants = input.max_participants
         if (input.display_order !== undefined) existing.display_order = input.display_order
         if (input.status !== undefined) existing.status = input.status
+        if (input.match_type !== undefined) existing.match_type = input.match_type
+        if (input.format !== undefined) existing.format = input.format
         return existing
       },
       async listTemplates() {
         return TEMPLATES
+      },
+      // Overridden per-test where the count is what is under test. Defaults say
+      // "nothing played, nothing outstanding", which is a brand-new category.
+      async countRecordedResults() {
+        return recordedResults
+      },
+      async countUndecidedMatches() {
+        return undecidedMatches
+      },
+      async setBracketLock(categoryId) {
+        const c = created.find((x) => x.id === categoryId)
+        if (!c) throw new Error(`no such category: ${categoryId}`)
+        return c
+      },
+      async deleteWithChildren(categoryId) {
+        deleted.push(categoryId)
+        created = created.filter((c) => c.id !== categoryId)
       }
     }
 
@@ -130,6 +162,9 @@ describe('TournamentCategoryService', () => {
         throw new Error('not used')
       },
       async updateStatus() {
+        throw new Error('not used')
+      },
+      async setBracketLock() {
         throw new Error('not used')
       }
     }
@@ -157,6 +192,9 @@ describe('TournamentCategoryService', () => {
       },
       async deleteWithChildren() {
         throw new Error('not used')
+      },
+      async countByClubForLimits() {
+        return { drafts: 0, liveTournaments: 0, liveOpenPlay: 0 }
       }
     }
   })
@@ -188,7 +226,7 @@ describe('TournamentCategoryService', () => {
 
     const registrations = {
       findById: async () => null,
-      findByTournamentAndPlayer: async () => null,
+      findCategoryEntrants: async () => [],
       findByTournamentId: async () => rows,
       findByTournamentIdWithPlayers: async () => [],
       create: async () => {
@@ -330,6 +368,280 @@ describe('TournamentCategoryService', () => {
           max_participants: size
         })
       ).rejects.toThrow(/whole number of at least 2/)
+    })
+  })
+
+  /**
+   * Singles or doubles used to live only on the tournament, so every category
+   * of one weekend had to be the same. It is a property of the category now.
+   */
+  describe('match type', () => {
+    it('writes the tournament type down when the caller gives none', async () => {
+      const service = createService()
+
+      const category = await service.createCustom('player-organizer', 'tournament-1', {
+        name: 'Open'
+      })
+
+      // Recorded rather than left null, so the category keeps saying what it
+      // is even if the tournament's own type is later changed.
+      expect(category.match_type).toBe('singles')
+    })
+
+    it('keeps an explicit type that differs from the tournament', async () => {
+      const service = createService()
+
+      const category = await service.createCustom('player-organizer', 'tournament-1', {
+        name: 'Doubles Open',
+        match_type: 'doubles'
+      })
+
+      expect(category.match_type).toBe('doubles')
+    })
+
+    it('carries an explicit type through a template category too', async () => {
+      const service = createService()
+
+      const category = await service.createFromTemplate('player-organizer', 'tournament-1', {
+        template_id: TEMPLATES[0].id,
+        match_type: 'doubles'
+      })
+
+      expect(category.match_type).toBe('doubles')
+    })
+
+    it('rejects a type that is neither singles nor doubles', async () => {
+      const service = createService()
+
+      await expect(
+        service.createCustom('player-organizer', 'tournament-1', {
+          name: 'Mixed',
+          match_type: 'mixed' as never
+        })
+      ).rejects.toMatchObject({ status: 400 })
+    })
+  })
+
+  /**
+   * Format moved onto the category in 031-tournament-format, on the same
+   * "nullable means inherit" pattern match_type uses — so it is written down at
+   * creation rather than left null, or a later change to the tournament's own
+   * format would silently redraw categories nobody touched.
+   */
+  describe('per-category format', () => {
+    it("writes the tournament's format down when none is given", async () => {
+      const service = createService()
+
+      const category = await service.createCustom('player-organizer', 'tournament-1', {
+        name: 'Open'
+      })
+
+      expect(category.format).toBe('single_elimination')
+    })
+
+    it('keeps an explicit format that differs from the tournament', async () => {
+      const service = createService()
+
+      const category = await service.createCustom('player-organizer', 'tournament-1', {
+        name: 'Open',
+        format: 'round_robin'
+      })
+
+      expect(category.format).toBe('round_robin')
+    })
+
+    it('carries an explicit format through a template category too', async () => {
+      const service = createService()
+
+      const category = await service.createFromTemplate('player-organizer', 'tournament-1', {
+        template_id: TEMPLATES[0].id,
+        format: 'round_robin_double_elimination'
+      })
+
+      expect(category.format).toBe('round_robin_double_elimination')
+    })
+
+    it('rejects a format that is not on the list', async () => {
+      const service = createService()
+
+      await expect(
+        service.createCustom('player-organizer', 'tournament-1', {
+          name: 'Swiss thing',
+          format: 'swiss' as never
+        })
+      ).rejects.toMatchObject({ status: 400, code: 'VALIDATION_ERROR' })
+    })
+
+    // The value the rename replaced. Accepting it would write a string the
+    // database CHECK constraint refuses.
+    it('rejects the retired pool_play value', async () => {
+      const service = createService()
+
+      await expect(
+        service.createCustom('player-organizer', 'tournament-1', {
+          name: 'Pools',
+          format: 'pool_play' as never
+        })
+      ).rejects.toMatchObject({ status: 400 })
+    })
+
+    it('lets an organizer change the format of an existing category', async () => {
+      const service = createService()
+      const created = await service.createCustom('player-organizer', 'tournament-1', {
+        name: 'Open'
+      })
+
+      const updated = await service.updateCategory('player-organizer', created.id, {
+        format: 'round_robin_single_elimination'
+      })
+
+      expect(updated.format).toBe('round_robin_single_elimination')
+    })
+  })
+
+  /**
+   * Every doubles entry carries a partner. Flipping the category to singles
+   * would orphan it, and flipping to doubles would leave singles entries in a
+   * category that now demands one.
+   */
+  describe('locking match type once people have entered', () => {
+    it('refuses to switch a category that already has entries', async () => {
+      const seed = createService()
+      const created = await seed.createCustom('player-organizer', 'tournament-1', {
+        name: 'Open',
+        match_type: 'doubles'
+      })
+
+      const service = createServiceWithRegistrations(2, created.id)
+
+      await expect(
+        service.updateCategory('player-organizer', created.id, { match_type: 'singles' })
+      ).rejects.toMatchObject({ status: 409, code: 'MATCH_TYPE_LOCKED' })
+    })
+
+    it('allows the switch while nobody has entered', async () => {
+      const seed = createService()
+      const created = await seed.createCustom('player-organizer', 'tournament-1', {
+        name: 'Open',
+        match_type: 'doubles'
+      })
+
+      const service = createServiceWithRegistrations(0, created.id)
+      const updated = await service.updateCategory('player-organizer', created.id, {
+        match_type: 'singles'
+      })
+
+      expect(updated.match_type).toBe('singles')
+    })
+
+    // Resubmitting the form unchanged must not be refused as a "change".
+    it('does not treat an unchanged match type as a switch', async () => {
+      const seed = createService()
+      const created = await seed.createCustom('player-organizer', 'tournament-1', {
+        name: 'Open',
+        match_type: 'doubles'
+      })
+
+      const service = createServiceWithRegistrations(3, created.id)
+      const updated = await service.updateCategory('player-organizer', created.id, {
+        match_type: 'doubles',
+        name: 'Open Doubles'
+      })
+
+      expect(updated.name).toBe('Open Doubles')
+    })
+
+    // A format change redraws the bracket; it strands nobody's entry.
+    it('lets the format change even with a full category', async () => {
+      const seed = createService()
+      const created = await seed.createCustom('player-organizer', 'tournament-1', {
+        name: 'Open',
+        match_type: 'doubles'
+      })
+
+      const service = createServiceWithRegistrations(4, created.id)
+      const updated = await service.updateCategory('player-organizer', created.id, {
+        format: 'round_robin'
+      })
+
+      expect(updated.format).toBe('round_robin')
+    })
+  })
+/**
+   * The two ways a category ends. Finishing publishes standings and needs
+   * results to publish; trashing destroys the category and is refused once
+   * results exist, because at that point it is a record of something that
+   * happened and its matches have already moved people's ratings.
+   */
+  describe('ending a category', () => {
+    async function seedCategory() {
+      const service = createService()
+      return service.createCustom('player-organizer', 'tournament-1', { name: 'Open' })
+    }
+
+    it('refuses to complete while matches are undecided', async () => {
+      const created = await seedCategory()
+      undecidedMatches = 3
+
+      await expect(
+        createService().updateCategory('player-organizer', created.id, { status: 'completed' })
+      ).rejects.toMatchObject({ code: 'CATEGORY_NOT_DECIDED' })
+    })
+
+    it('completes once every match has a result', async () => {
+      const created = await seedCategory()
+      undecidedMatches = 0
+
+      const updated = await createService().updateCategory('player-organizer', created.id, {
+        status: 'completed'
+      })
+      expect(updated.status).toBe('completed')
+    })
+
+    it('does not re-check an already completed category', async () => {
+      const created = await seedCategory()
+      undecidedMatches = 0
+      await createService().updateCategory('player-organizer', created.id, { status: 'completed' })
+
+      // A later edit must not be blocked by matches that appeared afterwards.
+      undecidedMatches = 2
+      const updated = await createService().updateCategory('player-organizer', created.id, {
+        status: 'completed'
+      })
+      expect(updated.status).toBe('completed')
+    })
+
+    it('trashes a category nobody has played', async () => {
+      const created = await seedCategory()
+      recordedResults = 0
+
+      await createService().deleteCategory('player-organizer', created.id)
+      expect(deleted).toEqual([created.id])
+    })
+
+    it('refuses to trash a category with recorded results', async () => {
+      const created = await seedCategory()
+      recordedResults = 2
+
+      await expect(
+        createService().deleteCategory('player-organizer', created.id)
+      ).rejects.toMatchObject({ code: 'CATEGORY_HAS_RESULTS' })
+      expect(deleted).toEqual([])
+    })
+
+    it('refuses to trash for anyone but the organiser', async () => {
+      const created = await seedCategory()
+
+      await expect(
+        createService().deleteCategory('someone-else', created.id)
+      ).rejects.toMatchObject({ status: 403 })
+      expect(deleted).toEqual([])
+    })
+
+    it('404s on a category that does not exist', async () => {
+      await expect(
+        createService().deleteCategory('player-organizer', 'nope')
+      ).rejects.toMatchObject({ status: 404 })
     })
   })
 })

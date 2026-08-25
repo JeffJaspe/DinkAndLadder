@@ -1,3 +1,5 @@
+import type { TournamentFormat, TournamentMatchType } from './tournament.dto'
+
 export type TournamentCategoryType = 'predefined' | 'custom'
 export type TournamentCategoryStatus = 'open' | 'closed' | 'completed'
 
@@ -12,6 +14,13 @@ export interface TournamentCategoryRecord {
   max_participants: number | null
   display_order: number
   status: TournamentCategoryStatus
+  /** Null means "inherit from the tournament" — see resolveMatchType. */
+  match_type: TournamentMatchType | null
+  /** Null means "inherit from the tournament" — see resolveFormat. */
+  format: TournamentFormat | null
+  /** Null while the draw is still being worked on — see resolveBracketLock. */
+  bracket_locked_at: string | null
+  bracket_locked_by_player_id: string | null
   created_at: string
   updated_at: string
 }
@@ -27,6 +36,14 @@ export interface TournamentCategoryDto {
   max_participants: number | null
   display_order: number
   status: TournamentCategoryStatus
+  match_type: TournamentMatchType | null
+  format: TournamentFormat | null
+  /**
+   * When the organiser froze the draw. Non-null means the bracket is final: it
+   * is visible to players, results can be recorded against it, and it can no
+   * longer be regenerated or undone.
+   */
+  bracket_locked_at: string | null
 }
 
 export function toTournamentCategoryDto(record: TournamentCategoryRecord): TournamentCategoryDto {
@@ -40,8 +57,64 @@ export function toTournamentCategoryDto(record: TournamentCategoryRecord): Tourn
     max_rating: record.max_rating,
     max_participants: record.max_participants,
     display_order: record.display_order,
-    status: record.status
+    status: record.status,
+    match_type: record.match_type,
+    format: record.format,
+    bracket_locked_at: record.bracket_locked_at
   }
+}
+
+/**
+ * Whether this category's draw is frozen, and by whom.
+ *
+ * Same two-table contract as resolveMatchType and resolveFormat, for the same
+ * reason: a tournament may run one flat draw with no category at all, and that
+ * draw still needs somewhere to record its lock. A category that states its own
+ * lock wins; otherwise the tournament's applies.
+ *
+ * Locking is the hinge of the whole bracket lifecycle — it is what makes a draw
+ * visible to players and results recordable — so every caller that needs to
+ * know goes through here rather than reading a column, exactly so the generator,
+ * the visibility gate and the result recorder cannot disagree.
+ */
+export function resolveBracketLock(
+  category: { bracket_locked_at: string | null } | null,
+  tournamentLockedAt: string | null
+): string | null {
+  return category?.bracket_locked_at ?? tournamentLockedAt
+}
+
+/**
+ * Whether this category is played in singles or doubles.
+ *
+ * A category may state its own; a null means it predates per-category types, or
+ * was created by a client that does not send one, and falls back to the
+ * tournament's. Every caller that needs to know — the partner rule on
+ * registration, the match created when a result is recorded, and the label on
+ * the card — goes through here so they cannot disagree.
+ */
+export function resolveMatchType(
+  category: { match_type: TournamentMatchType | null } | null,
+  tournamentMatchType: TournamentMatchType
+): TournamentMatchType {
+  return category?.match_type ?? tournamentMatchType
+}
+
+/**
+ * How this category is drawn.
+ *
+ * Same contract as resolveMatchType, for the same reason: a category may state
+ * its own format, and a null means it predates per-category formats or was
+ * created by a client that does not send one. The bracket generator, the draw
+ * view and the settings form all go through here so they cannot disagree about
+ * which format a category is being played in — which they would the moment an
+ * organiser changed the tournament's own format after a category was created.
+ */
+export function resolveFormat(
+  category: { format: TournamentFormat | null } | null,
+  tournamentFormat: TournamentFormat
+): TournamentFormat {
+  return category?.format ?? tournamentFormat
 }
 
 export interface CreateTournamentCategoryInput {
@@ -53,6 +126,8 @@ export interface CreateTournamentCategoryInput {
   max_rating?: number | null
   max_participants?: number | null
   display_order?: number
+  match_type?: TournamentMatchType | null
+  format?: TournamentFormat | null
 }
 
 export interface TournamentCategoryTemplateRecord {
@@ -95,4 +170,6 @@ export interface UpdateTournamentCategoryInput {
   max_participants?: number | null
   display_order?: number
   status?: TournamentCategoryStatus
+  match_type?: TournamentMatchType | null
+  format?: TournamentFormat | null
 }

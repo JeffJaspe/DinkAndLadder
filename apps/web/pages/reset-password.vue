@@ -30,11 +30,7 @@ async function handleReset() {
       <!-- Logo -->
       <div class="mb-8 text-center">
         <NuxtLink to="/" class="inline-flex items-center gap-2">
-          <div
-            class="flex h-12 w-12 items-center justify-center rounded-xl bg-primary text-xl font-bold text-on-primary"
-          >
-            D
-          </div>
+          <UiBrandMark size="xl" :show-name="false" />
         </NuxtLink>
         <h1 class="mt-4 text-2xl font-bold text-fg">Reset your password</h1>
         <p class="mt-2 text-fg-muted">Enter your email to receive a reset link</p>

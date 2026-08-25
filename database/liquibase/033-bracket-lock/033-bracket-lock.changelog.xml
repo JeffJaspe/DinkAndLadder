@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Locking a draw.
+
+     A bracket had no lifecycle at all. Generation was destructive, repeatable,
+     and public the instant it existed: an organiser experimenting with a draw
+     was broadcasting each attempt to every entrant, and there was no way to say
+     "this one is final". There was also no undo, so a mis-click regenerated a
+     draw and silently orphaned any `matches` rows already created from it.
+
+     The lifecycle these columns complete:
+
+         open -> generate -> lock -> complete
+                 (private,   (public,  (standings
+                  redrawable) playable) published)
+
+     Locking is what makes a draw visible to players and results recordable
+     against it. Before it, a player sees the entrant list and the placeholder
+     shape only.
+
+     WHY BOTH TABLES
+
+     A draw belongs to a category, so `tournament_categories` is the natural
+     home. But a tournament may legitimately have no categories at all and run
+     one flat draw, in which case there is no category row to carry the lock.
+     The pair is resolved by `resolveBracketLock` in tournament-category.dto.ts,
+     exactly as `resolveMatchType` (030) and `resolveFormat` (031) already
+     resolve their own values across the same two tables. Duplicating two
+     columns is the cheaper of the two mistakes available here; the alternative
+     is a separate lock table keyed on a nullable category_id, whose uniqueness
+     constraint cannot be expressed.
+
+     No backfill and no default beyond NULL: every existing draw is unlocked,
+     which is the correct starting state. Organisers lock the ones that are
+     final. Nothing that works today stops working — an unlocked draw is still
+     fully visible to the organiser, and the visibility gate is applied in the
+     service rather than in RLS so that a locked draw stays as readable as it is
+     now to everyone who could already see the event. -->
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+    <changeSet id="0001-category-bracket-lock" author="bracket-lock">
+        <addColumn tableName="tournament_categories">
+            <column name="bracket_locked_at" type="timestamptz">
+                <constraints nullable="true"/>
+            </column>
+            <column name="bracket_locked_by_player_id" type="uuid">
+                <constraints nullable="true"
+                             foreignKeyName="fk_tournament_categories_bracket_locked_by"
+                             references="player_profiles(id)"/>
+            </column>
+        </addColumn>
+        <rollback>
+            <dropColumn tableName="tournament_categories" columnName="bracket_locked_by_player_id"/>
+            <dropColumn tableName="tournament_categories" columnName="bracket_locked_at"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="0002-tournament-bracket-lock" author="bracket-lock">
+        <comment>
+            The category-less path: a tournament running one flat draw has no category
+            row to carry the lock. See resolveBracketLock.
+        </comment>
+        <addColumn tableName="tournaments">
+            <column name="bracket_locked_at" type="timestamptz">
+                <constraints nullable="true"/>
+            </column>
+            <column name="bracket_locked_by_player_id" type="uuid">
+                <constraints nullable="true"
+                             foreignKeyName="fk_tournaments_bracket_locked_by"
+                             references="player_profiles(id)"/>
+            </column>
+        </addColumn>
+        <rollback>
+            <dropColumn tableName="tournaments" columnName="bracket_locked_by_player_id"/>
+            <dropColumn tableName="tournaments" columnName="bracket_locked_at"/>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

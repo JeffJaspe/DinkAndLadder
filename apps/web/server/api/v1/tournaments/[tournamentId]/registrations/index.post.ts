@@ -16,7 +16,7 @@ import type { RegisterForTournamentInput } from '~/server/domains/event/dto/tour
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
 import { createTournamentCategoryRepository } from '~/server/domains/event/repositories/tournament-category.repository'
 import { createRatingRepository } from '~/server/domains/rating/repositories/rating.repository'
-import { createRatingService } from '~/server/domains/rating/services/rating.service'
+import { createPartnershipRepository } from '~/server/domains/partnership/repositories/partnership.repository'
 
 export default defineEventHandler(async (event) => {
   const user = await serverSupabaseUser(event)
@@ -40,61 +40,47 @@ export default defineEventHandler(async (event) => {
   const body = await readBody<RegisterForTournamentInput>(event)
 
   const serviceClient = serverSupabaseServiceRole(event)
-  const eventRepo = createEventRepository(serviceClient)
-  const tournamentRepo = createTournamentRepository(serviceClient)
-  const registrationRepo = createTournamentRegistrationRepository(serviceClient)
-  const service = createEventService(eventRepo, tournamentRepo, registrationRepo)
+  const categoryRepo = createTournamentCategoryRepository(serviceClient)
+
+  // Every rule that decides whether this entry is allowed — the partner
+  // requirement, the one-entry-per-category invariant, the rating band and the
+  // capacity — lives in EventService. This handler only supplies the
+  // repositories those rules need and translates the failure into a status
+  // code. The band check in particular used to sit here, which put business
+  // logic in the wiring layer and left it reading the tournament's match type
+  // and the registrant's rating alone.
+  const service = createEventService(
+    createEventRepository(serviceClient),
+    createTournamentRepository(serviceClient),
+    createTournamentRegistrationRepository(serviceClient),
+    undefined,
+    undefined,
+    categoryRepo,
+    createPartnershipRepository(serviceClient),
+    createRatingRepository(serviceClient)
+  )
 
   const categoryId = body?.category_id ?? null
 
-  try {
-    // Category rating-eligibility check lives here rather than in EventService — it
-    // crosses into the rating domain, and EventService's factory is called from 14
-    // other controllers that have no reason to depend on it.
-    if (categoryId) {
-      const categoryRepo = createTournamentCategoryRepository(serviceClient)
-      const category = await categoryRepo.findById(categoryId)
-      if (!category || category.tournament_id !== tournamentId) {
-        throw createError({
-          statusCode: 404,
-          statusMessage: 'Category not found for this tournament.'
-        })
-      }
-      if (category.min_rating != null || category.max_rating != null) {
-        const tournament = await tournamentRepo.findById(tournamentId)
-        const ratingService = createRatingService(createRatingRepository(serviceClient))
-        const rating = tournament
-          ? await ratingService.getRating(profile.id, tournament.match_type)
-          : null
-        const ratingValue = rating?.rating_value ?? null
-        if (ratingValue == null) {
-          throw createError({
-            statusCode: 400,
-            statusMessage: 'A rating is required to register for this category.'
-          })
-        }
-        if (category.min_rating != null && ratingValue < category.min_rating) {
-          throw createError({
-            statusCode: 400,
-            statusMessage: `Your rating is below this category's minimum (${category.min_rating}).`
-          })
-        }
-        if (category.max_rating != null && ratingValue > category.max_rating) {
-          throw createError({
-            statusCode: 400,
-            statusMessage: `Your rating is above this category's maximum (${category.max_rating}).`
-          })
-        }
-      }
+  // Ownership of the category is a routing question, not a business rule: a
+  // category id belonging to a different tournament makes the URL wrong.
+  if (categoryId) {
+    const category = await categoryRepo.findById(categoryId)
+    if (!category || category.tournament_id !== tournamentId) {
+      throw createError({
+        statusCode: 404,
+        statusMessage: 'Category not found for this tournament.'
+      })
     }
+  }
 
-    const registration = await service.register(
+  try {
+    return await service.register(
       profile.id,
       tournamentId,
       body?.partner_player_id ?? null,
       categoryId
     )
-    return registration
   } catch (err) {
     if (err instanceof EventServiceError) {
       throw createError({ statusCode: err.status, statusMessage: err.message })

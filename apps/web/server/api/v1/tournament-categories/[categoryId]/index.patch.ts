@@ -60,7 +60,9 @@ export default defineEventHandler(async (event) => {
       max_rating: body.max_rating,
       max_participants: body.max_participants,
       display_order: body.display_order,
-      status: body.status
+      status: body.status,
+      match_type: body.match_type,
+      format: body.format
     })
     return { data: category, request_id: crypto.randomUUID() }
   } catch (err) {

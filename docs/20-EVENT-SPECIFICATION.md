@@ -28,12 +28,38 @@ A scheduled competition with:
 A single competition within an event:
 - event_id (parent)
 - name (e.g., "Men's Singles", "Mixed Doubles Open")
-- format: `single_elimination`, `double_elimination`, `round_robin`, `pool_play`
+- format: the DEFAULT its categories inherit. Five values (ADR-004, Liquibase
+  031-tournament-format):
+  - `round_robin` — everyone plays everyone
+  - `single_elimination` — one loss and you're out
+  - `double_elimination` — two losses and you're out
+  - `round_robin_single_elimination` — group stage then knockout
+  - `round_robin_double_elimination` — group stage then double-elim playoffs
+
+  `pool_play` was renamed to `round_robin_single_elimination`; it is no longer
+  a valid value and the CHECK constraint refuses it.
 - match_type: `singles` or `doubles`
 - skill_level: optional rating range restrictions
 - max_participants
 - registration_fee (future, nullable for now)
 - status lifecycle mirrors event but is independent
+
+### Tournament Category
+What players actually enter. A tournament holds one or more, and each carries its
+own shape — the tournament's values are only the defaults a category inherits at
+the moment it is created:
+- name and rating band (from a template, or custom)
+- `match_type` — `singles` or `doubles`, nullable meaning "inherit" (030)
+- `format` — one of the five above, nullable meaning "inherit" (031)
+- `max_participants` — capacity is a CATEGORY's business. The 3.5s and the Open
+  draw fill independently, so the event-level count is not shown for a tournament.
+
+Resolution goes through `resolveMatchType` / `resolveFormat` everywhere, so the
+generator, the draw view and the settings form cannot disagree.
+
+An organiser may edit a published category's name, capacity, rating band and
+format. `match_type` locks (`MATCH_TYPE_LOCKED`) once anyone has entered, because
+every doubles entry carries a partner a switch to singles would orphan.
 
 ### Registration
 - player_id or team (for doubles)
@@ -147,7 +173,7 @@ For the initial Phase 2 implementation:
 4. Brackets — manual seeding, basic progression
 
 Defer to later:
-- Multiple bracket formats (double_elimination, round_robin, pool_play)
+- ~~Multiple bracket formats~~ — DONE. All five, chosen per category.
 - Automatic seeding based on ratings
 - Registration fees/payments
 - Waitlist automation

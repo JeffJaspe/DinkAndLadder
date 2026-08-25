@@ -21,6 +21,8 @@ function makeEvent(overrides?: Partial<EventRecord>): EventRecord {
     city: null,
     start_date: '2026-09-01',
     end_date: '2026-09-02',
+    start_time: null,
+    end_time: null,
     registration_opens: null,
     registration_closes: null,
     status: 'draft',
@@ -51,6 +53,9 @@ function setup(options?: {
     update: vi.fn(),
     updateStatus: vi.fn(),
     search: vi.fn().mockResolvedValue([]),
+    countByClubForLimits: vi
+      .fn()
+      .mockResolvedValue({ drafts: 0, liveTournaments: 0, liveOpenPlay: 0 }),
     countBlockingChildren: vi
       .fn()
       .mockResolvedValue(options?.blocking ?? { registrations: 0, matches: 0, queueEntries: 0 }),
@@ -111,17 +116,33 @@ describe('EventService.deleteDraftEvent', () => {
     }
   )
 
+  /**
+   * A draft with entries or queue rows is now CLEANED UP rather than refused.
+   *
+   * Refusing was a trap once an unverified club could keep only one draft: set
+   * up a category on it, and the draft could neither be deleted nor replaced.
+   * It is safe because a draft is not playable — `register` requires the event
+   * to be published or active — so nothing rated can be behind one.
+   */
   it.each([
-    ['registrations', { registrations: 1, matches: 0, queueEntries: 0 }],
-    ['matches', { registrations: 0, matches: 1, queueEntries: 0 }],
-    ['queue entries', { registrations: 0, matches: 0, queueEntries: 1 }]
-  ])('refuses a draft that still has %s attached', async (_label, blocking) => {
-    // A draft should not have any of these. If it does, something real is
-    // attached and destroying it silently would be wrong.
+    ['registrations', { registrations: 3, matches: 0, queueEntries: 0 }],
+    ['queue entries', { registrations: 0, matches: 0, queueEntries: 2 }]
+  ])('clears a draft that has %s attached', async (_label, blocking) => {
     const { service, deleteWithChildren } = setup({ blocking })
 
+    await expect(service.deleteDraftEvent('organizer-1', 'event-1')).resolves.toBeUndefined()
+    expect(deleteWithChildren).toHaveBeenCalledWith('event-1')
+  })
+
+  it('still refuses a draft with matches — those are a record of play', async () => {
+    // The one thing that is never destroyed to tidy up: a match carries a
+    // result that has already moved somebody's rating.
+    const { service, deleteWithChildren } = setup({
+      blocking: { registrations: 0, matches: 1, queueEntries: 0 }
+    })
+
     await expect(service.deleteDraftEvent('organizer-1', 'event-1')).rejects.toThrow(
-      /cannot be deleted/
+      /record of play/
     )
     expect(deleteWithChildren).not.toHaveBeenCalled()
   })

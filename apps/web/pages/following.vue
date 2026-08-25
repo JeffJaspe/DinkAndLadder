@@ -52,7 +52,7 @@ async function unfollow(playerId: string) {
           :class="
             activeTab === 'following'
               ? 'bg-primary text-on-primary'
-              : 'text-fg-secondary hover:text-on-primary'
+              : 'text-fg-secondary hover:bg-surface-2 hover:text-fg'
           "
           @click="activeTab = 'following'"
         >
@@ -63,7 +63,7 @@ async function unfollow(playerId: string) {
           :class="
             activeTab === 'followers'
               ? 'bg-primary text-on-primary'
-              : 'text-fg-secondary hover:text-on-primary'
+              : 'text-fg-secondary hover:bg-surface-2 hover:text-fg'
           "
           @click="activeTab = 'followers'"
         >

@@ -32,5 +32,13 @@
     <include file="025-platform-branding/025-platform-branding.changelog.xml" relativeToChangelogFile="true"/>
     <include file="026-platform-hero/026-platform-hero.changelog.xml" relativeToChangelogFile="true"/>
     <include file="027-default-partner/027-default-partner.changelog.xml" relativeToChangelogFile="true"/>
+    <include file="028-event-time/028-event-time.changelog.xml" relativeToChangelogFile="true"/>
+    <include file="029-tournament-visibility/029-tournament-visibility.changelog.xml" relativeToChangelogFile="true"/>
+    <include file="030-category-match-type/030-category-match-type.changelog.xml" relativeToChangelogFile="true"/>
+    <include file="031-tournament-format/031-tournament-format.changelog.xml" relativeToChangelogFile="true"/>
+    <include file="032-registration-integrity/032-registration-integrity.changelog.xml" relativeToChangelogFile="true"/>
+    <include file="033-bracket-lock/033-bracket-lock.changelog.xml" relativeToChangelogFile="true"/>
+    <include file="034-platform-fees/034-platform-fees.changelog.xml" relativeToChangelogFile="true"/>
+    <include file="035-team-up/035-team-up.changelog.xml" relativeToChangelogFile="true"/>
 
 </databaseChangeLog>

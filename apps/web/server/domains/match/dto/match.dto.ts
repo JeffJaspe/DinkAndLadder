@@ -168,3 +168,18 @@ export function toMatchDto(match: MatchRecord): MatchDto {
     }))
   }
 }
+
+/**
+ * The slice of a match another domain needs to render a score next to names it
+ * already has: who played on which team, and what each set finished.
+ *
+ * Deliberately narrower than MatchRecord. The bracket only needs to orient two
+ * columns of numbers against two entrants; handing it the verifications and
+ * score proposals as well would leak the whole match workflow into the event
+ * domain for no gain.
+ */
+export interface MatchScoreLookupRow {
+  match_id: string
+  participants: { player_id: string; team_number: TeamNumber }[]
+  scores: { set_number: number; team1_score: number; team2_score: number }[]
+}

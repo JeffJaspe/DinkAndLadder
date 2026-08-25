@@ -8,11 +8,7 @@ const email = computed(() => (typeof route.query.email === 'string' ? route.quer
     <div class="w-full max-w-md">
       <div class="mb-8 text-center">
         <NuxtLink to="/" class="inline-flex items-center gap-2">
-          <div
-            class="flex h-12 w-12 items-center justify-center rounded-xl bg-primary text-xl font-bold text-on-primary"
-          >
-            D
-          </div>
+          <UiBrandMark size="xl" :show-name="false" />
         </NuxtLink>
       </div>
 

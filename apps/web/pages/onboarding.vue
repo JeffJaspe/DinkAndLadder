@@ -20,6 +20,7 @@ interface RatingResult {
 const user = useSupabaseUser()
 const route = useRoute()
 const { switchToPlayer } = useAccountMode()
+const { appName } = useBranding()
 
 // Entry point for "switch to Player mode for the first time" (see AccountSwitcher.vue):
 // a club-only account has a player_profiles row (created regardless of onboarding
@@ -220,17 +221,13 @@ const categoryLabel = (category: string) => {
     <div class="w-full max-w-lg">
       <!-- Logo -->
       <div class="mb-8 text-center">
-        <div
-          class="mx-auto flex h-14 w-14 items-center justify-center rounded-xl bg-primary text-2xl font-bold text-on-primary"
-        >
-          D
-        </div>
+        <UiBrandMark size="2xl" :show-name="false" class="justify-center" />
       </div>
 
       <!-- Step: Account Type Selection -->
       <div v-if="step === 'type'" class="space-y-6">
         <div class="text-center">
-          <h1 class="text-2xl font-bold text-fg">Welcome to DinkAndLadder!</h1>
+          <h1 class="text-2xl font-bold text-fg">Welcome to {{ appName }}!</h1>
           <p class="mt-2 text-fg-muted">First, what should we call you?</p>
         </div>
 

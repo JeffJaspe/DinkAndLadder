@@ -38,7 +38,6 @@ const router = useRouter()
 const ratingType = ref<'singles' | 'doubles'>(
   route.query.type === 'doubles' ? 'doubles' : 'singles'
 )
-const province = ref(typeof route.query.province === 'string' ? route.query.province : '')
 const searchQuery = ref('')
 
 /**
@@ -63,23 +62,85 @@ watch(searchQuery, (value) => {
 onBeforeUnmount(() => clearTimeout(searchTimer))
 const page = ref(Math.max(1, Number(route.query.page) || 1))
 
-const { provinces, loadingProvinces, loadProvinces } = useLocationPicker()
-onMounted(loadProvinces)
+/**
+ * Province → City → Barangay, the same cascade `/players` and `/clubs` use.
+ *
+ * This page filtered by province alone; the finer cascade lived on the
+ * Community page's Rankings tab, which duplicated this one. That tab is gone
+ * and its filter moved here, so there is one ranking surface and it can answer
+ * "who is the best in my barangay?".
+ */
+const {
+  provinces,
+  cities,
+  barangays,
+  selectedProvince,
+  selectedCity,
+  selectedBarangay,
+  provinceName,
+  cityName,
+  barangayName,
+  loadingProvinces,
+  loadingCities,
+  loadingBarangays,
+  loadProvinces,
+  selectProvince,
+  selectCity,
+  selectBarangay
+} = useLocationPicker()
+
+/**
+ * Restore a shared link's location filter.
+ *
+ * The URL carries PSGC *names*, not codes: they are what the API filters on and
+ * what a reader can make sense of in a pasted link. Rehydrating them means
+ * walking the cascade one level at a time — each list only exists once its
+ * parent has loaded — which is why every step awaits.
+ */
+async function restoreLocationFromQuery() {
+  // Read all three up front. Selecting the province moves `provinceName`, which
+  // fires the URL-sync watcher below, and that rewrites the query from state
+  // where the city is still empty — so by the first await, `route.query.city`
+  // is already gone. A shared barangay link restored only its province.
+  const asString = (value: unknown) => (typeof value === 'string' ? value : '')
+  const wanted = {
+    province: asString(route.query.province),
+    city: asString(route.query.city),
+    barangay: asString(route.query.barangay)
+  }
+
+  await loadProvinces()
+
+  const province = provinces.value.find((p) => p.name === wanted.province)
+  if (!province) return
+  await selectProvince(province.code)
+
+  const city = cities.value.find((c) => c.name === wanted.city)
+  if (!city) return
+  await selectCity(city.code)
+
+  const barangay = barangays.value.find((b) => b.name === wanted.barangay)
+  if (barangay) selectBarangay(barangay.code)
+}
+
+onMounted(restoreLocationFromQuery)
 
 // Filters are URL-backed so a filtered ranking is a shareable link.
-watch([ratingType, province, page], () => {
+watch([ratingType, provinceName, cityName, barangayName, page], () => {
   router.replace({
     query: {
       ...route.query,
       type: ratingType.value,
-      province: province.value || undefined,
+      province: provinceName.value || undefined,
+      city: cityName.value || undefined,
+      barangay: barangayName.value || undefined,
       page: page.value > 1 ? String(page.value) : undefined
     }
   })
 })
 
 // Changing a filter must reset paging, or you land on page 4 of a 1-page list.
-watch([ratingType, province], () => {
+watch([ratingType, provinceName, cityName, barangayName], () => {
   page.value = 1
 })
 
@@ -94,8 +155,16 @@ const {
   data: RankingEntryDto[]
   meta: { total: number; limit: number; offset: number }
 }>('/api/v1/rankings', {
-  query: { rating_type: ratingType, province, q: debouncedSearch, limit: PAGE_SIZE, offset },
-  watch: [ratingType, province, debouncedSearch, offset]
+  query: computed(() => ({
+    rating_type: ratingType.value,
+    province: provinceName.value || undefined,
+    city: cityName.value || undefined,
+    barangay: barangayName.value || undefined,
+    q: debouncedSearch.value || undefined,
+    limit: PAGE_SIZE,
+    offset: offset.value
+  })),
+  watch: [ratingType, provinceName, cityName, barangayName, debouncedSearch, offset]
 })
 
 // "Where am I?" is the first question anyone asks on a rankings page.
@@ -121,10 +190,34 @@ const pageNumbers = computed(() => {
   return [...pages].filter((n) => n >= 1 && n <= last).sort((a, b) => a - b)
 })
 
+// The picker works in PSGC codes; only the labels are names.
 const provinceOptions = computed(() => [
   { value: '', label: loadingProvinces.value ? 'Loading…' : 'All Provinces' },
-  ...provinces.value.map((p) => ({ value: p.name, label: p.name }))
+  ...provinces.value.map((p) => ({ value: p.code, label: p.name }))
 ])
+
+/**
+ * A dependent select names its own level even while it is inert.
+ *
+ * The first cut borrowed Community's "Select province" / "Select city"
+ * placeholders, which read as instructions sitting next to an enabled
+ * "All Provinces" dropdown — three controls where two looked broken. Greying
+ * them out already says "not yet"; the label should say what they filter.
+ */
+const cityOptions = computed(() => [
+  { value: '', label: loadingCities.value ? 'Loading…' : 'All Cities' },
+  ...cities.value.map((c) => ({ value: c.code, label: c.name }))
+])
+
+const barangayOptions = computed(() => [
+  { value: '', label: loadingBarangays.value ? 'Loading…' : 'All Barangays' },
+  ...barangays.value.map((b) => ({ value: b.code, label: b.name }))
+])
+
+/** Narrowest location actually chosen — the podium heading's subtitle. */
+const locationLabel = computed(
+  () => barangayName.value || cityName.value || provinceName.value || 'Nationwide'
+)
 
 /** Where the reader sits, for the standing callout under the podium. */
 const myEntry = computed(
@@ -154,7 +247,26 @@ function openPlayer(entry: { player_id: string }) {
           { value: 'doubles', label: 'Doubles' }
         ]"
       />
-      <UiSelect v-model="province" aria-label="Province" :options="provinceOptions" />
+      <UiSelect
+        :model-value="selectedProvince"
+        aria-label="Province"
+        :options="provinceOptions"
+        @update:model-value="selectProvince($event)"
+      />
+      <UiSelect
+        :model-value="selectedCity"
+        aria-label="City or municipality"
+        :options="cityOptions"
+        :disabled="!selectedProvince || loadingCities"
+        @update:model-value="selectCity($event)"
+      />
+      <UiSelect
+        :model-value="selectedBarangay"
+        aria-label="Barangay"
+        :options="barangayOptions"
+        :disabled="!selectedCity || loadingBarangays"
+        @update:model-value="selectBarangay($event)"
+      />
       <div class="min-w-[12rem] flex-1 lg:max-w-xs">
         <UiInput
           v-model="searchQuery"
@@ -177,7 +289,7 @@ function openPlayer(entry: { player_id: string }) {
     <template v-else>
       <h2 v-if="showPodium" class="mb-6 text-center font-display text-heading-3 text-fg">
         Top 3 {{ ratingType === 'singles' ? 'Singles' : 'Doubles' }}
-        <span class="text-fg-secondary">· {{ province || 'Nationwide' }}</span>
+        <span class="text-fg-secondary">· {{ locationLabel }}</span>
       </h2>
 
       <RankingBoard
@@ -279,7 +391,7 @@ function openPlayer(entry: { player_id: string }) {
 
       <p v-if="total" class="mt-3 text-center text-caption text-fg-muted">
         {{ total }} ranked {{ total === 1 ? 'player' : 'players' }}
-        <template v-if="province"> in {{ province }}</template>
+        <template v-if="locationLabel !== 'Nationwide'"> in {{ locationLabel }}</template>
         <template v-if="debouncedSearch"> matching “{{ debouncedSearch }}”</template>
       </p>
     </template>

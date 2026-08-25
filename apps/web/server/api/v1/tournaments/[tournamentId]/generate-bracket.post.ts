@@ -14,6 +14,7 @@ import {
   BracketServiceError
 } from '~/server/domains/event/services/bracket.service'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
+import { createTournamentCategoryRepository } from '~/server/domains/event/repositories/tournament-category.repository'
 
 export default defineEventHandler(async (event) => {
   const user = await serverSupabaseUser(event)
@@ -39,7 +40,16 @@ export default defineEventHandler(async (event) => {
   const tournamentRepo = createTournamentRepository(serviceClient)
   const registrationRepo = createTournamentRegistrationRepository(serviceClient)
   const eventRepo = createEventRepository(serviceClient)
-  const service = createBracketService(bracketRepo, tournamentRepo, registrationRepo, eventRepo)
+  // The category repository is what lets generateBracket read the CATEGORY's
+  // format rather than falling back to the tournament's for every draw.
+  const service = createBracketService(
+    bracketRepo,
+    tournamentRepo,
+    registrationRepo,
+    eventRepo,
+    undefined,
+    createTournamentCategoryRepository(serviceClient)
+  )
 
   const body = await readBody<{ category_id?: string }>(event).catch(() => undefined)
   const categoryId = body?.category_id

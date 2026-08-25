@@ -127,6 +127,19 @@ const { data: outgoingRequests, refresh: refreshOutgoing } = await useFetch<{
   data: PartnerRequestDto[]
 }>('/api/v1/players/me/partner-requests/outgoing', { server: false })
 
+/**
+ * The other direction, which this page never asked about.
+ *
+ * If this player has already sent a request, the button used to read "Request
+ * as Duo Partner" and pressing it failed with INCOMING_REQUEST_EXISTS — the
+ * server telling the user to accept an invitation the page never showed them.
+ */
+const { data: incomingRequests, refresh: refreshIncoming } = await useFetch<{
+  data: PartnerRequestDto[]
+}>('/api/v1/players/me/partner-requests/incoming', { server: false })
+
+const { refreshPartnerRequestCount } = usePartnerRequestCount()
+
 const isPartner = computed(() => {
   if (!partnersData.value?.data) return false
   return partnersData.value.data.some((p) => p.player_id === playerId.value)
@@ -139,7 +152,64 @@ const pendingRequest = computed(() => {
   )
 })
 
+const incomingRequest = computed(() => {
+  if (!incomingRequests.value?.data) return null
+  return incomingRequests.value.data.find(
+    (r) => r.from_player_id === playerId.value && r.status === 'pending'
+  )
+})
+
 const partnerLoading = ref(false)
+
+/**
+ * Team Up: whether this player is on the reader's roster — the people they may
+ * register for an open play session.
+ *
+ * A separate concept from the duo partnership above, and deliberately shown
+ * beside it rather than in place of it. Directional, so the question is only
+ * ever "is this player on MY team", never the reverse.
+ */
+const { data: myTeamData, refresh: refreshTeam } = await useFetch<{
+  team: { id: string; player_id: string; status: string }[]
+}>('/api/v1/players/me/team', {
+  server: false,
+  ignoreResponseError: true,
+  default: () => ({ team: [] })
+})
+
+const teamEntry = computed(
+  () => myTeamData.value?.team?.find((t) => t.player_id === playerId.value) ?? null
+)
+const teamStatus = computed(() => teamEntry.value?.status ?? null)
+const teamLoading = ref(false)
+
+async function sendTeamUp() {
+  teamLoading.value = true
+  try {
+    await $fetch(`/api/v1/players/${playerId.value}/team-up`, { method: 'POST' })
+    await refreshTeam()
+    useToast().success('Team-up request sent.')
+  } catch (err) {
+    useToast().error(apiErrorMessage(err, 'Could not send the team-up request.'))
+  } finally {
+    teamLoading.value = false
+  }
+}
+
+async function leaveTeam() {
+  const entry = teamEntry.value
+  if (!entry) return
+  teamLoading.value = true
+  try {
+    await $fetch(`/api/v1/team-ups/${entry.id}`, { method: 'DELETE' })
+    await refreshTeam()
+  } catch (err) {
+    useToast().error(apiErrorMessage(err, 'Could not update your team.'))
+  } finally {
+    teamLoading.value = false
+  }
+}
+
 const PROFILE_TABS = [
   { value: 'overview', label: 'Overview' },
   { value: 'matches', label: 'Matches' },
@@ -187,6 +257,32 @@ async function removePartner() {
   try {
     await $fetch(`/api/v1/players/me/partners/${playerId.value}`, { method: 'DELETE' })
     await refreshPartners()
+  } finally {
+    partnerLoading.value = false
+  }
+}
+
+async function acceptPartnerRequest() {
+  if (!user.value || !incomingRequest.value) return
+  partnerLoading.value = true
+  try {
+    await $fetch(`/api/v1/partner-requests/${incomingRequest.value.id}/accept`, {
+      method: 'POST'
+    })
+    await Promise.all([refreshPartners(), refreshIncoming(), refreshPartnerRequestCount()])
+  } finally {
+    partnerLoading.value = false
+  }
+}
+
+async function declinePartnerRequest() {
+  if (!user.value || !incomingRequest.value) return
+  partnerLoading.value = true
+  try {
+    await $fetch(`/api/v1/partner-requests/${incomingRequest.value.id}/decline`, {
+      method: 'POST'
+    })
+    await Promise.all([refreshIncoming(), refreshPartnerRequestCount()])
   } finally {
     partnerLoading.value = false
   }
@@ -404,6 +500,27 @@ function formatActivityText(activity: ActivityDto): string {
               >
                 {{ partnerLoading ? '...' : 'Duo Partner' }}
               </button>
+              <!-- They asked first. Accepting here is the same action as
+                   accepting from Community; declining is offered alongside so
+                   the answer is not one-sided. -->
+              <span v-else-if="incomingRequest" class="flex items-center gap-2">
+                <button
+                  type="button"
+                  class="rounded-lg bg-primary px-5 py-2 text-sm font-medium text-on-primary transition-colors hover:bg-primary-hover disabled:opacity-50"
+                  :disabled="partnerLoading"
+                  @click="acceptPartnerRequest"
+                >
+                  {{ partnerLoading ? '...' : 'Accept duo request' }}
+                </button>
+                <button
+                  type="button"
+                  class="rounded-lg border border-border-strong px-3 py-2 text-sm text-fg-secondary transition-colors hover:border-danger hover:text-danger disabled:opacity-50"
+                  :disabled="partnerLoading"
+                  @click="declinePartnerRequest"
+                >
+                  Decline
+                </button>
+              </span>
               <!-- Pending request -->
               <button
                 v-else-if="pendingRequest"
@@ -421,6 +538,38 @@ function formatActivityText(activity: ActivityDto): string {
                 @click="sendPartnerRequest"
               >
                 {{ partnerLoading ? '...' : 'Request as Duo Partner' }}
+              </button>
+
+              <!-- Team Up sits BESIDE the duo control, not instead of it: a duo
+                   partner is who you pair with in a doubles draw, a team-up is
+                   who you may bring to an open play session. Being one does not
+                   make you the other, and plenty of people are both. -->
+              <button
+                v-if="teamStatus === 'accepted'"
+                type="button"
+                class="rounded-lg border border-accent px-5 py-2 text-sm font-medium text-fg-secondary transition-colors hover:border-danger hover:text-danger disabled:opacity-50"
+                :disabled="teamLoading"
+                @click="leaveTeam"
+              >
+                {{ teamLoading ? '...' : 'On your team' }}
+              </button>
+              <button
+                v-else-if="teamStatus === 'pending'"
+                type="button"
+                class="rounded-lg border border-warning-fill px-5 py-2 text-sm font-medium text-warning transition-colors hover:border-danger hover:text-danger disabled:opacity-50"
+                :disabled="teamLoading"
+                @click="leaveTeam"
+              >
+                {{ teamLoading ? '...' : 'Team-up pending' }}
+              </button>
+              <button
+                v-else
+                type="button"
+                class="rounded-lg border border-border-strong px-5 py-2 text-sm font-medium text-fg-secondary transition-colors hover:border-primary hover:text-fg disabled:opacity-50"
+                :disabled="teamLoading"
+                @click="sendTeamUp"
+              >
+                {{ teamLoading ? '...' : 'Team Up' }}
               </button>
             </template>
           </div>

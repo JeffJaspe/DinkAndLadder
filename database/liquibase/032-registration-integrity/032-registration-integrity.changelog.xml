@@ -1,0 +1,231 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Registration integrity: one entry per person per category, and a rating
+     ladder whose bands do not claim the same number twice.
+
+     THE INVARIANT
+
+     A doubles entry is ONE row - player_id plus partner_player_id - so a
+     partner exists in a category only as a value in somebody else's column.
+     Nothing read that column when deciding whether a new entry was allowed:
+     the duplicate check filtered on (tournament_id, player_id) alone. So the
+     same person could hold two slots in one draw, once in their own right and
+     once as a partner, and be seeded twice by the generator - drawable against
+     themself.
+
+     The rule is now: a player occupies a slot in a category if they appear in
+     EITHER column of ANY non-withdrawn row for that category, and all four
+     combinations of (already in as / entering as) are refused.
+
+     WHY A TRIGGER AND NOT A UNIQUE INDEX
+
+     Two partial unique indexes - one on player_id, one on partner_player_id -
+     look like they cover it and do not. A player who is player_id on one row
+     and partner_player_id on another violates the rule while satisfying both
+     indexes, because each index only ever sees one column. No single-table
+     UNIQUE or EXCLUDE can treat two columns as one set, so the constraint has
+     to be procedural.
+
+     The advisory lock is the part that makes it a real constraint rather than a
+     check that usually works: without it, two concurrent transactions each
+     naming the same free partner both see an empty conflict set and both
+     commit. Locking on the category scope serialises entries to one category
+     while leaving every other category in the tournament free.
+
+     ERRCODE 23505 (unique_violation) is deliberate - the service maps it back
+     onto the same 409 its own pre-check raises, so a race and an ordinary
+     duplicate read identically to the caller.
+
+     THE RATING LADDER
+
+     The seeded bands overlapped at every boundary: Intermediate 3.0-3.5 and
+     Advanced 3.5-4.5 both claimed 3.5, and the eligibility check was inclusive
+     at both ends, so a 3.5 player was eligible for both. The new ladder states
+     each band in whole tenths with no shared number.
+
+     Ratings are numeric(5,3), so a ladder written in tenths needs a rounding
+     rule or it leaves gaps - 3.550 is above 3.5 and below 3.6. That rule lives
+     in apps/web/utils/rating-bands.ts (round to one decimal, then compare) and
+     is applied by both the server check and the label, so the number a player
+     is refused by is the number they were shown.
+
+     The category backfill deliberately SKIPS any category that already has a
+     confirmed entrant. Moving a band under the players standing in it would
+     retroactively make someone ineligible for a draw they are already in. -->
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+    <!-- 1. The ladder, restated so no two bands claim the same tenth. -->
+    <changeSet id="0001-reseed-category-templates" author="registration-integrity">
+        <comment>
+            UPDATE by name rather than delete-and-insert: tournament_categories.template_id
+            references these rows, and name carries uq_tournament_category_templates_name.
+        </comment>
+        <sql>
+            UPDATE tournament_category_templates SET min_rating = 2.0, max_rating = 2.4 WHERE name = 'Novice';
+            UPDATE tournament_category_templates SET min_rating = 2.5, max_rating = 2.9 WHERE name = 'Beginner';
+            UPDATE tournament_category_templates SET min_rating = 3.0, max_rating = 3.5 WHERE name = 'Intermediate';
+            UPDATE tournament_category_templates SET min_rating = 3.6, max_rating = 4.5 WHERE name = 'Advanced';
+            UPDATE tournament_category_templates SET min_rating = 4.6, max_rating = 5.5 WHERE name = 'Expert';
+            UPDATE tournament_category_templates SET min_rating = 5.6, max_rating = NULL WHERE name = 'Pro';
+        </sql>
+        <rollback>
+            UPDATE tournament_category_templates SET min_rating = NULL, max_rating = 2.5 WHERE name = 'Novice';
+            UPDATE tournament_category_templates SET min_rating = 2.5, max_rating = 3.0 WHERE name = 'Beginner';
+            UPDATE tournament_category_templates SET min_rating = 3.0, max_rating = 3.5 WHERE name = 'Intermediate';
+            UPDATE tournament_category_templates SET min_rating = 3.5, max_rating = 4.5 WHERE name = 'Advanced';
+            UPDATE tournament_category_templates SET min_rating = 4.5, max_rating = 5.5 WHERE name = 'Expert';
+            UPDATE tournament_category_templates SET min_rating = 5.5, max_rating = NULL WHERE name = 'Pro';
+        </rollback>
+    </changeSet>
+
+    <!-- 2. Existing categories still carrying an old boundary, where doing so
+            cannot change the eligibility of anyone already admitted. -->
+    <changeSet id="0002-backfill-category-bands" author="registration-integrity">
+        <comment>
+            Skips any category with a confirmed entrant. Those keep the band they were
+            created with; an organiser can still correct one by hand from Settings.
+        </comment>
+        <sql>
+            WITH settled AS (
+                SELECT DISTINCT category_id
+                FROM tournament_registrations
+                WHERE category_id IS NOT NULL AND status = 'confirmed'
+            )
+            UPDATE tournament_categories c
+            SET min_rating = v.new_min,
+                max_rating = v.new_max,
+                updated_at = now()
+            FROM (VALUES
+                (NULL::numeric, 2.5::numeric, 2.0::numeric, 2.4::numeric),
+                (2.5, 3.0, 2.5, 2.9),
+                (3.5, 4.5, 3.6, 4.5),
+                (4.5, 5.5, 4.6, 5.5),
+                (5.5, NULL, 5.6, NULL)
+            ) AS v(old_min, old_max, new_min, new_max)
+            WHERE c.min_rating IS NOT DISTINCT FROM v.old_min
+              AND c.max_rating IS NOT DISTINCT FROM v.old_max
+              AND NOT EXISTS (SELECT 1 FROM settled s WHERE s.category_id = c.id);
+        </sql>
+        <rollback>
+            <comment>
+                Not reversed. The forward direction is lossy - a category whose band already
+                equalled the new values is indistinguishable from one this changeset moved -
+                so an automated reversal would corrupt bands it never touched. Restore from a
+                backup if this genuinely needs undoing.
+            </comment>
+        </rollback>
+    </changeSet>
+
+    <!-- 3. Self-partnering, which nothing prevented. -->
+    <changeSet id="0003-no-self-partner" author="registration-integrity">
+        <sql>
+            ALTER TABLE tournament_registrations
+                ADD CONSTRAINT ck_tournament_registrations_no_self_partner
+                CHECK (partner_player_id IS NULL OR partner_player_id &lt;&gt; player_id);
+        </sql>
+        <rollback>
+            ALTER TABLE tournament_registrations
+                DROP CONSTRAINT IF EXISTS ck_tournament_registrations_no_self_partner;
+        </rollback>
+    </changeSet>
+
+    <!-- 4. The invariant itself. -->
+    <changeSet id="0004-one-entry-per-category-fn" author="registration-integrity" runOnChange="true">
+        <sql splitStatements="false">
+            CREATE OR REPLACE FUNCTION fn_assert_one_entry_per_category()
+            RETURNS trigger
+            LANGUAGE plpgsql
+            AS $fn$
+            DECLARE
+                conflict_name text;
+                scope_key     text;
+            BEGIN
+                -- Withdrawn and rejected hold no slot: the player pulled out, or the
+                -- organiser turned them away, and either way the place is free again.
+                -- This is what lets an entry be withdrawn or rejected at all — and in
+                -- particular what lets an organiser reject one half of a duplicate
+                -- pair, which is the cleanup this whole constraint exists to enable.
+                -- Mirrors SLOT_HOLDING_REGISTRATION_STATUSES in tournament.dto.ts.
+                IF NEW.status IN ('withdrawn', 'rejected') THEN
+                    RETURN NEW;
+                END IF;
+
+                -- Serialise entries to THIS category only. Without it two transactions
+                -- each naming the same free partner both see no conflict and both commit.
+                -- category_id is nullable (a tournament may run one flat draw), so the
+                -- key folds that case in rather than losing the lock to a NULL.
+                scope_key := NEW.tournament_id::text || ':' || coalesce(NEW.category_id::text, '-');
+                PERFORM pg_advisory_xact_lock(hashtextextended(scope_key, 0));
+
+                SELECT p.display_name
+                INTO conflict_name
+                FROM tournament_registrations r
+                LEFT JOIN player_profiles p
+                       ON p.id = CASE
+                                   WHEN r.player_id = NEW.player_id
+                                     OR r.player_id = NEW.partner_player_id
+                                   THEN r.player_id
+                                   ELSE r.partner_player_id
+                                 END
+                WHERE r.tournament_id = NEW.tournament_id
+                  AND r.category_id IS NOT DISTINCT FROM NEW.category_id
+                  AND r.status NOT IN ('withdrawn', 'rejected')
+                  AND r.id &lt;&gt; NEW.id
+                  AND (
+                        r.player_id = NEW.player_id
+                     OR r.partner_player_id = NEW.player_id
+                     OR (NEW.partner_player_id IS NOT NULL AND (
+                            r.player_id = NEW.partner_player_id
+                         OR r.partner_player_id = NEW.partner_player_id
+                        ))
+                  )
+                LIMIT 1;
+
+                IF FOUND THEN
+                    RAISE EXCEPTION
+                        'ONE_ENTRY_PER_CATEGORY: % is already entered in this category',
+                        coalesce(conflict_name, 'That player')
+                        USING ERRCODE = '23505';
+                END IF;
+
+                RETURN NEW;
+            END;
+            $fn$;
+        </sql>
+        <rollback>
+            DROP FUNCTION IF EXISTS fn_assert_one_entry_per_category();
+        </rollback>
+    </changeSet>
+
+    <changeSet id="0005-one-entry-per-category-trigger" author="registration-integrity">
+        <sql>
+            CREATE TRIGGER trg_tournament_registrations_one_per_category
+                BEFORE INSERT OR UPDATE OF player_id, partner_player_id, category_id, status
+                ON tournament_registrations
+                FOR EACH ROW
+                EXECUTE FUNCTION fn_assert_one_entry_per_category();
+        </sql>
+        <rollback>
+            DROP TRIGGER IF EXISTS trg_tournament_registrations_one_per_category
+                ON tournament_registrations;
+        </rollback>
+    </changeSet>
+
+    <!-- 5. Supporting index. The trigger's lookup and the service's pre-check both
+            ask "who is in this category", which had no index covering the partner
+            side at all. -->
+    <changeSet id="0006-partner-index" author="registration-integrity">
+        <createIndex tableName="tournament_registrations"
+                     indexName="idx_tournament_registrations_partner_player_id">
+            <column name="partner_player_id"/>
+        </createIndex>
+        <rollback>
+            <dropIndex tableName="tournament_registrations"
+                       indexName="idx_tournament_registrations_partner_player_id"/>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

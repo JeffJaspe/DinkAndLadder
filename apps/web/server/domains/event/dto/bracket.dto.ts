@@ -15,6 +15,39 @@ export interface BracketMatchRecord {
   category_id: string | null
 }
 
+/**
+ * A bracket slot with the entrant resolved.
+ *
+ * The bracket stores registration ids and nothing else, which is right for the
+ * data but useless on screen — BracketMatchCard was rendering
+ * `registration_id.slice(0, 8)`. This is the display half, hydrated in
+ * `getBracket` from the registration rows; the ids stay on the DTO alongside
+ * it so nothing that already reads them has to change.
+ */
+export interface BracketParticipantDto {
+  registration_id: string
+  display_name: string
+  rating: number | null
+  /** Doubles only; null for a singles entrant. */
+  partner_display_name: string | null
+}
+
+/**
+ * One set of a played match, oriented to the BRACKET's slots.
+ *
+ * `match_scores` stores team1/team2, where "team 1" is whoever holds
+ * `match_participants.team_number = 1`. That ordering is established when the
+ * match is submitted and has nothing to do with which bracket slot an entrant
+ * occupies, so the two can disagree. Re-orienting once here means every reader
+ * can line these numbers up with participant1/participant2 without knowing the
+ * match domain exists.
+ */
+export interface BracketMatchScoreDto {
+  set_number: number
+  participant1_score: number
+  participant2_score: number
+}
+
 export interface BracketMatchDto {
   id: string
   tournament_id: string
@@ -27,9 +60,26 @@ export interface BracketMatchDto {
   status: BracketMatchStatus
   scheduled_at: string | null
   category_id: string | null
+  /** Null for an empty slot (a bye, or a match whose feeder has not finished). */
+  participant1: BracketParticipantDto | null
+  participant2: BracketParticipantDto | null
+  /**
+   * Empty when the slot has no linked match, when no sets were recorded, or
+   * when the slots could not be mapped onto the match's teams. A reversed score
+   * reads as perfectly plausible and would be believed, so an unresolvable
+   * orientation yields nothing rather than a guess.
+   */
+  scores: BracketMatchScoreDto[]
 }
 
-export function toBracketMatchDto(record: BracketMatchRecord): BracketMatchDto {
+export function toBracketMatchDto(
+  record: BracketMatchRecord,
+  participants?: ReadonlyMap<string, BracketParticipantDto>,
+  scores?: ReadonlyMap<string, BracketMatchScoreDto[]>
+): BracketMatchDto {
+  const resolve = (registrationId: string | null) =>
+    (registrationId && participants?.get(registrationId)) || null
+
   return {
     id: record.id,
     tournament_id: record.tournament_id,
@@ -41,19 +91,49 @@ export function toBracketMatchDto(record: BracketMatchRecord): BracketMatchDto {
     winner_registration_id: record.winner_registration_id,
     status: record.status,
     scheduled_at: record.scheduled_at,
-    category_id: record.category_id
+    category_id: record.category_id,
+    participant1: resolve(record.participant1_registration_id),
+    participant2: resolve(record.participant2_registration_id),
+    scores: scores?.get(record.id) ?? []
   }
 }
 
 export interface BracketDto {
   tournament_id: string
   category_id: string | null
+  /**
+   * Whether the organiser has frozen this draw.
+   *
+   * A locked draw is final: visible to players, playable, and no longer
+   * redrawable. An unlocked one is the organiser's working copy, and comes back
+   * with `rounds: []` to anybody else — so a caller cannot distinguish "not
+   * drawn yet" from "not published yet" by the rounds alone, and needs this.
+   */
+  locked: boolean
   rounds: BracketRoundDto[]
 }
 
 export interface BracketRoundDto {
   round: number
   matches: BracketMatchDto[]
+}
+
+/**
+ * An organiser writing down what happened on court.
+ *
+ * Scores are given the way the organiser sees them on the draw — participant1's
+ * column first — not the way `match_scores` stores them. The service owns the
+ * translation, and because it also creates the match it can simply define
+ * participant1 as team 1, which is what keeps a recorded result readable back
+ * in the same orientation it was entered.
+ */
+export interface RecordBracketResultInput {
+  winner_registration_id: string
+  scores: {
+    set_number: number
+    participant1_score: number
+    participant2_score: number
+  }[]
 }
 
 export interface UpdateBracketMatchInput {

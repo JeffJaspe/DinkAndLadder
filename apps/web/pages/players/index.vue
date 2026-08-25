@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { PlayerSearchResultDto } from '~/server/domains/player/dto/player-profile.dto'
+import { formatRating } from '~/utils/rating-tiers'
 
 useHead({ title: 'Players' })
 
@@ -187,7 +188,7 @@ function clearFilters() {
           </p>
         </div>
         <div v-if="player.singles_rating" class="text-right">
-          <p class="text-lg font-bold text-primary">{{ Math.round(player.singles_rating) }}</p>
+          <p class="text-lg font-bold text-primary">{{ formatRating(player.singles_rating) }}</p>
           <p class="text-xs text-fg-muted">Rating</p>
         </div>
       </NuxtLink>

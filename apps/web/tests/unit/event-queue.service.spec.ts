@@ -37,6 +37,8 @@ function makeEventRecord(overrides?: Partial<EventRecord>): EventRecord {
     city: null,
     start_date: '2026-09-01',
     end_date: '2026-09-02',
+    start_time: null,
+    end_time: null,
     registration_opens: null,
     registration_closes: null,
     status: 'active',
@@ -116,7 +118,7 @@ function createFakeEventRepository(overrides?: Partial<EventRepository>): EventR
     countBlockingChildren: vi
       .fn()
       .mockResolvedValue({ registrations: 0, matches: 0, queueEntries: 0 }),
-    deleteWithChildren: vi.fn().mockResolvedValue(undefined),
+    deleteWithChildren: vi.fn().mockResolvedValue(undefined),    countByClubForLimits: vi.fn().mockResolvedValue({ drafts: 0, liveTournaments: 0, liveOpenPlay: 0 }),
     ...overrides
   }
 }
@@ -327,6 +329,146 @@ describe('EventQueueService', () => {
       await expect(
         service.matchEntries('organizer-1', 'event-1', 'queue-1', 'queue-2', 2)
       ).rejects.toMatchObject({ code: 'COURT_IN_USE' })
+    })
+  })
+
+  describe('matchNextPair', () => {
+    /**
+     * A repository fake whose `findWaiting` returns `entries` in the order it
+     * is given — the real one orders by `joined_at` ascending, so the head of
+     * this list is the longest wait.
+     */
+    function queueRepoFor(entries: EventQueueRecord[]) {
+      const byId = new Map(entries.map((entry) => [entry.id, entry]))
+      return createFakeQueueRepository({
+        findWaiting: vi.fn().mockResolvedValue(entries),
+        findById: vi.fn().mockImplementation((id: string) => Promise.resolve(byId.get(id) ?? null)),
+        findByEvent: vi.fn().mockResolvedValue(entries),
+        setMatched: vi
+          .fn()
+          .mockImplementation((id: string, courtNumber: number, opponentId: string) =>
+            Promise.resolve({
+              ...byId.get(id)!,
+              status: 'matched',
+              court_number: courtNumber,
+              opponent_queue_id: opponentId
+            })
+          )
+      })
+    }
+
+    it('pairs the two longest-waiting entries, not the two most recent', async () => {
+      const entries = [
+        makeQueueEntry({ id: 'queue-1', player_id: 'player-1', joined_at: '2026-08-01T10:00:00Z' }),
+        makeQueueEntry({ id: 'queue-2', player_id: 'player-2', joined_at: '2026-08-01T10:05:00Z' }),
+        makeQueueEntry({ id: 'queue-3', player_id: 'player-3', joined_at: '2026-08-01T10:10:00Z' })
+      ]
+      const queueRepo = queueRepoFor(entries)
+      const service = createEventQueueService(
+        queueRepo,
+        createFakeRegistrationRepository(),
+        createFakeEventRepository()
+      )
+
+      const result = await service.matchNextPair('organizer-1', 'event-1', 2)
+
+      expect(result.first.id).toBe('queue-1')
+      expect(result.second.id).toBe('queue-2')
+      expect(result.first.court_number).toBe(2)
+      expect(result.second.court_number).toBe(2)
+    })
+
+    // Singles cannot be played against doubles. The longest wait decides which
+    // format goes on next, and the pair is taken from that format only.
+    it('pairs within one match type, skipping an entry of the other', async () => {
+      const entries = [
+        makeQueueEntry({
+          id: 'queue-1',
+          match_type: 'doubles',
+          joined_at: '2026-08-01T10:00:00Z'
+        }),
+        makeQueueEntry({
+          id: 'queue-2',
+          match_type: 'singles',
+          joined_at: '2026-08-01T10:05:00Z'
+        }),
+        makeQueueEntry({
+          id: 'queue-3',
+          match_type: 'doubles',
+          joined_at: '2026-08-01T10:10:00Z'
+        })
+      ]
+      const service = createEventQueueService(
+        queueRepoFor(entries),
+        createFakeRegistrationRepository(),
+        createFakeEventRepository()
+      )
+
+      const result = await service.matchNextPair('organizer-1', 'event-1', 1)
+
+      expect([result.first.id, result.second.id]).toEqual(['queue-1', 'queue-3'])
+    })
+
+    it('refuses when only one entry of that format is waiting', async () => {
+      const entries = [
+        makeQueueEntry({ id: 'queue-1', match_type: 'doubles' }),
+        makeQueueEntry({ id: 'queue-2', match_type: 'singles' })
+      ]
+      const service = createEventQueueService(
+        queueRepoFor(entries),
+        createFakeRegistrationRepository(),
+        createFakeEventRepository()
+      )
+
+      await expect(service.matchNextPair('organizer-1', 'event-1', 1)).rejects.toThrow(
+        /two are needed/i
+      )
+    })
+
+    it('refuses when nobody is waiting', async () => {
+      const service = createEventQueueService(
+        queueRepoFor([]),
+        createFakeRegistrationRepository(),
+        createFakeEventRepository()
+      )
+
+      await expect(service.matchNextPair('organizer-1', 'event-1', 1)).rejects.toThrow(
+        /Nobody is waiting/i
+      )
+    })
+
+    it('rejects a caller who is not the organizer', async () => {
+      const service = createEventQueueService(
+        queueRepoFor([makeQueueEntry({ id: 'queue-1' }), makeQueueEntry({ id: 'queue-2' })]),
+        createFakeRegistrationRepository(),
+        createFakeEventRepository()
+      )
+
+      await expect(service.matchNextPair('someone-else', 'event-1', 1)).rejects.toThrow(
+        /organizer/i
+      )
+    })
+
+    // The court-in-use check belongs to matchEntries; matchNextPair delegates
+    // rather than restating it, and this is what proves the delegation holds.
+    it('still refuses a court that is already in use', async () => {
+      const waiting = [makeQueueEntry({ id: 'queue-1' }), makeQueueEntry({ id: 'queue-2' })]
+      const onCourt = makeQueueEntry({
+        id: 'queue-busy',
+        status: 'playing',
+        court_number: 1
+      })
+      const queueRepo = queueRepoFor(waiting)
+      queueRepo.findByEvent = vi.fn().mockResolvedValue([...waiting, onCourt])
+      const service = createEventQueueService(
+        queueRepo,
+        createFakeRegistrationRepository(),
+        createFakeEventRepository()
+      )
+
+      await expect(service.matchNextPair('organizer-1', 'event-1', 1)).rejects.toThrow(
+        /already in use/i
+      )
     })
   })
 

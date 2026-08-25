@@ -1,11 +1,13 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type {
   MatchRecord,
+  MatchScoreLookupRow,
   MatchScoreProposalRecord,
   MatchStatus,
   MatchVerificationRecord,
   SubmitMatchInput,
   SubmitMatchScoreInput,
+  TeamNumber,
   VerificationStatus
 } from '../dto/match.dto'
 
@@ -36,6 +38,14 @@ export interface MatchRepository {
     scores: SubmitMatchScoreInput[],
     proposalRound: number
   ): Promise<MatchScoreProposalRecord>
+  /**
+   * Teams and set scores for many matches in one round trip.
+   *
+   * Exists for the bracket, which holds a `match_id` per slot and would
+   * otherwise fetch each match on its own. Returns only the matches it finds;
+   * an id with no row is simply absent, and an empty input list never queries.
+   */
+  findScoreRowsByMatchIds(matchIds: string[]): Promise<MatchScoreLookupRow[]>
 }
 
 export function createMatchRepository(client: SupabaseClient): MatchRepository {
@@ -144,6 +154,35 @@ export function createMatchRepository(client: SupabaseClient): MatchRepository {
 
       if (error) throw error
       return data as unknown as MatchScoreProposalRecord
+    },
+
+    async findScoreRowsByMatchIds(matchIds) {
+      // `.in()` with an empty list is a query that can only return nothing.
+      if (!matchIds.length) return []
+
+      const { data, error } = await client
+        .from('matches')
+        .select(
+          'id, match_participants(player_id, team_number), ' +
+            'match_scores(set_number, team1_score, team2_score)'
+        )
+        .in('id', matchIds)
+
+      if (error) throw error
+
+      const rows = (data ?? []) as unknown as {
+        id: string
+        match_participants: { player_id: string; team_number: TeamNumber }[] | null
+        match_scores: { set_number: number; team1_score: number; team2_score: number }[] | null
+      }[]
+
+      return rows.map((row) => ({
+        match_id: row.id,
+        participants: row.match_participants ?? [],
+        // PostgREST does not order an embedded resource for us, and a score
+        // list is meaningless out of set order.
+        scores: [...(row.match_scores ?? [])].sort((a, b) => a.set_number - b.set_number)
+      }))
     }
   }
 }

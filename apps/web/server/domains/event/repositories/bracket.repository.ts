@@ -39,6 +39,15 @@ export interface BracketRepository {
     status: BracketMatchStatus
   ): Promise<BracketMatchRecord>
   deleteByTournamentId(tournamentId: string, categoryId?: string | null): Promise<void>
+  /**
+   * How many slots in this draw already carry a played match.
+   *
+   * Guards undo and unlock: a `bracket_matches` row can be deleted, but the
+   * `matches` row it points at carries a verified result that has already moved
+   * people's ratings, and deleting that to tidy up a draw would be the wrong
+   * trade. Non-zero means the draw is part of the record now.
+   */
+  countRecordedResults(tournamentId: string, categoryId?: string | null): Promise<number>
 }
 
 export function createBracketRepository(client: SupabaseClient): BracketRepository {
@@ -114,6 +123,25 @@ export function createBracketRepository(client: SupabaseClient): BracketReposito
 
       if (error) throw error
       return data as unknown as BracketMatchRecord
+    },
+
+    async countRecordedResults(tournamentId, categoryId) {
+      let builder = client
+        .from('bracket_matches')
+        .select('*', { count: 'exact', head: true })
+        .eq('tournament_id', tournamentId)
+        .not('match_id', 'is', null)
+
+      if (categoryId !== undefined) {
+        builder =
+          categoryId === null
+            ? builder.is('category_id', null)
+            : builder.eq('category_id', categoryId)
+      }
+
+      const { count, error } = await builder
+      if (error) throw error
+      return count ?? 0
     },
 
     async deleteByTournamentId(tournamentId, categoryId) {

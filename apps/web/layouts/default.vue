@@ -69,23 +69,31 @@ interface NavItem {
   name: string
   href: string
   icon: IconName
+  /** Rendered as a count pill. Omitted, or 0, renders nothing. */
+  badge?: number
 }
+
+/**
+ * An incoming duo request used to be announced only by a notification row —
+ * a place nobody is looking. Community carries the count wherever the nav is
+ * visible, the way a friend request behaves everywhere else.
+ */
+const { incomingCount: partnerRequestCount } = usePartnerRequestCount()
 
 // Player vs Club account mode changes what the sidebar nav shows — see
 // composables/useAccountMode.ts and components/AccountSwitcher.vue.
-const playerNavItems: NavItem[] = [
+const playerNavItems = computed<NavItem[]>(() => [
   { name: 'Feed', href: '/feed', icon: 'feed' },
   { name: 'Kitchen', href: '/dashboard', icon: 'dashboard' },
   { name: 'Rankings', href: '/rankings', icon: 'rankings' },
   { name: 'Matches', href: '/matches', icon: 'matches' },
   { name: 'Events', href: '/events', icon: 'calendar' },
-  { name: 'Partners', href: '/partners', icon: 'players' },
-  { name: 'Community', href: '/community', icon: 'chat' },
+  { name: 'Community', href: '/community', icon: 'chat', badge: partnerRequestCount.value },
   { name: 'My Clubs', href: '/my-clubs', icon: 'clubs' },
   { name: 'Discover Clubs', href: '/clubs', icon: 'clubs' },
   { name: 'Players', href: '/players', icon: 'user' },
   { name: 'Achievements', href: '/achievements', icon: 'achievements' }
-]
+])
 
 const clubNavItems = computed<NavItem[]>(() => [
   {
@@ -97,7 +105,7 @@ const clubNavItems = computed<NavItem[]>(() => [
   { name: 'Ranking', href: '/rankings', icon: 'rankings' },
   { name: 'Matches', href: '/matches', icon: 'matches' },
   { name: 'Events', href: '/events', icon: 'calendar' },
-  { name: 'Community', href: '/community', icon: 'chat' },
+  { name: 'Community', href: '/community', icon: 'chat', badge: partnerRequestCount.value },
   { name: 'Players', href: '/players', icon: 'user' },
   {
     name: 'Club Settings',
@@ -107,7 +115,7 @@ const clubNavItems = computed<NavItem[]>(() => [
 ])
 
 const navItems = computed(() =>
-  accountMode.value === 'club' ? clubNavItems.value : playerNavItems
+  accountMode.value === 'club' ? clubNavItems.value : playerNavItems.value
 )
 
 // Settings is ordinary per-user configuration and is shown to everyone. The
@@ -129,13 +137,17 @@ const bottomNavItems = computed<NavItem[]>(() => {
   return items
 })
 
-const mobileNavItems: NavItem[] = [
+// The bottom bar keeps its five slots and its centred raised action: the duo
+// badge rides the drawer and the desktop sidebar instead of displacing one of
+// the primary mobile destinations. The badge markup below still works if a
+// bottom-bar item is ever given a count.
+const mobileNavItems = computed<NavItem[]>(() => [
   { name: 'Home', href: '/dashboard', icon: 'home' },
   { name: 'Rankings', href: '/rankings', icon: 'trophy' },
   { name: 'Matches', href: '/matches/submit', icon: 'plus' },
   { name: 'Events', href: '/events', icon: 'calendar' },
   { name: 'Profile', href: '/profile/edit', icon: 'user' }
-]
+])
 
 function isActive(href: string) {
   return route.path === href || route.path.startsWith(href + '/')
@@ -174,6 +186,12 @@ async function handleLogout() {
           >
             <UiIcon :name="item.icon" />
             {{ item.name }}
+            <span
+              v-if="item.badge"
+              class="ml-auto rounded-pill bg-primary px-1.5 py-0.5 text-caption font-semibold tabular-nums text-on-primary"
+              :aria-label="`${item.badge} waiting`"
+              >{{ item.badge }}</span
+            >
           </NuxtLink>
 
           <div class="my-2 border-t border-border" />
@@ -273,6 +291,12 @@ async function handleLogout() {
             >
               <UiIcon :name="item.icon" />
               {{ item.name }}
+              <span
+                v-if="item.badge"
+                class="ml-auto rounded-pill bg-primary px-1.5 py-0.5 text-caption font-semibold tabular-nums text-on-primary"
+                :aria-label="`${item.badge} waiting`"
+                >{{ item.badge }}</span
+              >
             </NuxtLink>
           </nav>
 
@@ -348,7 +372,15 @@ async function handleLogout() {
             <UiIcon name="plus" :stroke-width="2.5" />
           </span>
           <template v-else>
-            <UiIcon :name="item.icon" />
+            <span class="relative">
+              <UiIcon :name="item.icon" />
+              <span
+                v-if="item.badge"
+                class="absolute -right-1.5 -top-1 flex h-4 min-w-[1rem] items-center justify-center rounded-pill bg-primary px-1 text-[10px] font-semibold tabular-nums text-on-primary"
+                :aria-label="`${item.badge} waiting`"
+                >{{ item.badge }}</span
+              >
+            </span>
             <span class="text-[10px]">{{ item.name }}</span>
           </template>
         </NuxtLink>

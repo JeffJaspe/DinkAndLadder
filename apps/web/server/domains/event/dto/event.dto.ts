@@ -1,3 +1,5 @@
+import type { TournamentFormat, TournamentMatchType } from './tournament.dto'
+
 export type EventStatus = 'draft' | 'published' | 'active' | 'completed' | 'cancelled'
 
 export type EventVisibility = 'public' | 'registered_only' | 'private'
@@ -5,6 +7,16 @@ export type EventVisibility = 'public' | 'registered_only' | 'private'
 export type EventType = 'open_casual' | 'open_ranked' | 'club_casual' | 'club_ranked' | 'tournament'
 
 export type QueueMode = 'first_come' | 'rating_based' | 'random'
+
+/**
+ * Wall-clock start/end for an event, `HH:MM` or `HH:MM:SS`.
+ *
+ * Separate `time` columns rather than timestamps on start_date/end_date: see
+ * the note at the top of 028-event-time.changelog.xml. Null on every event
+ * created before that migration, and still optional after it — a multi-day
+ * tournament often has no single start time worth stating.
+ */
+export type EventTime = string
 
 export interface EventRecord {
   id: string
@@ -16,6 +28,8 @@ export interface EventRecord {
   city: string | null
   start_date: string
   end_date: string
+  start_time: EventTime | null
+  end_time: EventTime | null
   registration_opens: string | null
   registration_closes: string | null
   status: EventStatus
@@ -43,6 +57,8 @@ export interface EventDto {
   city: string | null
   start_date: string
   end_date: string
+  start_time: EventTime | null
+  end_time: EventTime | null
   registration_opens: string | null
   registration_closes: string | null
   status: EventStatus
@@ -83,6 +99,8 @@ export function toEventDto(record: EventRecord): EventDto {
     city: record.city,
     start_date: record.start_date,
     end_date: record.end_date,
+    start_time: record.start_time,
+    end_time: record.end_time,
     registration_opens: record.registration_opens,
     registration_closes: record.registration_closes,
     status: record.status,
@@ -109,6 +127,8 @@ export interface CreateEventInput {
   city?: string | null
   start_date: string
   end_date: string
+  start_time?: EventTime | null
+  end_time?: EventTime | null
   registration_opens?: string | null
   registration_closes?: string | null
   visibility?: EventVisibility
@@ -119,8 +139,23 @@ export interface CreateEventInput {
   queue_enabled?: boolean
   queue_courts?: number
   queue_mode?: QueueMode
+  /**
+   * Only read when event_type is 'tournament', where they configure the one
+   * tournament created alongside the event. match_type in particular is not a
+   * cosmetic choice: it decides whether registering demands a partner, so
+   * guessing it wrong makes every entry fail with PARTNER_REQUIRED.
+   */
+  tournament_format?: TournamentFormat
+  tournament_match_type?: TournamentMatchType
 }
 
+/**
+ * Every field here is written straight through to the `events` row
+ * (`EventRepository.update` spreads it), so this interface must never carry
+ * anything that is not a column. The tournament fields on CreateEventInput are
+ * deliberately absent for that reason — switching an existing event to a
+ * tournament creates one with the defaults.
+ */
 export interface UpdateEventInput {
   name?: string
   description?: string | null
@@ -129,6 +164,8 @@ export interface UpdateEventInput {
   city?: string | null
   start_date?: string
   end_date?: string
+  start_time?: EventTime | null
+  end_time?: EventTime | null
   registration_opens?: string | null
   registration_closes?: string | null
   visibility?: EventVisibility

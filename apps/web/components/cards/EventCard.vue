@@ -4,6 +4,9 @@ interface Props {
   name: string
   startDate: string
   endDate?: string
+  /** Wall-clock `HH:MM`; omitted on events with no stated time. */
+  startTime?: string | null
+  endTime?: string | null
   venue?: string
   province?: string
   city?: string
@@ -30,6 +33,8 @@ const formattedDates = computed(() => {
 
   return start.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 })
+
+const formattedTime = computed(() => formatEventTimeRange(props.startTime, props.endTime))
 
 const location = computed(() => {
   const parts = []
@@ -87,6 +92,7 @@ const registrationClass = computed(() => {
             />
           </svg>
           <span>{{ formattedDates }}</span>
+          <span v-if="formattedTime" class="text-fg-muted">· {{ formattedTime }}</span>
         </div>
 
         <div v-if="location" class="mt-1 flex items-center gap-2 text-sm text-fg-muted">

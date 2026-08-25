@@ -22,8 +22,10 @@ withDefaults(
     /** Accessible name when there is no visible label. */
     ariaLabel?: string
     size?: 'sm' | 'md'
+    /** For dependent selects — a city list has nothing to offer until a province is picked. */
+    disabled?: boolean
   }>(),
-  { label: undefined, ariaLabel: undefined, size: 'md' }
+  { label: undefined, ariaLabel: undefined, size: 'md', disabled: false }
 )
 
 const emit = defineEmits<{ 'update:modelValue': [string] }>()
@@ -36,7 +38,8 @@ const emit = defineEmits<{ 'update:modelValue': [string] }>()
       <select
         :value="modelValue"
         :aria-label="ariaLabel ?? label"
-        class="w-full appearance-none rounded-button border border-border-strong bg-surface pr-9 text-fg transition-colors focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
+        :disabled="disabled"
+        class="w-full appearance-none rounded-button border border-border-strong bg-surface pr-9 text-fg transition-colors focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:cursor-not-allowed disabled:opacity-50"
         :class="size === 'sm' ? 'py-1.5 pl-3 text-caption' : 'py-2 pl-3 text-body-2'"
         @change="emit('update:modelValue', ($event.target as HTMLSelectElement).value)"
       >

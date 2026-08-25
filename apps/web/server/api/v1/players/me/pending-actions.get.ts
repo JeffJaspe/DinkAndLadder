@@ -1,6 +1,7 @@
 import { serverSupabaseClient, serverSupabaseUser } from '#supabase/server'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
 import { createClubMembershipRepository } from '~/server/domains/club/repositories/club-membership.repository'
+import { createPartnershipRepository } from '~/server/domains/partnership/repositories/partnership.repository'
 import { apiError } from '~/server/utils/api-error'
 
 export default defineEventHandler(async (event) => {
@@ -52,11 +53,25 @@ export default defineEventHandler(async (event) => {
       club_name: m.club.name
     }))
 
+  // A duo request is the same shape of obligation as a match verification or
+  // a club invitation: somebody is waiting on this player to answer. It
+  // belongs in the same list rather than only in a notification row.
+  const partnerRequests = await createPartnershipRepository(client).findPendingRequestsTo(
+    playerProfile.id
+  )
+  const pendingPartnerRequests = partnerRequests.map((request) => ({
+    type: 'partner_request' as const,
+    request_id: request.id,
+    from_player_id: request.from_player_id,
+    created_at: request.created_at
+  }))
+
   return {
     data: {
       pending_verifications: pendingVerifications,
       pending_memberships: pendingMemberships,
-      total: pendingVerifications.length + pendingMemberships.length
+      pending_partner_requests: pendingPartnerRequests,
+      total: pendingVerifications.length + pendingMemberships.length + pendingPartnerRequests.length
     },
     request_id: crypto.randomUUID()
   }

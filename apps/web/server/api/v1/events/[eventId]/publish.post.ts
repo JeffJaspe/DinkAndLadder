@@ -13,6 +13,7 @@ import {
   EventServiceError
 } from '~/server/domains/event/services/event.service'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
+import { createClubRepository } from '~/server/domains/club/repositories/club.repository'
 import { createActivityRepository } from '~/server/domains/activity/repositories/activity.repository'
 import { createActivityLogger } from '~/server/domains/activity/services/activity.service'
 
@@ -39,7 +40,19 @@ export default defineEventHandler(async (event) => {
   const eventRepo = createEventRepository(serviceClient)
   const tournamentRepo = createTournamentRepository(serviceClient)
   const registrationRepo = createTournamentRegistrationRepository(serviceClient)
-  const service = createEventService(eventRepo, tournamentRepo, registrationRepo)
+  // Publishing is where the live-event allowance bites, so the club's
+  // verification status has to be readable here.
+  const service = createEventService(
+    eventRepo,
+    tournamentRepo,
+    registrationRepo,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    createClubRepository(serviceClient)
+  )
 
   try {
     const publishedEvent = await service.publishEvent(profile.id, eventId)

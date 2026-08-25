@@ -341,6 +341,13 @@ function formatDateRange(start: string, end: string): string {
               {{ formatDateRange(event.start_date, event.end_date) }}
             </p>
             <p
+              v-if="formatEventTimeRange(event.start_time, event.end_time)"
+              class="mt-1 flex items-center gap-1.5 text-caption text-fg-muted"
+            >
+              <UiIcon name="clock" size="h-4 w-4" class="shrink-0" />
+              {{ formatEventTimeRange(event.start_time, event.end_time) }}
+            </p>
+            <p
               v-if="event.venue || event.city"
               class="mt-1 flex items-center gap-1.5 text-caption text-fg-muted"
             >

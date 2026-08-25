@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Format, per category — and an honest name for pool play.
+
+     `format` lived only on `tournaments` (006-event, changeSet 0003), so every
+     category of a weekend had to be drawn the same way. That is wrong for the
+     ordinary case: an organiser runs "Open Singles" as a round robin and
+     "4.5 Doubles" as a knockout on the same day, and they are two categories of
+     one tournament, not two tournaments.
+
+     Nullable, meaning "inherit from the tournament", exactly as
+     030-category-match-type did for `match_type`. Existing rows are backfilled
+     in changeSet 0005 so nothing relies on the fallback, but the column stays
+     nullable so a category created by an older client still resolves to
+     something sensible instead of failing an insert. The application resolves
+     `category.format ?? tournament.format` in one helper (`resolveFormat`).
+
+     `pool_play` is renamed to `round_robin_single_elimination`. It always WAS a
+     round-robin group stage feeding a single-elimination knockout; the old name
+     only stopped being merely vague once `round_robin_double_elimination` was
+     added beside it, at which point "pool play" names neither and distinguishes
+     nothing. Renaming a value, not a column — no application code reads the
+     string 'pool_play' after this changelog lands.
+
+     `tournaments.format` is deliberately left in place and NOT NULL. It is the
+     default a new category inherits and the fallback for the category-less
+     path.
+
+     No RLS change: tournament_categories policies (018-platform-enhancements)
+     are row-level and column-agnostic, so a new column inherits them. -->
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+    <changeSet id="0001-add-category-format" author="tournament-format">
+        <addColumn tableName="tournament_categories">
+            <column name="format" type="text"/>
+        </addColumn>
+        <rollback>
+            <dropColumn tableName="tournament_categories" columnName="format"/>
+        </rollback>
+    </changeSet>
+
+    <!-- Must run before either CHECK constraint below, or the surviving
+         'pool_play' rows would fail it. -->
+    <changeSet id="0002-migrate-pool-play" author="tournament-format">
+        <sql>
+            UPDATE tournaments
+            SET format = 'round_robin_single_elimination'
+            WHERE format = 'pool_play';
+        </sql>
+        <rollback>
+            UPDATE tournaments
+            SET format = 'pool_play'
+            WHERE format = 'round_robin_single_elimination';
+        </rollback>
+    </changeSet>
+
+    <!-- The column has carried no constraint since 006-event, so a typo in a
+         request body could be stored and then fall through the generator's
+         switch to single elimination without anyone being told. -->
+    <changeSet id="0003-tournaments-format-check" author="tournament-format">
+        <sql>
+            ALTER TABLE tournaments
+                ADD CONSTRAINT ck_tournaments_format
+                CHECK (format IN (
+                    'round_robin',
+                    'single_elimination',
+                    'double_elimination',
+                    'round_robin_single_elimination',
+                    'round_robin_double_elimination'
+                ));
+        </sql>
+        <rollback>
+            ALTER TABLE tournaments DROP CONSTRAINT ck_tournaments_format;
+        </rollback>
+    </changeSet>
+
+    <changeSet id="0004-category-format-check" author="tournament-format">
+        <sql>
+            ALTER TABLE tournament_categories
+                ADD CONSTRAINT ck_tournament_categories_format
+                CHECK (format IS NULL OR format IN (
+                    'round_robin',
+                    'single_elimination',
+                    'double_elimination',
+                    'round_robin_single_elimination',
+                    'round_robin_double_elimination'
+                ));
+        </sql>
+        <rollback>
+            ALTER TABLE tournament_categories
+                DROP CONSTRAINT ck_tournament_categories_format;
+        </rollback>
+    </changeSet>
+
+    <!-- Backfill so every category that already exists states its own format
+         rather than relying on the fallback. Forward-only: the rollback leaves
+         the values alone, because dropping the column (0001) removes them
+         anyway and there is no prior state to restore them to. -->
+    <changeSet id="0005-backfill-category-format" author="tournament-format">
+        <sql>
+            UPDATE tournament_categories c
+            SET format = t.format
+            FROM tournaments t
+            WHERE c.tournament_id = t.id
+              AND c.format IS NULL;
+        </sql>
+        <rollback/>
+    </changeSet>
+
+</databaseChangeLog>
