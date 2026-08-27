@@ -21,6 +21,17 @@ export class MatchServiceError extends Error {
 
 const TEAM_SIZE: Record<'singles' | 'doubles', number> = { singles: 1, doubles: 2 }
 
+export interface VerificationDecisionResult {
+  match: MatchDto
+  /**
+   * True only for the request that actually moved the match out of
+   * `pending_verification`. Side effects that must happen once per match —
+   * rating calculation above all — key off this, not off `match.status`, which
+   * reads as terminal for every concurrent verifier once any of them wins.
+   */
+  status_changed: boolean
+}
+
 export interface MatchService {
   getById(matchId: string): Promise<MatchDto | null>
   submitMatch(submittedByPlayerId: string, input: SubmitMatchInput): Promise<MatchDto>
@@ -29,7 +40,7 @@ export interface MatchService {
     actingPlayerId: string,
     matchId: string,
     input: RecordVerificationDecisionInput
-  ): Promise<MatchDto>
+  ): Promise<VerificationDecisionResult>
   proposeCounterScore(
     actingPlayerId: string,
     matchId: string,
@@ -203,28 +214,45 @@ export function createMatchService(repository: MatchRepository): MatchService {
         )
       }
 
-      await repository.updateVerificationDecision(
+      const recorded = await repository.updateVerificationDecision(
         matchId,
         actingPlayerId,
         input.status,
         input.response_note ?? null
       )
+      if (!recorded) {
+        // The snapshot said `pending`, the row says otherwise: a concurrent
+        // request from this same verifier got there first.
+        throw new MatchServiceError(
+          409,
+          'CONFLICT',
+          'You have already recorded a decision for this match.'
+        )
+      }
 
-      const updatedVerifications = match.match_verifications.map((v) =>
-        v.verifier_player_id === actingPlayerId ? { ...v, status: input.status } : v
-      )
-      const newStatus = resolveMatchStatus(updatedVerifications)
-      if (newStatus !== match.status) {
-        await repository.updateMatchStatus(
+      // Re-read rather than patching the snapshot. Another verifier's decision
+      // is only visible in a fresh read, and without one two simultaneous
+      // confirmations each still see the other as pending, both roll up to
+      // `pending_verification`, and the match stalls there unrated forever.
+      const afterDecision = await repository.findById(matchId)
+      if (!afterDecision) throw new Error('Match disappeared immediately after being updated.')
+
+      const newStatus = resolveMatchStatus(afterDecision.match_verifications)
+      let statusChanged = false
+      if (newStatus !== afterDecision.status) {
+        statusChanged = await repository.transitionMatchStatus(
           matchId,
+          'pending_verification',
           newStatus,
           newStatus === 'verified' ? new Date().toISOString() : null
         )
       }
 
-      const updated = await repository.findById(matchId)
+      // Only re-read a third time when the transition landed; otherwise the
+      // read we already have is current.
+      const updated = statusChanged ? await repository.findById(matchId) : afterDecision
       if (!updated) throw new Error('Match disappeared immediately after being updated.')
-      return toMatchDto(updated)
+      return { match: toMatchDto(updated), status_changed: statusChanged }
     },
 
     /**

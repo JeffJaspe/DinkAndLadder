@@ -32,11 +32,15 @@ function createFakeMatchRepository(): MatchRepository {
     },
     async findById(matchId) {
       const row = rows.get(matchId)
+      // The verification records are copied, not just the array holding them:
+      // a real read returns a point-in-time snapshot, and sharing the element
+      // objects would let a later write appear to mutate an earlier read —
+      // exactly the staleness the concurrency tests below need to reproduce.
       return row
         ? {
             ...row,
-            match_verifications: [...row.match_verifications],
-            match_score_proposals: [...row.match_score_proposals]
+            match_verifications: row.match_verifications.map((v) => ({ ...v })),
+            match_score_proposals: row.match_score_proposals.map((p) => ({ ...p }))
           }
         : null
     },
@@ -95,16 +99,29 @@ function createFakeMatchRepository(): MatchRepository {
       if (!row) throw new Error('not found')
       const target = row.match_verifications.find((v) => v.verifier_player_id === verifierPlayerId)
       if (!target) throw new Error('not found')
+      // Mirrors the repository's `.eq('status', 'pending')` guard: a verifier
+      // who already decided matches no row and gets nothing back.
+      if (target.status !== 'pending') return null
       target.status = status
       target.response_note = responseNote
       target.responded_at = new Date().toISOString()
-      return target
+      return { ...target }
     },
     async updateMatchStatus(matchId, status, verifiedAt) {
       const row = rows.get(matchId)
       if (!row) throw new Error('not found')
       row.status = status
       row.verified_at = verifiedAt
+    },
+    async transitionMatchStatus(matchId, fromStatus, toStatus, verifiedAt) {
+      const row = rows.get(matchId)
+      if (!row) throw new Error('not found')
+      // Compare-and-set, as in the repository: the update matches no row unless
+      // the match is still at `fromStatus`, so exactly one racing caller wins.
+      if (row.status !== fromStatus) return false
+      row.status = toStatus
+      row.verified_at = verifiedAt
+      return true
     },
     async createScoreProposal(matchId, proposedByPlayerId, scores, proposalRound) {
       const row = rows.get(matchId)
@@ -372,7 +389,7 @@ describe('MatchService verification', () => {
     const match = await service.submitMatch('player-me', baseSinglesInput)
     await service.initiateVerification('player-me', match.id)
 
-    const updated = await service.recordVerificationDecision('player-opponent', match.id, {
+    const { match: updated } = await service.recordVerificationDecision('player-opponent', match.id, {
       status: 'confirmed'
     })
 
@@ -385,17 +402,17 @@ describe('MatchService verification', () => {
     const match = await service.submitMatch('player-me', doublesInput)
     await service.initiateVerification('player-me', match.id)
 
-    const afterOne = await service.recordVerificationDecision('player-partner', match.id, {
+    const { match: afterOne } = await service.recordVerificationDecision('player-partner', match.id, {
       status: 'confirmed'
     })
     expect(afterOne.status).toBe('pending_verification')
 
-    const afterTwo = await service.recordVerificationDecision('player-opp1', match.id, {
+    const { match: afterTwo } = await service.recordVerificationDecision('player-opp1', match.id, {
       status: 'confirmed'
     })
     expect(afterTwo.status).toBe('pending_verification')
 
-    const afterThree = await service.recordVerificationDecision('player-opp2', match.id, {
+    const { match: afterThree } = await service.recordVerificationDecision('player-opp2', match.id, {
       status: 'confirmed'
     })
     expect(afterThree.status).toBe('verified')
@@ -407,7 +424,7 @@ describe('MatchService verification', () => {
     await service.initiateVerification('player-me', match.id)
 
     await service.recordVerificationDecision('player-partner', match.id, { status: 'confirmed' })
-    const afterReject = await service.recordVerificationDecision('player-opp1', match.id, {
+    const { match: afterReject } = await service.recordVerificationDecision('player-opp1', match.id, {
       status: 'rejected',
       response_note: 'Score was wrong'
     })
@@ -421,7 +438,7 @@ describe('MatchService verification', () => {
     await service.initiateVerification('player-me', match.id)
 
     await service.recordVerificationDecision('player-partner', match.id, { status: 'confirmed' })
-    const afterDispute = await service.recordVerificationDecision('player-opp1', match.id, {
+    const { match: afterDispute } = await service.recordVerificationDecision('player-opp1', match.id, {
       status: 'disputed'
     })
 
@@ -437,6 +454,64 @@ describe('MatchService verification', () => {
     await expect(
       service.recordVerificationDecision('player-partner', match.id, { status: 'confirmed' })
     ).rejects.toMatchObject({ code: 'CONFLICT' })
+  })
+
+  // F-25. Every verifier reads the match before writing its own decision, so
+  // two who act at the same time both hold a snapshot taken before either
+  // wrote. The roll-up has to survive that.
+  describe('concurrent verification decisions', () => {
+    it('still verifies the match when the last two verifiers confirm simultaneously', async () => {
+      const service = createMatchService(repository)
+      const match = await service.submitMatch('player-me', doublesInput)
+      await service.initiateVerification('player-me', match.id)
+      await service.recordVerificationDecision('player-partner', match.id, { status: 'confirmed' })
+
+      const [first, second] = await Promise.all([
+        service.recordVerificationDecision('player-opp1', match.id, { status: 'confirmed' }),
+        service.recordVerificationDecision('player-opp2', match.id, { status: 'confirmed' })
+      ])
+
+      // Computing the roll-up from each caller's own stale snapshot left both
+      // at pending_verification, and the match was never rated.
+      const final = await service.getById(match.id)
+      expect(final?.status).toBe('verified')
+      expect(final?.verified_at).not.toBeNull()
+
+      // Exactly one of them owns the transition, so the rating runs once.
+      expect([first.status_changed, second.status_changed].filter(Boolean)).toHaveLength(1)
+    })
+
+    it('reports the transition to exactly one caller when a confirm and a dispute race', async () => {
+      const service = createMatchService(repository)
+      const match = await service.submitMatch('player-me', doublesInput)
+      await service.initiateVerification('player-me', match.id)
+
+      const results = await Promise.all([
+        service.recordVerificationDecision('player-opp1', match.id, { status: 'disputed' }),
+        service.recordVerificationDecision('player-opp2', match.id, { status: 'confirmed' })
+      ])
+
+      // A dispute is terminal regardless of which decision landed first.
+      const final = await service.getById(match.id)
+      expect(final?.status).toBe('disputed')
+      expect(results.filter((r) => r.status_changed)).toHaveLength(1)
+    })
+
+    it('lets only one of two simultaneous decisions from the same verifier through', async () => {
+      const service = createMatchService(repository)
+      const match = await service.submitMatch('player-me', doublesInput)
+      await service.initiateVerification('player-me', match.id)
+
+      const outcomes = await Promise.allSettled([
+        service.recordVerificationDecision('player-partner', match.id, { status: 'confirmed' }),
+        service.recordVerificationDecision('player-partner', match.id, { status: 'confirmed' })
+      ])
+
+      expect(outcomes.filter((o) => o.status === 'fulfilled')).toHaveLength(1)
+      const rejected = outcomes.find((o) => o.status === 'rejected')
+      expect(rejected).toBeDefined()
+      expect((rejected as PromiseRejectedResult).reason).toMatchObject({ code: 'CONFLICT' })
+    })
   })
 
   it('rejects a decision once the match has already reached a terminal state', async () => {
@@ -473,7 +548,7 @@ describe('MatchService verification', () => {
     const match = await service.submitMatch('player-me', baseSinglesInput)
     await service.initiateVerification('player-me', match.id)
 
-    const updated = await service.recordVerificationDecision('player-opponent', match.id, {
+    const { match: updated } = await service.recordVerificationDecision('player-opponent', match.id, {
       status: 'rejected',
       response_note: 'The score was 11-7, not 11-9'
     })

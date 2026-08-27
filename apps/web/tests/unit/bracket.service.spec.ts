@@ -93,6 +93,7 @@ function createFakeMatchRepository(
     createPendingVerifications: vi.fn().mockResolvedValue([]),
     updateVerificationDecision: vi.fn(),
     updateMatchStatus: vi.fn().mockResolvedValue(undefined),
+    transitionMatchStatus: vi.fn().mockResolvedValue(true),
     createScoreProposal: vi.fn(),
     findScoreRowsByMatchIds: vi.fn().mockResolvedValue(rows),
     ...overrides

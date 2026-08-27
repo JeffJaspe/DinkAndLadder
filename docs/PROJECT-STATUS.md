@@ -1244,7 +1244,7 @@ live.
      resets the 24hr timer
    - **Sorted by updated_at** — feed shows recently edited shout-outs first
    - **Database schema** — added `updated_at` column to `player_shoutouts` table
-   - **UI** — removed delete button from Kitchen, added expiration countdown display
+   - **UI** — removed delete button from Dashboard, added expiration countdown display
 
 5. **Activity logging verified** — was already implemented in
    `POST /api/v1/matches/[matchId]/verification/decision.post.ts`:
@@ -1301,7 +1301,7 @@ select one badge to prominently display on their profile.
 
 ### UI
 
-- `pages/dashboard.vue` (Kitchen):
+- `pages/dashboard.vue`:
   - Added "My Badge" section with current badge display
   - Badge selector shows all available badges
   - Select/change/remove badge functionality
@@ -1362,7 +1362,7 @@ All existing activity service tests pass (10/10).
 
 ---
 
-## Phase 5 (Kitchen + Shout-outs) Verification (2026-08-21)
+## Phase 5 (Dashboard + Shout-outs) Verification (2026-08-21)
 
 Phase 5 was already fully implemented in an earlier session. Verified all components are present:
 
@@ -1380,7 +1380,7 @@ Phase 5 was already fully implemented in an earlier session. Verified all compon
   - Sorted by `updated_at` descending in feed
   - Activity logging via `logShoutout()`
 
-### Kitchen (Dashboard)
+### Dashboard
 - Shout-out section with create/edit UI
 - Expiration countdown display
 - Quick-fill examples for new users
@@ -4229,3 +4229,153 @@ rather than refused.
 
 None of this has been driven in the running app. The live walkthrough in the
 plan is the outstanding work.
+
+---
+
+## F-25 — Verification roll-up race (2026-08-27)
+
+### The bug
+
+`recordVerificationDecision` read the match, wrote the acting verifier's
+decision, then recomputed the match status by patching **its own in-memory
+snapshot** — a snapshot taken before the write. When the last two verifiers of a
+doubles match confirmed at the same time, each one's snapshot still showed the
+other as `pending`, so both rolled up to `pending_verification` and neither
+transitioned the match. The match sat unrated forever, with every verification
+row confirmed and nothing left to trigger it.
+
+Fixing only that exposed the mirror-image bug. The controller triggered rating
+calculation on `match.status === 'verified'`, and once the roll-up reads from the
+database *both* concurrent callers see a verified match — so both would rate it,
+doubling every player's delta. Not rating a match is recoverable; rating it twice
+corrupts the ladder.
+
+### The fix
+
+Both writes are now compare-and-set, so the database decides the winner:
+
+- `transitionMatchStatus(matchId, fromStatus, toStatus, verifiedAt)` — new on the
+  repository — updates `matches` with `.eq('status', fromStatus)` and returns
+  whether it matched a row. Exactly one racing caller gets `true`.
+- `updateVerificationDecision` gained `.eq('status', 'pending')` and returns
+  `null` instead of throwing when no row matched. That closes the same window for
+  a single verifier double-submitting, which the snapshot check could not see.
+- The roll-up re-reads the match after writing the decision rather than patching
+  the snapshot.
+- `recordVerificationDecision` returns `{ match, status_changed }`.
+  `status_changed` is true only for the caller that performed the transition, and
+  the controller gates rating calculation, the match-verified activity log and
+  the terminal-state notifications on it. The audit log stays ungated — it
+  records each verifier's own decision, which did happen.
+
+`updateMatchStatus` is unchanged and still used by the unconditional transitions
+(`initiateVerification`, dispute, and the bracket's result recording), which have
+no roll-up to race over.
+
+### Tests
+
+Three specs under `MatchService verification > concurrent verification
+decisions`. The first — two verifiers confirming via `Promise.all` — was checked
+against the old implementation and fails there with `expected
+'pending_verification' to be 'verified'`, which is the stall itself. The fake
+repository was tightened to make that meaningful: `findById` now deep-copies the
+verification records (it previously shared the element objects, so a later write
+appeared to mutate an earlier read), and the fake mirrors both compare-and-set
+guards.
+
+### Validation
+
+`typecheck` clean, `eslint` 0 errors (8 pre-existing warnings in unrelated
+files), **884 unit tests passing** (was 881).
+
+### Not verified in a browser
+
+The race needs two clients confirming the same doubles match simultaneously,
+which the live walkthrough does not currently cover.
+
+---
+
+## Google OAuth redirecting to localhost from Vercel (2026-08-27)
+
+### The bug
+
+The deployment at `https://dink-and-ladder-web.vercel.app` shares one Supabase
+project with local dev. Signing in with Google there completed at Google and
+then landed the user on `localhost:3000`.
+
+The app code was never at fault: `pages/login.vue` and `pages/register.vue`
+already send `redirectTo: ${window.location.origin}/confirm`, which is the Vercel
+origin in production. Supabase was overriding it. It validates `redirectTo`
+against the project's **Redirect URLs** allow-list, and a URL that does not match
+is discarded *with no error anywhere* and replaced by the project's **Site URL** —
+still `http://localhost:3000` from initial setup. The silence is what made this
+look like an application bug. Password reset
+(`${window.location.origin}/update-password`) was affected the same way.
+
+### The dashboard half (no code, no deploy)
+
+Authentication → URL Configuration. Site URL is now the deployment; the
+allow-list carries `http://localhost:3000/**`,
+`https://dink-and-ladder-web.vercel.app/**` and
+`https://dink-and-ladder-web-*.vercel.app/**` — the last for preview deploys,
+which get a fresh generated hostname each time and would otherwise fail exactly
+as production did. Google Cloud Console needed no change: its redirect URI points
+at Supabase's own `/auth/v1/callback`, which is identical across environments.
+
+**This half alone fixes the reported symptom.**
+
+### The code half, and why it was needed
+
+Registration runs server-side so Turnstile can gate it, and `registerWithPassword`
+called `signUp({ email, password })` with no `emailRedirectTo` — so confirmation
+links were always built from Site URL. That meant repointing Site URL at Vercel
+would have sent *local* signups to Vercel links: the same bug mirrored. Being
+server-side, there is no `window.location` to fix it the way the client calls do.
+
+`server/utils/site-url.ts` resolves the origin from the platform instead of from
+configuration, mirroring `resolveTrustProxy` (F-11) — same location, same
+dependency-free constraint (`nuxt.config.ts` imports both at config load), same
+explicit-then-detect-then-safe-default precedence:
+
+- `NUXT_SITE_URL` wins if ever set (escape hatch for a non-Vercel host).
+- Vercel production → `VERCEL_PROJECT_PRODUCTION_URL`, the *stable* domain.
+  Deliberately not `VERCEL_URL`: that is the per-deploy generated hostname, so a
+  link built from it stops working at the next deploy, and an emailed link has to
+  outlive the deployment that sent it.
+- Vercel preview → its own `VERCEL_URL`, so a preview signup confirms against the
+  build being tested. This is why the preview wildcard above is required rather
+  than optional.
+- Anything else → `http://localhost:3000` (honouring `PORT`).
+
+Surfaced as `runtimeConfig.siteUrl`; `register.post.ts` passes
+`${siteUrl}/confirm` through to `signUp`. The argument is optional and the
+`options` key is omitted entirely when absent, so the Site URL fallback still
+applies and the change is backwards compatible.
+
+**Not derived from the request `Host` header**, which would have needed no
+platform knowledge at all. That header is caller-controlled and a confirmation
+link carries a live token, so trusting it would let someone trigger a signup
+whose confirmation URL points at a host of their choosing. Platform variables
+cannot be spoofed by a caller.
+
+Nothing to configure in either environment. This relies on Vercel's
+"Automatically expose System Environment Variables" project setting, which is on
+by default.
+
+### Tests
+
+`tests/unit/site-url.spec.ts` — 8 specs over the pure env→origin function,
+including the production-vs-preview distinction that is the easiest thing to get
+backwards. Two added to `auth.service.spec.ts` for the forwarding and the
+omit-when-absent case.
+
+### Validation
+
+`typecheck` clean, `eslint` 0 errors (8 pre-existing warnings in unrelated
+files), **894 unit tests passing** (was 884).
+
+### Still to verify live
+
+The dashboard changes and both OAuth flows (Vercel and localhost) have not been
+driven in a browser yet, nor has a real signup email been checked from each
+environment.

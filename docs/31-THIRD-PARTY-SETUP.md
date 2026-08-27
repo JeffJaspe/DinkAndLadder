@@ -19,12 +19,47 @@
    - Enter Client ID and Client Secret from Google
    - Save
 
-3. **Environment Variables** (already handled by Supabase module)
+3. **Supabase Dashboard → Authentication → URL Configuration**
+
+   This step is not optional, and skipping it fails *silently*. Supabase checks
+   the `redirectTo` an app sends against the **Redirect URLs** allow-list; a URL
+   that is not on the list is discarded without an error anywhere and the user
+   is sent to **Site URL** instead. Leaving Site URL at its initial
+   `http://localhost:3000` while deploying elsewhere therefore sends every
+   OAuth sign-in — from every environment — to localhost.
+
+   **Site URL** — the deployment, since that is where real users are:
+   ```
+   https://dink-and-ladder-web.vercel.app
+   ```
+
+   **Redirect URLs** — every origin the app is served from:
+   ```
+   http://localhost:3000/**
+   https://dink-and-ladder-web.vercel.app/**
+   https://dink-and-ladder-web-*.vercel.app/**
+   ```
+
+   The third entry covers Vercel preview deployments, which get a fresh
+   generated hostname per deploy. These patterns are globs: `*` does not cross
+   `.` or `/`, `**` does.
+
+   The Google Cloud Console redirect URI above needs no per-environment entry —
+   it points at Supabase's own `/auth/v1/callback`, which is the same for all of
+   them.
+
+4. **Environment Variables** (already handled by Supabase module)
    ```env
    # .env
    SUPABASE_URL=https://<your-project>.supabase.co
    SUPABASE_KEY=<your-anon-key>
    ```
+
+   Confirmation emails are built server-side, where there is no
+   `window.location`, so their origin comes from `server/utils/site-url.ts`.
+   It is detected per deployment from Vercel's own variables and falls back to
+   localhost, so there is nothing to set; `NUXT_SITE_URL` forces a value if a
+   future host is neither Vercel nor local.
 
 ### Frontend Usage
 ```vue

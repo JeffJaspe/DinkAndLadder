@@ -21,7 +21,15 @@ export default defineEventHandler(async (event) => {
   await requireTurnstile(event, body.turnstile_token)
 
   const client = await serverSupabaseClient(event)
-  const { error, code } = await registerWithPassword(client, body.email, body.password)
+  // /confirm is the existing callback page and already matches
+  // supabase.redirectOptions.callback in nuxt.config.ts.
+  const siteUrl = useRuntimeConfig(event).siteUrl
+  const { error, code } = await registerWithPassword(
+    client,
+    body.email,
+    body.password,
+    siteUrl ? `${siteUrl.replace(/\/+$/, '')}/confirm` : undefined
+  )
   if (error) {
     const mapped = mapAuthError(code, error)
     throw apiError(400, mapped.code, mapped.message)

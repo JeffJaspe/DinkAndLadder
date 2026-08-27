@@ -259,7 +259,17 @@ deferred — none block the MVP. IDs match the audit report.
 - [x] F-24 — DONE (2026-08-22): reads created_at from auth.users via the Admin API instead of JWT claims, degrading gracefully. Original note:  `/api/v1/me/auth-info` returns `created_at: undefined`.
       `serverSupabaseUser` returns JWT claims, which have no `created_at`.
       Either drop the field or read it from the `users` table.
-- [ ] F-25 — Verification roll-up race. `recordVerificationDecision` recomputes
+- [x] F-25 — DONE (2026-08-27): the roll-up is read back from the database and
+      the transition is a compare-and-set, so a simultaneous pair of
+      confirmations finalizes the match exactly once. `recordVerificationDecision`
+      now returns `{ match, status_changed }`; the controller gates rating
+      calculation and terminal-state notifications on `status_changed` rather
+      than on `match.status`, because every concurrent verifier reads the
+      terminal status once any one of them wins. `updateVerificationDecision` is
+      guarded on `status = 'pending'` too, which closes the same window for one
+      verifier double-submitting. New `transitionMatchStatus` on the repository;
+      3 concurrency specs, one of which reproduces the original stall.
+      Original note:  `recordVerificationDecision` recomputes
       match status from an in-memory snapshot, so two simultaneous confirmations
       can leave a match `pending_verification` — and it never gets rated.
 - [ ] F-26 — `highest_singles_rating` / `highest_doubles_rating` return the

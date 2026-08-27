@@ -139,7 +139,11 @@ export default defineEventHandler(async (event) => {
   const playerRepo = createPlayerProfileRepository(serviceClient)
 
   try {
-    const match = await service.recordVerificationDecision(playerProfile.id, matchId, input)
+    const { match, status_changed: statusChanged } = await service.recordVerificationDecision(
+      playerProfile.id,
+      matchId,
+      input
+    )
 
     await auditService.logMatchVerificationDecision(claims.sub, playerProfile.id, matchId, {
       decision: input.status,
@@ -149,7 +153,11 @@ export default defineEventHandler(async (event) => {
     // Activity logger for feed
     const activityLogger = createActivityLogger(createActivityRepository(serviceClient))
 
-    if (match.status === 'verified') {
+    // Gated on `statusChanged`, not on `match.status`: when the last two
+    // verifiers confirm at the same time both see a verified match, but only
+    // the one that won the transition may rate it. Rating twice would double
+    // every player's delta.
+    if (statusChanged && match.status === 'verified') {
       // Log match verified activity for all participants
       await Promise.all(
         match.participants.map((p) =>
@@ -191,7 +199,7 @@ export default defineEventHandler(async (event) => {
     }
 
     const terminalStates = ['verified', 'rejected', 'disputed'] as const
-    if (terminalStates.includes(match.status as (typeof terminalStates)[number])) {
+    if (statusChanged && terminalStates.includes(match.status as (typeof terminalStates)[number])) {
       const notificationType: NotificationType =
         match.status === 'verified'
           ? 'match.verified'

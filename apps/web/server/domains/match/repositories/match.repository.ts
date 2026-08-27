@@ -25,13 +25,37 @@ export interface MatchRepository {
     matchId: string,
     verifierPlayerIds: string[]
   ): Promise<MatchVerificationRecord[]>
+  /**
+   * Records a verifier's decision, but only while their row is still `pending`.
+   *
+   * Returns `null` when no pending row matched — the verifier already decided,
+   * possibly in a request still in flight. Checking the caller's snapshot
+   * instead would let a double-submit through, since both requests read
+   * `pending` before either wrote.
+   */
   updateVerificationDecision(
     matchId: string,
     verifierPlayerId: string,
     status: Exclude<VerificationStatus, 'pending'>,
     responseNote: string | null
-  ): Promise<MatchVerificationRecord>
+  ): Promise<MatchVerificationRecord | null>
   updateMatchStatus(matchId: string, status: MatchStatus, verifiedAt: string | null): Promise<void>
+  /**
+   * Compare-and-set on `matches.status`: moves the match to `toStatus` only if
+   * it is still at `fromStatus`, and reports whether this call is the one that
+   * moved it.
+   *
+   * The roll-up out of `pending_verification` is racy by nature — the last two
+   * verifiers can confirm simultaneously, and both then compute the same
+   * terminal status. Exactly one must win, because the winner is what triggers
+   * rating calculation, and rating a match twice is worse than not rating it.
+   */
+  transitionMatchStatus(
+    matchId: string,
+    fromStatus: MatchStatus,
+    toStatus: MatchStatus,
+    verifiedAt: string | null
+  ): Promise<boolean>
   createScoreProposal(
     matchId: string,
     proposedByPlayerId: string,
@@ -124,11 +148,12 @@ export function createMatchRepository(client: SupabaseClient): MatchRepository {
         .update({ status, response_note: responseNote, responded_at: new Date().toISOString() })
         .eq('match_id', matchId)
         .eq('verifier_player_id', verifierPlayerId)
+        .eq('status', 'pending')
         .select('id, match_id, verifier_player_id, status, response_note, responded_at, created_at')
-        .single()
+        .maybeSingle()
 
       if (error) throw error
-      return data as unknown as MatchVerificationRecord
+      return (data as unknown as MatchVerificationRecord | null) ?? null
     },
 
     async updateMatchStatus(matchId, status, verifiedAt) {
@@ -138,6 +163,18 @@ export function createMatchRepository(client: SupabaseClient): MatchRepository {
         .eq('id', matchId)
 
       if (error) throw error
+    },
+
+    async transitionMatchStatus(matchId, fromStatus, toStatus, verifiedAt) {
+      const { data, error } = await client
+        .from('matches')
+        .update({ status: toStatus, verified_at: verifiedAt })
+        .eq('id', matchId)
+        .eq('status', fromStatus)
+        .select('id')
+
+      if (error) throw error
+      return ((data as unknown as { id: string }[] | null) ?? []).length > 0
     },
 
     async createScoreProposal(matchId, proposedByPlayerId, scores, proposalRound) {

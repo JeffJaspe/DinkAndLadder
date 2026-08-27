@@ -6,7 +6,7 @@ import type { RatingTransactionDto } from '~/server/domains/rating/dto/rating.dt
 import type { MyClubMembershipDto } from '~/server/domains/club/dto/club-membership.dto'
 import { tierForRating } from '~/utils/rating-tiers'
 
-useHead({ title: 'Kitchen' })
+useHead({ title: 'Dashboard' })
 
 interface MatchSummary {
   id: string
@@ -305,7 +305,7 @@ function formatEventDate(dateStr: string): string {
       <!-- Header -->
       <div class="flex items-start justify-between">
         <div>
-          <p class="text-sm text-fg-secondary">Welcome to the Kitchen,</p>
+          <p class="text-sm text-fg-secondary">Welcome to the Dashboard,</p>
           <h1 class="text-2xl font-bold text-fg">
             {{ myProfile?.display_name || currentUser.email?.split('@')[0] }}! 👋
           </h1>

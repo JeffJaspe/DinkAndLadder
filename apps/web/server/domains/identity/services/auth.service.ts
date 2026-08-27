@@ -42,6 +42,7 @@ export interface PasswordAuthClient {
     signUp(params: {
       email: string
       password: string
+      options?: { emailRedirectTo?: string }
     }): Promise<{ error: PasswordAuthError | null }>
     signInWithPassword(params: { email: string; password: string }): Promise<{
       data: { session: AuthSession | null }
@@ -56,13 +57,27 @@ export interface PasswordAuthClient {
  * server/api/v1/auth/register.post.ts. `code` is Supabase's stable
  * machine-readable error code (see auth-error-mapper.ts) — undefined for
  * error shapes that predate it or come from elsewhere.
+ *
+ * `emailRedirectTo` is where the confirmation email's link lands. Running here
+ * rather than in the browser means there is no `window.location` to read it
+ * from, so the caller supplies it (see `resolveSiteUrl`). Without it Supabase
+ * builds the link from the project's Site URL, which is a single value shared
+ * by every environment pointed at the project — so a signup on one host
+ * confirms on another.
  */
 export async function registerWithPassword(
   client: PasswordAuthClient,
   email: string,
-  password: string
+  password: string,
+  emailRedirectTo?: string
 ): Promise<{ error: string | null; code: string | undefined }> {
-  const { error } = await client.auth.signUp({ email, password })
+  const { error } = await client.auth.signUp({
+    email,
+    password,
+    // Omitted rather than guessed when there is nothing to send: Supabase then
+    // falls back to Site URL, which is exactly the previous behaviour.
+    ...(emailRedirectTo ? { options: { emailRedirectTo } } : {})
+  })
   return { error: error?.message ?? null, code: error?.code }
 }
 

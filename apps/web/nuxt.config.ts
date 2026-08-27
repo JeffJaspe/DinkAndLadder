@@ -1,4 +1,5 @@
 import { resolveTrustProxy } from './server/utils/trust-proxy'
+import { resolveSiteUrl } from './server/utils/site-url'
 
 // https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
@@ -52,6 +53,9 @@ export default defineNuxtConfig({
     turnstileSecretKey: process.env.TURNSTILE_SECRET_KEY,
     // Overridable at runtime with NUXT_TRUST_PROXY_HEADERS.
     trustProxyHeaders: resolveTrustProxy(process.env),
+    // Origin for links inside emails, detected per deployment from the
+    // platform's own variables. Overridable at runtime with NUXT_SITE_URL.
+    siteUrl: resolveSiteUrl(process.env),
     public: {
       stripePublishableKey: process.env.STRIPE_PUBLISHABLE_KEY,
       paymongoPublicKey: process.env.PAYMONGO_PUBLIC_KEY,

@@ -99,6 +99,48 @@ describe('registerWithPassword / loginWithPassword', () => {
     })
   })
 
+  it('registerWithPassword sends the confirmation link back to the given origin', async () => {
+    const client = {
+      auth: {
+        signUp: vi.fn().mockResolvedValue({ error: null }),
+        signInWithPassword: vi.fn()
+      }
+    }
+
+    await registerWithPassword(
+      client,
+      'player@example.com',
+      'password123',
+      'https://dink-and-ladder-web.vercel.app/confirm'
+    )
+
+    expect(client.auth.signUp).toHaveBeenCalledWith({
+      email: 'player@example.com',
+      password: 'password123',
+      options: { emailRedirectTo: 'https://dink-and-ladder-web.vercel.app/confirm' }
+    })
+  })
+
+  it('registerWithPassword omits options entirely when no origin is given', async () => {
+    // Supabase then falls back to the project's Site URL, which is what it did
+    // before this argument existed — an environment that cannot resolve an
+    // origin is no worse off than it was.
+    const client = {
+      auth: {
+        signUp: vi.fn().mockResolvedValue({ error: null }),
+        signInWithPassword: vi.fn()
+      }
+    }
+
+    await registerWithPassword(client, 'player@example.com', 'password123')
+
+    expect(client.auth.signUp).toHaveBeenCalledWith({
+      email: 'player@example.com',
+      password: 'password123'
+    })
+    expect(client.auth.signUp.mock.calls[0][0]).not.toHaveProperty('options')
+  })
+
   it('registerWithPassword surfaces the provider error message and code', async () => {
     const client = {
       auth: {

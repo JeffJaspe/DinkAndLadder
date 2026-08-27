@@ -84,7 +84,7 @@ const { incomingCount: partnerRequestCount } = usePartnerRequestCount()
 // composables/useAccountMode.ts and components/AccountSwitcher.vue.
 const playerNavItems = computed<NavItem[]>(() => [
   { name: 'Feed', href: '/feed', icon: 'feed' },
-  { name: 'Kitchen', href: '/dashboard', icon: 'dashboard' },
+  { name: 'Dashboard', href: '/dashboard', icon: 'dashboard' },
   { name: 'Rankings', href: '/rankings', icon: 'rankings' },
   { name: 'Matches', href: '/matches', icon: 'matches' },
   { name: 'Events', href: '/events', icon: 'calendar' },
@@ -97,7 +97,7 @@ const playerNavItems = computed<NavItem[]>(() => [
 
 const clubNavItems = computed<NavItem[]>(() => [
   {
-    name: 'Kitchen',
+    name: 'Dashboard',
     href: activeClubId.value ? `/club/${activeClubId.value}/dashboard` : '/dashboard',
     icon: 'dashboard'
   },
