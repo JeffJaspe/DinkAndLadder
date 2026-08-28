@@ -16,7 +16,7 @@ name: DB Migrate
 # ---------------------------------------------------------------------------
 # One-time setup (GitHub -> Settings -> Environments)
 # ---------------------------------------------------------------------------
-# Create two environments, `development` and `production`, each holding three
+# Create two environments, `db-development` and `db-production`, each holding three
 # secrets named exactly as Liquibase's own env vars:
 #
 #   LIQUIBASE_COMMAND_URL       jdbc:postgresql://aws-0-<region>.pooler.supabase.com:5432/postgres?sslmode=require
@@ -36,7 +36,7 @@ name: DB Migrate
 # hold the session-level lock Liquibase needs. The `db.<ref>.supabase.co` direct
 # host is IPv6-only and unreachable from most runners.
 #
-# On `production`, add at least one Required reviewer. That approval gate is the
+# On `db-production`, add at least one Required reviewer. That approval gate is the
 # only thing standing between a merge and a production schema change.
 
 on:
@@ -50,8 +50,8 @@ on:
       environment:
         description: 'Target database'
         type: choice
-        options: [development, production]
-        default: development
+        options: [db-development, db-production]
+        default: db-development
         required: true
       command:
         description: 'status = list pending, update-sql = print the SQL without running it, update = apply'
@@ -64,16 +64,16 @@ on:
 # block on DATABASECHANGELOGLOCK. Never cancel one in flight either: a killed
 # run leaves the lock held and the next run has to clear it by hand.
 concurrency:
-  group: db-migrate-${{ inputs.environment || 'development' }}
+  group: db-migrate-${{ inputs.environment || 'db-development' }}
   cancel-in-progress: false
 
 jobs:
   migrate:
-    name: Liquibase ${{ inputs.command || 'update' }} -> ${{ inputs.environment || 'development' }}
+    name: Liquibase ${{ inputs.command || 'update' }} -> ${{ inputs.environment || 'db-development' }}
     runs-on: ubuntu-latest
-    # Resolves the environment-scoped secrets below, and triggers `production`'s
+    # Resolves the environment-scoped secrets below, and triggers `db-production`'s
     # required-reviewer gate before any step runs.
-    environment: ${{ inputs.environment || 'development' }}
+    environment: ${{ inputs.environment || 'db-development' }}
     env:
       LIQUIBASE_COMMAND_URL: ${{ secrets.LIQUIBASE_COMMAND_URL }}
       LIQUIBASE_COMMAND_USERNAME: ${{ secrets.LIQUIBASE_COMMAND_USERNAME }}
@@ -83,7 +83,7 @@ jobs:
 
       # Dev and prod differ ONLY by which environment's secrets resolve above —
       # same repo, same branch, same changelog. So a connection string pasted
-      # into the wrong environment would point `development` at production, and
+      # into the wrong environment would point `db-development` at production, and
       # every merge to main would silently migrate prod. Secrets are masked in
       # the log, so nothing would look wrong.
       #
@@ -97,17 +97,17 @@ jobs:
           EXPECTED_REF: ${{ vars.SUPABASE_PROJECT_REF }}
         run: |
           if [ -z "$EXPECTED_REF" ]; then
-            echo "::error::vars.SUPABASE_PROJECT_REF is not set on the '${{ inputs.environment || 'development' }}' environment. Refusing to migrate a database this workflow cannot identify."
+            echo "::error::vars.SUPABASE_PROJECT_REF is not set on the '${{ inputs.environment || 'db-development' }}' environment. Refusing to migrate a database this workflow cannot identify."
             exit 1
           fi
           # Supabase pooler usernames are `postgres.<project-ref>`.
           ACTUAL_REF="${LIQUIBASE_COMMAND_USERNAME#postgres.}"
           if [ "$ACTUAL_REF" != "$EXPECTED_REF" ]; then
-            echo "::error::Credential mismatch: the '${{ inputs.environment || 'development' }}' environment expects project ref '$EXPECTED_REF', but its LIQUIBASE_COMMAND_USERNAME points somewhere else. Check the secrets on that environment before rerunning."
+            echo "::error::Credential mismatch: the '${{ inputs.environment || 'db-development' }}' environment expects project ref '$EXPECTED_REF', but its LIQUIBASE_COMMAND_USERNAME points somewhere else. Check the secrets on that environment before rerunning."
             exit 1
           fi
-          echo "Target: ${{ inputs.environment || 'development' }} — Supabase project $EXPECTED_REF"
-          echo "### Liquibase \`${{ inputs.command || 'update' }}\` → \`${{ inputs.environment || 'development' }}\` (project \`$EXPECTED_REF\`)" >> "$GITHUB_STEP_SUMMARY"
+          echo "Target: ${{ inputs.environment || 'db-development' }} — Supabase project $EXPECTED_REF"
+          echo "### Liquibase \`${{ inputs.command || 'update' }}\` → \`${{ inputs.environment || 'db-development' }}\` (project \`$EXPECTED_REF\`)" >> "$GITHUB_STEP_SUMMARY"
 
       - uses: liquibase/setup-liquibase@v3
         with:
@@ -141,3 +141,33 @@ jobs:
         if: ${{ (inputs.command || 'update') == 'update' }}
         working-directory: database/liquibase
         run: liquibase history
+
+      # Deploying the code is the other half of a release, and doing it as a
+      # separate manual step is what lets code outrun its schema (see the
+      # 028-event-time note at the top). Firing Vercel's deploy hook here makes
+      # the order structural: the deploy cannot start unless every step above
+      # succeeded, so the schema is always in place first.
+      #
+      # Optional — set the environment secret VERCEL_DEPLOY_HOOK_URL to enable
+      # it (Vercel -> Settings -> Git -> Deploy Hooks). Without the secret this
+      # step is skipped and deploys stay manual. Pair it with
+      # `git.deploymentEnabled.main = false` in vercel.json, which is what stops
+      # a merge from deploying on its own.
+      - name: Trigger Vercel deploy
+        if: ${{ (inputs.command || 'update') == 'update' && env.DEPLOY_HOOK_URL != '' }}
+        env:
+          DEPLOY_HOOK_URL: ${{ secrets.VERCEL_DEPLOY_HOOK_URL }}
+        run: |
+          echo "Schema is up to date; triggering the Vercel deploy hook."
+          STATUS=$(curl -sS -o /dev/null -w '%{http_code}' -X POST "$DEPLOY_HOOK_URL")
+          if [ "$STATUS" != "200" ] && [ "$STATUS" != "201" ]; then
+            echo "::error::Deploy hook returned HTTP $STATUS. The migration DID succeed — deploy manually from the Vercel dashboard."
+            exit 1
+          fi
+          echo "Deploy triggered (HTTP $STATUS)." >> "$GITHUB_STEP_SUMMARY"
+
+# Why `db-` prefixed environment names: Vercel's GitHub integration creates its
+# own `Production` / `Preview` / `Development` environments for deployment
+# records. Reusing those would mix database credentials into them, and adding a
+# required reviewer to Vercel's `Production` can leave its deployments waiting
+# on an approval nobody expects. These two are ours alone.
