@@ -49,7 +49,24 @@ A Java 17+ runtime is required (Java 26 is already available in this environment
 
 ## CI / Production
 
-Per `/docs/09-DEVOPS-ARCHITECTURE.md`, migrations run as a controlled step in CI/CD, never applied manually against production. This gets wired up in P0-004 CI Skeleton.
+Per `/docs/09-DEVOPS-ARCHITECTURE.md`, migrations run as a controlled step in CI/CD, never applied manually against production.
+
+Two workflows are involved, and they do different jobs:
+
+| Workflow | Trigger | Database | Purpose |
+|---|---|---|---|
+| `.github/workflows/ci.yml` (`database` job) | every push and PR | ephemeral `postgres:16` service container, discarded after the run | proves the changelog applies cleanly from zero |
+| `.github/workflows/db-migrate.yml` | push to `main` touching `database/liquibase/**`; or manual dispatch | a real Supabase project | actually applies the changelog |
+
+`db-migrate.yml` runs against **development** automatically on merge. **Production** is manual dispatch only, behind a GitHub Environment approval gate. Its `command` input lets you dry-run first: `status` lists pending changesets, `update-sql` prints the SQL without executing it, `update` applies it.
+
+Credentials live as environment-scoped GitHub Secrets (`LIQUIBASE_COMMAND_URL`, `LIQUIBASE_COMMAND_USERNAME`, `LIQUIBASE_COMMAND_PASSWORD`) in the `development` and `production` environments — the header comment in `db-migrate.yml` documents the exact values.
+
+There is one repository and one `main` branch; dev and prod are distinguished **only** by which environment's secrets the job resolves. To keep a mislabeled secret from pointing `development` at production, each environment also declares a plain variable `SUPABASE_PROJECT_REF`, which the workflow checks against the connection username before running anything and echoes unmasked so each run records which database it touched. Restrict the `production` environment's deployment branches to `main` as well.
+
+Migrations are deliberately **not** part of the Vercel build. Vercel builds run concurrently per preview branch, and two Liquibase runs would contend for `DATABASECHANGELOGLOCK`; a build also has no approval gate, and would apply schema changes at deploy time rather than before it.
+
+**Apply the migration before deploying the code that depends on it.** `028-event-time` shipped the other way round and every event screen failed with `42703 column events.start_time does not exist`.
 
 ## Portability
 

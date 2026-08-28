@@ -1,4 +1,5 @@
 import { serverSupabaseServiceRole } from '#supabase/server'
+import { apiError } from '~/server/utils/api-error'
 
 interface ClubListItem {
   id: string
@@ -26,7 +27,10 @@ export default defineEventHandler(async (event) => {
     .order('name', { ascending: true })
     .range(offset, offset + limit - 1)
 
-  if (error) throw error
+  if (error) {
+    console.error('[GET /api/v1/clubs/all] club list failed:', error)
+    throw apiError(500, 'INTERNAL_ERROR', 'Could not load clubs.')
+  }
 
   interface ClubRow {
     id: string
@@ -41,11 +45,17 @@ export default defineEventHandler(async (event) => {
 
   // Get member counts
   const clubIds = clubRows.map((c) => c.id)
-  const { data: memberCounts } = await client
+  const { data: memberCounts, error: memberCountError } = await client
     .from('club_memberships')
     .select('club_id')
     .in('club_id', clubIds)
     .in('status', ['active', 'owner'])
+
+  // Member counts are decoration; a failure degrades to 0 rather than taking
+  // down the whole directory, but it must still be visible in the logs.
+  if (memberCountError) {
+    console.error('[GET /api/v1/clubs/all] member counts failed:', memberCountError)
+  }
 
   const countByClub = new Map<string, number>()
   for (const m of memberCounts ?? []) {

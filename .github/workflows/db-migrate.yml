@@ -1,0 +1,143 @@
+name: DB Migrate
+
+# Applies the Liquibase changelog to a real Supabase database.
+#
+# `ci.yml` only *validates* the changelog against an ephemeral Postgres and
+# throws it away. This workflow is the one that touches a database that keeps
+# its data, and per /docs/09-DEVOPS-ARCHITECTURE.md it is the only sanctioned
+# way to migrate production — never a laptop, and never the Vercel build, which
+# runs concurrently per preview branch and would fight over Liquibase's
+# DATABASECHANGELOGLOCK.
+#
+# Ordering matters: a migration must land BEFORE the code that depends on it
+# deploys. Shipping `028-event-time` the other way round took every event screen
+# down with `42703 column events.start_time does not exist`.
+#
+# ---------------------------------------------------------------------------
+# One-time setup (GitHub -> Settings -> Environments)
+# ---------------------------------------------------------------------------
+# Create two environments, `development` and `production`, each holding three
+# secrets named exactly as Liquibase's own env vars:
+#
+#   LIQUIBASE_COMMAND_URL       jdbc:postgresql://aws-0-<region>.pooler.supabase.com:5432/postgres?sslmode=require
+#   LIQUIBASE_COMMAND_USERNAME  postgres.<project-ref>
+#   LIQUIBASE_COMMAND_PASSWORD  the project's database password
+#
+# And one plain environment VARIABLE (Variables tab, not Secrets):
+#
+#   SUPABASE_PROJECT_REF        the same <project-ref> as in the username
+#
+# It is deliberately not a secret: the "Confirm target database" step below
+# checks it against the username and echoes it unmasked, so every run states
+# which database it touched. Secrets are masked, so without this you could not
+# tell a dev run from a prod one by reading the log.
+#
+# Use the SESSION pooler on port 5432 — the transaction pooler on 6543 cannot
+# hold the session-level lock Liquibase needs. The `db.<ref>.supabase.co` direct
+# host is IPv6-only and unreachable from most runners.
+#
+# On `production`, add at least one Required reviewer. That approval gate is the
+# only thing standing between a merge and a production schema change.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'database/liquibase/**'
+      - '.github/workflows/db-migrate.yml'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target database'
+        type: choice
+        options: [development, production]
+        default: development
+        required: true
+      command:
+        description: 'status = list pending, update-sql = print the SQL without running it, update = apply'
+        type: choice
+        options: [status, update-sql, update]
+        default: status
+        required: true
+
+# Never run two migrations against the same database at once — the second would
+# block on DATABASECHANGELOGLOCK. Never cancel one in flight either: a killed
+# run leaves the lock held and the next run has to clear it by hand.
+concurrency:
+  group: db-migrate-${{ inputs.environment || 'development' }}
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    name: Liquibase ${{ inputs.command || 'update' }} -> ${{ inputs.environment || 'development' }}
+    runs-on: ubuntu-latest
+    # Resolves the environment-scoped secrets below, and triggers `production`'s
+    # required-reviewer gate before any step runs.
+    environment: ${{ inputs.environment || 'development' }}
+    env:
+      LIQUIBASE_COMMAND_URL: ${{ secrets.LIQUIBASE_COMMAND_URL }}
+      LIQUIBASE_COMMAND_USERNAME: ${{ secrets.LIQUIBASE_COMMAND_USERNAME }}
+      LIQUIBASE_COMMAND_PASSWORD: ${{ secrets.LIQUIBASE_COMMAND_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Dev and prod differ ONLY by which environment's secrets resolve above —
+      # same repo, same branch, same changelog. So a connection string pasted
+      # into the wrong environment would point `development` at production, and
+      # every merge to main would silently migrate prod. Secrets are masked in
+      # the log, so nothing would look wrong.
+      #
+      # This asserts the project ref inside the (secret) username matches the
+      # ref declared as a plain environment VARIABLE, which is set separately.
+      # The same paste error has to be made twice, in two different places, to
+      # get past it — and the ref is echoed unmasked so every run says on its
+      # face which database it touched.
+      - name: Confirm target database
+        env:
+          EXPECTED_REF: ${{ vars.SUPABASE_PROJECT_REF }}
+        run: |
+          if [ -z "$EXPECTED_REF" ]; then
+            echo "::error::vars.SUPABASE_PROJECT_REF is not set on the '${{ inputs.environment || 'development' }}' environment. Refusing to migrate a database this workflow cannot identify."
+            exit 1
+          fi
+          # Supabase pooler usernames are `postgres.<project-ref>`.
+          ACTUAL_REF="${LIQUIBASE_COMMAND_USERNAME#postgres.}"
+          if [ "$ACTUAL_REF" != "$EXPECTED_REF" ]; then
+            echo "::error::Credential mismatch: the '${{ inputs.environment || 'development' }}' environment expects project ref '$EXPECTED_REF', but its LIQUIBASE_COMMAND_USERNAME points somewhere else. Check the secrets on that environment before rerunning."
+            exit 1
+          fi
+          echo "Target: ${{ inputs.environment || 'development' }} — Supabase project $EXPECTED_REF"
+          echo "### Liquibase \`${{ inputs.command || 'update' }}\` → \`${{ inputs.environment || 'development' }}\` (project \`$EXPECTED_REF\`)" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: liquibase/setup-liquibase@v3
+        with:
+          version: '4.32.0'
+          edition: 'community'
+
+      # No `auth` schema stub here, deliberately. ci.yml creates one because its
+      # Postgres is vanilla; a real Supabase project already has the genuine
+      # auth.uid(), and overwriting it would break every RLS policy.
+      - name: Validate changelog
+        working-directory: database/liquibase
+        run: liquibase validate
+
+      - name: Pending changesets
+        working-directory: database/liquibase
+        run: liquibase status --verbose
+
+      # Printed on every applying run too, so the log records what was about to
+      # be applied even if the update then fails partway through.
+      - name: SQL to be applied
+        if: ${{ (inputs.command || 'update') != 'status' }}
+        working-directory: database/liquibase
+        run: liquibase update-sql
+
+      - name: Apply
+        if: ${{ (inputs.command || 'update') == 'update' }}
+        working-directory: database/liquibase
+        run: liquibase update
+
+      - name: Applied changesets
+        if: ${{ (inputs.command || 'update') == 'update' }}
+        working-directory: database/liquibase
+        run: liquibase history
