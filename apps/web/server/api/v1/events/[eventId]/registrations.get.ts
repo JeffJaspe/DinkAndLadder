@@ -100,6 +100,11 @@ export default defineEventHandler(async (event) => {
 
   // Left join, not `!inner`: a registration whose profile cannot be resolved
   // must still appear in the count, or the roster lies about who is coming.
+  //
+  // The embed also names its foreign key: since 035-team-up, event_registrations
+  // has two into player_profiles (player_id and registered_by_player_id), so an
+  // unqualified `player_profiles (...)` is ambiguous — PostgREST answers PGRST201
+  // rather than guessing, which took the whole roster down.
   const { data: registrations, error: regError } = await serviceClient
     .from('event_registrations')
     .select(
@@ -110,7 +115,7 @@ export default defineEventHandler(async (event) => {
       status,
       registered_at,
       checked_in_at,
-      player_profiles (
+      player_profiles!fk_event_registrations_player (
         id,
         display_name,
         profile_visibility,

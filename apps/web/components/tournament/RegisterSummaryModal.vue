@@ -22,6 +22,12 @@ const props = defineProps<{
   categoryName: string
   isDoubles: boolean
   partnerName: string | null
+  /**
+   * Replaces the "Singles / Doubles · with partner" line. Open play has no
+   * category and no partner, so it says what the session is instead of
+   * describing a draw that does not exist.
+   */
+  subtitle?: string
   /** `events.fee_amount`, in major units. Null or 0 for a free event. */
   feeAmount: number | null
   feeCurrency: string
@@ -39,6 +45,12 @@ const props = defineProps<{
    * disagree.
    */
   feeWaiver?: { waived: boolean; reason: string | null } | null
+  /**
+   * What happens about the money after confirming. Defaults to the tournament
+   * wording; open play is paid at the door, so it says so rather than promising
+   * an approval step that does not exist there.
+   */
+  paymentNote?: string
 }>()
 
 const emit = defineEmits<{ 'update:modelValue': [boolean]; confirm: [] }>()
@@ -73,8 +85,11 @@ const money = (cents: number) => formatMoney(cents, props.feeCurrency)
       <div>
         <p class="text-sm font-medium text-fg">{{ categoryName }}</p>
         <p class="text-xs text-fg-muted">
-          {{ isDoubles ? 'Doubles' : 'Singles' }}
-          <template v-if="isDoubles && partnerName"> · with {{ partnerName }}</template>
+          <template v-if="subtitle">{{ subtitle }}</template>
+          <template v-else>{{ isDoubles ? 'Doubles' : 'Singles' }}</template>
+          <template v-if="!subtitle && isDoubles && partnerName">
+            · with {{ partnerName }}</template
+          >
         </p>
       </div>
 
@@ -123,8 +138,10 @@ const money = (cents: number) => formatMoney(cents, props.feeCurrency)
       </p>
 
       <p v-if="!isFree" class="text-xs text-warning">
-        Online payment is not switched on yet — your entry is submitted for the organiser to
-        approve, and they will tell you how to pay.
+        {{
+          paymentNote ??
+          'Online payment is not switched on yet — your entry is submitted for the organiser to approve, and they will tell you how to pay.'
+        }}
       </p>
 
       <p v-if="error" role="alert" class="text-sm text-danger">{{ error }}</p>

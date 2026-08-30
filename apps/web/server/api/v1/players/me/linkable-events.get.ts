@@ -37,7 +37,7 @@ export default defineEventHandler(async (event) => {
 
   const { data, error } = await client
     .from('events')
-    .select('id, title, start_date, event_type, status')
+    .select('id, name, start_date, event_type, status')
     .in('id', ids)
     .neq('status', 'cancelled')
     .gte('start_date', cutoff)

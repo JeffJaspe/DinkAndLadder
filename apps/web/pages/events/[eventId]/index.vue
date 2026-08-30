@@ -12,6 +12,7 @@ import type {
 import type { PartnerDto } from '~/server/domains/partnership/dto/partnership.dto'
 import type { PlayerProfileDto } from '~/server/domains/player/dto/player-profile.dto'
 import { apiErrorMessage } from '~/utils/api-error-message'
+import type { PlatformFeeRule } from '~/utils/convenience-fee'
 import type { FeeWaiver } from '~/server/domains/event/services/registration-fee'
 import type { MixupSchedule } from '~/server/domains/event/services/mixup-scheduler'
 
@@ -552,17 +553,50 @@ const withdrawOpen = ref(false)
 const publishOpen = ref(false)
 const deleteOpen = ref(false)
 
-async function handleRegister() {
+/**
+ * Registering for open play now goes through the same confirmation a
+ * tournament category uses. Pressing Register used to post straight away, so
+ * the first anyone heard of an entry fee was on the day — and when the roster
+ * refresh failed the screen did not visibly change at all, which read as the
+ * button doing nothing.
+ *
+ * The quote is read from the shared ladder in utils/convenience-fee.ts, so the
+ * number shown here and the number eventually charged cannot disagree.
+ */
+const registerOpen = ref(false)
+const registerError = ref('')
+
+/**
+ * The convenience-fee ladder, so the dialog can quote a real total rather than
+ * only the entry fee. Public and cached for the page.
+ */
+const { data: feeRulesData } = await useFetch<{ data: PlatformFeeRule[] }>(
+  '/api/v1/platform/fee-rules',
+  { default: () => ({ data: [] }) }
+)
+const feeRules = computed(() => feeRulesData.value?.data ?? [])
+
+async function openRegister() {
   if (!user.value) {
     await navigateTo('/login')
     return
   }
+  registerError.value = ''
+  registerOpen.value = true
+}
+
+async function handleRegister() {
   registering.value = true
+  registerError.value = ''
   try {
     await $fetch(`/api/v1/events/${eventId}/register`, { method: 'POST' })
     await refreshRegistrations()
+    registerOpen.value = false
+    toast.success('You are registered for this event.')
   } catch (err) {
-    toast.error(apiErrorMessage(err, 'Could not register for the event.'))
+    // Shown inside the dialog rather than as a toast: the dialog is still up,
+    // and a message behind it is a message nobody reads.
+    registerError.value = apiErrorMessage(err, 'Could not register for the event.')
   } finally {
     registering.value = false
   }
@@ -870,7 +904,7 @@ const placesRemaining = computed(() => {
                   v-if="!isRegistered"
                   class="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-on-primary hover:bg-primary-hover disabled:opacity-50"
                   :disabled="registering"
-                  @click="handleRegister"
+                  @click="openRegister"
                 >
                   {{ registering ? 'Registering...' : 'Register' }}
                 </button>
@@ -1623,6 +1657,26 @@ const placesRemaining = computed(() => {
         </div>
       </template>
     </div>
+
+    <!-- What entering this session costs, before committing to it. Same
+         component the tournament categories use, so the two paths quote money
+         the same way. -->
+    <TournamentRegisterSummaryModal
+      v-if="event"
+      v-model="registerOpen"
+      :category-name="event.name"
+      :is-doubles="false"
+      :partner-name="null"
+      :subtitle="eventTypeLabels[event.event_type] ?? 'Event'"
+      :fee-amount="event.fee_amount"
+      :fee-currency="event.fee_currency ?? 'PHP'"
+      :rules="feeRules"
+      :fee-waiver="event.fee_waiver ?? null"
+      payment-note="Online payment is not switched on yet — your place is held and you pay the organiser at the venue."
+      :submitting="registering"
+      :error="registerError"
+      @confirm="handleRegister"
+    />
 
     <!-- Confirmations. `UiModal` already carries the focus trap, focus
          restore, Escape handling and destructive styling these need. -->

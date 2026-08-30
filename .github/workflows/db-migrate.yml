@@ -106,6 +106,35 @@ jobs:
             echo "::error::Credential mismatch: the '${{ inputs.environment || 'db-development' }}' environment expects project ref '$EXPECTED_REF', but its LIQUIBASE_COMMAND_USERNAME points somewhere else. Check the secrets on that environment before rerunning."
             exit 1
           fi
+          # The driver's own complaint about a malformed URL is an unreadable
+          # `PSQLException: Unable to parse URL ***` — the value is masked, so the
+          # log cannot say what was wrong with it. These checks name the mistake
+          # without printing the secret.
+          case "$LIQUIBASE_COMMAND_URL" in
+            jdbc:postgresql://*) ;;
+            postgres://*|postgresql://*)
+              echo "::error::LIQUIBASE_COMMAND_URL is missing the 'jdbc:' prefix. Supabase's copy button hands you a libpq URL; Liquibase needs jdbc:postgresql://<host>:5432/postgres?sslmode=require"
+              exit 1 ;;
+            *)
+              echo "::error::LIQUIBASE_COMMAND_URL is not a JDBC URL. Expected jdbc:postgresql://<host>:5432/postgres?sslmode=require"
+              exit 1 ;;
+          esac
+          case "$LIQUIBASE_COMMAND_URL" in
+            *@*)
+              echo "::error::LIQUIBASE_COMMAND_URL contains credentials (an '@'). The user belongs in LIQUIBASE_COMMAND_USERNAME and the password in LIQUIBASE_COMMAND_PASSWORD; the URL carries host, port and database only."
+              exit 1 ;;
+          esac
+          case "$LIQUIBASE_COMMAND_URL" in
+            *:6543/*)
+              echo "::error::LIQUIBASE_COMMAND_URL uses the transaction pooler (port 6543), which cannot hold the session-level lock Liquibase needs. Use the session pooler on port 5432."
+              exit 1 ;;
+          esac
+          if [ "$(printf '%s' "$LIQUIBASE_COMMAND_URL" | wc -l)" != "0" ] \
+            || printf '%s' "$LIQUIBASE_COMMAND_URL" | grep -q '[[:space:]"'"'"']'; then
+            echo "::error::LIQUIBASE_COMMAND_URL contains a line break, space or quote character. Re-paste it as a single unquoted line."
+            exit 1
+          fi
+
           echo "Target: ${{ inputs.environment || 'db-development' }} — Supabase project $EXPECTED_REF"
           echo "### Liquibase \`${{ inputs.command || 'update' }}\` → \`${{ inputs.environment || 'db-development' }}\` (project \`$EXPECTED_REF\`)" >> "$GITHUB_STEP_SUMMARY"
 
