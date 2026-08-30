@@ -10,7 +10,7 @@
  * (server/utils/require-feature.ts). Never rely on this alone.
  */
 import type { FeatureFlagMap } from '~/server/domains/platform/dto/feature-flag.dto'
-import { FEATURE_ACHIEVEMENTS } from '~/server/utils/require-feature'
+import { FEATURE_ACHIEVEMENTS } from '~/server/domains/platform/dto/feature-flag.dto'
 
 export default defineNuxtRouteMiddleware(async () => {
   try {

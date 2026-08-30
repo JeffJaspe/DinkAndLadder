@@ -2,6 +2,10 @@ import type { H3Event } from 'h3'
 import { isFeatureEnabled } from './feature-flags'
 import { apiError } from './api-error'
 
+// Re-exported so server route handlers keep one import for the gate and its
+// key; the key itself lives in the DTO, which the client can safely import.
+export { FEATURE_ACHIEVEMENTS } from '~/server/domains/platform/dto/feature-flag.dto'
+
 /**
  * Refuse to serve an endpoint whose feature is switched off.
  *
@@ -18,6 +22,3 @@ export async function requireFeature(event: H3Event, key: string): Promise<void>
   if (await isFeatureEnabled(event, key)) return
   throw apiError(404, 'FEATURE_DISABLED', 'This feature is not available.')
 }
-
-/** Key for the achievements/badges surface. Named once so gates cannot drift. */
-export const FEATURE_ACHIEVEMENTS = 'achievements.enabled'

@@ -61,3 +61,12 @@ export function toFeatureFlagMap(flags: Pick<FeatureFlagDto, 'key' | 'enabled'>[
 export function isEnabledIn(map: FeatureFlagMap, key: string): boolean {
   return map[key] === true
 }
+
+/**
+ * Key for the achievements/badges surface. Named once so gates cannot drift.
+ *
+ * It lives here rather than beside `requireFeature()` because the route guard
+ * `middleware/feature-achievements.ts` needs the same key, and importing it
+ * from a server util drags `#supabase/server` into the client bundle.
+ */
+export const FEATURE_ACHIEVEMENTS = 'achievements.enabled'
