@@ -129,9 +129,19 @@ jobs:
               echo "::error::LIQUIBASE_COMMAND_URL uses the transaction pooler (port 6543), which cannot hold the session-level lock Liquibase needs. Use the session pooler on port 5432."
               exit 1 ;;
           esac
-          if [ "$(printf '%s' "$LIQUIBASE_COMMAND_URL" | wc -l)" != "0" ] \
-            || printf '%s' "$LIQUIBASE_COMMAND_URL" | grep -q '[[:space:]"'"'"']'; then
-            echo "::error::LIQUIBASE_COMMAND_URL contains a line break, space or quote character. Re-paste it as a single unquoted line."
+          # Catch-all: the whole value must be exactly a JDBC Postgres URL, so a
+          # stray quote, a line break, or an invisible character pasted in from a
+          # web page (a non-breaking space is the usual culprit) fails here rather
+          # than 30 seconds later inside the driver.
+          if ! printf '%s' "$LIQUIBASE_COMMAND_URL" \
+            | grep -qxE 'jdbc:postgresql://[A-Za-z0-9._-]+:[0-9]+/[A-Za-z0-9_-]+(\?[A-Za-z0-9._%&=+-]+)?'; then
+            echo "::error::LIQUIBASE_COMMAND_URL is not a well-formed JDBC URL. Expected exactly jdbc:postgresql://<host>:5432/postgres?sslmode=require and nothing else."
+            # Structure only — every letter and digit is replaced with 'x', so the
+            # host is not disclosed. `cat -A` renders invisible characters: a
+            # trailing `$` on more than one line means a line break, `M-BM-` means
+            # a non-breaking space, `^I` a tab.
+            echo "Shape of the value (letters/digits masked as x, ${#LIQUIBASE_COMMAND_URL} characters long):"
+            printf '%s' "$LIQUIBASE_COMMAND_URL" | sed 's/[A-Za-z0-9]/x/g' | cat -A
             exit 1
           fi
 
