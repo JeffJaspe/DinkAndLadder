@@ -20,6 +20,13 @@ export interface ClubRecord {
   verification_requested_at: string | null
   verified_at: string | null
   verified_by_user_id: string | null
+  /**
+   * Bucket-relative paths, not URLs - the URL shape depends on whether the
+   * bucket is public, which is a deployment decision (see 025-platform-branding).
+   * NULL means "use the generated cover art from the club name".
+   */
+  cover_photo_path: string | null
+  logo_path: string | null
 }
 
 export interface ClubDto {
@@ -38,6 +45,9 @@ export interface ClubDto {
   verification_status: ClubVerificationStatus
   verification_requested_at: string | null
   verified_at: string | null
+  /** Resolved to a public URL by the read path; null falls back to UiCoverArt. */
+  cover_photo_url: string | null
+  logo_url: string | null
 }
 
 export interface CreateClubInput {
@@ -68,7 +78,11 @@ export function toClubDto(club: ClubRecord): ClubDto {
     created_at: club.created_at,
     verification_status: club.verification_status,
     verification_requested_at: club.verification_requested_at,
-    verified_at: club.verified_at
+    verified_at: club.verified_at,
+    // Resolved by the caller that has a Supabase client to hand; the DTO
+    // mapper is pure and has no way to build a storage URL.
+    cover_photo_url: null,
+    logo_url: null
   }
 }
 

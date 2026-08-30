@@ -3,17 +3,19 @@ import type { ShoutoutRecord } from '../dto/shoutout.dto'
 
 export interface ShoutoutRepository {
   findActiveByPlayerId(playerId: string): Promise<ShoutoutRecord | null>
-  findActiveWithPlayer(limit?: number): Promise<Array<ShoutoutRecord & { display_name: string }>>
-  create(data: { player_id: string; message: string; expires_at: string }): Promise<ShoutoutRecord>
+  create(data: {
+    player_id: string
+    message: string
+    expires_at: string
+    event_id?: string | null
+  }): Promise<ShoutoutRecord>
   update(
     playerId: string,
-    data: { message: string; expires_at: string }
+    data: { message: string; expires_at: string; event_id?: string | null }
   ): Promise<ShoutoutRecord | null>
+  /** Event ids this player may attach: ones they created or are registered for. */
+  listLinkableEventIds(playerId: string): Promise<Set<string>>
   deactivate(playerId: string): Promise<void>
-}
-
-interface ShoutoutJoinRow extends ShoutoutRecord {
-  player_profiles?: { display_name?: string | null } | null
 }
 
 export function createShoutoutRepository(client: SupabaseClient): ShoutoutRepository {
@@ -31,30 +33,6 @@ export function createShoutoutRepository(client: SupabaseClient): ShoutoutReposi
       return data
     },
 
-    async findActiveWithPlayer(limit = 20) {
-      const { data, error } = await client
-        .from('player_shoutouts')
-        .select(
-          `
-          *,
-          player_profiles!inner(id, display_name)
-        `
-        )
-        .eq('is_active', true)
-        .gt('expires_at', new Date().toISOString())
-        .order('updated_at', { ascending: false })
-        .limit(limit)
-
-      if (error) throw error
-
-      // Drop the embedded profile off the result — the DTO carries the flat
-      // display_name, not the join.
-      return ((data ?? []) as unknown as ShoutoutJoinRow[]).map(({ player_profiles, ...row }) => ({
-        ...row,
-        display_name: player_profiles?.display_name ?? 'Unknown'
-      }))
-    },
-
     async create(data) {
       const { data: result, error } = await client
         .from('player_shoutouts')
@@ -62,6 +40,7 @@ export function createShoutoutRepository(client: SupabaseClient): ShoutoutReposi
           player_id: data.player_id,
           message: data.message,
           expires_at: data.expires_at,
+          event_id: data.event_id ?? null,
           is_active: true,
           updated_at: new Date().toISOString()
         })
@@ -78,6 +57,7 @@ export function createShoutoutRepository(client: SupabaseClient): ShoutoutReposi
         .update({
           message: data.message,
           expires_at: data.expires_at,
+          event_id: data.event_id ?? null,
           updated_at: new Date().toISOString()
         })
         .eq('player_id', playerId)
@@ -87,6 +67,29 @@ export function createShoutoutRepository(client: SupabaseClient): ShoutoutReposi
 
       if (error) throw error
       return result
+    },
+
+    async listLinkableEventIds(playerId) {
+      // Two sources, one round trip each: events this player created, and
+      // events they hold a live registration for. Anything else is somebody
+      // else's event, and attaching it would let a shout-out advertise an
+      // event its poster has nothing to do with.
+      const [created, registered] = await Promise.all([
+        client.from('events').select('id').eq('created_by_player_id', playerId),
+        client
+          .from('event_registrations')
+          .select('event_id')
+          .eq('player_id', playerId)
+          .in('status', ['registered', 'checked_in'])
+      ])
+
+      if (created.error) throw created.error
+      if (registered.error) throw registered.error
+
+      const ids = new Set<string>()
+      for (const row of (created.data ?? []) as { id: string }[]) ids.add(row.id)
+      for (const row of (registered.data ?? []) as { event_id: string }[]) ids.add(row.event_id)
+      return ids
     },
 
     async deactivate(playerId) {

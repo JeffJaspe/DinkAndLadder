@@ -567,7 +567,7 @@ describe('TournamentCategoryService', () => {
       expect(updated.format).toBe('round_robin')
     })
   })
-/**
+  /**
    * The two ways a category ends. Finishing publishes standings and needs
    * results to publish; trashing destroys the category and is refused once
    * results exist, because at that point it is a record of something that

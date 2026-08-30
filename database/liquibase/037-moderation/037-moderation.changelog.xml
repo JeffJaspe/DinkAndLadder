@@ -1,0 +1,173 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Player reports and the SuperAdmin moderation queue.
+
+     None of this existed at any layer: no table, no endpoint, no UI, no
+     notification type. The only moderation primitive in the product was
+     blocking (player_relationships), which is a private, one-way mute and tells
+     nobody that anything happened.
+
+     Note that "MODERATOR" elsewhere in this schema (club_memberships.role) means
+     a *club* moderator - join requests, registrations, announcements. It has
+     nothing to do with platform moderation, which is the SuperAdmin's alone
+     (platform_config.super_admin_id).
+
+     Privacy is the design constraint. The reported player has to be told what
+     the problem is without learning who raised it, so reporter_player_id is
+     readable only through the service-role client from an endpoint that has
+     already checked the caller is the SuperAdmin. No RLS policy exposes it. -->
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+    <changeSet id="037-create-player-reports" author="claude">
+        <preConditions onFail="MARK_RAN">
+            <not><tableExists tableName="player_reports"/></not>
+        </preConditions>
+        <createTable tableName="player_reports">
+            <column name="id" type="uuid" defaultValueComputed="gen_random_uuid()">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <!-- Nullable on purpose: a reporter may later delete their profile,
+                 and losing that account must not delete the report or cascade
+                 into the moderation history. ON DELETE SET NULL below. -->
+            <column name="reporter_player_id" type="uuid">
+                <constraints nullable="true"/>
+            </column>
+            <column name="reported_player_id" type="uuid">
+                <constraints nullable="false"/>
+            </column>
+            <column name="reason" type="text">
+                <constraints nullable="false"/>
+            </column>
+            <!-- The reporter's own words. Optional: a reason code alone is a
+                 valid report, and forcing prose gets prose that says "bad". -->
+            <column name="details" type="text">
+                <constraints nullable="true"/>
+            </column>
+            <column name="status" type="text" defaultValue="pending">
+                <constraints nullable="false"/>
+            </column>
+            <!-- The SuperAdmin's user id, not a player id: moderation is a
+                 platform act, and platform_config.super_admin_id is a user. -->
+            <column name="reviewed_by_user_id" type="uuid">
+                <constraints nullable="true"/>
+            </column>
+            <column name="reviewed_at" type="timestamptz">
+                <constraints nullable="true"/>
+            </column>
+            <column name="resolution_note" type="text">
+                <constraints nullable="true"/>
+            </column>
+            <column name="created_at" type="timestamptz" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+            <column name="updated_at" type="timestamptz" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <rollback>
+            <dropTable tableName="player_reports"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="037-player-reports-constraints" author="claude">
+        <sql>
+            ALTER TABLE player_reports
+                ADD CONSTRAINT fk_player_reports_reporter
+                FOREIGN KEY (reporter_player_id) REFERENCES player_profiles(id) ON DELETE SET NULL;
+
+            ALTER TABLE player_reports
+                ADD CONSTRAINT fk_player_reports_reported
+                FOREIGN KEY (reported_player_id) REFERENCES player_profiles(id) ON DELETE CASCADE;
+
+            ALTER TABLE player_reports
+                ADD CONSTRAINT ck_player_reports_status
+                CHECK (status IN ('pending', 'reviewed', 'actioned', 'dismissed'));
+
+            ALTER TABLE player_reports
+                ADD CONSTRAINT ck_player_reports_reason
+                CHECK (reason IN (
+                    'harassment', 'cheating', 'fake_scores', 'no_show',
+                    'inappropriate_content', 'impersonation', 'spam', 'other'
+                ));
+
+            -- You cannot report yourself. Cheap here, and the alternative is
+            -- every caller remembering to check.
+            ALTER TABLE player_reports
+                ADD CONSTRAINT ck_player_reports_not_self
+                CHECK (reporter_player_id IS NULL OR reporter_player_id &lt;&gt; reported_player_id);
+        </sql>
+        <rollback>
+            ALTER TABLE player_reports DROP CONSTRAINT ck_player_reports_not_self;
+            ALTER TABLE player_reports DROP CONSTRAINT ck_player_reports_reason;
+            ALTER TABLE player_reports DROP CONSTRAINT ck_player_reports_status;
+            ALTER TABLE player_reports DROP CONSTRAINT fk_player_reports_reported;
+            ALTER TABLE player_reports DROP CONSTRAINT fk_player_reports_reporter;
+        </rollback>
+    </changeSet>
+
+    <changeSet id="037-player-reports-indexes" author="claude">
+        <!-- The moderation queue reads exactly this: pending first, oldest
+             first. Without it the queue is a full scan of every report ever. -->
+        <createIndex tableName="player_reports" indexName="idx_player_reports_status_created">
+            <column name="status"/>
+            <column name="created_at"/>
+        </createIndex>
+        <createIndex tableName="player_reports" indexName="idx_player_reports_reported">
+            <column name="reported_player_id"/>
+        </createIndex>
+        <rollback>
+            <dropIndex tableName="player_reports" indexName="idx_player_reports_reported"/>
+            <dropIndex tableName="player_reports" indexName="idx_player_reports_status_created"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="037-player-reports-one-open-per-pair" author="claude">
+        <!-- One open report per reporter per target. A second adds nothing for
+             the moderator and is the obvious griefing vector. Partial, so a
+             closed report never blocks a fresh one about new behaviour. -->
+        <sql>
+            CREATE UNIQUE INDEX uq_player_reports_open_pair
+                ON player_reports (reporter_player_id, reported_player_id)
+                WHERE status = 'pending';
+        </sql>
+        <rollback>
+            DROP INDEX IF EXISTS uq_player_reports_open_pair;
+        </rollback>
+    </changeSet>
+
+    <changeSet id="037-player-reports-rls" author="claude">
+        <sql>
+            ALTER TABLE player_reports ENABLE ROW LEVEL SECURITY;
+
+            -- A reporter can file a report as themselves and read back only
+            -- their own. There is deliberately NO policy letting the reported
+            -- player read rows about themselves: the row names the reporter,
+            -- and the whole point is that they never learn who it was.
+            --
+            -- The SuperAdmin queue does not rely on a policy either. It goes
+            -- through the service-role client from an endpoint that has already
+            -- checked platform_config.super_admin_id, which is how every other
+            -- admin surface in this codebase works.
+            CREATE POLICY player_reports_insert_own ON player_reports
+                FOR INSERT
+                WITH CHECK (
+                    reporter_player_id IN (SELECT id FROM player_profiles WHERE user_id = auth.uid())
+                );
+
+            CREATE POLICY player_reports_select_own ON player_reports
+                FOR SELECT
+                USING (
+                    reporter_player_id IN (SELECT id FROM player_profiles WHERE user_id = auth.uid())
+                );
+        </sql>
+        <rollback>
+            DROP POLICY IF EXISTS player_reports_select_own ON player_reports;
+            DROP POLICY IF EXISTS player_reports_insert_own ON player_reports;
+            ALTER TABLE player_reports DISABLE ROW LEVEL SECURITY;
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

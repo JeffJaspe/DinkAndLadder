@@ -63,10 +63,10 @@ const activeSearchField = ref<
  * server: false — it is a signed-in-only preference and has no bearing on the
  * initial render.
  */
-const { data: myPartnersData } = await useFetch<{ data: PartnerDto[] }>(
-  '/api/v1/players/me/partners',
-  { server: false, default: () => ({ data: [] }) }
-)
+const { data: myPartnersData } = useFetch<{ data: PartnerDto[] }>('/api/v1/players/me/partners', {
+  server: false,
+  default: () => ({ data: [] })
+})
 const defaultPartnerId = computed(
   () => myPartnersData.value?.data.find((partner) => partner.is_default)?.player_id ?? null
 )
@@ -217,11 +217,12 @@ onMounted(() => {
 <template>
   <div class="min-h-screen bg-canvas p-4 lg:p-6">
     <div class="mx-auto max-w-2xl">
-      <!-- Header -->
-      <div class="mb-6">
-        <h1 class="text-2xl font-bold text-fg">Record Match</h1>
-        <p class="mt-1 text-sm text-fg-muted">Submit a match from an event</p>
-      </div>
+      <UiPageHeader
+        to="/matches"
+        back-label="Matches"
+        title="Record Match"
+        subtitle="Submit a match from an event"
+      />
 
       <!-- No Event Selected -->
       <div v-if="!eventId" class="rounded-xl bg-surface p-8 text-center shadow-card">

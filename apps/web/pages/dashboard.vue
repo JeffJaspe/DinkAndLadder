@@ -4,6 +4,10 @@ import type { PlayerProfileDto } from '~/server/domains/player/dto/player-profil
 import type { RankingEntryDto } from '~/server/domains/rating/dto/ranking.dto'
 import type { RatingTransactionDto } from '~/server/domains/rating/dto/rating.dto'
 import type { MyClubMembershipDto } from '~/server/domains/club/dto/club-membership.dto'
+// Imported rather than re-declared locally. The hand-written copy this
+// replaces had already drifted from the real DTO - the same mismatch that
+// left every unread indicator on /notifications permanently false.
+import type { ShoutoutDto } from '~/server/domains/shoutout/dto/shoutout.dto'
 import { tierForRating } from '~/utils/rating-tiers'
 
 useHead({ title: 'Dashboard' })
@@ -35,14 +39,6 @@ interface PendingActionsResponse {
   total: number
 }
 
-interface ShoutoutDto {
-  id: string
-  message: string
-  created_at: string
-  updated_at: string
-  expires_at: string | null
-}
-
 interface BadgeDefinition {
   id: string
   name: string
@@ -62,32 +58,56 @@ interface BadgeResponse {
   availableBadges: BadgeDefinition[]
 }
 
-const { data: currentUser, pending, error } = await useFetch<UserDto>('/api/v1/auth/me')
-const { data: myProfile } = await useFetch<PlayerProfileDto>('/api/v1/players/me')
-const { data: ratingsData } = await useFetch<{
+/**
+ * The seven server-rendered reads behind the dashboard, fired together.
+ *
+ * Each was a separate top-level `await useFetch`, which suspends setup until
+ * it resolves — so the dashboard cost the sum of its queries, not the slowest
+ * of them, and it is the first screen after sign-in. Still awaited, because
+ * these render server-side; just concurrently.
+ */
+const currentUserQuery = useFetch<UserDto>('/api/v1/auth/me')
+const myProfileQuery = useFetch<PlayerProfileDto>('/api/v1/players/me')
+const ratingsQuery = useFetch<{
   singles?: { rating_value: number }
   doubles?: { rating_value: number }
 }>('/api/v1/players/me/ratings')
-const { data: myClubsData } = await useFetch<{ items: MyClubMembershipDto[] }>('/api/v1/clubs/mine')
+const myClubsQuery = useFetch<{ items: MyClubMembershipDto[] }>('/api/v1/clubs/mine')
+const recentMatchesQuery = useFetch<{ data: MatchSummary[] }>('/api/v1/players/me/matches?limit=5')
+const upcomingEventsQuery = useFetch<{ data: UpcomingEventEntry[] }>(
+  '/api/v1/players/me/upcoming-events'
+)
+const pendingActionsQuery = useFetch<{ data: PendingActionsResponse }>(
+  '/api/v1/players/me/pending-actions'
+)
 
-// Filter to only show active memberships in My Clubs section (pending shown separately in Pending Actions)
+await Promise.all([
+  currentUserQuery,
+  myProfileQuery,
+  ratingsQuery,
+  myClubsQuery,
+  recentMatchesQuery,
+  upcomingEventsQuery,
+  pendingActionsQuery
+])
+
+const { data: currentUser, pending, error } = currentUserQuery
+const { data: myProfile } = myProfileQuery
+const { data: ratingsData } = ratingsQuery
+const { data: myClubsData } = myClubsQuery
+const { data: recentMatches } = recentMatchesQuery
+const { data: upcomingEvents } = upcomingEventsQuery
+const { data: pendingActions } = pendingActionsQuery
+
+// Only active memberships in My Clubs; pending ones are shown in Pending Actions.
 const myActiveClubs = computed(
   () => myClubsData.value?.items.filter((m) => m.status === 'active') ?? []
 )
-const { data: recentMatches } = await useFetch<{ data: MatchSummary[] }>(
-  '/api/v1/players/me/matches?limit=5'
-)
-const { data: upcomingEvents } = await useFetch<{ data: UpcomingEventEntry[] }>(
-  '/api/v1/players/me/upcoming-events'
-)
-const { data: pendingActions } = await useFetch<{ data: PendingActionsResponse }>(
-  '/api/v1/players/me/pending-actions'
-)
-const { data: myShoutout, refresh: refreshShoutout } = await useFetch<{ data: ShoutoutDto | null }>(
+const { data: myShoutout, refresh: refreshShoutout } = useFetch<{ data: ShoutoutDto | null }>(
   '/api/v1/players/me/shoutout',
   { server: false }
 )
-const { data: badgeData, refresh: refreshBadge } = await useFetch<{ data: BadgeResponse }>(
+const { data: badgeData, refresh: refreshBadge } = useFetch<{ data: BadgeResponse }>(
   '/api/v1/players/me/badge',
   { server: false }
 )
@@ -119,6 +139,23 @@ async function selectBadge(badgeId: string | null) {
 }
 
 const shoutoutInput = ref('')
+const shoutoutEventId = ref('')
+const shoutoutError = ref('')
+
+/**
+ * Events this shout-out may be attached to: ones the player created or is
+ * registered for. Lazy and client-only — the picker is optional, nobody should
+ * wait on it to type a message, and the server re-checks the id anyway
+ * (ShoutoutService.validateEventLink). This list is a convenience, not a gate.
+ */
+const { data: linkableEventsData } = useLazyFetch<{
+  data: { id: string; title?: string; name?: string; start_date: string | null }[]
+}>('/api/v1/players/me/linkable-events', {
+  server: false,
+  default: () => ({ data: [] })
+})
+
+const linkableEvents = computed(() => linkableEventsData.value?.data ?? [])
 const shoutoutEditing = ref(false)
 const shoutoutSaving = ref(false)
 
@@ -132,15 +169,26 @@ const shoutoutExamples = [
 async function saveShoutout() {
   if (!shoutoutInput.value.trim()) return
   shoutoutSaving.value = true
+  shoutoutError.value = ''
   try {
     const isEditing = !!myShoutout.value?.data
     await $fetch('/api/v1/players/me/shoutout', {
       method: isEditing ? 'PUT' : 'POST',
-      body: { message: shoutoutInput.value.trim() }
+      body: {
+        message: shoutoutInput.value.trim(),
+        event_id: shoutoutEventId.value || null
+      }
     })
     await refreshShoutout()
     shoutoutEditing.value = false
     shoutoutInput.value = ''
+    shoutoutEventId.value = ''
+  } catch (err) {
+    // Phone numbers are rejected server-side (CONTACT_INFO_NOT_ALLOWED) and the
+    // message explains why, so it has to be shown rather than swallowed — this
+    // used to fail silently with the composer still full of text.
+    const fetchError = err as { data?: { message?: string } }
+    shoutoutError.value = fetchError.data?.message ?? 'Could not post your shout-out.'
   } finally {
     shoutoutSaving.value = false
   }
@@ -160,6 +208,8 @@ const shoutoutExpiresIn = computed(() => {
 
 function startEditingShoutout() {
   shoutoutInput.value = myShoutout.value?.data?.message ?? ''
+  shoutoutEventId.value = myShoutout.value?.data?.event_id ?? ''
+  shoutoutError.value = ''
   shoutoutEditing.value = true
 }
 
@@ -385,6 +435,31 @@ function formatEventDate(dateStr: string): string {
               {{ example }}
             </button>
           </div>
+          <!-- Optional event link. Only rendered when there is something to
+               attach — an empty select is just a puzzle. -->
+          <div v-if="linkableEvents.length" class="mt-3">
+            <label for="shoutout-event" class="mb-1 block text-xs text-fg-muted">
+              Link an event (optional)
+            </label>
+            <select
+              id="shoutout-event"
+              v-model="shoutoutEventId"
+              class="w-full rounded-lg border border-border-strong bg-canvas px-3 py-2 text-sm text-fg focus:border-primary focus:outline-none"
+            >
+              <option value="">No event</option>
+              <option v-for="ev in linkableEvents" :key="ev.id" :value="ev.id">
+                {{ ev.name ?? ev.title }}
+              </option>
+            </select>
+          </div>
+
+          <p
+            v-if="shoutoutError"
+            class="mt-2 rounded-lg bg-danger/10 px-3 py-2 text-xs text-danger"
+          >
+            {{ shoutoutError }}
+          </p>
+
           <p class="mt-2 text-right text-xs text-fg-muted">{{ shoutoutInput.length }}/280</p>
         </div>
       </div>

@@ -87,7 +87,11 @@ function emptyMatch(round: number, position: number, categoryId: string | null):
     category_id: categoryId,
     participant1: null,
     participant2: null,
-    scores: []
+    scores: [],
+    // Preview rows are illustrative, never played.
+    live_score: null,
+    started_at: null,
+    is_live: false
   }
 }
 

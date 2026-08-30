@@ -39,9 +39,9 @@ describe('resolveSiteUrl', () => {
   it('falls back to VERCEL_URL when the production domain is not exposed', () => {
     // "Automatically expose System Environment Variables" can be switched off,
     // and a deployment-specific URL beats guessing localhost.
-    expect(resolveSiteUrl({ VERCEL: '1', VERCEL_ENV: 'production', VERCEL_URL: 'x.vercel.app' })).toBe(
-      'https://x.vercel.app'
-    )
+    expect(
+      resolveSiteUrl({ VERCEL: '1', VERCEL_ENV: 'production', VERCEL_URL: 'x.vercel.app' })
+    ).toBe('https://x.vercel.app')
   })
 
   it('lets NUXT_SITE_URL override every platform variable', () => {

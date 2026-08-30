@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type {
   BracketMatchDto,
+  LiveBracketScore,
   RecordBracketResultInput
 } from '~/server/domains/event/dto/bracket.dto'
 import { participantLabel } from '~/utils/bracket-schedule'
@@ -26,6 +27,8 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   record: [bracketMatchId: string, input: RecordBracketResultInput]
+  start: [bracketMatchId: string]
+  score: [bracketMatchId: string, scores: LiveBracketScore[]]
 }>()
 
 const expanded = ref(false)
@@ -37,6 +40,56 @@ const isBye = computed(() => props.match.status === 'bye')
 const isDone = computed(() => props.match.status === 'completed')
 const onCourt = computed(() => props.match.status === 'in_progress')
 
+/**
+ * Being played right now — started, and undecided.
+ *
+ * Distinct from `onCourt`, which reads the draw's status and only ever meant
+ * "scheduled onto a court". This one is backed by a running scoreboard.
+ */
+const isLive = computed(() => props.match.is_live)
+
+// A computed rather than a ternary chain in the template: three states and
+// two conditions is past the point where an inline expression reads.
+const rowTone = computed(() => {
+  if (isLive.value) return 'bg-danger/10 ring-1 ring-danger/30'
+  if (onCourt.value) return 'bg-primary/10'
+  return 'bg-canvas'
+})
+
+/** The game in progress: the last one entered, or a fresh 0-0. */
+const currentGame = computed<LiveBracketScore>(() => {
+  const games = props.match.live_score ?? []
+  return games[games.length - 1] ?? { game_number: 1, team1_score: 0, team2_score: 0 }
+})
+
+/**
+ * A point replaces the last game rather than mutating it: the parent owns the
+ * array and posts the whole thing, so handing back a mutated reference would
+ * make the optimistic update indistinguishable from the server's answer.
+ */
+function adjust(team: 1 | 2, delta: number) {
+  const games = [...(props.match.live_score ?? [])]
+  const index = Math.max(0, games.length - 1)
+  const game = games[index] ?? { game_number: 1, team1_score: 0, team2_score: 0 }
+
+  games[index] = {
+    ...game,
+    team1_score: team === 1 ? Math.max(0, game.team1_score + delta) : game.team1_score,
+    team2_score: team === 2 ? Math.max(0, game.team2_score + delta) : game.team2_score
+  }
+
+  emit('score', props.match.id, games)
+}
+
+/** Next game of the same match, keeping the ones already played. */
+function nextGame() {
+  const games = [...(props.match.live_score ?? [])]
+  emit('score', props.match.id, [
+    ...games,
+    { game_number: games.length + 1, team1_score: 0, team2_score: 0 }
+  ])
+}
+
 /** Both slots filled and nothing recorded yet — the only state worth a form. */
 const canRecord = computed(
   () =>
@@ -45,6 +98,11 @@ const canRecord = computed(
     !!props.match.participant1_registration_id &&
     !!props.match.participant2_registration_id &&
     !isBye.value
+)
+
+/** Startable once both slots are filled and nothing has been recorded. */
+const canStart = computed(
+  () => canRecord.value && !isLive.value && !props.match.winner_registration_id
 )
 
 const winnerIsSide1 = computed(
@@ -146,7 +204,7 @@ watch(
 </script>
 
 <template>
-  <li class="rounded-lg" :class="onCourt ? 'bg-primary/10' : 'bg-canvas'">
+  <li class="rounded-lg" :class="rowTone">
     <button
       type="button"
       class="flex w-full flex-wrap items-center gap-x-3 gap-y-1 p-3 text-left"
@@ -173,8 +231,24 @@ watch(
 
       <span class="text-xs text-fg-muted">{{ roundLabel(round) }}</span>
 
-      <span v-if="onCourt" class="rounded-pill bg-primary/20 px-2 py-0.5 text-xs text-primary">
+      <!-- LIVE outranks "On court": one says a match is scheduled somewhere,
+           the other says the score on screen is changing as you read it. -->
+      <span
+        v-if="isLive"
+        class="inline-flex items-center gap-1.5 rounded-pill bg-danger/15 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-danger"
+      >
+        <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-danger" aria-hidden="true" />
+        Live
+      </span>
+      <span v-else-if="onCourt" class="rounded-pill bg-primary/20 px-2 py-0.5 text-xs text-primary">
         On court
+      </span>
+
+      <!-- The running score on the collapsed row: a spectator should not have
+           to open anything to see it. -->
+      <span v-if="isLive" class="text-sm font-bold tabular-nums text-fg">
+        {{ currentGame.team1_score }}<span class="mx-1 text-fg-muted">-</span
+        >{{ currentGame.team2_score }}
       </span>
 
       <UiIcon
@@ -239,6 +313,75 @@ watch(
       >
         View match
       </NuxtLink>
+
+      <!-- Organiser: start the match and keep the score while it is played.
+           Deliberately above the result form — a match is played before it is
+           written down, and the live score is what the room is watching. -->
+      <div v-if="canStart" class="flex items-center gap-2">
+        <UiButton size="sm" variant="secondary" @click="emit('start', match.id)">
+          Start match
+        </UiButton>
+        <span class="text-xs text-fg-muted">Opens a live scoreboard for spectators.</span>
+      </div>
+
+      <div v-if="isLive && canManage" class="space-y-2 rounded-lg bg-surface p-3">
+        <div class="grid grid-cols-[1fr_auto] items-center gap-2">
+          <span class="min-w-0 truncate text-sm text-fg">{{ side1 }}</span>
+          <span class="flex items-center gap-1.5">
+            <button
+              type="button"
+              class="h-8 w-8 rounded-button border border-border-strong text-fg-secondary hover:border-primary"
+              :aria-label="`Remove a point from ${side1}`"
+              @click="adjust(1, -1)"
+            >
+              −
+            </button>
+            <span class="w-8 text-center text-lg font-bold tabular-nums text-fg">
+              {{ currentGame.team1_score }}
+            </span>
+            <button
+              type="button"
+              class="h-8 w-8 rounded-button bg-primary font-semibold text-on-primary hover:bg-primary-hover"
+              :aria-label="`Add a point for ${side1}`"
+              @click="adjust(1, 1)"
+            >
+              +
+            </button>
+          </span>
+        </div>
+
+        <div class="grid grid-cols-[1fr_auto] items-center gap-2">
+          <span class="min-w-0 truncate text-sm text-fg">{{ side2 }}</span>
+          <span class="flex items-center gap-1.5">
+            <button
+              type="button"
+              class="h-8 w-8 rounded-button border border-border-strong text-fg-secondary hover:border-primary"
+              :aria-label="`Remove a point from ${side2}`"
+              @click="adjust(2, -1)"
+            >
+              −
+            </button>
+            <span class="w-8 text-center text-lg font-bold tabular-nums text-fg">
+              {{ currentGame.team2_score }}
+            </span>
+            <button
+              type="button"
+              class="h-8 w-8 rounded-button bg-primary font-semibold text-on-primary hover:bg-primary-hover"
+              :aria-label="`Add a point for ${side2}`"
+              @click="adjust(2, 1)"
+            >
+              +
+            </button>
+          </span>
+        </div>
+
+        <div class="flex items-center justify-between gap-2 pt-1">
+          <UiButton size="sm" variant="ghost" @click="nextGame">Next game</UiButton>
+          <span class="text-xs text-fg-muted">
+            Submit the final score below to decide the match.
+          </span>
+        </div>
+      </div>
 
       <!-- Organiser: write down what happened. This is the only path that links
            a slot to a played match. -->

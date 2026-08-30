@@ -1,4 +1,10 @@
 <script setup lang="ts">
+// Chromeless shell: these are the pages you reach when you cannot get into the
+// app, and the default layout would draw the whole sidebar around them. A
+// recovery link is a real session, so gating on the session alone wrapped the
+// password form in the full app and let every nav link out of the flow.
+definePageMeta({ layout: 'auth' })
+
 const supabase = useSupabaseClient()
 const errorMessage = ref('')
 

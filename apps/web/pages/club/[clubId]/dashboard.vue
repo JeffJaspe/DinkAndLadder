@@ -21,32 +21,49 @@ interface ClubRankingEntry {
 const route = useRoute()
 const clubId = route.params.clubId as string
 
-// GET /api/v1/clubs/{clubId} returns the club object directly, not wrapped in
-// { data }, unlike the other three fetches below.
-const {
-  data: club,
-  pending: clubPending,
-  error: clubError
-} = await useFetch<ClubDto>(`/api/v1/clubs/${clubId}`)
-
-const { data: membersResponse } = await useFetch<{ items: RosterMemberDto[] }>(
-  `/api/v1/clubs/${clubId}/members`
-)
-const { data: matchesResponse } = await useFetch<{ data: ClubMatchDto[] }>(
-  `/api/v1/clubs/${clubId}/matches`,
-  { query: { limit: 5 } }
-)
-const { data: singlesRankingsResponse } = await useFetch<{ data: ClubRankingEntry[] }>(
+/**
+ * Six independent reads, fired together.
+ *
+ * Each was its own top-level `await useFetch`, which suspends setup until it
+ * resolves before the next one starts — so the page took as long as the sum of
+ * its queries rather than the slowest one. They are still awaited (this page
+ * renders server-side and would otherwise ship empty), just concurrently.
+ *
+ * Note GET /api/v1/clubs/{clubId} returns the club object directly rather than
+ * wrapped in { data }, unlike the rest.
+ */
+const clubQuery = useFetch<ClubDto>(`/api/v1/clubs/${clubId}`)
+const membersQuery = useFetch<{ items: RosterMemberDto[] }>(`/api/v1/clubs/${clubId}/members`)
+const matchesQuery = useFetch<{ data: ClubMatchDto[] }>(`/api/v1/clubs/${clubId}/matches`, {
+  query: { limit: 5 }
+})
+const singlesRankingsQuery = useFetch<{ data: ClubRankingEntry[] }>(
   `/api/v1/clubs/${clubId}/rankings`,
   { query: { rating_type: 'singles', limit: 5 } }
 )
-const { data: doublesRankingsResponse } = await useFetch<{ data: ClubRankingEntry[] }>(
+const doublesRankingsQuery = useFetch<{ data: ClubRankingEntry[] }>(
   `/api/v1/clubs/${clubId}/rankings`,
   { query: { rating_type: 'doubles', limit: 5 } }
 )
-const { data: announcementsResponse } = await useFetch<{ announcements: AnnouncementDto[] }>(
+const announcementsQuery = useFetch<{ announcements: AnnouncementDto[] }>(
   `/api/v1/clubs/${clubId}/announcements`
 )
+
+await Promise.all([
+  clubQuery,
+  membersQuery,
+  matchesQuery,
+  singlesRankingsQuery,
+  doublesRankingsQuery,
+  announcementsQuery
+])
+
+const { data: club, pending: clubPending, error: clubError } = clubQuery
+const { data: membersResponse } = membersQuery
+const { data: matchesResponse } = matchesQuery
+const { data: singlesRankingsResponse } = singlesRankingsQuery
+const { data: doublesRankingsResponse } = doublesRankingsQuery
+const { data: announcementsResponse } = announcementsQuery
 
 const activeMembers = computed(
   () => membersResponse.value?.items.filter((m) => m.status === 'active') ?? []
@@ -230,7 +247,7 @@ const newMembers = computed(() => {
       </div>
 
       <NuxtLink
-        :to="`/clubs/${clubId}`"
+        :to="`/club/${clubId}/settings`"
         class="inline-block rounded-lg border border-border-strong px-4 py-2 text-sm text-fg-secondary hover:bg-surface-2"
       >
         Manage club settings →

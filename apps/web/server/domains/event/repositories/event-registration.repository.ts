@@ -44,6 +44,20 @@ export interface EventRegistrationRepository {
     registered_by_player_id?: string | null
   }): Promise<EventRegistrationRecord>
   updateStatus(id: string, status: EventRegistrationStatus): Promise<EventRegistrationRecord | null>
+  /**
+   * Put a withdrawn registration back.
+   *
+   * (event_id, player_id) is UNIQUE (uq_event_registrations_event_player, 017),
+   * so withdrawing and signing up again could not insert a second row — it
+   * failed the constraint and surfaced as a 500. The row is reused instead,
+   * and withdrawn_at is cleared: leaving it set would make an active
+   * registration look withdrawn to anything reading that column.
+   *
+   * registered_at is refreshed too, because queue order is first-come and
+   * keeping the original timestamp would hand back a place in the queue that
+   * was given up.
+   */
+  reinstate(id: string): Promise<EventRegistrationRecord | null>
   checkIn(id: string): Promise<EventRegistrationRecord | null>
   withdraw(id: string): Promise<EventRegistrationRecord | null>
 }
@@ -199,6 +213,24 @@ export function createEventRegistrationRepository(
 
       if (error) {
         throw new Error(`Failed to update registration: ${error.message}`)
+      }
+      return data as EventRegistrationRecord
+    },
+
+    async reinstate(id) {
+      const { data, error } = await client
+        .from('event_registrations')
+        .update({
+          status: 'registered',
+          withdrawn_at: null,
+          registered_at: new Date().toISOString()
+        })
+        .eq('id', id)
+        .select()
+        .single()
+
+      if (error) {
+        throw new Error(`Failed to reinstate registration: ${error.message}`)
       }
       return data as EventRegistrationRecord
     },

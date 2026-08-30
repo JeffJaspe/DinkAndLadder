@@ -23,6 +23,15 @@ export interface ActivityService {
   createActivity(input: CreateActivityInput): Promise<ActivityDto>
   getPlayerActivities(playerId: string, limit: number, offset: number): Promise<ActivityDto[]>
   getPublicFeed(query: FeedQuery): Promise<ActivityDto[]>
+  /**
+   * The main feed: everyone's public activity, nearest first.
+   *
+   * Replaces the follow-graph feed as the default. A ladder is a local thing -
+   * the useful question is "who is playing near me", not "who do I already
+   * follow", and a follow-only feed is empty for exactly the new players who
+   * most need to find a game.
+   */
+  getGeoFeed(viewerPlayerId: string | null, query: FeedQuery): Promise<ActivityDto[]>
   getPersonalizedFeed(
     playerId: string,
     clubIds: string[],
@@ -119,6 +128,20 @@ export function createActivityService(
       )
       const prioritized = await reprioritize(records, clubIds)
       return prioritized.map(toActivityDto)
+    },
+
+    async getGeoFeed(viewerPlayerId, query) {
+      // No reprioritize() call: fn_feed_for_player already applies both the geo
+      // score and the verified-club tiebreak, and it does so before pagination
+      // rather than after. Re-sorting the page here would only undo that.
+      const records = await activities.findGeoFeed(
+        viewerPlayerId,
+        query.limit,
+        query.offset,
+        query.types,
+        query.since
+      )
+      return records.map(toActivityDto)
     }
   }
 }
@@ -213,13 +236,25 @@ export function createActivityLogger(activities: ActivityRepository) {
       }
     },
 
-    async logShoutout(actorPlayerId: string, message: string): Promise<void> {
+    /**
+     * `eventId` rides in the metadata rather than on a column of its own: the
+     * activities table is a generic log and giving it a typed event FK would
+     * mean a column for every future reference type. The feed resolves it to a
+     * card when it is present.
+     */
+    async logShoutout(
+      actorPlayerId: string,
+      message: string,
+      eventId?: string | null
+    ): Promise<void> {
       try {
         await activities.create({
           actor_player_id: actorPlayerId,
           activity_type: 'social.shoutout',
+          reference_type: eventId ? 'event' : undefined,
+          reference_id: eventId ?? undefined,
           visibility: 'public',
-          metadata: { message }
+          metadata: { message, ...(eventId ? { event_id: eventId } : {}) }
         })
       } catch {
         // Best-effort logging

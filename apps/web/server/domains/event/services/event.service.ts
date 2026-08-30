@@ -69,6 +69,17 @@ export interface EventService {
   getEvent(eventId: string): Promise<EventDto | null>
   updateEvent(playerId: string, eventId: string, input: UpdateEventInput): Promise<EventDto>
   publishEvent(playerId: string, eventId: string): Promise<EventDto>
+  /**
+   * published -> active. The session is now running.
+   *
+   * This transition did not exist: UpdateEventInput has no status field, so
+   * 'active' was unreachable through the API - while check-in, the Record Match
+   * card and the withdraw/check-in branches all gate on status === 'active'.
+   * Every one of those was dead code.
+   */
+  startEvent(playerId: string, eventId: string): Promise<EventDto>
+  /** active -> completed. Frees the club's live-event allowance. */
+  completeEvent(playerId: string, eventId: string): Promise<EventDto>
   /** Draft-only, and only when nothing is attached. See the implementation. */
   deleteDraftEvent(playerId: string, eventId: string): Promise<void>
   cancelEvent(playerId: string, eventId: string): Promise<EventDto>
@@ -531,6 +542,40 @@ export function createEventService(
       return toEventDto(updated)
     },
 
+    async startEvent(playerId, eventId) {
+      const event = await assertEventOrganizer(playerId, eventId)
+      if (event.status === 'active') {
+        throw new EventServiceError(409, 'ALREADY_ACTIVE', 'This event is already running.')
+      }
+      if (event.status !== 'published') {
+        throw new EventServiceError(
+          409,
+          'INVALID_EVENT_STATE',
+          `Only a published event can be started - this one is '${event.status}'.`
+        )
+      }
+
+      // No date check on purpose. Sessions start late, run over, and are
+      // occasionally opened early to let people warm up; refusing to start an
+      // event because the clock says 6:59 would be the app arguing with the
+      // person standing on the court.
+      const updated = await events.updateStatus(eventId, 'active')
+      return toEventDto(updated)
+    },
+
+    async completeEvent(playerId, eventId) {
+      const event = await assertEventOrganizer(playerId, eventId)
+      if (event.status !== 'active') {
+        throw new EventServiceError(
+          409,
+          'INVALID_EVENT_STATE',
+          `Only a running event can be completed - this one is '${event.status}'.`
+        )
+      }
+      const updated = await events.updateStatus(eventId, 'completed')
+      return toEventDto(updated)
+    },
+
     async deleteDraftEvent(playerId, eventId) {
       const event = await assertEventOrganizer(playerId, eventId)
 
@@ -683,6 +728,22 @@ export function createEventService(
       // singles one would make it impossible to enter.
       const category = categoryId && categories ? await categories.findById(categoryId) : null
       const matchType = resolveMatchType(category, tournament.match_type)
+
+      // The category's own status, which nothing enforced.
+      //
+      // TournamentCategoryStatus has always had 'closed' and 'completed', and
+      // the card's label was DERIVED from the bracket rather than read from the
+      // column — so an organiser could close a category, watch the UI say so,
+      // and still have entries land through a direct call or a stale page.
+      if (category && category.status !== 'open') {
+        throw new EventServiceError(
+          409,
+          'CATEGORY_CLOSED',
+          category.status === 'completed'
+            ? 'This category has finished.'
+            : 'This category is closed for registration.'
+        )
+      }
 
       if (matchType === 'doubles' && !partnerPlayerId) {
         throw new EventServiceError(

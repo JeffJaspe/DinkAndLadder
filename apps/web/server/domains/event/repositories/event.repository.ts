@@ -11,7 +11,7 @@ const EVENT_COLUMNS =
   'id, club_id, name, description, venue, province, city, start_date, end_date, ' +
   'start_time, end_time, ' +
   'registration_opens, registration_closes, status, visibility, event_type, ' +
-  'fee_amount, fee_currency, max_participants, queue_enabled, queue_courts, queue_mode, ' +
+  'fee_amount, fee_currency, max_participants, queue_enabled, queue_courts, queue_mode, match_format, ' +
   'queue_skip_timeout_seconds, created_by_player_id, created_at, updated_at'
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -92,6 +92,7 @@ export function createEventRepository(client: SupabaseClient): EventRepository {
           max_participants: input.max_participants ?? null,
           queue_enabled: input.queue_enabled ?? false,
           queue_courts: input.queue_courts ?? 1,
+          match_format: input.match_format ?? 'doubles',
           queue_mode: input.queue_mode ?? 'first_come',
           status: 'draft',
           created_by_player_id: createdByPlayerId

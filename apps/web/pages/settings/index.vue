@@ -13,6 +13,12 @@ const settingsLinks: { title: string; description: string; href: string; icon: I
     icon: 'user'
   },
   {
+    title: 'Sign-in methods',
+    description: 'Google and password — both open the same account',
+    href: '/settings/security',
+    icon: 'verified'
+  },
+  {
     title: 'Notifications',
     description: 'Manage your notification preferences',
     href: '/notifications',

@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Landing-page sponsors, controlled from the SuperAdmin console.
+
+     Follows the pattern 025-platform-branding and 026-platform-hero already
+     set: SuperAdmin-controlled landing content, images stored as bucket-relative
+     PATHS rather than URLs (the URL shape depends on whether the bucket is
+     public, which is a deployment decision), and the console page reads whatever
+     the table holds so adding a sponsor is data rather than a deploy.
+
+     A table rather than more columns on platform_config, because sponsors are
+     many and ordered where the hero is one. The section's own heading IS a
+     single value, so that goes on platform_config beside the hero fields. -->
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+    <changeSet id="042-create-sponsors" author="claude">
+        <preConditions onFail="MARK_RAN">
+            <not><tableExists tableName="platform_sponsors"/></not>
+        </preConditions>
+        <createTable tableName="platform_sponsors">
+            <column name="id" type="uuid" defaultValueComputed="gen_random_uuid()">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <!-- The sponsor's name. Also the image's alt text, which is why it
+                 is required: a logo with no accessible name is invisible to a
+                 screen reader and unreadable when the image fails to load. -->
+            <column name="label" type="text">
+                <constraints nullable="false"/>
+            </column>
+            <column name="image_path" type="text">
+                <constraints nullable="true"/>
+            </column>
+            <!-- Optional: a sponsor may be acknowledged without being linked. -->
+            <column name="link_url" type="text">
+                <constraints nullable="true"/>
+            </column>
+            <column name="display_order" type="int" defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+            <!-- Lets a lapsed sponsor be hidden without deleting the row and
+                 losing the image along with it. -->
+            <column name="enabled" type="boolean" defaultValueBoolean="true">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_at" type="timestamptz" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+            <column name="updated_at" type="timestamptz" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <rollback>
+            <dropTable tableName="platform_sponsors"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="042-sponsors-order-index" author="claude">
+        <sql>
+            -- The landing page reads exactly this: enabled sponsors, in order.
+            CREATE INDEX idx_platform_sponsors_order
+                ON platform_sponsors (display_order)
+                WHERE enabled = true;
+        </sql>
+        <rollback>
+            DROP INDEX IF EXISTS idx_platform_sponsors_order;
+        </rollback>
+    </changeSet>
+
+    <changeSet id="042-sponsors-section-label" author="claude">
+        <preConditions onFail="MARK_RAN">
+            <not><columnExists tableName="platform_config" columnName="sponsors_heading"/></not>
+        </preConditions>
+        <addColumn tableName="platform_config">
+            <!-- Nullable: NULL means the built-in heading, which is a complete
+                 section on its own. Same reasoning as the hero fields in 026. -->
+            <column name="sponsors_heading" type="text">
+                <constraints nullable="true"/>
+            </column>
+        </addColumn>
+        <rollback>
+            <dropColumn tableName="platform_config" columnName="sponsors_heading"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="042-sponsors-rls" author="claude">
+        <sql>
+            ALTER TABLE platform_sponsors ENABLE ROW LEVEL SECURITY;
+
+            -- Sponsors are on the public landing page, so anyone may read the
+            -- enabled ones. Writes have no policy at all: they go through the
+            -- service-role client from an endpoint that has already checked
+            -- platform_config.super_admin_id, which is how every other platform
+            -- config surface works.
+            CREATE POLICY platform_sponsors_select_enabled ON platform_sponsors
+                FOR SELECT
+                USING (enabled = true);
+        </sql>
+        <rollback>
+            DROP POLICY IF EXISTS platform_sponsors_select_enabled ON platform_sponsors;
+            ALTER TABLE platform_sponsors DISABLE ROW LEVEL SECURITY;
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

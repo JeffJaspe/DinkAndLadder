@@ -28,7 +28,10 @@ function createFakeEventRepository(overrides?: Partial<EventRepository>): EventR
     countBlockingChildren: vi
       .fn()
       .mockResolvedValue({ registrations: 0, matches: 0, queueEntries: 0 }),
-    deleteWithChildren: vi.fn().mockResolvedValue(undefined),    countByClubForLimits: vi.fn().mockResolvedValue({ drafts: 0, liveTournaments: 0, liveOpenPlay: 0 }),
+    deleteWithChildren: vi.fn().mockResolvedValue(undefined),
+    countByClubForLimits: vi
+      .fn()
+      .mockResolvedValue({ drafts: 0, liveTournaments: 0, liveOpenPlay: 0 }),
     ...overrides
   }
 }
@@ -108,6 +111,7 @@ function makeEventRecord(overrides?: Partial<EventRecord>): EventRecord {
     max_participants: null,
     queue_enabled: false,
     queue_courts: 1,
+    match_format: 'doubles',
     queue_mode: 'first_come',
     queue_skip_timeout_seconds: 120,
     created_by_player_id: 'player-1',
@@ -544,6 +548,7 @@ describe('EventService', () => {
           min_rating: null,
           max_rating: null,
           max_participants: null,
+          status: 'open',
           ...categoryOverrides
         }),
         findByTournamentId: vi.fn().mockResolvedValue([]),
@@ -718,14 +723,17 @@ describe('EventService', () => {
         registrationRepo
       )
 
-      await expect(service.register('player-1', 'tournament-1', null, null)).rejects.not.toBeInstanceOf(
-        EventServiceError
-      )
+      await expect(
+        service.register('player-1', 'tournament-1', null, null)
+      ).rejects.not.toBeInstanceOf(EventServiceError)
     })
   })
 
   describe('register — category rating band', () => {
-    function serviceFor(band: { min_rating: number | null; max_rating: number | null }, ratingValue: number | null) {
+    function serviceFor(
+      band: { min_rating: number | null; max_rating: number | null },
+      ratingValue: number | null
+    ) {
       return createEventService(
         createFakeEventRepository(),
         createFakeTournamentRepository({
@@ -744,6 +752,7 @@ describe('EventService', () => {
             match_type: 'singles',
             format: null,
             max_participants: null,
+            status: 'open',
             ...band
           }),
           findByTournamentId: vi.fn().mockResolvedValue([]),

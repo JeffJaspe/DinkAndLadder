@@ -35,6 +35,9 @@ function match(overrides: Partial<BracketMatchDto> = {}): BracketMatchDto {
     participant1: null,
     participant2: null,
     scores: [],
+    live_score: null,
+    started_at: null,
+    is_live: false,
     ...overrides
   }
 }

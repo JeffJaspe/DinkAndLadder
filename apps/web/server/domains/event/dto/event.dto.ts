@@ -40,6 +40,8 @@ export interface EventRecord {
   max_participants: number | null
   queue_enabled: boolean
   queue_courts: number
+  /** Singles or doubles for open play. See 041-open-play-live. */
+  match_format: 'singles' | 'doubles'
   queue_mode: QueueMode
   queue_skip_timeout_seconds: number
   created_by_player_id: string
@@ -81,6 +83,8 @@ export interface EventDto {
   viewer_registered?: boolean
   queue_enabled: boolean
   queue_courts: number
+  /** Singles or doubles for open play. See 041-open-play-live. */
+  match_format: 'singles' | 'doubles'
   queue_mode: QueueMode
   affects_rating: boolean
   created_by_player_id: string
@@ -111,6 +115,9 @@ export function toEventDto(record: EventRecord): EventDto {
     max_participants: record.max_participants,
     queue_enabled: record.queue_enabled,
     queue_courts: record.queue_courts,
+    // Defaulted rather than passed through: every event created before 041
+    // predates the question, and doubles is what those sessions were.
+    match_format: record.match_format ?? 'doubles',
     queue_mode: record.queue_mode,
     affects_rating: affectsRating,
     created_by_player_id: record.created_by_player_id,
@@ -138,6 +145,7 @@ export interface CreateEventInput {
   max_participants?: number | null
   queue_enabled?: boolean
   queue_courts?: number
+  match_format?: 'singles' | 'doubles'
   queue_mode?: QueueMode
   /**
    * Only read when event_type is 'tournament', where they configure the one
@@ -175,6 +183,7 @@ export interface UpdateEventInput {
   max_participants?: number | null
   queue_enabled?: boolean
   queue_courts?: number
+  match_format?: 'singles' | 'doubles'
   queue_mode?: QueueMode
 }
 
@@ -292,6 +301,21 @@ export interface EventQueueDto {
 // Event court types
 export type CourtStatus = 'available' | 'playing' | 'reserved' | 'maintenance'
 
+/**
+ * One game's score while it is still being played.
+ *
+ * Same shape as match_score_proposals.scores (017), so what a court holds
+ * mid-game is exactly what gets submitted when the game ends. Deliberately not
+ * stored in match_scores: an unfinished game is not a result, and a matches row
+ * carries verification semantics the players are in no position to answer while
+ * they are still on court.
+ */
+export interface LiveGameScore {
+  game_number: number
+  team1_score: number
+  team2_score: number
+}
+
 export interface EventCourtRecord {
   id: string
   event_id: string
@@ -300,6 +324,10 @@ export interface EventCourtRecord {
   status: CourtStatus
   current_match_id: string | null
   match_started_at: string | null
+  live_score: LiveGameScore[] | null
+  team1_queue_id: string | null
+  team2_queue_id: string | null
+  live_score_updated_at: string | null
 }
 
 export interface EventCourtDto {
@@ -310,4 +338,35 @@ export interface EventCourtDto {
   status: CourtStatus
   current_match_id: string | null
   match_started_at: string | null
+  live_score: LiveGameScore[] | null
+  live_score_updated_at: string | null
+  /** Who is on court, resolved by the read path. */
+  team1: CourtSideDto | null
+  team2: CourtSideDto | null
+  /** The next queued entries for this court, in order. */
+  up_next: CourtSideDto[]
+}
+
+/** One side of a court: a single player, or a pair. */
+export interface CourtSideDto {
+  queue_id: string
+  players: { id: string; display_name: string; rating: number | null }[]
+}
+
+export function toEventCourtDto(record: EventCourtRecord): EventCourtDto {
+  return {
+    id: record.id,
+    event_id: record.event_id,
+    court_number: record.court_number,
+    court_name: record.court_name,
+    status: record.status,
+    current_match_id: record.current_match_id,
+    match_started_at: record.match_started_at,
+    live_score: record.live_score,
+    live_score_updated_at: record.live_score_updated_at,
+    // Filled in by the read path, which has the queue and profiles to hand.
+    team1: null,
+    team2: null,
+    up_next: []
+  }
 }

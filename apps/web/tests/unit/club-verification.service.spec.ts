@@ -28,6 +28,8 @@ function makeClub(overrides: Partial<ClubRecord> = {}): ClubRecord {
     verification_requested_at: null,
     verified_at: null,
     verified_by_user_id: null,
+    cover_photo_path: null,
+    logo_path: null,
     ...overrides
   }
 }

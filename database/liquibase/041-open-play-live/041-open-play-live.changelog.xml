@@ -1,0 +1,156 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Live open play: per-court state and in-progress scores.
+
+     event_courts has existed since 017 with court_number, court_name, status,
+     current_match_id and match_started_at - and no repository, service,
+     endpoint or UI ever touched it. In practice a "court" was the integer
+     events.queue_courts plus a free-text court_number on event_queue. This
+     changeset makes the table usable rather than replacing it.
+
+     Two additions:
+
+     1. live_score - the score of a game in progress. Deliberately NOT stored in
+        match_scores: an unfinished game is not a result, and a matches row
+        carries verification semantics (submitted -> pending_verification ->
+        verified). Writing a half-finished score there would create matches that
+        look submitted, feed the rating engine, and need verifying by players
+        who are still on court. When the game ends the organiser submits it and
+        a real match row is created through the normal path.
+
+     2. events.match_format - whether an open play session is singles or
+        doubles. Tournaments already answer this via tournaments.match_type;
+        open play never asked, so the queue had to guess. Defaults to doubles,
+        which is what club open play overwhelmingly is. -->
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+    <changeSet id="041-add-live-score-to-courts" author="claude">
+        <preConditions onFail="MARK_RAN">
+            <not><columnExists tableName="event_courts" columnName="live_score"/></not>
+        </preConditions>
+        <addColumn tableName="event_courts">
+            <!-- jsonb, matching match_score_proposals.scores (017 §0014), so the
+                 shape a court holds mid-game is the shape that gets submitted:
+                 [{ game_number, team1_score, team2_score }, ...]. -->
+            <column name="live_score" type="jsonb">
+                <constraints nullable="true"/>
+            </column>
+            <!-- Which queue entries are on this court. The queue already records
+                 court_number, but that is a label the organiser typed, not a
+                 link - two entries can claim the same number and nothing
+                 notices. -->
+            <column name="team1_queue_id" type="uuid">
+                <constraints nullable="true"/>
+            </column>
+            <column name="team2_queue_id" type="uuid">
+                <constraints nullable="true"/>
+            </column>
+            <column name="live_score_updated_at" type="timestamptz">
+                <constraints nullable="true"/>
+            </column>
+        </addColumn>
+        <rollback>
+            <dropColumn tableName="event_courts" columnName="live_score_updated_at"/>
+            <dropColumn tableName="event_courts" columnName="team2_queue_id"/>
+            <dropColumn tableName="event_courts" columnName="team1_queue_id"/>
+            <dropColumn tableName="event_courts" columnName="live_score"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="041-court-queue-fks" author="claude">
+        <sql>
+            -- SET NULL rather than CASCADE: a queue entry disappearing must not
+            -- delete the court it was playing on.
+            ALTER TABLE event_courts
+                ADD CONSTRAINT fk_event_courts_team1_queue
+                FOREIGN KEY (team1_queue_id) REFERENCES event_queue(id) ON DELETE SET NULL;
+
+            ALTER TABLE event_courts
+                ADD CONSTRAINT fk_event_courts_team2_queue
+                FOREIGN KEY (team2_queue_id) REFERENCES event_queue(id) ON DELETE SET NULL;
+        </sql>
+        <rollback>
+            ALTER TABLE event_courts DROP CONSTRAINT fk_event_courts_team2_queue;
+            ALTER TABLE event_courts DROP CONSTRAINT fk_event_courts_team1_queue;
+        </rollback>
+    </changeSet>
+
+    <changeSet id="041-add-match-format-to-events" author="claude">
+        <preConditions onFail="MARK_RAN">
+            <not><columnExists tableName="events" columnName="match_format"/></not>
+        </preConditions>
+        <addColumn tableName="events">
+            <!-- Doubles by default: club open play is overwhelmingly doubles,
+                 and every existing event was created before this question was
+                 asked, so the default has to be the common case rather than
+                 NULL. -->
+            <column name="match_format" type="text" defaultValue="doubles">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+        <rollback>
+            <dropColumn tableName="events" columnName="match_format"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="041-match-format-check" author="claude">
+        <sql>
+            ALTER TABLE events
+                ADD CONSTRAINT ck_events_match_format
+                CHECK (match_format IN ('singles', 'doubles'));
+        </sql>
+        <rollback>
+            ALTER TABLE events DROP CONSTRAINT ck_events_match_format;
+        </rollback>
+    </changeSet>
+
+    <changeSet id="041-court-indexes" author="claude">
+        <sql>
+            -- The court board reads every court for one event, in order.
+            CREATE INDEX IF NOT EXISTS idx_event_courts_event
+                ON event_courts (event_id, court_number);
+
+            -- The LIVE label asks "is anything playing here right now" on every
+            -- poll, so it is the hottest read in the phase.
+            CREATE INDEX IF NOT EXISTS idx_event_courts_playing
+                ON event_courts (event_id)
+                WHERE status = 'playing';
+        </sql>
+        <rollback>
+            DROP INDEX IF EXISTS idx_event_courts_playing;
+            DROP INDEX IF EXISTS idx_event_courts_event;
+        </rollback>
+    </changeSet>
+
+    <changeSet id="041-event-courts-rls" author="claude">
+        <sql>
+            ALTER TABLE event_courts ENABLE ROW LEVEL SECURITY;
+
+            -- Anyone who can see the event can see its courts. A live score is
+            -- the spectator feature this whole phase exists for, so reads are
+            -- as open as the event itself - which is what fn_is_event_registered
+            -- and the public/non-draft rule already express for registrations.
+            --
+            -- No INSERT/UPDATE policy at all: every write goes through the
+            -- service-role client from an endpoint that has already checked the
+            -- caller is the organiser or club staff. Scores are the one thing
+            -- players must not be able to write directly.
+            CREATE POLICY event_courts_select ON event_courts
+                FOR SELECT
+                USING (
+                    event_id IN (
+                        SELECT id FROM events WHERE visibility = 'public' AND status != 'draft'
+                    )
+                    OR fn_is_event_registered(event_id)
+                );
+        </sql>
+        <rollback>
+            DROP POLICY IF EXISTS event_courts_select ON event_courts;
+            ALTER TABLE event_courts DISABLE ROW LEVEL SECURITY;
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

@@ -50,7 +50,9 @@ function createFakes() {
         verification_status: 'unverified',
         verification_requested_at: null,
         verified_at: null,
-        verified_by_user_id: null
+        verified_by_user_id: null,
+        cover_photo_path: null,
+        logo_path: null
       }
       clubs.set(club.id, club)
       return club

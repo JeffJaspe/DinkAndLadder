@@ -11,6 +11,9 @@ import type {
 } from '~/server/domains/match/dto/match-join-row.dto'
 import type { PartnerDto } from '~/server/domains/partnership/dto/partnership.dto'
 import type { PlayerProfileDto } from '~/server/domains/player/dto/player-profile.dto'
+import { apiErrorMessage } from '~/utils/api-error-message'
+import type { FeeWaiver } from '~/server/domains/event/services/registration-fee'
+import type { MixupSchedule } from '~/server/domains/event/services/mixup-scheduler'
 
 interface TournamentsResponse {
   tournaments: TournamentDto[]
@@ -29,7 +32,25 @@ const { isClubMode } = useAccountMode()
  * condition, so a plain published event opened on a blank panel. Who is playing
  * is what people come to a public event page to see.
  */
-const activeTab = ref<'info' | 'matches' | 'players' | 'rankings' | 'queue'>('players')
+const activeTab = ref<'info' | 'matches' | 'courts' | 'players' | 'rankings' | 'queue'>('players')
+
+/**
+ * Courts only appear once the session is running.
+ *
+ * Before that the tab would be an empty board — courts are materialised when
+ * the event starts (see /events/:id/start), because queue_courts is editable
+ * while the event is a draft and creating rows earlier would mean reconciling
+ * them every time the organiser changed their mind.
+ */
+const visibleTabs = computed(() => {
+  const tabs: Array<'info' | 'matches' | 'courts' | 'players' | 'rankings' | 'queue'> = [
+    'info',
+    'matches'
+  ]
+  if (courts.value.length > 0) tabs.push('courts')
+  tabs.push('players', 'rankings', 'queue')
+  return tabs
+})
 
 interface EventRankingEntry {
   rank: number
@@ -40,12 +61,17 @@ interface EventRankingEntry {
   losses: number
 }
 
+/** EventDto plus the per-caller fee decision this endpoint adds. */
+interface EventWithFeeWaiver extends EventDto {
+  fee_waiver?: FeeWaiver | null
+}
+
 const {
   data: event,
   pending: eventPending,
   error: eventError,
   refresh: refreshEvent
-} = await useFetch<EventDto>(`/api/v1/events/${eventId}`)
+} = await useFetch<EventWithFeeWaiver>(`/api/v1/events/${eventId}`)
 
 const { data: myProfile } = await useFetch<PlayerProfileDto>('/api/v1/players/me')
 
@@ -70,9 +96,11 @@ const {
   refresh: refreshRegistrations
 } = await useFetch<{ data: EventRegistrationDto[] }>(`/api/v1/events/${eventId}/registrations`)
 
-const { data: matchesData, pending: matchesPending } = await useFetch<{ data: MatchListItemDto[] }>(
-  `/api/v1/events/${eventId}/matches`
-)
+const {
+  data: matchesData,
+  pending: matchesPending,
+  refresh: refreshMatches
+} = await useFetch<{ data: MatchListItemDto[] }>(`/api/v1/events/${eventId}/matches`)
 
 const { data: rankingsData, pending: rankingsPending } = await useFetch<{
   data: EventRankingEntry[]
@@ -110,6 +138,190 @@ const isOrganizer = computed(
  * for every purpose on this screen, a participant.
  */
 const canManageEvent = computed(() => isOrganizer.value && isClubMode.value)
+
+/**
+ * Starting and ending a session.
+ *
+ * Neither transition existed: UpdateEventInput has no status field, so 'active'
+ * was unreachable through the API - while check-in, the Record Match card and
+ * the withdraw/check-in branches all gated on status === 'active'. Every one of
+ * those paths was dead until now.
+ */
+const startingEvent = ref(false)
+
+async function startEvent() {
+  startingEvent.value = true
+  try {
+    await $fetch(`/api/v1/events/${eventId}/start`, { method: 'POST' })
+    await refreshEvent()
+    await refreshCourts()
+    useToast().success('Event started. Courts are open.')
+  } catch (err) {
+    useToast().error(apiErrorMessage(err, 'Could not start the event.'))
+  } finally {
+    startingEvent.value = false
+  }
+}
+
+async function completeEvent() {
+  startingEvent.value = true
+  try {
+    await $fetch(`/api/v1/events/${eventId}/complete`, { method: 'POST' })
+    await refreshEvent()
+    useToast().success('Event completed.')
+  } catch (err) {
+    useToast().error(apiErrorMessage(err, 'Could not complete the event.'))
+  } finally {
+    startingEvent.value = false
+  }
+}
+
+/**
+ * The live court board. 30-second polling plus a manual refresh, and only while
+ * a court is actually playing and the tab is visible - see useLiveScores.
+ */
+const {
+  courts,
+  hasLiveCourt,
+  refresh: refreshCourts,
+  lastUpdated: courtsUpdatedAt
+} = useLiveScores(eventId)
+
+const courtBusyId = ref('')
+
+/**
+ * Starting a game on a specific court.
+ *
+ * The two sides are picked from the waiting queue rather than typed, because a
+ * court can only ever be started with entries that are actually in this event's
+ * queue — the server enforces exactly that, and offering a free-text field
+ * would just be a way to discover the error message.
+ */
+/**
+ * Queue vs Mixup.
+ *
+ * Queue is first-come: whoever has waited longest goes on next, with whoever
+ * they arrived with. Mixup rotates partners AND opponents across the session so
+ * that, as far as possible, nobody partners the same person twice — the
+ * "everyone plays with everyone" format a club night actually runs.
+ *
+ * The generated schedule is a PREVIEW and nothing is written. People arrive
+ * late, leave early and pull out with a bad ankle, so a whole evening's
+ * pairings committed at 7pm is a liability by 8. Courts are still started one
+ * at a time; the schedule tells the desk who to put on.
+ */
+const pairingMode = ref<'queue' | 'mixup'>('queue')
+const mixupRounds = ref(6)
+const mixupSchedule = ref<MixupSchedule | null>(null)
+const generatingMixup = ref(false)
+
+async function generateMixup() {
+  generatingMixup.value = true
+  try {
+    const result = await $fetch<{ data: MixupSchedule; player_count: number }>(
+      `/api/v1/events/${eventId}/queue/mixup`,
+      { method: 'POST', body: { rounds: mixupRounds.value } }
+    )
+    mixupSchedule.value = result.data
+    if (!result.data.rounds.length) {
+      useToast().info('Not enough players in the queue yet to build a rotation.')
+    }
+  } catch (err) {
+    useToast().error(apiErrorMessage(err, 'Could not generate a rotation.'))
+  } finally {
+    generatingMixup.value = false
+  }
+}
+
+function sideNames(side: { players: { player_id: string }[] }): string {
+  return side.players
+    .map((p) => {
+      const entry = queueData?.value?.data.find(
+        (q) => q.player_id === p.player_id || q.partner_id === p.player_id
+      )
+      if (entry?.player?.id === p.player_id) return entry.player.display_name
+      if (entry?.partner?.id === p.player_id) return entry.partner.display_name
+      return 'Player'
+    })
+    .join(' & ')
+}
+
+const startCourtId = ref('')
+const startTeam1 = ref('')
+const startTeam2 = ref('')
+const startingCourt = ref(false)
+
+const startCourtOpen = computed({
+  get: () => startCourtId.value !== '',
+  set: (open: boolean) => {
+    if (!open) startCourtId.value = ''
+  }
+})
+
+function openStartCourt(courtId: string) {
+  startTeam1.value = waitingEntries.value[0]?.id ?? ''
+  startTeam2.value = waitingEntries.value[1]?.id ?? ''
+  startCourtId.value = courtId
+}
+
+/** A queue entry as one line: the player, plus their partner for doubles. */
+function queueEntryLabel(entry: EventQueueDto): string {
+  const names = [entry.player?.display_name, entry.partner?.display_name].filter(Boolean)
+  return names.length ? names.join(' & ') : 'Unknown player'
+}
+
+async function confirmStartCourt() {
+  if (!startTeam1.value || !startTeam2.value || startTeam1.value === startTeam2.value) return
+  startingCourt.value = true
+  try {
+    await $fetch(`/api/v1/events/${eventId}/courts/${startCourtId.value}/start`, {
+      method: 'POST',
+      body: { team1_queue_id: startTeam1.value, team2_queue_id: startTeam2.value }
+    })
+    await Promise.all([refreshCourts(), refreshQueue()])
+    startCourtId.value = ''
+    useToast().success('Court started.')
+  } catch (err) {
+    useToast().error(apiErrorMessage(err, 'Could not start the court.'))
+  } finally {
+    startingCourt.value = false
+  }
+}
+
+async function updateCourtScore(courtId: string, scores: unknown) {
+  try {
+    await $fetch(`/api/v1/events/${eventId}/courts/${courtId}/score`, {
+      method: 'PATCH',
+      body: { scores }
+    })
+    await refreshCourts()
+  } catch (err) {
+    useToast().error(apiErrorMessage(err, 'Could not update the score.'))
+  }
+}
+
+async function submitCourtScore(courtId: string) {
+  if (courtBusyId.value) return
+  courtBusyId.value = courtId
+  try {
+    const result = await $fetch<{ warnings?: string[] }>(
+      `/api/v1/events/${eventId}/courts/${courtId}/submit`,
+      { method: 'POST' }
+    )
+    await Promise.all([refreshCourts(), refreshMatches()])
+    // The court is freed even when the match or the auto-advance failed, so a
+    // warning has to be shown rather than a blanket success.
+    if (result.warnings?.length) {
+      useToast().info(result.warnings.join(' '))
+    } else {
+      useToast().success('Score submitted. Next pair is on.')
+    }
+  } catch (err) {
+    useToast().error(apiErrorMessage(err, 'Could not submit the score.'))
+  } finally {
+    courtBusyId.value = ''
+  }
+}
 
 /**
  * A draft is unpublished club work, so it has no place in the player-mode UI.
@@ -151,10 +363,10 @@ const availablePartners = computed(() => {
  * server: false because this is a signed-in-only preference that has no
  * bearing on the public render of the page.
  */
-const { data: myPartnersData } = await useFetch<{ data: PartnerDto[] }>(
-  '/api/v1/players/me/partners',
-  { server: false, default: () => ({ data: [] }) }
-)
+const { data: myPartnersData } = useFetch<{ data: PartnerDto[] }>('/api/v1/players/me/partners', {
+  server: false,
+  default: () => ({ data: [] })
+})
 
 const defaultPartnerId = computed(
   () => myPartnersData.value?.data.find((partner) => partner.is_default)?.player_id ?? null
@@ -521,6 +733,8 @@ const placesRemaining = computed(() => {
 <template>
   <div class="min-h-screen bg-canvas p-4 lg:p-6">
     <div class="page-shell">
+      <UiPageHeader to="/events" back-label="Events" />
+
       <!-- Loading -->
       <div v-if="eventPending" class="space-y-4">
         <div class="h-36 animate-pulse rounded-xl bg-surface" />
@@ -602,6 +816,26 @@ const placesRemaining = computed(() => {
                 {{ event.status.replace('_', ' ') }}
               </span>
 
+              <!-- Start the session. Per event; courts are started individually
+                   from the Courts tab once this is running. -->
+              <button
+                v-if="canManageEvent && event.status === 'published'"
+                :disabled="startingEvent"
+                class="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-on-primary hover:bg-primary-hover disabled:opacity-50"
+                @click="startEvent"
+              >
+                {{ startingEvent ? 'Starting…' : 'Start Event' }}
+              </button>
+
+              <button
+                v-if="canManageEvent && event.status === 'active'"
+                :disabled="startingEvent"
+                class="rounded-lg border border-border-strong px-4 py-2 text-sm font-medium text-fg-secondary hover:bg-surface-2 disabled:opacity-50"
+                @click="completeEvent"
+              >
+                {{ startingEvent ? 'Ending…' : 'End Event' }}
+              </button>
+
               <!-- Publish Button for Draft Events -->
               <button
                 v-if="canManageEvent && event.status === 'draft'"
@@ -623,8 +857,15 @@ const placesRemaining = computed(() => {
                 {{ deleting ? 'Deleting...' : 'Delete Draft' }}
               </button>
 
-              <!-- Registration Actions -->
-              <template v-if="event.status === 'published' || event.status === 'active'">
+              <!-- Registration Actions.
+                   Not for tournaments: entering a tournament means entering a
+                   CATEGORY (a rating band, singles or doubles), and this button
+                   posted to the event-level /register regardless of type — so a
+                   player could be "registered" for the weekend without being in
+                   any draw. The real button lives on each category card. -->
+              <template
+                v-if="!isTournament && (event.status === 'published' || event.status === 'active')"
+              >
                 <button
                   v-if="!isRegistered"
                   class="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-on-primary hover:bg-primary-hover disabled:opacity-50"
@@ -670,10 +911,26 @@ const placesRemaining = computed(() => {
              schedule and result. Queue is deliberately absent — it is an
              open-play feature, and the tournament "Queue" tab was never one. -->
         <template v-if="isTournament">
+          <!-- The board on its own page, for the screen at the desk. Running a
+               draw from inside an expanded card works on a laptop and is
+               hopeless on a TV nobody can scroll. target=_blank because the
+               point is to leave it open on a second screen. -->
+          <div class="mb-4 flex justify-end">
+            <a
+              :href="`/events/${eventId}/matches`"
+              target="_blank"
+              rel="noopener"
+              class="inline-flex items-center gap-1.5 rounded-button border border-border-strong px-3 py-1.5 text-caption text-fg-secondary transition-colors hover:border-primary hover:text-fg"
+            >
+              <UiIcon name="share" size="h-4 w-4" />
+              Open matches in a new tab
+            </a>
+          </div>
           <TournamentCategorySection
             v-if="primaryTournament"
             :event="event"
             :tournament="primaryTournament"
+            :fee-waiver="event.fee_waiver ?? null"
             :can-manage="canManageEvent"
             :is-organizer="isOrganizer"
             :my-player-id="myProfile?.id ?? null"
@@ -689,7 +946,7 @@ const placesRemaining = computed(() => {
           <!-- Tabs -->
           <div class="mb-4 flex gap-1 rounded-lg bg-surface p-1">
             <button
-              v-for="tab in ['info', 'matches', 'players', 'rankings', 'queue'] as const"
+              v-for="tab in visibleTabs"
               :key="tab"
               class="flex-1 rounded-md px-4 py-2 text-sm font-medium capitalize transition-colors"
               :class="
@@ -709,6 +966,13 @@ const placesRemaining = computed(() => {
               <span v-if="tab === 'matches' && matchesData?.data" class="ml-1 text-xs opacity-75">
                 ({{ matchesData.data.length }})
               </span>
+              <!-- The red LIVE dot: a player scanning the tab bar should be
+                   able to tell a game is on without opening anything. -->
+              <span
+                v-if="(tab === 'matches' || tab === 'courts') && hasLiveCourt"
+                class="ml-1.5 inline-flex h-1.5 w-1.5 animate-pulse rounded-full bg-danger align-middle"
+                aria-label="A game is live"
+              />
             </button>
           </div>
 
@@ -856,9 +1120,95 @@ const placesRemaining = computed(() => {
                 Mode:
                 <span class="capitalize">{{ event.queue_mode.replace('_', ' ') }}</span>
               </p>
-              <p class="mt-2 text-sm text-fg-muted">
-                Auto-matching coming soon. Currently, the organizer assigns matches manually.
-              </p>
+
+              <!-- How the next match gets picked. -->
+              <div v-if="canManageEvent" class="mt-4 border-t border-border pt-4">
+                <p class="mb-2 text-sm font-medium text-fg-secondary">How to pair players</p>
+                <div class="flex gap-2">
+                  <label
+                    v-for="mode in ['queue', 'mixup'] as const"
+                    :key="mode"
+                    class="flex flex-1 cursor-pointer items-start gap-2 rounded-lg border-2 p-3 text-sm transition-all"
+                    :class="
+                      pairingMode === mode
+                        ? 'border-primary bg-primary/5'
+                        : 'border-border-strong hover:border-primary/40'
+                    "
+                  >
+                    <input
+                      v-model="pairingMode"
+                      type="radio"
+                      :value="mode"
+                      class="mt-1 accent-primary"
+                    />
+                    <span>
+                      <span class="block font-medium capitalize text-fg">{{ mode }}</span>
+                      <span class="block text-xs text-fg-muted">
+                        {{
+                          mode === 'queue'
+                            ? 'First come, first served. Longest wait plays next.'
+                            : 'Rotate partners and opponents so everyone plays with everyone.'
+                        }}
+                      </span>
+                    </span>
+                  </label>
+                </div>
+
+                <div v-if="pairingMode === 'mixup'" class="mt-4">
+                  <div class="flex flex-wrap items-end gap-3">
+                    <div>
+                      <label for="mixup-rounds" class="mb-1 block text-xs text-fg-secondary">
+                        Rounds
+                      </label>
+                      <input
+                        id="mixup-rounds"
+                        v-model.number="mixupRounds"
+                        type="number"
+                        min="1"
+                        max="20"
+                        class="w-24 rounded-lg border border-border-strong bg-canvas px-3 py-2 text-sm text-fg focus:border-primary focus:outline-none"
+                      />
+                    </div>
+                    <UiButton :disabled="generatingMixup" @click="generateMixup">
+                      {{ generatingMixup ? 'Generating…' : 'Generate rotation' }}
+                    </UiButton>
+                  </div>
+
+                  <p class="mt-2 text-xs text-fg-muted">
+                    A preview — nothing is saved. Courts are still started one at a time, so
+                    latecomers and early leavers do not break the evening.
+                  </p>
+
+                  <!-- The generated rounds -->
+                  <div v-if="mixupSchedule?.rounds.length" class="mt-4 space-y-3">
+                    <div
+                      v-for="round in mixupSchedule.rounds"
+                      :key="round.round_number"
+                      class="rounded-lg bg-canvas p-3"
+                    >
+                      <p class="text-xs font-semibold uppercase tracking-wide text-fg-muted">
+                        Round {{ round.round_number }}
+                      </p>
+                      <ul class="mt-2 space-y-1">
+                        <li
+                          v-for="match in round.matches"
+                          :key="match.court_number"
+                          class="flex flex-wrap items-baseline gap-2 text-sm text-fg-secondary"
+                        >
+                          <span class="text-xs text-fg-muted">Court {{ match.court_number }}</span>
+                          <span class="text-fg">{{ sideNames(match.team1) }}</span>
+                          <span class="text-fg-muted">vs</span>
+                          <span class="text-fg">{{ sideNames(match.team2) }}</span>
+                        </li>
+                      </ul>
+                      <p v-if="round.sitting_out.length" class="mt-1.5 text-xs text-fg-muted">
+                        Sitting out:
+                        {{ round.sitting_out.map((p) => sideNames({ players: [p] })).join(', ') }}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -980,6 +1330,35 @@ const placesRemaining = computed(() => {
              matches and deliberately carries no rating delta (rating_transactions
              is select-own under RLS, so a shared leaderboard cannot show another
              player's movement without a service-role bypass). -->
+          <!-- Tab Content: Courts -->
+          <div v-if="activeTab === 'courts'" class="space-y-4">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h2 class="font-semibold text-fg">Courts</h2>
+                <p class="text-caption text-fg-muted">
+                  <span v-if="courtsUpdatedAt">
+                    Updated {{ courtsUpdatedAt.toLocaleTimeString() }} · refreshes every 30 seconds
+                  </span>
+                  <span v-else>Live scores refresh every 30 seconds.</span>
+                </p>
+              </div>
+              <UiButton variant="ghost" size="sm" @click="refreshCourts">Refresh</UiButton>
+            </div>
+
+            <div class="grid gap-4 sm:grid-cols-2">
+              <EventCourtCard
+                v-for="court in courts"
+                :key="court.id"
+                :court="court"
+                :can-manage="canManageEvent"
+                :busy="courtBusyId === court.id"
+                @score="updateCourtScore(court.id, $event)"
+                @submit="submitCourtScore(court.id)"
+                @start="openStartCourt(court.id)"
+              />
+            </div>
+          </div>
+
           <div v-if="activeTab === 'rankings'">
             <RankingBoard
               :entries="rankingsData?.data ?? []"
@@ -1273,5 +1652,70 @@ const placesRemaining = computed(() => {
       :loading="deleting"
       @confirm="handleDeleteEvent"
     />
+
+    <!-- Start a court. hide-actions because Confirm has to be disabled until
+         two different sides are chosen, which the built-in row cannot express. -->
+    <UiModal
+      v-model="startCourtOpen"
+      title="Start a game"
+      description="Pick the two sides from the players waiting."
+      hide-actions
+    >
+      <div class="space-y-4">
+        <div v-if="waitingEntries.length < 2" class="rounded-button bg-canvas p-4 text-center">
+          <p class="text-body-2 text-fg-muted">
+            At least two entries need to be waiting in the queue before a court can start.
+          </p>
+        </div>
+
+        <template v-else>
+          <div>
+            <label for="court-team1" class="mb-1.5 block text-body-2 font-medium text-fg-secondary">
+              Side 1
+            </label>
+            <select
+              id="court-team1"
+              v-model="startTeam1"
+              class="w-full rounded-button border border-border-strong bg-canvas px-3 py-2 text-body-2 text-fg focus:border-primary focus:outline-none"
+            >
+              <option v-for="entry in waitingEntries" :key="entry.id" :value="entry.id">
+                {{ queueEntryLabel(entry) }}
+              </option>
+            </select>
+          </div>
+
+          <div>
+            <label for="court-team2" class="mb-1.5 block text-body-2 font-medium text-fg-secondary">
+              Side 2
+            </label>
+            <select
+              id="court-team2"
+              v-model="startTeam2"
+              class="w-full rounded-button border border-border-strong bg-canvas px-3 py-2 text-body-2 text-fg focus:border-primary focus:outline-none"
+            >
+              <option v-for="entry in waitingEntries" :key="entry.id" :value="entry.id">
+                {{ queueEntryLabel(entry) }}
+              </option>
+            </select>
+          </div>
+
+          <p v-if="startTeam1 && startTeam1 === startTeam2" class="text-caption text-danger">
+            Pick two different sides.
+          </p>
+        </template>
+
+        <div class="flex justify-end gap-2">
+          <UiButton variant="ghost" :disabled="startingCourt" @click="startCourtOpen = false">
+            Cancel
+          </UiButton>
+          <UiButton
+            :disabled="startingCourt || !startTeam1 || !startTeam2 || startTeam1 === startTeam2"
+            @click="confirmStartCourt"
+          >
+            {{ startingCourt ? 'Starting…' : 'Start game' }}
+          </UiButton>
+        </div>
+      </div>
+    </UiModal>
   </div>
 </template>

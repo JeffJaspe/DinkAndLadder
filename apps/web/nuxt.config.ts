@@ -8,6 +8,10 @@ export default defineNuxtConfig({
   // tokens.css first: it declares the custom properties everything else reads.
   css: ['~/assets/css/tokens.css', '~/assets/css/fonts.css', '~/assets/css/main.css'],
   app: {
+    // Deliberately short and opacity-only: anything longer, or anything that
+    // moves the page, reads as lag rather than polish on a slow connection.
+    // prefers-reduced-motion is honoured in assets/css/main.css.
+    pageTransition: { name: 'page', mode: 'out-in' },
     head: {
       htmlAttrs: { lang: 'en' },
       link: [
@@ -70,6 +74,14 @@ export default defineNuxtConfig({
         '/',
         '/register',
         '/check-email',
+        // Both are for people who cannot sign in — guarding them redirects the
+        // only visitors who need them straight back to /login. /update-password
+        // is where the recovery email lands, before any normal session exists.
+        '/reset-password',
+        '/update-password',
+        // Where a failed email link is trapped — by definition nobody
+        // reaching it has a session.
+        '/auth-error',
         '/players/*',
         '/clubs/*',
         '/rankings',

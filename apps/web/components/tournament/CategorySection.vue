@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import type { EventDto } from '~/server/domains/event/dto/event.dto'
-import type { BracketDto, RecordBracketResultInput } from '~/server/domains/event/dto/bracket.dto'
+import type {
+  BracketDto,
+  LiveBracketScore,
+  RecordBracketResultInput
+} from '~/server/domains/event/dto/bracket.dto'
 import type {
   TournamentDto,
   TournamentRegistrationWithPlayerDto
@@ -10,7 +14,10 @@ import type {
   TournamentCategoryTemplateDto,
   UpdateTournamentCategoryInput
 } from '~/server/domains/event/dto/tournament-category.dto'
-import { resolveBracketLock, resolveMatchType } from '~/server/domains/event/dto/tournament-category.dto'
+import {
+  resolveBracketLock,
+  resolveMatchType
+} from '~/server/domains/event/dto/tournament-category.dto'
 import {
   resolveEntrantRating,
   SLOT_HOLDING_REGISTRATION_STATUSES
@@ -36,6 +43,12 @@ import { byRegistrationOrder } from '~/utils/bracket-preview'
  */
 const props = defineProps<{
   event: EventDto
+  /**
+   * Whether this caller is exempt from the entry fee, decided server-side by
+   * the event endpoint. Optional so a caller that has not been updated simply
+   * quotes the ordinary price rather than breaking.
+   */
+  feeWaiver?: { waived: boolean; reason: string | null } | null
   tournament: TournamentDto
   /** Organiser, in club mode — may change the tournament's shape. */
   canManage: boolean
@@ -703,6 +716,41 @@ async function record(bracketMatchId: string, input: RecordBracketResultInput) {
   }
 }
 
+/**
+ * Live scoring for a draw match.
+ *
+ * Starting a match is not recording a result: a started match has no winner
+ * and no `matches` row, so nothing has entered anybody's record. It gives
+ * spectators a score to watch while it is played; the result still goes
+ * through record() and its verification semantics.
+ */
+async function startMatch(bracketMatchId: string) {
+  recordError.value = ''
+  try {
+    await $fetch(`/api/v1/bracket-matches/${bracketMatchId}/start`, { method: 'POST' })
+    await refreshBracket()
+  } catch (err) {
+    recordError.value = apiErrorMessage(err, 'Could not start the match.')
+  }
+}
+
+/**
+ * Called on every point, so it deliberately does NOT refresh the whole
+ * bracket: a draw refetch per tap would make the scoreboard lag behind the
+ * person pressing the button. The 30-second poll picks up other viewers.
+ */
+async function updateLiveScore(bracketMatchId: string, scores: LiveBracketScore[]) {
+  try {
+    await $fetch(`/api/v1/bracket-matches/${bracketMatchId}/score`, {
+      method: 'PATCH',
+      body: { scores }
+    })
+    await refreshBracket()
+  } catch (err) {
+    recordError.value = apiErrorMessage(err, 'Could not update the score.')
+  }
+}
+
 const addingCategory = ref(false)
 const addCategoryError = ref('')
 
@@ -790,6 +838,8 @@ function openPlayer(playerId: string) {
         @withdraw="(registrationId) => withdraw(category, registrationId)"
         @trash="trash"
         @record="record"
+        @start-match="startMatch"
+        @live-score="updateLiveScore"
         @select-player="openPlayer"
       />
 
@@ -817,6 +867,7 @@ function openPlayer(playerId: string) {
       :fee-amount="event.fee_amount"
       :fee-currency="event.fee_currency ?? 'PHP'"
       :rules="feeRules"
+      :fee-waiver="feeWaiver ?? null"
       :submitting="registeringKey === summaryKey"
       :error="registerErrors[summaryKey] ?? ''"
       @confirm="confirmRegistration"
@@ -834,7 +885,9 @@ function openPlayer(playerId: string) {
       :confirm-label="partnerPromptHasPartners ? 'Got it' : 'Find a partner'"
       cancel-label="Close"
       @confirm="
-        partnerPromptHasPartners ? (partnerPromptOpen = false) : navigateTo('/community?tab=partners')
+        partnerPromptHasPartners
+          ? (partnerPromptOpen = false)
+          : navigateTo('/community?tab=partners')
       "
     />
   </section>

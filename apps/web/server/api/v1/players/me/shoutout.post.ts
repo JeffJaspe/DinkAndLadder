@@ -17,6 +17,9 @@ export default defineEventHandler(async (event) => {
 
   const body = await readBody(event)
   const message = typeof body?.message === 'string' ? body.message : ''
+  // Validated against the player's own events in the service, not here - the
+  // endpoint has no business knowing what makes an event linkable.
+  const eventId = typeof body?.event_id === 'string' && body.event_id ? body.event_id : null
 
   const client = serverSupabaseServiceRole(event)
   const playerRepo = createPlayerProfileRepository(client)
@@ -30,7 +33,7 @@ export default defineEventHandler(async (event) => {
   const service = createShoutoutService(createShoutoutRepository(client), activityLogger)
 
   try {
-    const shoutout = await service.create(profile.id, { message })
+    const shoutout = await service.create(profile.id, { message, event_id: eventId })
     return { data: shoutout, message: 'Shout-out posted' }
   } catch (err) {
     if (err instanceof ShoutoutServiceError) {

@@ -22,8 +22,7 @@ const hasPools = computed(
 )
 const isPureRoundRobin = computed(() => props.format === 'round_robin')
 const isDouble = computed(
-  () =>
-    props.format === 'double_elimination' || props.format === 'round_robin_double_elimination'
+  () => props.format === 'double_elimination' || props.format === 'round_robin_double_elimination'
 )
 </script>
 

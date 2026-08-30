@@ -5,12 +5,23 @@ describe('mapAuthError', () => {
   it('maps user_already_exists to a friendly duplicate-email message', () => {
     const result = mapAuthError('user_already_exists', 'User already registered')
     expect(result.code).toBe('EMAIL_ALREADY_REGISTERED')
-    expect(result.message).toMatch(/already registered/i)
+    expect(result.message).toMatch(/already has an account/i)
   })
 
   it('maps email_exists (signUp variant) the same as user_already_exists', () => {
     const result = mapAuthError('email_exists', 'raw message')
     expect(result.code).toBe('EMAIL_ALREADY_REGISTERED')
+  })
+
+  it('maps reauthentication_needed to guidance for the password-change form', () => {
+    const result = mapAuthError('reauthentication_needed', 'raw message')
+    expect(result.code).toBe('REAUTH_REQUIRED')
+    expect(result.message).toMatch(/log in again/i)
+  })
+
+  it('maps same_password to a friendly message', () => {
+    const result = mapAuthError('same_password', 'raw message')
+    expect(result.code).toBe('SAME_PASSWORD')
   })
 
   it('maps weak_password to a friendly password-strength message', () => {

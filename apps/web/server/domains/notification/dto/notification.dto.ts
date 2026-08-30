@@ -12,6 +12,18 @@ export type NotificationType =
   | 'partner.request_accepted'
   | 'partner.request_declined'
   | 'club.announcement'
+  // Being entered into a session by somebody else commits your evening, so it
+  // has to announce itself rather than being discovered on the day.
+  | 'team_up.invited'
+  | 'team_up.accepted'
+  /**
+   * The outcome of a report about this player.
+   *
+   * Built from the report's *reason*, never from the report row itself: the
+   * reported player must never learn who raised it. See
+   * ReportService.resolveReport, which is the only thing allowed to send this.
+   */
+  | 'moderation.warning'
 
 export type NotificationReferenceType =
   | 'club_membership'
@@ -21,6 +33,13 @@ export type NotificationReferenceType =
   | 'partner_request'
   | 'partnership'
   | 'club_announcement'
+  | 'team_up'
+  /**
+   * Points at the player_reports row. Only the SuperAdmin can read that row,
+   * so this is an opaque id to the recipient - deliberately, since resolving
+   * it would name the reporter.
+   */
+  | 'player_report'
 
 export interface NotificationRecord {
   id: string

@@ -32,7 +32,12 @@ export default defineEventHandler(async (event) => {
   const service = createShoutoutService(createShoutoutRepository(client), activityLogger)
 
   try {
-    const shoutout = await service.update(profile.id, { message: body.message })
+    const shoutout = await service.update(profile.id, {
+      message: body.message,
+      // Validated against the player's own events in the service, not here -
+      // the endpoint has no business knowing what makes an event linkable.
+      event_id: typeof body?.event_id === 'string' && body.event_id ? body.event_id : null
+    })
     return { data: shoutout }
   } catch (err) {
     if (err instanceof ShoutoutServiceError) {

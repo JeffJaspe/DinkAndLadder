@@ -83,7 +83,15 @@ const form = reactive({
   // Only sent for a tournament event, where they configure the one tournament
   // created alongside it. There is no separate "add tournament" step any more.
   tournament_format: 'single_elimination' as TournamentFormat,
-  tournament_match_type: 'doubles' as TournamentMatchType
+  tournament_match_type: 'doubles' as TournamentMatchType,
+  /**
+   * Singles or doubles for an open play session.
+   *
+   * A tournament answers this through tournament_match_type; open play never
+   * asked at all, so the queue and the court board had to guess. Defaults to
+   * doubles because club open play overwhelmingly is.
+   */
+  match_format: 'doubles' as 'singles' | 'doubles'
 })
 
 const isTournament = computed(() => form.event_type === 'tournament')
@@ -177,6 +185,7 @@ async function submit() {
         queue_enabled: form.queue_enabled,
         queue_mode: form.queue_mode,
         queue_courts: form.queue_courts ? parseInt(form.queue_courts) : undefined,
+        match_format: form.match_format,
         visibility: form.visibility,
         ...(isTournament.value
           ? {
@@ -493,6 +502,39 @@ async function submit() {
               Doubles asks each entrant for a partner when they register.
             </p>
           </div>
+        </div>
+
+        <!-- Format. Open play only: a tournament answers this per category. -->
+        <div v-if="!isTournament" class="rounded-xl bg-surface p-5 shadow-card">
+          <h2 class="font-semibold text-fg">Format</h2>
+          <p class="mt-0.5 text-sm text-fg-muted">
+            What people will be playing. This decides how the queue pairs players and how many go on
+            each court.
+          </p>
+
+          <div class="mt-4 flex gap-2">
+            <label
+              v-for="type in ['doubles', 'singles'] as const"
+              :key="type"
+              class="flex flex-1 cursor-pointer items-center gap-2 rounded-lg border-2 px-3 py-2 text-sm capitalize transition-all"
+              :class="
+                form.match_format === type
+                  ? 'border-primary bg-primary/5 text-fg'
+                  : 'border-border-strong text-fg-secondary hover:border-primary/40'
+              "
+            >
+              <input
+                v-model="form.match_format"
+                type="radio"
+                :value="type"
+                class="accent-primary"
+              />
+              {{ type }}
+            </label>
+          </div>
+          <p class="mt-1.5 text-xs text-fg-muted">
+            Doubles is listed first because it is what most club sessions run.
+          </p>
         </div>
 
         <!-- Queue Mode. Not offered for a tournament: a draw decides who plays

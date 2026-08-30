@@ -274,7 +274,11 @@ function toCents(value: number | null): number | null {
                   </tr>
                 </thead>
                 <tbody>
-                  <tr v-for="row in preview" :key="row.base" class="border-t border-border-strong/40">
+                  <tr
+                    v-for="row in preview"
+                    :key="row.base"
+                    class="border-t border-border-strong/40"
+                  >
                     <td class="py-2 tabular-nums text-fg-secondary">{{ formatMoney(row.base) }}</td>
                     <td class="py-2 text-right tabular-nums text-fg-secondary">
                       {{ formatMoney(row.fee) }}

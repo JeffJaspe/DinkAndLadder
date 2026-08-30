@@ -38,6 +38,10 @@ useHead({
 <template>
   <div>
     <NuxtRouteAnnouncer />
+    <!-- Navigation feedback. Pages await their data before rendering, so a
+         slow route previously looked like a dead click for a second or more
+         with nothing on screen changing. Colour follows the brand token. -->
+    <NuxtLoadingIndicator color="rgb(var(--dnl-primary))" :height="2" />
     <NuxtLayout>
       <NuxtPage />
     </NuxtLayout>

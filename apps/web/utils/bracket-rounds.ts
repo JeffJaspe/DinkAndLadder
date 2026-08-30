@@ -30,6 +30,18 @@ export const PLAYOFF_ROUND_OFFSET = 50
 export const LOSERS_ROUND_OFFSET = 100
 export const GRAND_FINAL_ROUND = 200
 
+/**
+ * The decider, played only when the losers-bracket entrant wins the grand
+ * final.
+ *
+ * In a strict double elimination the player coming up the losers bracket has
+ * lost once and the winners finalist has not. If the losers player wins the
+ * grand final both have one loss, so the title cannot be awarded on that game
+ * alone. Without this round the format quietly eliminated someone on a single
+ * defeat, which is the one thing double elimination exists to prevent.
+ */
+export const GRAND_FINAL_RESET_ROUND = 201
+
 export function isPoolRound(round: number): boolean {
   return round >= POOL_ROUND_OFFSET && round < PLAYOFF_ROUND_OFFSET
 }
@@ -42,7 +54,12 @@ export function isLosersRound(round: number): boolean {
   return round >= LOSERS_ROUND_OFFSET && round < GRAND_FINAL_ROUND
 }
 
+export function isGrandFinalReset(round: number): boolean {
+  return round === GRAND_FINAL_RESET_ROUND
+}
+
 export function roundLabel(round: number): string {
+  if (round === GRAND_FINAL_RESET_ROUND) return 'Grand Final (decider)'
   if (round === GRAND_FINAL_ROUND) return 'Grand Final'
   if (isLosersRound(round)) return `Losers Round ${round - LOSERS_ROUND_OFFSET}`
   if (isPlayoffRound(round)) return `Playoff Round ${round - PLAYOFF_ROUND_OFFSET}`
@@ -72,7 +89,7 @@ export const PHASE_LABELS: Record<BracketPhase, string> = {
 }
 
 export function phaseOf(round: number): BracketPhase {
-  if (round === GRAND_FINAL_ROUND) return 'grand_final'
+  if (round === GRAND_FINAL_ROUND || round === GRAND_FINAL_RESET_ROUND) return 'grand_final'
   if (isLosersRound(round)) return 'losers'
   if (isPlayoffRound(round)) return 'playoffs'
   if (isPoolRound(round)) return 'pools'
@@ -91,11 +108,22 @@ export function phaseOf(round: number): BracketPhase {
 export function finalMatchOf(bracket: BracketDto | null): BracketMatchDto | null {
   const rounds = bracket?.rounds ?? []
 
+  // The decider outranks the grand final when it has actually been played:
+  // it only exists because the grand final failed to settle the title.
+  const reset = rounds.find((round) => round.round === GRAND_FINAL_RESET_ROUND)
+  const resetMatch = reset?.matches[0]
+  if (resetMatch?.winner_registration_id) return resetMatch
+
   const grandFinal = rounds.find((round) => round.round === GRAND_FINAL_ROUND)
   if (grandFinal?.matches.length) return grandFinal.matches[0]
 
   const deciding = rounds
-    .filter((round) => !isPoolRound(round.round) && !isLosersRound(round.round))
+    .filter(
+      (round) =>
+        !isPoolRound(round.round) &&
+        !isLosersRound(round.round) &&
+        round.round !== GRAND_FINAL_RESET_ROUND
+    )
     .sort((a, b) => b.round - a.round)[0]
   if (!deciding?.matches.length) return null
 
@@ -166,8 +194,8 @@ export function bracketGridRows(matchCounts: readonly number[]): BracketGrid {
 
   const connected =
     matchCounts.length === 1 ||
-    matchCounts.every((count, i) => i === 0 || count === Math.max(1, matchCounts[i - 1] / 2)) &&
-      Number.isInteger(Math.log2(first))
+    (matchCounts.every((count, i) => i === 0 || count === Math.max(1, matchCounts[i - 1] / 2)) &&
+      Number.isInteger(Math.log2(first)))
 
   const spans = matchCounts.map((count) => (count > 0 ? rows / count : rows))
 

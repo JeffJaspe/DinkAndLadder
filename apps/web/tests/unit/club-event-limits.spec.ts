@@ -79,9 +79,7 @@ function serviceFor(options: {
     deleteWithChildren: vi.fn(),
     countByClubForLimits: vi
       .fn()
-      .mockResolvedValue(
-        options.counts ?? { drafts: 0, liveTournaments: 0, liveOpenPlay: 0 }
-      )
+      .mockResolvedValue(options.counts ?? { drafts: 0, liveTournaments: 0, liveOpenPlay: 0 })
   } as unknown as EventRepository
 
   const memberships = {

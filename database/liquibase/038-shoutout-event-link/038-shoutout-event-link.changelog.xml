@@ -1,0 +1,133 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Shout-outs: link an event, and stop the table growing forever.
+
+     Expiry itself already worked before this: 020 gave player_shoutouts an
+     expires_at, ShoutoutService sets it to now + 24h on both create and update,
+     and every read filters `is_active = true AND expires_at > now()`. So an
+     expired shout-out has always been invisible. What was missing was the
+     housekeeping - is_active stays true forever, so rows accumulate with
+     nothing ever clearing them.
+
+     The read-time filter stays as the correctness guarantee. The job below is
+     hygiene only, which is why a missed run is harmless and why this does not
+     need to be reliable to be correct.
+
+     event_id follows the precedent club_announcements already sets: an
+     announcement can point at an event, and a shout-out ("who's coming
+     Saturday?") wants the same thing even more. -->
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+    <changeSet id="038-add-event-id-to-shoutouts" author="claude">
+        <preConditions onFail="MARK_RAN">
+            <not><columnExists tableName="player_shoutouts" columnName="event_id"/></not>
+        </preConditions>
+        <addColumn tableName="player_shoutouts">
+            <!-- Nullable: most shout-outs are not about an event, and a shout-out
+                 that is about one is the interesting minority, not the rule. -->
+            <column name="event_id" type="uuid">
+                <constraints nullable="true"/>
+            </column>
+        </addColumn>
+        <rollback>
+            <dropColumn tableName="player_shoutouts" columnName="event_id"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="038-shoutout-event-fk" author="claude">
+        <sql>
+            -- SET NULL, not CASCADE: deleting an event must not silently delete
+            -- somebody's shout-out. The message still reads fine without the
+            -- attached card.
+            ALTER TABLE player_shoutouts
+                ADD CONSTRAINT fk_player_shoutouts_event
+                FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE SET NULL;
+        </sql>
+        <rollback>
+            ALTER TABLE player_shoutouts DROP CONSTRAINT fk_player_shoutouts_event;
+        </rollback>
+    </changeSet>
+
+    <changeSet id="038-shoutout-expiry-index" author="claude">
+        <!-- Every read is "active and not yet expired". Partial on is_active,
+             because the expired rows are exactly the ones nothing queries. -->
+        <sql>
+            CREATE INDEX idx_player_shoutouts_active_expiry
+                ON player_shoutouts (expires_at)
+                WHERE is_active = true;
+        </sql>
+        <rollback>
+            DROP INDEX IF EXISTS idx_player_shoutouts_active_expiry;
+        </rollback>
+    </changeSet>
+
+    <changeSet id="038-shoutout-sweeper-function" author="claude">
+        <!-- Two separate jobs in one function, deliberately:
+
+             1. Deactivate anything past expires_at. Reads already filter on it,
+                so this changes nothing a user can see - it exists so is_active
+                means what it says, and so the partial unique index
+                idx_shoutouts_single_active (020) stops treating a long-dead
+                shout-out as the player's live one.
+
+             2. Delete rows over 30 days old. Retention, not correctness. -->
+        <sql splitStatements="false">
+            CREATE OR REPLACE FUNCTION fn_sweep_expired_shoutouts()
+            RETURNS void
+            LANGUAGE plpgsql
+            SECURITY DEFINER
+            SET search_path = public
+            AS $$
+            BEGIN
+                UPDATE player_shoutouts
+                   SET is_active = false,
+                       updated_at = now()
+                 WHERE is_active = true
+                   AND expires_at IS NOT NULL
+                   AND expires_at &lt;= now();
+
+                DELETE FROM player_shoutouts
+                 WHERE is_active = false
+                   AND created_at &lt; now() - interval '30 days';
+            END;
+            $$;
+        </sql>
+        <rollback>
+            DROP FUNCTION IF EXISTS fn_sweep_expired_shoutouts();
+        </rollback>
+    </changeSet>
+
+    <changeSet id="038-shoutout-sweeper-schedule" author="claude">
+        <!-- pg_cron is a Supabase extension and is not present on a plain
+             postgres:16, which is what CI runs the changelog against. The
+             precondition keeps this changeset from failing the build there:
+             the sweeper is optional (read-time filtering is what actually
+             guarantees an expired shout-out is invisible), so skipping it
+             where the extension is unavailable is the correct outcome, not a
+             degraded one. -->
+        <preConditions onFail="MARK_RAN" onFailMessage="pg_cron not available; shout-out sweeper not scheduled (read-time filtering still applies)">
+            <sqlCheck expectedResult="1">
+                SELECT count(*) FROM pg_available_extensions WHERE name = 'pg_cron'
+            </sqlCheck>
+        </preConditions>
+        <sql splitStatements="false">
+            CREATE EXTENSION IF NOT EXISTS pg_cron;
+
+            -- Hourly. The window a shout-out is visible is governed by the
+            -- read filter, not by this, so the interval only decides how
+            -- promptly is_active catches up with reality.
+            SELECT cron.schedule(
+                'sweep-expired-shoutouts',
+                '0 * * * *',
+                $$SELECT fn_sweep_expired_shoutouts()$$
+            );
+        </sql>
+        <rollback>
+            SELECT cron.unschedule('sweep-expired-shoutouts');
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

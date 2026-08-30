@@ -2,12 +2,16 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type {
   BracketMatchRecord,
   BracketMatchStatus,
+  NewBracketMatch,
   UpdateBracketMatchInput
 } from '../dto/bracket.dto'
 
 const BRACKET_MATCH_COLUMNS =
   'id, tournament_id, round, position, match_id, participant1_registration_id, ' +
-  'participant2_registration_id, winner_registration_id, status, scheduled_at, created_at, category_id'
+  'participant2_registration_id, winner_registration_id, status, scheduled_at, created_at, category_id, ' +
+  // 043-tournament-live-score. Every read goes through this list, so a column
+  // missing here reads as undefined everywhere rather than failing loudly.
+  'live_score, live_score_updated_at, started_at'
 
 export interface BracketRepository {
   findById(bracketMatchId: string): Promise<BracketMatchRecord | null>
@@ -20,10 +24,23 @@ export interface BracketRepository {
     tournamentId: string,
     categoryId?: string | null
   ): Promise<BracketMatchRecord[]>
-  createMany(
-    matches: Omit<BracketMatchRecord, 'id' | 'created_at'>[]
-  ): Promise<BracketMatchRecord[]>
+  createMany(matches: NewBracketMatch[]): Promise<BracketMatchRecord[]>
   update(bracketMatchId: string, input: UpdateBracketMatchInput): Promise<BracketMatchRecord>
+  /**
+   * Starts, updates or clears the in-progress score on a bracket match.
+   *
+   * Separate from update() because it writes only the live columns: the
+   * organiser tapping +1 twenty times a game must not be able to touch
+   * participants, winner or status by accident.
+   */
+  setLiveScore(
+    id: string,
+    patch: {
+      live_score?: unknown[] | null
+      started_at?: string | null
+      live_score_updated_at?: string | null
+    }
+  ): Promise<BracketMatchRecord>
   /**
    * Places an advancing entrant into a downstream slot.
    *
@@ -104,6 +121,18 @@ export function createBracketRepository(client: SupabaseClient): BracketReposito
         .from('bracket_matches')
         .update(updateData)
         .eq('id', bracketMatchId)
+        .select(BRACKET_MATCH_COLUMNS)
+        .single()
+
+      if (error) throw error
+      return data as unknown as BracketMatchRecord
+    },
+
+    async setLiveScore(id, patch) {
+      const { data, error } = await client
+        .from('bracket_matches')
+        .update(patch)
+        .eq('id', id)
         .select(BRACKET_MATCH_COLUMNS)
         .single()
 

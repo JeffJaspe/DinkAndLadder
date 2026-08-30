@@ -28,6 +28,7 @@ function createFakeBracketRepository(overrides?: Partial<BracketRepository>): Br
     findByTournamentId: vi.fn().mockResolvedValue([]),
     createMany: vi.fn().mockResolvedValue([]),
     update: vi.fn(),
+    setLiveScore: vi.fn().mockResolvedValue(null),
     setParticipant: vi.fn().mockResolvedValue(null),
     deleteByTournamentId: vi.fn().mockResolvedValue(undefined),
     // Nothing played by default: the guard on undo and unlock is what most
@@ -78,7 +79,10 @@ function createFakeEventRepository(overrides?: Partial<EventRepository>): EventR
     countBlockingChildren: vi
       .fn()
       .mockResolvedValue({ registrations: 0, matches: 0, queueEntries: 0 }),
-    deleteWithChildren: vi.fn().mockResolvedValue(undefined),    countByClubForLimits: vi.fn().mockResolvedValue({ drafts: 0, liveTournaments: 0, liveOpenPlay: 0 }),
+    deleteWithChildren: vi.fn().mockResolvedValue(undefined),
+    countByClubForLimits: vi
+      .fn()
+      .mockResolvedValue({ drafts: 0, liveTournaments: 0, liveOpenPlay: 0 }),
     ...overrides
   }
 }
@@ -123,6 +127,7 @@ function makeEventRecord(overrides?: Partial<EventRecord>): EventRecord {
     max_participants: null,
     queue_enabled: false,
     queue_courts: 1,
+    match_format: 'doubles',
     queue_mode: 'first_come',
     queue_skip_timeout_seconds: 120,
     created_by_player_id: 'player-1',
@@ -255,6 +260,9 @@ function makeBracketMatchRecord(overrides?: Partial<BracketMatchRecord>): Bracke
     scheduled_at: null,
     created_at: '2026-08-01T00:00:00Z',
     category_id: null,
+    live_score: null,
+    live_score_updated_at: null,
+    started_at: null,
     ...overrides
   }
 }

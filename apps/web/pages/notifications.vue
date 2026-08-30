@@ -1,24 +1,69 @@
 <script setup lang="ts">
+import {
+  categoryOf,
+  NOTIFICATION_CATEGORIES,
+  type NotificationCategory
+} from '~/utils/notification-categories'
 useHead({ title: 'Notifications' })
 
+/**
+ * Mirrors NotificationDto exactly — see
+ * server/domains/notification/dto/notification.dto.ts.
+ *
+ * This page previously declared `is_read` and a free-form `data` bag. The API
+ * has never sent either: `toNotificationDto()` emits `read`, and the payload is
+ * a typed `reference_type`/`reference_id` pair, not a bag. Both fields were
+ * therefore permanently undefined, which silently disabled every unread
+ * indicator, the "Mark all as read" button and all deep links — notifications
+ * arrived and looked inert.
+ */
 interface Notification {
   id: string
   type: string
   title: string
   body: string
-  data: Record<string, unknown>
-  is_read: boolean
+  reference_type: string | null
+  reference_id: string | null
+  read: boolean
   created_at: string
 }
 
 const { data, pending, refresh } = await useFetch<{ notifications: Notification[] }>(
   '/api/v1/notifications'
 )
-const { data: unreadCount, refresh: refreshCount } = await useFetch<{ count: number }>(
-  '/api/v1/notifications/unread-count'
+// Shared with the sidebar and mobile-header bell badges, so marking one read
+// updates all three from a single request.
+const { unreadCount, refreshUnreadNotificationCount: refreshCount } = useUnreadNotificationCount()
+
+const allNotifications = computed(() => data.value?.notifications ?? [])
+
+/**
+ * Category filter.
+ *
+ * The list was one undifferentiated stream, so "did anyone ask to team up
+ * with me?" meant scrolling past every rating recalculation. Filtering is
+ * client-side because the whole page is already fetched — a round trip per
+ * tab would be slower than the filter it replaces.
+ */
+const activeCategory = ref<NotificationCategory | 'all'>('all')
+
+const notifications = computed(() =>
+  activeCategory.value === 'all'
+    ? allNotifications.value
+    : allNotifications.value.filter((n) => categoryOf(n.type) === activeCategory.value)
 )
 
-const notifications = computed(() => data.value?.notifications ?? [])
+/** Unread per tab, so a quiet category is visibly quiet rather than just empty. */
+const unreadByCategory = computed(() => {
+  const counts: Record<string, number> = { all: 0 }
+  for (const notification of allNotifications.value) {
+    if (notification.read) continue
+    counts.all += 1
+    const category = categoryOf(notification.type)
+    counts[category] = (counts[category] ?? 0) + 1
+  }
+  return counts
+})
 
 /**
  * Grouped by day — Today / Yesterday / an explicit date (docs/33 §5.7).
@@ -98,18 +143,37 @@ function getNotificationIcon(type: string): string {
   }
 }
 
+/**
+ * Where a notification takes you.
+ *
+ * Keyed off `reference_type`, which is the field the API actually populates
+ * (NotificationReferenceType). The previous version read `notification.data`,
+ * a field that has never been sent, so this returned null every time and every
+ * row rendered as an inert `<div>` instead of a link.
+ */
 function getNotificationLink(notification: Notification): string | null {
-  const data = notification.data as Record<string, string>
-  switch (notification.type) {
-    case 'match.verification_requested':
-    case 'match.verified':
-    case 'match.rejected':
-      return data.match_id ? `/matches/${data.match_id}` : null
-    case 'club.membership_approved':
-    case 'club.membership_rejected':
-      return data.club_id ? `/clubs/${data.club_id}` : null
-    case 'social.new_follower':
-      return data.follower_id ? `/players/${data.follower_id}` : null
+  const id = notification.reference_id
+  if (!id) return null
+
+  switch (notification.reference_type) {
+    case 'match':
+    case 'match_verification':
+      return `/matches/${id}`
+    case 'club_membership':
+      // The membership id is not the club id, so this cannot deep-link to one
+      // club. My Clubs is where a membership decision is acted on.
+      return '/my-clubs'
+    case 'club_announcement':
+      return '/feed'
+    case 'partner_request':
+    case 'partnership':
+      return '/community?tab=partners'
+    case 'player_rating':
+      return '/dashboard'
+    case 'player_report':
+      // Only ever sent to the reported player, and deliberately carries no
+      // pointer to the reporter. Their own settings is the honest destination.
+      return '/settings'
     default:
       return null
   }
@@ -138,16 +202,43 @@ function formatTime(dateStr: string): string {
       <div class="mb-6 flex items-center justify-between">
         <div>
           <h1 class="text-2xl font-bold text-fg">Notifications</h1>
-          <p v-if="unreadCount?.count" class="mt-1 text-sm text-fg-muted">
-            {{ unreadCount.count }} unread
-          </p>
+          <p v-if="unreadCount" class="mt-1 text-sm text-fg-muted">{{ unreadCount }} unread</p>
         </div>
         <button
-          v-if="notifications.some((n) => !n.is_read)"
+          v-if="allNotifications.some((n) => !n.read)"
           class="rounded-lg px-4 py-2 text-sm font-medium text-primary hover:bg-primary/10"
           @click="markAllAsRead"
         >
           Mark all as read
+        </button>
+      </div>
+
+      <!-- Category filter. Account, Clubs, Community, Warnings — the four
+           things worth looking at separately. -->
+      <div class="mb-4 flex flex-wrap gap-2">
+        <button
+          v-for="category in NOTIFICATION_CATEGORIES"
+          :key="category.value"
+          type="button"
+          class="inline-flex items-center gap-1.5 rounded-pill px-3 py-1.5 text-body-2 transition-colors"
+          :class="
+            activeCategory === category.value
+              ? 'bg-primary text-on-primary'
+              : 'bg-surface text-fg-secondary hover:bg-surface-2'
+          "
+          @click="activeCategory = category.value"
+        >
+          {{ category.label }}
+          <span
+            v-if="unreadByCategory[category.value]"
+            class="rounded-pill px-1.5 text-caption font-semibold tabular-nums"
+            :class="
+              activeCategory === category.value
+                ? 'bg-on-primary/20 text-on-primary'
+                : 'bg-primary text-on-primary'
+            "
+            >{{ unreadByCategory[category.value] }}</span
+          >
         </button>
       </div>
 
@@ -162,8 +253,16 @@ function formatTime(dateStr: string): string {
         class="rounded-xl bg-surface p-12 text-center shadow-card"
       >
         <p class="text-4xl">🔔</p>
-        <h3 class="mt-4 text-lg font-semibold text-fg">No notifications</h3>
-        <p class="mt-2 text-sm text-fg-muted">You're all caught up!</p>
+        <h3 class="mt-4 text-lg font-semibold text-fg">
+          {{ activeCategory === 'all' ? 'No notifications' : 'Nothing in here' }}
+        </h3>
+        <p class="mt-2 text-sm text-fg-muted">
+          {{
+            activeCategory === 'all'
+              ? 'You\u2019re all caught up!'
+              : 'Nothing under this heading yet. Try another tab.'
+          }}
+        </p>
       </div>
 
       <!-- Notifications, grouped by day -->
@@ -179,10 +278,10 @@ function formatTime(dateStr: string): string {
             :to="getNotificationLink(notification)"
             class="flex items-start gap-4 rounded-xl p-4 transition-all"
             :class="[
-              notification.is_read ? 'bg-surface' : 'bg-surface ring-1 ring-primary/20',
+              notification.read ? 'bg-surface' : 'bg-surface ring-1 ring-primary/20',
               getNotificationLink(notification) ? 'hover:bg-surface-2 cursor-pointer' : ''
             ]"
-            @click="!notification.is_read && markAsRead(notification.id)"
+            @click="!notification.read && markAsRead(notification.id)"
           >
             <!-- Icon -->
             <div
@@ -196,7 +295,7 @@ function formatTime(dateStr: string): string {
               <div class="flex items-start justify-between gap-2">
                 <h3
                   class="font-medium"
-                  :class="notification.is_read ? 'text-fg-secondary' : 'text-fg'"
+                  :class="notification.read ? 'text-fg-secondary' : 'text-fg'"
                 >
                   {{ notification.title }}
                 </h3>
@@ -209,7 +308,7 @@ function formatTime(dateStr: string): string {
 
             <!-- Unread Indicator -->
             <div
-              v-if="!notification.is_read"
+              v-if="!notification.read"
               class="mt-2 h-2 w-2 flex-shrink-0 rounded-full bg-primary"
             />
           </component>

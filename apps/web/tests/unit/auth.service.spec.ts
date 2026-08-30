@@ -2,7 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   createAuthService,
   loginWithPassword,
-  registerWithPassword
+  registerWithPassword,
+  setPassword
 } from '../../server/domains/identity/services/auth.service'
 import type {
   AuthIdentity,
@@ -157,6 +158,58 @@ describe('registerWithPassword / loginWithPassword', () => {
     expect(result.code).toBe('user_already_exists')
   })
 
+  it('flags an address that already has an account, which Supabase reports as a silent success', async () => {
+    // With email confirmations on, Supabase's user-enumeration protection
+    // answers a duplicate signup with no error and a decoy user carrying an
+    // empty identities array — and sends no email. See registerWithPassword.
+    const client = {
+      auth: {
+        signUp: vi.fn().mockResolvedValue({
+          data: { user: { id: 'decoy-uuid', identities: [] } },
+          error: null
+        }),
+        signInWithPassword: vi.fn()
+      }
+    }
+
+    const result = await registerWithPassword(client, 'taken@example.com', 'password123')
+
+    expect(result.alreadyRegistered).toBe(true)
+    expect(result.error).toBeNull()
+  })
+
+  it('does not flag a genuine new signup, which comes back carrying an identity', async () => {
+    const client = {
+      auth: {
+        signUp: vi.fn().mockResolvedValue({
+          data: { user: { id: 'real-uuid', identities: [{ provider: 'email' }] } },
+          error: null
+        }),
+        signInWithPassword: vi.fn()
+      }
+    }
+
+    const result = await registerWithPassword(client, 'new@example.com', 'password123')
+
+    expect(result.alreadyRegistered).toBe(false)
+  })
+
+  it('does not flag when the provider returns no identity information at all', async () => {
+    // Absent is not the same as empty: only an explicitly empty array is the
+    // decoy signal, so an unexpected response shape stays a normal signup
+    // rather than turning into a false "already registered".
+    const client = {
+      auth: {
+        signUp: vi.fn().mockResolvedValue({ error: null }),
+        signInWithPassword: vi.fn()
+      }
+    }
+
+    const result = await registerWithPassword(client, 'new@example.com', 'password123')
+
+    expect(result.alreadyRegistered).toBe(false)
+  })
+
   it('loginWithPassword delegates to the auth client and returns the session on success', async () => {
     const session = { access_token: 'at-1', refresh_token: 'rt-1', expires_at: 12345 }
     const client = {
@@ -192,5 +245,41 @@ describe('registerWithPassword / loginWithPassword', () => {
     expect(result.error).toBe('Invalid login credentials')
     expect(result.code).toBe('invalid_credentials')
     expect(result.session).toBeNull()
+  })
+})
+
+describe('setPassword', () => {
+  it('sets the password on the current session user', async () => {
+    const client = { auth: { updateUser: vi.fn().mockResolvedValue({ error: null }) } }
+
+    const result = await setPassword(client, 'a-new-password')
+
+    expect(result.error).toBeNull()
+    expect(client.auth.updateUser).toHaveBeenCalledWith({ password: 'a-new-password' })
+  })
+
+  it('never sends anything but the password — no email, so the account cannot be switched', async () => {
+    // The session identifies the account; passing an address would make this an
+    // account-takeover primitive rather than a password change.
+    const client = { auth: { updateUser: vi.fn().mockResolvedValue({ error: null }) } }
+
+    await setPassword(client, 'a-new-password')
+
+    expect(Object.keys(client.auth.updateUser.mock.calls[0][0])).toEqual(['password'])
+  })
+
+  it('surfaces the provider error message and code', async () => {
+    const client = {
+      auth: {
+        updateUser: vi.fn().mockResolvedValue({
+          error: { message: 'Reauthentication required', code: 'reauthentication_needed' }
+        })
+      }
+    }
+
+    const result = await setPassword(client, 'a-new-password')
+
+    expect(result.error).toBe('Reauthentication required')
+    expect(result.code).toBe('reauthentication_needed')
   })
 })

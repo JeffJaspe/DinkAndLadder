@@ -183,6 +183,8 @@ function didTeamWinSet(setNumber: number, teamNumber: number): boolean {
 <template>
   <div class="min-h-screen bg-canvas p-4 lg:p-6">
     <div class="page-shell">
+      <UiPageHeader to="/matches" back-label="Matches" />
+
       <!-- Loading -->
       <div v-if="pending" class="space-y-4">
         <div class="h-32 animate-pulse rounded-xl bg-surface" />

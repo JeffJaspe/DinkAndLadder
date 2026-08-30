@@ -1,4 +1,9 @@
 <script setup lang="ts">
+// The whole page is one switchable surface. Its endpoints 404 when the flag
+// is off (server/utils/require-feature.ts), so without this the page would
+// render its own error state instead of simply not being there.
+definePageMeta({ middleware: ['feature-achievements'] })
+
 useHead({ title: 'Achievements' })
 
 interface Achievement {

@@ -84,14 +84,36 @@ async function loadAnnouncements() {
   }
 }
 
+/**
+ * Both ladders, fetched together.
+ *
+ * GET /api/v1/clubs/:id/rankings has always accepted ?rating_type=doubles - the
+ * page just never passed it, so the card was hardcoded to singles and labelled
+ * as such. Doubles is the format most club play actually happens in, so leaving
+ * it unreachable hid half the answer.
+ */
+const rankingType = ref<'singles' | 'doubles'>('singles')
+const clubDoublesRankings = ref<ClubRankingEntry[]>([])
+
+const visibleRankings = computed(() =>
+  rankingType.value === 'doubles' ? clubDoublesRankings.value : clubRankings.value
+)
+
 async function loadClubRankings() {
   try {
-    const response = await $fetch<{ data: ClubRankingEntry[] }>(
-      `/api/v1/clubs/${clubId.value}/rankings`
-    )
-    clubRankings.value = response.data
+    const [singles, doubles] = await Promise.all([
+      $fetch<{ data: ClubRankingEntry[] }>(`/api/v1/clubs/${clubId.value}/rankings`, {
+        query: { rating_type: 'singles' }
+      }),
+      $fetch<{ data: ClubRankingEntry[] }>(`/api/v1/clubs/${clubId.value}/rankings`, {
+        query: { rating_type: 'doubles' }
+      })
+    ])
+    clubRankings.value = singles.data
+    clubDoublesRankings.value = doubles.data
   } catch {
     clubRankings.value = []
+    clubDoublesRankings.value = []
   }
 }
 
@@ -106,9 +128,34 @@ async function loadClubMatches() {
   }
 }
 
+/**
+ * Upcoming vs previous, split by DATE rather than by status.
+ *
+ * This used to read upcoming = published + active and previous = completed. An
+ * event whose date had passed but which nobody ever marked complete therefore
+ * stayed under "Upcoming" forever - and cancelled events appeared in neither
+ * list, so a cancelled fixture simply vanished with no explanation.
+ *
+ * Status is still consulted, but only as a secondary rule: a cancelled event is
+ * always past whatever its date says, because it is not going to happen.
+ */
+function isPastEvent(event: EventDto): boolean {
+  if (event.status === 'cancelled' || event.status === 'completed') return true
+
+  // end_date when there is one, start_date otherwise. Compared against
+  // yesterday rather than now: a single-day event should stay under "Upcoming"
+  // for the whole of its own day, including the evening it is actually played.
+  const endsOn = event.end_date ?? event.start_date
+  if (!endsOn) return false
+
+  const yesterday = new Date()
+  yesterday.setDate(yesterday.getDate() - 1)
+  return new Date(endsOn) < yesterday
+}
+
 async function loadClubEvents() {
   try {
-    const [published, active, previous] = await Promise.all([
+    const [published, active, completed, cancelled] = await Promise.all([
       $fetch<{ events: EventDto[] }>('/api/v1/events', {
         query: { club_id: clubId.value, status: 'published' }
       }),
@@ -117,12 +164,23 @@ async function loadClubEvents() {
       }),
       $fetch<{ events: EventDto[] }>('/api/v1/events', {
         query: { club_id: clubId.value, status: 'completed' }
+      }),
+      $fetch<{ events: EventDto[] }>('/api/v1/events', {
+        query: { club_id: clubId.value, status: 'cancelled' }
       })
     ])
-    upcomingClubEvents.value = [...published.events, ...active.events].sort(
-      (a, b) => new Date(a.start_date).getTime() - new Date(b.start_date).getTime()
-    )
-    previousClubEvents.value = previous.events
+
+    const all = [...published.events, ...active.events, ...completed.events, ...cancelled.events]
+
+    upcomingClubEvents.value = all
+      .filter((e) => !isPastEvent(e))
+      .sort((a, b) => new Date(a.start_date).getTime() - new Date(b.start_date).getTime())
+
+    // Most recent first: the interesting past event is the one that just
+    // happened, not the club's first ever fixture.
+    previousClubEvents.value = all
+      .filter(isPastEvent)
+      .sort((a, b) => new Date(b.start_date).getTime() - new Date(a.start_date).getTime())
   } catch {
     upcomingClubEvents.value = []
     previousClubEvents.value = []
@@ -366,6 +424,8 @@ const activeMembers = computed(() => roster.value?.filter((m) => m.status === 'a
 <template>
   <div class="min-h-screen bg-canvas p-4 lg:p-6">
     <div class="page-shell">
+      <UiPageHeader to="/clubs" back-label="Clubs" />
+
       <!-- Loading -->
       <div v-if="clubPending" class="space-y-4">
         <div class="h-32 animate-pulse rounded-xl bg-surface" />
@@ -391,10 +451,25 @@ const activeMembers = computed(() => roster.value?.filter((m) => m.status === 'a
              column on clubs, so this is generated from the name — see
              UiCoverArt. The logo tile overlaps the cover, as drawn. -->
         <div class="mb-6 overflow-hidden rounded-card border border-border bg-surface shadow-card">
-          <UiCoverArt :name="club.name" variant="banner" rounded="rounded-none" />
+          <!-- An uploaded cover when there is one; otherwise the generated
+               banner, which is a finished design rather than a placeholder. -->
+          <img
+            v-if="club.cover_photo_url"
+            :src="club.cover_photo_url"
+            :alt="`${club.name} cover photo`"
+            class="h-36 w-full object-cover sm:h-48"
+          />
+          <UiCoverArt v-else :name="club.name" variant="banner" rounded="rounded-none" />
 
           <div class="flex items-start gap-4 p-6 pt-0">
+            <img
+              v-if="club.logo_url"
+              :src="club.logo_url"
+              :alt="`${club.name} logo`"
+              class="-mt-8 h-16 w-16 flex-shrink-0 rounded-xl border-4 border-surface object-cover"
+            />
             <div
+              v-else
               class="-mt-8 flex h-16 w-16 flex-shrink-0 items-center justify-center rounded-xl border-4 border-surface bg-surface-2 text-2xl font-bold text-fg"
             >
               {{ club.name.charAt(0).toUpperCase() }}
@@ -473,16 +548,38 @@ const activeMembers = computed(() => roster.value?.filter((m) => m.status === 'a
              hand-rolled podium: a [2,1,3] loop with ring-coloured initials and
              w-14 plinth stubs, which rendered nothing at all when the club had
              fewer than three rated members. UiPodium handles a short list. -->
-        <div v-if="clubRankings.length > 0" class="mb-6 rounded-xl bg-surface p-5 shadow-card">
-          <div class="mb-4 flex items-center justify-between">
+        <div
+          v-if="clubRankings.length > 0 || clubDoublesRankings.length > 0"
+          class="mb-6 rounded-xl bg-surface p-5 shadow-card"
+        >
+          <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
             <h2 class="font-semibold text-fg">Top Members</h2>
-            <span class="text-xs text-fg-muted">By singles rating</span>
+            <!-- Both ladders. The endpoint has always served doubles; the page
+                 simply never asked, so half the answer was unreachable. -->
+            <div class="flex rounded-pill bg-canvas p-0.5" role="tablist">
+              <button
+                v-for="type in ['singles', 'doubles'] as const"
+                :key="type"
+                type="button"
+                role="tab"
+                :aria-selected="rankingType === type"
+                class="rounded-pill px-3 py-1 text-xs font-medium capitalize transition-colors"
+                :class="
+                  rankingType === type
+                    ? 'bg-primary text-on-primary'
+                    : 'text-fg-muted hover:text-fg'
+                "
+                @click="rankingType = type"
+              >
+                {{ type }}
+              </button>
+            </div>
           </div>
           <RankingBoard
-            :entries="clubRankings"
+            :entries="visibleRankings"
             :glow="false"
             compact
-            empty-title="No rated members yet"
+            :empty-title="`No rated ${rankingType} members yet`"
             empty-message="Ratings appear once members have played verified matches."
             @select="navigateTo(`/players/${$event.player_id}`)"
           />
@@ -571,44 +668,17 @@ const activeMembers = computed(() => roster.value?.filter((m) => m.status === 'a
         >
           <h2 class="mb-4 font-semibold text-fg">Announcements</h2>
           <div class="space-y-3">
-            <div
+            <ClubAnnouncementCard
               v-for="ann in publishedAnnouncements"
               :key="ann.id"
-              class="rounded-lg p-4 transition-all"
-              :class="ann.pinned ? 'bg-warning-fill/10 ring-1 ring-warning-fill/30' : 'bg-canvas'"
-              @click="markAsRead(ann.id)"
+              :announcement="ann"
+              :can-manage="canManageAnnouncements"
+              @read="markAsRead"
+              @pin="togglePin"
+              @archive="archiveAnnouncement"
             >
-              <div class="flex items-start justify-between">
-                <div class="flex items-center gap-2">
-                  <span v-if="ann.pinned" class="text-warning">
-                    <svg class="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
-                      <path
-                        d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"
-                      />
-                    </svg>
-                  </span>
-                  <span class="font-medium text-fg">{{ ann.title }}</span>
-                </div>
-                <span class="text-xs text-fg-muted">{{
-                  formatDate(ann.published_at || ann.created_at)
-                }}</span>
-              </div>
-              <p class="mt-2 text-fg-secondary">{{ ann.body }}</p>
-              <div v-if="canManageAnnouncements" class="mt-3 flex gap-3">
-                <button
-                  class="text-xs text-primary hover:underline"
-                  @click.stop="togglePin(ann.id)"
-                >
-                  {{ ann.pinned ? 'Unpin' : 'Pin' }}
-                </button>
-                <button
-                  class="text-xs text-red-400 hover:underline"
-                  @click.stop="archiveAnnouncement(ann.id)"
-                >
-                  Archive
-                </button>
-              </div>
-            </div>
+              <template #date>{{ formatDate(ann.published_at || ann.created_at) }}</template>
+            </ClubAnnouncementCard>
           </div>
         </div>
 

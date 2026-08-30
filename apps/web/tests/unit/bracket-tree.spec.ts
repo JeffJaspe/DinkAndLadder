@@ -34,6 +34,9 @@ function match(overrides: Partial<BracketMatchDto> = {}): BracketMatchDto {
     participant1: null,
     participant2: null,
     scores: [],
+    live_score: null,
+    started_at: null,
+    is_live: false,
     ...overrides
   }
 }
@@ -57,7 +60,10 @@ const playedMatch = match({
     { set_number: 1, participant1_score: 11, participant2_score: 9 },
     { set_number: 2, participant1_score: 8, participant2_score: 11 },
     { set_number: 3, participant1_score: 11, participant2_score: 6 }
-  ]
+  ],
+  live_score: null,
+  started_at: null,
+  is_live: false
 })
 
 describe('BracketMatchCard scores', () => {
@@ -229,7 +235,11 @@ describe('BracketTree', () => {
 
     // Two feeders, one row-band each; their target spans both.
     const feederSpan = nodes[0].attributes('style')
-    const finalSpan = wrapper.findAll('.bracket-round').at(-1)!.find('.bracket-node').attributes('style')
+    const finalSpan = wrapper
+      .findAll('.bracket-round')
+      .at(-1)!
+      .find('.bracket-node')
+      .attributes('style')
 
     expect(feederSpan).toContain('span 2')
     expect(finalSpan).toContain('span 4')

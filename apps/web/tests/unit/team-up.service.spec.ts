@@ -31,7 +31,9 @@ function repo(overrides: Partial<TeamUpRepository> = {}) {
     findBetween: vi.fn().mockResolvedValue(null),
     listTeam: vi.fn().mockResolvedValue([]),
     listIncoming: vi.fn().mockResolvedValue([]),
-    create: vi.fn().mockImplementation(async (o, m) => record({ owner_player_id: o, member_player_id: m })),
+    create: vi
+      .fn()
+      .mockImplementation(async (o, m) => record({ owner_player_id: o, member_player_id: m })),
     updateStatus: vi.fn().mockImplementation(async (id, status) => record({ id, status })),
     remove: vi.fn().mockResolvedValue(undefined),
     isAcceptedMember: vi.fn().mockResolvedValue(false),

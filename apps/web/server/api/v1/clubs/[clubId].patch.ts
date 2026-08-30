@@ -9,6 +9,7 @@ import { createClubService, ClubServiceError } from '~/server/domains/club/servi
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
 import { apiError } from '~/server/utils/api-error'
 import type { UpdateClubInput } from '~/server/domains/club/repositories/club.repository'
+import { slugProblemMessage, validateSlug } from '~/server/domains/club/dto/club-slug'
 
 function parseUpdateInput(body: unknown): UpdateClubInput {
   if (typeof body !== 'object' || body === null) {
@@ -23,7 +24,14 @@ function parseUpdateInput(body: unknown): UpdateClubInput {
     }
     input.name = record.name.trim()
   }
-  for (const field of ['description', 'province', 'city'] as const) {
+  for (const field of [
+    'description',
+    'province',
+    'city',
+    'barangay',
+    'court_name',
+    'court_address'
+  ] as const) {
     const value = record[field]
     if (value === undefined) continue
     if (value !== null && typeof value !== 'string') {
@@ -31,6 +39,21 @@ function parseUpdateInput(body: unknown): UpdateClubInput {
     }
     input[field] = value
   }
+  if (record.slug !== undefined) {
+    if (typeof record.slug !== 'string') {
+      throw apiError(400, 'VALIDATION_ERROR', 'slug must be a string.')
+    }
+    // Normalised before validation so trailing whitespace or a capital letter
+    // is corrected rather than rejected - people type a club URL, they do not
+    // compose one.
+    const slug = record.slug.trim().toLowerCase()
+    const problem = validateSlug(slug)
+    if (problem) {
+      throw apiError(400, 'INVALID_SLUG', slugProblemMessage(problem))
+    }
+    input.slug = slug
+  }
+
   if (record.visibility !== undefined) {
     if (record.visibility !== 'public' && record.visibility !== 'private') {
       throw apiError(400, 'VALIDATION_ERROR', "visibility must be 'public' or 'private'.")
@@ -75,6 +98,15 @@ export default defineEventHandler(async (event) => {
     return { data: club, message: 'Club updated', request_id: crypto.randomUUID() }
   } catch (err) {
     if (err instanceof ClubServiceError) throw apiError(err.status, err.code, err.message)
+    // 23505 = Postgres unique_violation, which here means another club already
+    // holds the requested slug. The repository throws a wrapped Error, so the
+    // code can be on the error itself or on its cause.
+    const code =
+      (err as { code?: string })?.code ??
+      ((err as { cause?: { code?: string } })?.cause?.code || undefined)
+    if (code === '23505') {
+      throw apiError(409, 'SLUG_TAKEN', 'That club URL is already taken. Try another.')
+    }
     console.error(`[PATCH /api/v1/clubs/${clubId}] updateClub failed:`, err)
     throw apiError(500, 'INTERNAL_ERROR', 'Could not update the club.')
   }

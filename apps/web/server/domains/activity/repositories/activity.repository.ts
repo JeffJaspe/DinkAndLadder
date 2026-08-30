@@ -21,6 +21,27 @@ export interface ActivityRepository {
     types?: ActivityType[],
     since?: string
   ): Promise<ActivityRecord[]>
+  /**
+   * The geo-prioritised feed - everyone's public activity, ordered by how close
+   * the actor is to the viewer (barangay, then city, then province) and newest
+   * first inside each band.
+   *
+   * Goes through the fn_feed_for_player function (039-feed-geo-priority) rather
+   * than the query builder, because the ordering depends on columns from joined
+   * tables and has to be applied before LIMIT/OFFSET. Doing it in application
+   * code, as ActivityService.reprioritize() did, can only ever reorder the page
+   * it already fetched.
+   *
+   * `viewerPlayerId` may be null: a signed-out visitor gets the same feed with
+   * every geo score at 0, i.e. plain newest-first.
+   */
+  findGeoFeed(
+    viewerPlayerId: string | null,
+    limit: number,
+    offset: number,
+    types?: ActivityType[],
+    since?: string
+  ): Promise<ActivityRecord[]>
   create(input: CreateActivityInput): Promise<ActivityRecord>
 }
 
@@ -97,6 +118,19 @@ export function createActivityRepository(client: SupabaseClient): ActivityReposi
       const { data, error } = await query
         .order('created_at', { ascending: false })
         .range(offset, offset + limit - 1)
+
+      if (error) throw error
+      return (data ?? []) as unknown as ActivityRecord[]
+    },
+
+    async findGeoFeed(viewerPlayerId, limit, offset, types, since) {
+      const { data, error } = await client.rpc('fn_feed_for_player', {
+        p_player_id: viewerPlayerId,
+        p_limit: limit,
+        p_offset: offset,
+        p_types: types && types.length > 0 ? types : null,
+        p_since: since ?? null
+      })
 
       if (error) throw error
       return (data ?? []) as unknown as ActivityRecord[]

@@ -389,9 +389,13 @@ describe('MatchService verification', () => {
     const match = await service.submitMatch('player-me', baseSinglesInput)
     await service.initiateVerification('player-me', match.id)
 
-    const { match: updated } = await service.recordVerificationDecision('player-opponent', match.id, {
-      status: 'confirmed'
-    })
+    const { match: updated } = await service.recordVerificationDecision(
+      'player-opponent',
+      match.id,
+      {
+        status: 'confirmed'
+      }
+    )
 
     expect(updated.status).toBe('verified')
     expect(updated.verified_at).not.toBeNull()
@@ -402,9 +406,13 @@ describe('MatchService verification', () => {
     const match = await service.submitMatch('player-me', doublesInput)
     await service.initiateVerification('player-me', match.id)
 
-    const { match: afterOne } = await service.recordVerificationDecision('player-partner', match.id, {
-      status: 'confirmed'
-    })
+    const { match: afterOne } = await service.recordVerificationDecision(
+      'player-partner',
+      match.id,
+      {
+        status: 'confirmed'
+      }
+    )
     expect(afterOne.status).toBe('pending_verification')
 
     const { match: afterTwo } = await service.recordVerificationDecision('player-opp1', match.id, {
@@ -412,9 +420,13 @@ describe('MatchService verification', () => {
     })
     expect(afterTwo.status).toBe('pending_verification')
 
-    const { match: afterThree } = await service.recordVerificationDecision('player-opp2', match.id, {
-      status: 'confirmed'
-    })
+    const { match: afterThree } = await service.recordVerificationDecision(
+      'player-opp2',
+      match.id,
+      {
+        status: 'confirmed'
+      }
+    )
     expect(afterThree.status).toBe('verified')
   })
 
@@ -424,10 +436,14 @@ describe('MatchService verification', () => {
     await service.initiateVerification('player-me', match.id)
 
     await service.recordVerificationDecision('player-partner', match.id, { status: 'confirmed' })
-    const { match: afterReject } = await service.recordVerificationDecision('player-opp1', match.id, {
-      status: 'rejected',
-      response_note: 'Score was wrong'
-    })
+    const { match: afterReject } = await service.recordVerificationDecision(
+      'player-opp1',
+      match.id,
+      {
+        status: 'rejected',
+        response_note: 'Score was wrong'
+      }
+    )
 
     expect(afterReject.status).toBe('rejected')
   })
@@ -438,9 +454,13 @@ describe('MatchService verification', () => {
     await service.initiateVerification('player-me', match.id)
 
     await service.recordVerificationDecision('player-partner', match.id, { status: 'confirmed' })
-    const { match: afterDispute } = await service.recordVerificationDecision('player-opp1', match.id, {
-      status: 'disputed'
-    })
+    const { match: afterDispute } = await service.recordVerificationDecision(
+      'player-opp1',
+      match.id,
+      {
+        status: 'disputed'
+      }
+    )
 
     expect(afterDispute.status).toBe('disputed')
   })
@@ -548,10 +568,14 @@ describe('MatchService verification', () => {
     const match = await service.submitMatch('player-me', baseSinglesInput)
     await service.initiateVerification('player-me', match.id)
 
-    const { match: updated } = await service.recordVerificationDecision('player-opponent', match.id, {
-      status: 'rejected',
-      response_note: 'The score was 11-7, not 11-9'
-    })
+    const { match: updated } = await service.recordVerificationDecision(
+      'player-opponent',
+      match.id,
+      {
+        status: 'rejected',
+        response_note: 'The score was 11-7, not 11-9'
+      }
+    )
 
     const verification = updated.verifications.find(
       (v) => v.verifier_player_id === 'player-opponent'

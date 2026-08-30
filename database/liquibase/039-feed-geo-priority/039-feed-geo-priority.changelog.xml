@@ -1,0 +1,154 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Feed ordering by geographic proximity.
+
+     The feed already sorted by created_at DESC, and ActivityService.reprioritize()
+     then re-sorted by verified-club priority - but only the page it had already
+     fetched. Its own comment flags this as a known simplification, and it is a
+     real one: with a page size of 20, an item that should have led the feed but
+     sits at row 400 by timestamp never appears at all, because prioritisation
+     runs after pagination rather than before it.
+
+     Geo priority cannot be bolted onto that. "Your barangay first" is only
+     meaningful across the whole result set, so the ordering has to happen in the
+     database, before LIMIT/OFFSET. PostgREST cannot express "order by a column
+     on a joined table", which is why this is a function rather than a view plus
+     a query builder.
+
+     Scoring: barangay 3, city 2, province 1, elsewhere 0, with the existing
+     verified-club rule folded in as a tiebreaker so there is one ordering rule
+     rather than two fighting each other. created_at DESC breaks the rest, which
+     preserves the "newest first" the feed has always had within each band. -->
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+    <changeSet id="039-geo-indexes" author="claude">
+        <!-- The function joins actor -> profile/club to read a location, so
+             these are the lookups that have to stay cheap. -->
+        <sql>
+            CREATE INDEX IF NOT EXISTS idx_player_profiles_geo
+                ON player_profiles (province, city, barangay);
+
+            CREATE INDEX IF NOT EXISTS idx_clubs_geo
+                ON clubs (province, city, barangay);
+
+            CREATE INDEX IF NOT EXISTS idx_activities_public_created
+                ON activities (created_at DESC)
+                WHERE visibility = 'public';
+        </sql>
+        <rollback>
+            DROP INDEX IF EXISTS idx_activities_public_created;
+            DROP INDEX IF EXISTS idx_clubs_geo;
+            DROP INDEX IF EXISTS idx_player_profiles_geo;
+        </rollback>
+    </changeSet>
+
+    <changeSet id="039-feed-function" author="claude">
+        <sql splitStatements="false">
+            CREATE OR REPLACE FUNCTION fn_feed_for_player(
+                p_player_id uuid,
+                p_limit int DEFAULT 20,
+                p_offset int DEFAULT 0,
+                p_types text[] DEFAULT NULL,
+                p_since timestamptz DEFAULT NULL
+            )
+            RETURNS TABLE (
+                id uuid,
+                actor_player_id uuid,
+                actor_club_id uuid,
+                activity_type varchar(50),
+                reference_type varchar(50),
+                reference_id uuid,
+                visibility varchar(20),
+                metadata jsonb,
+                created_at timestamptz,
+                geo_score int
+            )
+            LANGUAGE sql
+            STABLE
+            SECURITY DEFINER
+            SET search_path = public
+            AS $$
+                WITH scored AS (
+                    SELECT
+                        a.id,
+                        a.actor_player_id,
+                        a.actor_club_id,
+                        a.activity_type,
+                        a.reference_type,
+                        a.reference_id,
+                        a.visibility,
+                        a.metadata,
+                        a.created_at,
+                        -- The actor is either a player or a club; take whichever
+                        -- location exists. Comparison is case-insensitive and
+                        -- trimmed because both columns are free text (see the
+                        -- note in 003-club) and "Cebu City" vs "cebu city" is
+                        -- the same place to a human.
+                        COALESCE(
+                            CASE
+                                WHEN lower(btrim(COALESCE(pp.barangay, c.barangay)))
+                                     = lower(btrim(v.barangay))
+                                 AND lower(btrim(COALESCE(pp.city, c.city)))
+                                     = lower(btrim(v.city))
+                                THEN 3
+                                WHEN lower(btrim(COALESCE(pp.city, c.city)))
+                                     = lower(btrim(v.city))
+                                 AND lower(btrim(COALESCE(pp.province, c.province)))
+                                     = lower(btrim(v.province))
+                                THEN 2
+                                WHEN lower(btrim(COALESCE(pp.province, c.province)))
+                                     = lower(btrim(v.province))
+                                THEN 1
+                                ELSE 0
+                            END,
+                            0
+                        ) AS geo_score,
+                        -- The old reprioritize() rule, folded in as a tiebreak
+                        -- so there is one ordering rather than two.
+                        CASE WHEN c.verification_status = 'verified' THEN 1 ELSE 0 END
+                            AS verified_score
+                      FROM activities a
+                      LEFT JOIN player_profiles pp ON pp.id = a.actor_player_id
+                      LEFT JOIN clubs c ON c.id = a.actor_club_id
+                      -- The viewer's own location. A plain LEFT JOIN, so a NULL
+                      -- p_player_id (signed out) or a player with no location
+                      -- set yields NULLs, every CASE branch below falls through
+                      -- to 0, and the feed degrades to plain newest-first.
+                      LEFT JOIN player_profiles v ON v.id = p_player_id
+                     WHERE a.visibility = 'public'
+                       AND (p_types IS NULL OR a.activity_type = ANY(p_types))
+                       AND (p_since IS NULL OR a.created_at > p_since)
+                )
+                SELECT
+                    id, actor_player_id, actor_club_id, activity_type,
+                    reference_type, reference_id, visibility, metadata,
+                    created_at, geo_score
+                  FROM scored
+                 ORDER BY geo_score DESC, verified_score DESC, created_at DESC
+                 LIMIT p_limit
+                OFFSET p_offset;
+            $$;
+        </sql>
+        <rollback>
+            DROP FUNCTION IF EXISTS fn_feed_for_player(uuid, int, int, text[], timestamptz);
+        </rollback>
+    </changeSet>
+
+    <changeSet id="039-feed-function-grants" author="claude">
+        <!-- SECURITY DEFINER and it only ever returns visibility = 'public'
+             rows, so it is safe for both roles. Anonymous visitors pass a NULL
+             player id and get the ungeo-ordered feed. -->
+        <sql>
+            GRANT EXECUTE ON FUNCTION fn_feed_for_player(uuid, int, int, text[], timestamptz)
+                TO authenticated, anon;
+        </sql>
+        <rollback>
+            REVOKE EXECUTE ON FUNCTION fn_feed_for_player(uuid, int, int, text[], timestamptz)
+                FROM authenticated, anon;
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

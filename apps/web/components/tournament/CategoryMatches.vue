@@ -1,5 +1,9 @@
 <script setup lang="ts">
-import type { BracketDto, RecordBracketResultInput } from '~/server/domains/event/dto/bracket.dto'
+import type {
+  BracketDto,
+  LiveBracketScore,
+  RecordBracketResultInput
+} from '~/server/domains/event/dto/bracket.dto'
 
 /**
  * Every match in the category as one flat list, ordered by what needs doing.
@@ -23,6 +27,8 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   record: [bracketMatchId: string, input: RecordBracketResultInput]
+  start: [bracketMatchId: string]
+  score: [bracketMatchId: string, scores: LiveBracketScore[]]
 }>()
 
 type Bucket = 'ready' | 'waiting' | 'done'
@@ -51,9 +57,7 @@ const rows = computed<Row[]>(() => {
   const order: Record<Bucket, number> = { ready: 0, waiting: 1, done: 2 }
   return all.sort(
     (a, b) =>
-      order[a.bucket] - order[b.bucket] ||
-      a.round - b.round ||
-      a.match.position - b.match.position
+      order[a.bucket] - order[b.bucket] || a.round - b.round || a.match.position - b.match.position
   )
 })
 
@@ -104,6 +108,8 @@ const locked = computed(() => props.bracket?.locked ?? false)
           :can-manage="canManage && locked"
           :recording="recordingId === row.match.id"
           @record="(id, input) => emit('record', id, input)"
+          @start="(id) => emit('start', id)"
+          @score="(id, scores) => emit('score', id, scores)"
         />
       </div>
     </section>

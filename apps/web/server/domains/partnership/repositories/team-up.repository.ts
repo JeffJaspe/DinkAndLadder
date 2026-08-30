@@ -49,7 +49,8 @@ function toMember(row: JoinedRow, side: 'owner' | 'member'): TeamMemberDto {
   }
 }
 
-const PLAYER_EMBED = 'id, display_name, province, city, player_ratings ( rating_type, rating_value )'
+const PLAYER_EMBED =
+  'id, display_name, province, city, player_ratings ( rating_type, rating_value )'
 
 export function createTeamUpRepository(client: SupabaseClient): TeamUpRepository {
   return {

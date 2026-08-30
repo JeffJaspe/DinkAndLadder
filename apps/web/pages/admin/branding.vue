@@ -303,7 +303,7 @@ async function saveHero() {
                 :maxlength="MAX_HERO_TITLE_LENGTH"
                 placeholder="Play. Compete. Rise Up."
                 class="w-full rounded-button border border-border-strong bg-surface px-3 py-2 text-sm text-fg focus:border-primary focus:outline-none"
-              >
+              />
             </div>
 
             <div>
@@ -330,7 +330,7 @@ async function saveHero() {
                   v-model="heroForm.overlay_color"
                   type="color"
                   class="h-10 w-16 cursor-pointer rounded-button border border-border-strong bg-surface"
-                >
+                />
               </div>
               <div class="min-w-[12rem] flex-1">
                 <label for="hero-opacity" class="mb-1.5 block text-caption text-fg-secondary">
@@ -344,7 +344,7 @@ async function saveHero() {
                   max="1"
                   step="0.05"
                   class="w-full accent-primary"
-                >
+                />
               </div>
             </div>
 

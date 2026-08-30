@@ -40,5 +40,14 @@
     <include file="033-bracket-lock/033-bracket-lock.changelog.xml" relativeToChangelogFile="true"/>
     <include file="034-platform-fees/034-platform-fees.changelog.xml" relativeToChangelogFile="true"/>
     <include file="035-team-up/035-team-up.changelog.xml" relativeToChangelogFile="true"/>
+    <include file="036-feature-flag-keys/036-feature-flag-keys.changelog.xml" relativeToChangelogFile="true"/>
+    <include file="037-moderation/037-moderation.changelog.xml" relativeToChangelogFile="true"/>
+    <include file="038-shoutout-event-link/038-shoutout-event-link.changelog.xml" relativeToChangelogFile="true"/>
+    <include file="039-feed-geo-priority/039-feed-geo-priority.changelog.xml" relativeToChangelogFile="true"/>
+    <include file="040-club-branding/040-club-branding.changelog.xml" relativeToChangelogFile="true"/>
+    <include file="041-open-play-live/041-open-play-live.changelog.xml" relativeToChangelogFile="true"/>
+    <include file="042-sponsors/042-sponsors.changelog.xml" relativeToChangelogFile="true"/>
+    <include file="043-tournament-live-score/043-tournament-live-score.changelog.xml" relativeToChangelogFile="true"/>
+    <include file="044-liquibase-table-lockdown/044-liquibase-table-lockdown.changelog.xml" relativeToChangelogFile="true"/>
 
 </databaseChangeLog>

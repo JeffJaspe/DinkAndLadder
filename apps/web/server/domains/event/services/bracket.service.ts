@@ -6,6 +6,7 @@ import type {
 import type { EventRepository } from '../repositories/event.repository'
 import type {
   BracketDto,
+  LiveBracketScore,
   BracketMatchDto,
   BracketMatchRecord,
   BracketMatchScoreDto,
@@ -23,7 +24,9 @@ import type { TournamentFormat, TournamentMatchType } from '../dto/tournament.dt
 import { resolveEntrantRating } from '../dto/tournament.dto'
 import { hasGroupStage } from '~/utils/tournament-formats'
 import {
+  GRAND_FINAL_RESET_ROUND,
   GRAND_FINAL_ROUND,
+  isLosersRound,
   isPoolRound,
   LOSERS_ROUND_OFFSET,
   PLAYOFF_ROUND_OFFSET,
@@ -73,6 +76,20 @@ export interface BracketService {
    * it a draw could name a winner but never a score, because the score lives on
    * a `matches` row that nothing was creating.
    */
+  /**
+   * Puts a bracket match on court and starts its scoreboard.
+   *
+   * Distinct from recording a result: a started match has no winner and no
+   * `matches` row. It becomes a real, verified result only through
+   * recordMatchResult, which is unchanged.
+   */
+  startBracketMatch(playerId: string, bracketMatchId: string): Promise<BracketMatchDto>
+  /** Updates the running score. Called repeatedly, so it writes one column. */
+  updateBracketLiveScore(
+    playerId: string,
+    bracketMatchId: string,
+    scores: LiveBracketScore[]
+  ): Promise<BracketMatchDto>
   recordMatchResult(
     playerId: string,
     bracketMatchId: string,
@@ -91,7 +108,11 @@ export interface BracketService {
    * Freeze the draw: it becomes visible to players and results can be recorded
    * against it, and it can no longer be regenerated or undone.
    */
-  lockBracket(playerId: string, tournamentId: string, categoryId?: string | null): Promise<BracketDto>
+  lockBracket(
+    playerId: string,
+    tournamentId: string,
+    categoryId?: string | null
+  ): Promise<BracketDto>
   /** Reopen a draw for redrawing. Refused once any result exists. */
   unlockBracket(
     playerId: string,
@@ -313,7 +334,10 @@ export function createBracketService(
       singles_rating: number | null
       doubles_rating: number | null
     }
-  >(rows: T[], tournamentMatchType: TournamentMatchType): Promise<Array<T & { rating: number | null }>> {
+  >(
+    rows: T[],
+    tournamentMatchType: TournamentMatchType
+  ): Promise<Array<T & { rating: number | null }>> {
     const byCategory = new Map<string, { match_type: TournamentMatchType | null }>()
     if (categories) {
       for (const categoryId of new Set(rows.map((row) => row.category_id).filter(Boolean))) {
@@ -490,10 +514,7 @@ export function createBracketService(
       await brackets.deleteByTournamentId(tournamentId, categoryId)
 
       const registrationIds = confirmedRegs.map((r) => r.id)
-      let bracketMatches: Omit<
-        import('../dto/bracket.dto').BracketMatchRecord,
-        'id' | 'created_at'
-      >[]
+      let bracketMatches: NewBracketMatch[]
 
       // The CATEGORY's format, not the tournament's. One weekend runs "Open
       // Singles" as a round robin and "4.5 Doubles" as a knockout, and the
@@ -569,10 +590,98 @@ export function createBracketService(
       }
 
       const updated = await brackets.update(bracketMatchId, input)
-      await advanceWinner(
-        updated,
-        await resolveCategoryFormat(bracketMatch.category_id, tournament.format)
+      const resolvedFormat = await resolveCategoryFormat(
+        bracketMatch.category_id,
+        tournament.format
       )
+      await advanceWinner(updated, resolvedFormat)
+      // The other half of double elimination. Order matters: the winner takes
+      // its slot first, so a match feeding both sides of one target cannot have
+      // the loser land in the winner place.
+      await routeLoser(updated, resolvedFormat)
+      return toBracketMatchDto(updated)
+    },
+
+    async startBracketMatch(playerId, bracketMatchId) {
+      const bracketMatch = await brackets.findById(bracketMatchId)
+      if (!bracketMatch) {
+        throw new BracketServiceError(404, 'NOT_FOUND', 'Bracket match not found.')
+      }
+
+      const tournament = await tournaments.findById(bracketMatch.tournament_id)
+      if (!tournament) {
+        throw new BracketServiceError(404, 'NOT_FOUND', 'Tournament not found.')
+      }
+      await assertEventOrganizer(playerId, tournament.event_id)
+
+      if (bracketMatch.winner_registration_id) {
+        throw new BracketServiceError(409, 'ALREADY_DECIDED', 'That match already has a result.')
+      }
+      if (
+        !bracketMatch.participant1_registration_id ||
+        !bracketMatch.participant2_registration_id
+      ) {
+        throw new BracketServiceError(
+          409,
+          'SLOTS_NOT_FILLED',
+          'Both places have to be filled before this match can start.'
+        )
+      }
+
+      const started = await brackets.setLiveScore(bracketMatchId, {
+        started_at: new Date().toISOString(),
+        // 0-0 rather than null, so the live view has something to render the
+        // moment the match goes live.
+        live_score: [{ game_number: 1, team1_score: 0, team2_score: 0 }],
+        live_score_updated_at: new Date().toISOString()
+      })
+
+      return toBracketMatchDto(started)
+    },
+
+    async updateBracketLiveScore(playerId, bracketMatchId, scores) {
+      const bracketMatch = await brackets.findById(bracketMatchId)
+      if (!bracketMatch) {
+        throw new BracketServiceError(404, 'NOT_FOUND', 'Bracket match not found.')
+      }
+
+      const tournament = await tournaments.findById(bracketMatch.tournament_id)
+      if (!tournament) {
+        throw new BracketServiceError(404, 'NOT_FOUND', 'Tournament not found.')
+      }
+      await assertEventOrganizer(playerId, tournament.event_id)
+
+      if (!bracketMatch.started_at) {
+        throw new BracketServiceError(
+          409,
+          'NOT_STARTED',
+          'Start the match before entering a score.'
+        )
+      }
+      if (bracketMatch.winner_registration_id) {
+        throw new BracketServiceError(409, 'ALREADY_DECIDED', 'That match is finished.')
+      }
+
+      for (const game of scores) {
+        if (
+          !Number.isInteger(game.team1_score) ||
+          !Number.isInteger(game.team2_score) ||
+          game.team1_score < 0 ||
+          game.team2_score < 0
+        ) {
+          throw new BracketServiceError(400, 'VALIDATION_ERROR', 'Scores must be whole numbers.')
+        }
+      }
+
+      // No winning-score rule here on purpose. A live score is a running
+      // tally, not a result: 11-9 is as valid mid-game as 3-2, and the format
+      // is a match-submission concern. The final score is validated when the
+      // result is actually recorded.
+      const updated = await brackets.setLiveScore(bracketMatchId, {
+        live_score: scores,
+        live_score_updated_at: new Date().toISOString()
+      })
+
       return toBracketMatchDto(updated)
     },
 
@@ -705,10 +814,24 @@ export function createBracketService(
         winner_registration_id: input.winner_registration_id,
         status: 'completed'
       })
-      await advanceWinner(
-        updated,
-        await resolveCategoryFormat(bracketMatch.category_id, tournament.format)
+
+      // The match is decided, so the running score is history. Cleared rather
+      // than left behind: `is_live` is derived from started_at plus the absence
+      // of a winner, and a stale live_score would still render on the card.
+      await brackets.setLiveScore(bracketMatchId, {
+        live_score: null,
+        live_score_updated_at: null,
+        started_at: null
+      })
+      const recordedFormat = await resolveCategoryFormat(
+        bracketMatch.category_id,
+        tournament.format
       )
+      await advanceWinner(updated, recordedFormat)
+      // Recording a real result is the main path into the bracket, so the
+      // losers side has to be routed here too - not only from the organiser
+      // override in updateBracketMatch.
+      await routeLoser(updated, recordedFormat)
       return toBracketMatchDto(updated)
     },
 
@@ -761,11 +884,7 @@ export function createBracketService(
       // final while showing them nothing.
       const existing = await brackets.findByTournamentId(tournamentId, categoryId)
       if (!existing.length) {
-        throw new BracketServiceError(
-          409,
-          'NO_BRACKET',
-          'Generate the draw before locking it.'
-        )
+        throw new BracketServiceError(409, 'NO_BRACKET', 'Generate the draw before locking it.')
       }
 
       if (categoryId && categories) {
@@ -893,16 +1012,27 @@ export function createBracketService(
       return
     }
 
-    // The losers bracket (100+) and grand final (200) are not routed.
-    if (match.round >= LOSERS_ROUND_OFFSET) return
-
-    const next = nextSlotFor(match.round, match.position)
     const siblings = await brackets.findByTournamentId(
       match.tournament_id,
       match.category_id ?? undefined
     )
+
+    // The decider settles it; nothing follows that.
+    if (match.round === GRAND_FINAL_RESET_ROUND) return
+
+    if (match.round === GRAND_FINAL_ROUND) {
+      await seedGrandFinalReset(match, siblings)
+      return
+    }
+
+    const next = isLosersRound(match.round)
+      ? nextLosersSlot(match, siblings)
+      : nextWinnersSlot(match, siblings)
+
+    if (!next) return // the final, or a round with nothing after it
+
     const target = siblings.find((m) => m.round === next.round && m.position === next.position)
-    if (!target) return // this was the final
+    if (!target) return
 
     const occupant =
       next.slot === 1 ? target.participant1_registration_id : target.participant2_registration_id
@@ -917,6 +1047,182 @@ export function createBracketService(
       match.winner_registration_id,
       other ? 'ready' : 'pending'
     )
+  }
+
+  /**
+   * Sets up the decider, but only when the grand final failed to settle things.
+   *
+   * Slot 1 of the grand final holds the winners finalist, who arrived unbeaten.
+   * If they win, the title is theirs and the decider stays empty forever. If
+   * the losers-bracket entrant wins, both now have exactly one defeat and the
+   * decider is played with the same two people.
+   */
+  async function seedGrandFinalReset(match: BracketMatchRecord, siblings: BracketMatchRecord[]) {
+    const reset = siblings.find((m) => m.round === GRAND_FINAL_RESET_ROUND)
+    if (!reset) return // an older draw, generated before the decider existed
+
+    // The unbeaten side won: no decider is needed, and any half-seeded one
+    // from a corrected result has to be cleared rather than left standing.
+    if (match.winner_registration_id === match.participant1_registration_id) {
+      if (reset.participant1_registration_id || reset.participant2_registration_id) {
+        await brackets.setLiveScore(reset.id, { live_score: null, started_at: null })
+      }
+      return
+    }
+
+    if (!match.participant1_registration_id || !match.participant2_registration_id) return
+    if (reset.participant1_registration_id === match.participant1_registration_id) return
+
+    await brackets.setParticipant(reset.id, 1, match.participant1_registration_id, 'pending')
+    await brackets.setParticipant(reset.id, 2, match.participant2_registration_id, 'ready')
+  }
+
+  /**
+   * Where a winners-bracket winner goes next.
+   *
+   * Ordinarily the next winners round. The exception is the last winners round
+   * of a double elimination: its winner goes to the grand final, and until now
+   * nextSlotFor pointed at a round that does not exist, so the target came back
+   * undefined and the code treated the winners final as "the final" - leaving
+   * the grand final permanently empty on one side.
+   */
+  function nextWinnersSlot(
+    match: BracketMatchRecord,
+    siblings: BracketMatchRecord[]
+  ): { round: number; position: number; slot: 1 | 2 } | null {
+    const plain = nextSlotFor(match.round, match.position)
+    if (siblings.some((m) => m.round === plain.round && m.position === plain.position)) {
+      return plain
+    }
+
+    // No next winners round. If there is a grand final, this was the winners
+    // final and its winner takes slot 1.
+    if (siblings.some((m) => m.round === GRAND_FINAL_ROUND)) {
+      return { round: GRAND_FINAL_ROUND, position: 1, slot: 1 }
+    }
+
+    return null
+  }
+
+  /**
+   * Where a losers-bracket winner goes next.
+   *
+   * The losers bracket alternates between two kinds of round, which is why a
+   * single "round + 1, position / 2" rule cannot describe it:
+   *
+   *   - a MINOR round, where the survivors of the previous losers round play
+   *     each other and the field halves;
+   *   - a MAJOR round, the same size as the one before it, where each survivor
+   *     meets a player just knocked out of the winners bracket.
+   *
+   * Rather than recompute the generator arithmetic (and risk the two drifting
+   * the moment either changes), this reads the ACTUAL match counts of the two
+   * rounds and picks the mapping that fits: same size means one-to-one into
+   * slot 1, half the size means two-into-one.
+   *
+   * Slot 1 by convention for the player coming up the losers bracket; slot 2 is
+   * reserved for the winners-bracket dropdown, so the card always reads
+   * "survivor vs the person who just lost".
+   */
+  function nextLosersSlot(
+    match: BracketMatchRecord,
+    siblings: BracketMatchRecord[]
+  ): { round: number; position: number; slot: 1 | 2 } | null {
+    const nextRound = match.round + 1
+
+    // Past the end of the losers bracket: the survivor has earned the grand
+    // final, and takes the side the winners finalist did not.
+    if (nextRound >= GRAND_FINAL_ROUND || !siblings.some((m) => m.round === nextRound)) {
+      return siblings.some((m) => m.round === GRAND_FINAL_ROUND)
+        ? { round: GRAND_FINAL_ROUND, position: 1, slot: 2 }
+        : null
+    }
+
+    const here = siblings.filter((m) => m.round === match.round).length
+    const there = siblings.filter((m) => m.round === nextRound).length
+
+    if (there === here) {
+      // Major round: one-to-one, and the dropdown fills the other side.
+      return { round: nextRound, position: match.position, slot: 1 }
+    }
+
+    // Minor round: two matches feed one.
+    return {
+      round: nextRound,
+      position: Math.ceil(match.position / 2),
+      slot: match.position % 2 === 1 ? 1 : 2
+    }
+  }
+
+  /**
+   * Sends the loser of a winners-bracket match down into the losers bracket.
+   *
+   * This is the half of double elimination that was missing entirely: winners
+   * advanced, losers simply vanished, and every losers-bracket match stayed a
+   * pair of TBDs that could never be filled. A "double elimination" draw was in
+   * practice a single elimination with an unreachable second half.
+   *
+   * The mapping mirrors the generator:
+   *   - round 1 losers fill losers round 1, two winners-matches per slot;
+   *   - round r losers (r >= 2) drop into losers round 2r-2, one-to-one, into
+   *     slot 2 (slot 1 belongs to whoever came up the losers bracket).
+   *
+   * Deliberately does NOT model a grand-final reset. A losers-bracket player
+   * winning the grand final has only lost once, so a strict double elimination
+   * plays a decider - but the generator emits a single grand-final match, and
+   * inventing a round the draw does not contain would put a fixture on the
+   * schedule that no view knows how to render. Recorded as a known limitation
+   * rather than half-built.
+   */
+  async function routeLoser(match: BracketMatchRecord, format: TournamentFormat) {
+    if (format !== 'double_elimination' && format !== 'round_robin_double_elimination') return
+    if (!match.winner_registration_id) return
+    if (match.status !== 'completed' && match.status !== 'bye') return
+
+    // Only the winners bracket drops players down. A losers-bracket loser is
+    // out, which is the entire point of the format.
+    if (match.round >= LOSERS_ROUND_OFFSET || isPoolRound(match.round)) return
+
+    const loserId =
+      match.winner_registration_id === match.participant1_registration_id
+        ? match.participant2_registration_id
+        : match.participant1_registration_id
+
+    // A bye has no loser to send anywhere.
+    if (!loserId) return
+
+    const siblings = await brackets.findByTournamentId(
+      match.tournament_id,
+      match.category_id ?? undefined
+    )
+
+    const target =
+      match.round === 1
+        ? findLosersTarget(siblings, LOSERS_ROUND_OFFSET + 1, Math.ceil(match.position / 2))
+        : findLosersTarget(siblings, LOSERS_ROUND_OFFSET + (match.round * 2 - 2), match.position)
+
+    if (!target) return
+
+    // Round 1 sends two losers into one match, so they take slot 1 and slot 2
+    // by parity. Later rounds always take slot 2.
+    const slot: 1 | 2 = match.round === 1 ? (match.position % 2 === 1 ? 1 : 2) : 2
+
+    const occupant =
+      slot === 1 ? target.participant1_registration_id : target.participant2_registration_id
+    if (occupant === loserId) return // already routed
+
+    const other =
+      slot === 1 ? target.participant2_registration_id : target.participant1_registration_id
+
+    await brackets.setParticipant(target.id, slot, loserId, other ? 'ready' : 'pending')
+  }
+
+  function findLosersTarget(
+    siblings: BracketMatchRecord[],
+    round: number,
+    position: number
+  ): BracketMatchRecord | undefined {
+    return siblings.find((m) => m.round === round && m.position === position)
   }
 
   /**
@@ -1139,7 +1445,7 @@ function sortBySeed<T extends { rating: number | null; registered_at: string }>(
   })
 }
 
-type NewBracketMatch = Omit<import('../dto/bracket.dto').BracketMatchRecord, 'id' | 'created_at'>
+type NewBracketMatch = import('../dto/bracket.dto').NewBracketMatch
 
 /**
  * Builds round one for a knockout bracket.
@@ -1347,21 +1653,32 @@ function generateDoubleEliminationBracket(
     }
   }
 
-  matches.push({
-    tournament_id: tournamentId,
-    round: 200,
-    position: 1,
-    match_id: null,
-    participant1_registration_id: null,
-    participant2_registration_id: null,
-    winner_registration_id: null,
-    status: 'pending',
-    scheduled_at: null,
-    category_id: categoryId
-  })
+  // The grand final, and the decider it may need.
+  //
+  // The reset exists in the draw from generation rather than being inserted
+  // when it becomes necessary: a bracket is a fixed set of rows that views
+  // render and organisers schedule, and materialising a fixture mid-tournament
+  // would mean every reader had to cope with the shape changing underneath it.
+  // It stays empty — and so renders as nothing — unless the losers-bracket
+  // entrant wins the grand final.
+  for (const round of [GRAND_FINAL_ROUND, GRAND_FINAL_RESET_ROUND]) {
+    matches.push({
+      tournament_id: tournamentId,
+      round,
+      position: 1,
+      match_id: null,
+      participant1_registration_id: null,
+      participant2_registration_id: null,
+      winner_registration_id: null,
+      status: 'pending',
+      scheduled_at: null,
+      category_id: categoryId
+    })
+  }
 
-  // Winners-bracket byes only. Losers-bracket routing is not implemented — see
-  // the note in advanceWinner.
+  // Byes are propagated on the winners side only: a bye means nobody was
+  // beaten, so there is no loser to drop into the losers bracket. Live results
+  // route both ways - see advanceWinner and routeLoser.
   return propagateByes(matches)
 }
 
@@ -1369,9 +1686,9 @@ function generateRoundRobinBracket(
   tournamentId: string,
   registrationIds: string[],
   categoryId: string | null = null
-): Omit<import('../dto/bracket.dto').BracketMatchRecord, 'id' | 'created_at'>[] {
+): NewBracketMatch[] {
   const n = registrationIds.length
-  const matches: Omit<import('../dto/bracket.dto').BracketMatchRecord, 'id' | 'created_at'>[] = []
+  const matches: NewBracketMatch[] = []
 
   const numRounds = n % 2 === 0 ? n - 1 : n
 

@@ -43,10 +43,7 @@ export interface TournamentCategoryRepository {
    * Freeze or unfreeze this category's draw. `playerId` of null clears both
    * columns together — a lock and its owner are one fact, not two.
    */
-  setBracketLock(
-    categoryId: string,
-    playerId: string | null
-  ): Promise<TournamentCategoryRecord>
+  setBracketLock(categoryId: string, playerId: string | null): Promise<TournamentCategoryRecord>
 }
 
 export function createTournamentCategoryRepository(

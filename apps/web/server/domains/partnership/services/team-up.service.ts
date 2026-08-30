@@ -22,11 +22,7 @@ export class TeamUpServiceError extends Error {
 export interface TeamUpService {
   getTeam(ownerPlayerId: string): Promise<TeamMemberDto[]>
   getIncoming(memberPlayerId: string): Promise<TeamMemberDto[]>
-  invite(
-    ownerPlayerId: string,
-    memberPlayerId: string,
-    message?: string
-  ): Promise<TeamUpRequestDto>
+  invite(ownerPlayerId: string, memberPlayerId: string, message?: string): Promise<TeamUpRequestDto>
   respond(memberPlayerId: string, teamUpId: string, accept: boolean): Promise<TeamUpRequestDto>
   /** Either side may end it: the owner drops them, the member leaves. */
   remove(actingPlayerId: string, teamUpId: string): Promise<void>
@@ -46,21 +42,13 @@ export function createTeamUpService(teamUps: TeamUpRepository): TeamUpService {
 
     async invite(ownerPlayerId, memberPlayerId, message) {
       if (ownerPlayerId === memberPlayerId) {
-        throw new TeamUpServiceError(
-          400,
-          'SELF_TEAM_UP',
-          'You are already on your own team.'
-        )
+        throw new TeamUpServiceError(400, 'SELF_TEAM_UP', 'You are already on your own team.')
       }
 
       const existing = await teamUps.findBetween(ownerPlayerId, memberPlayerId)
       if (existing) {
         if (existing.status === 'accepted') {
-          throw new TeamUpServiceError(
-            409,
-            'ALREADY_ON_TEAM',
-            'They are already on your team.'
-          )
+          throw new TeamUpServiceError(409, 'ALREADY_ON_TEAM', 'They are already on your team.')
         }
         if (existing.status === 'pending') {
           throw new TeamUpServiceError(

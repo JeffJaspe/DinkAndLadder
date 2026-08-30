@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Live scores on bracket matches, and the grand-final reset.
+
+     TWO things, and they belong together because both are about a double
+     elimination actually being playable end to end.
+
+     1. live_score on bracket_matches.
+
+        Same reasoning as event_courts.live_score (041): an unfinished game is
+        not a result. Writing a half-played score into `matches` would create
+        rows that look submitted, feed the rating engine, and need verifying by
+        a pair still on court. The score becomes a real match only when the
+        organiser submits it through recordMatchResult, which is unchanged.
+
+     2. A grand-final reset match.
+
+        In a strict double elimination the player coming up the losers bracket
+        has lost once; the winners finalist has not. If the losers player wins
+        the grand final both have one loss, and a decider is played. The
+        generator emitted a single grand-final match, so that decider had
+        nowhere to live and the format quietly awarded the title on one game.
+
+        Round 201, immediately after the grand final at 200. It exists in the
+        draw from generation but stays hidden until it is needed - see
+        isGrandFinalReset() and the routing in bracket.service.ts. -->
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+    <changeSet id="043-add-live-score-to-bracket-matches" author="claude">
+        <preConditions onFail="MARK_RAN">
+            <not><columnExists tableName="bracket_matches" columnName="live_score"/></not>
+        </preConditions>
+        <addColumn tableName="bracket_matches">
+            <!-- Same jsonb shape as event_courts.live_score and
+                 match_score_proposals.scores, so what a match holds mid-game is
+                 exactly what gets submitted when it ends:
+                 [{ game_number, team1_score, team2_score }, ...] -->
+            <column name="live_score" type="jsonb">
+                <constraints nullable="true"/>
+            </column>
+            <column name="live_score_updated_at" type="timestamptz">
+                <constraints nullable="true"/>
+            </column>
+            <!-- Non-null means the match is being played right now. A separate
+                 column rather than a new `status` value, because status already
+                 carries the DRAW's state (pending/ready/completed/bye) and
+                 overloading it would make "ready" ambiguous. -->
+            <column name="started_at" type="timestamptz">
+                <constraints nullable="true"/>
+            </column>
+        </addColumn>
+        <rollback>
+            <dropColumn tableName="bracket_matches" columnName="started_at"/>
+            <dropColumn tableName="bracket_matches" columnName="live_score_updated_at"/>
+            <dropColumn tableName="bracket_matches" columnName="live_score"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="043-live-bracket-index" author="claude">
+        <sql>
+            -- "Is anything live in this draw" is asked on every poll, so it is
+            -- the hottest read the live label produces.
+            CREATE INDEX IF NOT EXISTS idx_bracket_matches_live
+                ON bracket_matches (tournament_id)
+                WHERE started_at IS NOT NULL AND winner_registration_id IS NULL;
+        </sql>
+        <rollback>
+            DROP INDEX IF EXISTS idx_bracket_matches_live;
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

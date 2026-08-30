@@ -9,10 +9,20 @@ import type {
 
 const CLUB_COLUMNS =
   'id, name, slug, description, province, city, barangay, court_name, court_address, visibility, status, created_by_user_id, created_at, ' +
-  'verification_status, verification_requested_at, verified_at, verified_by_user_id'
+  'verification_status, verification_requested_at, verified_at, verified_by_user_id, ' +
+  // 040-club-branding. Every read goes through this list, so a column missing
+  // here reads as undefined everywhere rather than failing loudly.
+  'cover_photo_path, logo_path'
 
 export interface UpdateClubInput {
   name?: string
+  /**
+   * The club's custom URL. Already unique-constrained and already resolvable
+   * via findBySlug() - it simply had no caller and no route until now. Editable
+   * so a club can fix a typo without support; /clubs/<uuid> keeps working, so
+   * changing it never breaks an existing link or QR code.
+   */
+  slug?: string
   description?: string | null
   province?: string | null
   city?: string | null
@@ -20,6 +30,9 @@ export interface UpdateClubInput {
   court_name?: string | null
   court_address?: string | null
   visibility?: 'public' | 'private'
+  /** Bucket-relative paths. See 040-club-branding. */
+  cover_photo_path?: string | null
+  logo_path?: string | null
 }
 
 export interface UpdateClubVerificationInput {

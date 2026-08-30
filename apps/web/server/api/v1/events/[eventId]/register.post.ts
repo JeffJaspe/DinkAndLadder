@@ -60,19 +60,6 @@ export default defineEventHandler(async (event) => {
     }
   }
 
-  for (const playerId of everyone) {
-    const existing = await registrationRepo.findByEventAndPlayer(eventId, playerId)
-    if (existing && existing.status !== 'withdrawn') {
-      throw apiError(
-        409,
-        'ALREADY_REGISTERED',
-        playerId === playerProfile.id
-          ? 'You are already registered for this event.'
-          : 'One of the players you selected is already registered for this event.'
-      )
-    }
-  }
-
   const { data: eventData, error: eventError } = await serviceClient
     .from('events')
     .select('id, status, max_participants, event_type, club_id')
@@ -85,6 +72,38 @@ export default defineEventHandler(async (event) => {
 
   if (eventData.status !== 'published' && eventData.status !== 'active') {
     throw apiError(409, 'EVENT_NOT_OPEN', 'This event is not open for registration.')
+  }
+
+  // After the event lookup on purpose: this used to run first, so a bad event
+  // id answered "You are already registered" rather than 404.
+  //
+  // The check uses the service-role client and therefore sees every row,
+  // including registrations the caller's own RLS would hide. That asymmetry
+  // was half of the reported bug — the other half was registrations.get.ts
+  // dropping those same rows from the roster. See the note there.
+  // Rows to revive rather than insert, keyed by player. See below.
+  const withdrawnRows = new Map<string, string>()
+
+  for (const playerId of everyone) {
+    const existing = await registrationRepo.findByEventAndPlayer(eventId, playerId)
+    if (existing && existing.status === 'withdrawn') {
+      withdrawnRows.set(playerId, existing.id)
+    }
+    if (existing && existing.status !== 'withdrawn') {
+      const isSelf = playerId === playerProfile.id
+      const checkedIn = existing.status === 'checked_in'
+      throw apiError(
+        409,
+        'ALREADY_REGISTERED',
+        isSelf
+          ? checkedIn
+            ? 'You are already checked in for this event.'
+            : 'You are already registered for this event.'
+          : checkedIn
+            ? 'One of the players you selected is already checked in for this event.'
+            : 'One of the players you selected is already registered for this event.'
+      )
+    }
   }
 
   if (eventData.event_type === 'club_casual' || eventData.event_type === 'club_ranked') {
@@ -120,6 +139,18 @@ export default defineEventHandler(async (event) => {
   try {
     const registrations = []
     for (const playerId of everyone) {
+      // Signing up again after withdrawing has to reuse the existing row:
+      // (event_id, player_id) is UNIQUE, so a second insert failed the
+      // constraint and came back as a 500 rather than a registration.
+      const withdrawnId = withdrawnRows.get(playerId)
+      if (withdrawnId) {
+        const revived = await registrationRepo.reinstate(withdrawnId)
+        if (revived) {
+          registrations.push(revived)
+          continue
+        }
+      }
+
       registrations.push(
         await registrationRepo.create({
           event_id: eventId,

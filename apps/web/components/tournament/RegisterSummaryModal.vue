@@ -28,6 +28,17 @@ const props = defineProps<{
   rules: PlatformFeeRule[]
   submitting: boolean
   error: string
+  /**
+   * Whether this caller pays at all, decided server-side (see
+   * server/domains/event/services/registration-fee.ts). A club owner or admin
+   * running the event is the organiser, not a customer.
+   *
+   * Passed in rather than computed here on purpose: a price the browser works
+   * out for itself is a suggestion, not a price, and the whole reason
+   * convenience-fee.ts is shared is that the quote and the charge can never
+   * disagree.
+   */
+  feeWaiver?: { waived: boolean; reason: string | null } | null
 }>()
 
 const emit = defineEmits<{ 'update:modelValue': [boolean]; confirm: [] }>()
@@ -36,7 +47,15 @@ const cost = computed(() =>
   computeRegistrationCost(props.feeAmount, props.isDoubles, props.rules, props.feeCurrency)
 )
 
-const isFree = computed(() => cost.value.totalCents === 0)
+const isWaived = computed(() => props.feeWaiver?.waived === true)
+
+/**
+ * Free covers both cases: an event with no fee, and one this person does not
+ * pay. The modal reads the same either way — nobody is being asked for money —
+ * but the reason line below distinguishes them, because a waived fee showing
+ * ₱0 with no explanation looks like a bug.
+ */
+const isFree = computed(() => isWaived.value || cost.value.totalCents === 0)
 
 const money = (cents: number) => formatMoney(cents, props.feeCurrency)
 </script>
@@ -89,14 +108,18 @@ const money = (cents: number) => formatMoney(cents, props.feeCurrency)
       </div>
 
       <p v-else class="rounded-lg bg-canvas p-4 text-sm text-fg-muted">
-        This event is free to enter.
+        <template v-if="isWaived">
+          <span class="font-medium text-primary">{{ feeWaiver?.reason ?? 'Fee waived' }}</span>
+          — you are not charged to enter your own club's event.
+        </template>
+        <template v-else>This event is free to enter.</template>
       </p>
 
       <!-- Where the money is meant to go, said plainly. The platform never
            holds the club's funds; it takes the convenience line only. -->
       <p v-if="!isFree" class="text-xs text-fg-muted">
-        The entry fee goes directly to the organising club. Only the convenience fee is collected
-        by DinkAndLadder.
+        The entry fee goes directly to the organising club. Only the convenience fee is collected by
+        DinkAndLadder.
       </p>
 
       <p v-if="!isFree" class="text-xs text-warning">

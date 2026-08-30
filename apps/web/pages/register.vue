@@ -1,4 +1,10 @@
 <script setup lang="ts">
+// Chromeless shell: these are the pages you reach when you cannot get into the
+// app, and the default layout would draw the whole sidebar around them. A
+// recovery link is a real session, so gating on the session alone wrapped the
+// password form in the full app and let every nav link out of the flow.
+definePageMeta({ layout: 'auth' })
+
 useHead({ title: 'Sign up' })
 
 const supabase = useSupabaseClient()
@@ -19,6 +25,18 @@ const errorVariant = computed(() => {
   return errorCode.value === 'EMAIL_ALREADY_REGISTERED' || errorCode.value === 'RATE_LIMITED'
     ? 'warning'
     : 'error'
+})
+
+// The toast auto-dismisses after six seconds, which is fine for "try again"
+// errors but not for this one: it is the end of the road for this form, and the
+// way forward (log in, Google, or set a password via reset) needs to stay on
+// screen. So it also renders as a panel in the card, kept until the typed email
+// actually changes.
+const accountExists = computed(() => errorCode.value === 'EMAIL_ALREADY_REGISTERED')
+
+watch(email, () => {
+  errorMessage.value = ''
+  errorCode.value = ''
 })
 
 async function handleRegister() {
@@ -89,6 +107,45 @@ async function handleGoogleSignUp() {
 
       <!-- Card -->
       <div class="rounded-xl bg-surface p-6 shadow-card">
+        <!-- Already-registered explainer: shown instead of a dead end. Leads with
+             the reset link because it is the only door that opens regardless of
+             how the account was made — the caller cannot be told which provider
+             it uses (Supabase's duplicate-signup response carries none), and
+             someone who created it with Google has no password to log in with. -->
+        <div
+          v-if="accountExists"
+          class="mb-6 rounded-lg border border-amber-500/40 bg-amber-500/10 p-4"
+        >
+          <p class="text-sm font-medium text-amber-300">This email already has an account</p>
+          <p class="mt-1 text-sm text-fg-secondary">
+            No confirmation email was sent, because there is nothing to confirm. If you created it
+            with Google, or you don't remember a password, send yourself a reset link and set one —
+            it attaches to the same account.
+          </p>
+          <div class="mt-3 flex flex-wrap gap-2">
+            <NuxtLink
+              :to="{ path: '/reset-password', query: email ? { email } : undefined }"
+              class="rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-on-primary transition-colors hover:bg-primary-hover"
+            >
+              Send a reset link
+            </NuxtLink>
+            <button
+              type="button"
+              :disabled="googleLoading"
+              class="rounded-lg border border-border-strong px-3 py-2 text-sm font-medium text-fg transition-colors hover:bg-surface-2 disabled:opacity-50"
+              @click="handleGoogleSignUp"
+            >
+              Continue with Google
+            </button>
+            <NuxtLink
+              :to="{ path: '/login', query: email ? { email } : undefined }"
+              class="rounded-lg border border-border-strong px-3 py-2 text-sm font-medium text-fg transition-colors hover:bg-surface-2"
+            >
+              I know my password
+            </NuxtLink>
+          </div>
+        </div>
+
         <!-- Google OAuth -->
         <button
           type="button"

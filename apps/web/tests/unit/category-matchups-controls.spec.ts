@@ -46,7 +46,10 @@ function bracket(matchCount: number, locked = false): BracketDto {
               category_id: 'cat-1',
               participant1: null,
               participant2: null,
-              scores: []
+              scores: [],
+              live_score: null,
+              started_at: null,
+              is_live: false
             }))
           }
         ]

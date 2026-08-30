@@ -28,6 +28,8 @@ function makeClubRecord(overrides?: Partial<ClubRecord>): ClubRecord {
     verification_requested_at: null,
     verified_at: null,
     verified_by_user_id: null,
+    cover_photo_path: null,
+    logo_path: null,
     ...overrides
   }
 }
@@ -51,6 +53,7 @@ function createFakeActivityRepository(overrides?: Partial<ActivityRepository>): 
     findByActorPlayer: vi.fn().mockResolvedValue([]),
     findPublicFeed: vi.fn().mockResolvedValue([]),
     findFollowingFeed: vi.fn().mockResolvedValue([]),
+    findGeoFeed: vi.fn().mockResolvedValue([]),
     create: vi.fn(),
     ...overrides
   }

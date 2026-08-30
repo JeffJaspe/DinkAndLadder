@@ -328,13 +328,20 @@ describe('CategoryCard', () => {
   })
 
   describe('rating band', () => {
-    it('replaces Register with the reason when the reader is out of band', () => {
+    it('shows the reason AND a disabled Register when the reader is out of band', () => {
       const wrapper = mountCard({
         bandReason: "Your rating (3.550) is outside this category's range (3.0–3.5)."
       })
 
       expect(wrapper.text()).toContain("outside this category's range (3.0–3.5)")
-      expect(wrapper.find('button.bg-primary').exists()).toBe(false)
+
+      // The reason used to REPLACE the button. It now sits under a disabled
+      // one: a player looking at a category they cannot enter needs to see
+      // that entering is a thing that exists here and why it is unavailable to
+      // them — hiding the control answers neither question.
+      const register = wrapper.find('button.bg-primary')
+      expect(register.exists()).toBe(true)
+      expect(register.attributes('disabled')).toBeDefined()
     })
 
     it('hides the partner picker too — there is nothing to register for', () => {

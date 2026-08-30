@@ -245,7 +245,131 @@ None of this is reversible-free to get wrong (a bad SSL mode or a missed DNS
 record can take the whole site down), so do it during a low-traffic window
 and verify the site still loads immediately after switching nameservers.
 
-## 6. Environment Variables Summary
+## 6. Resend (auth email via Supabase SMTP)
+
+Supabase's built-in email sender is capped at roughly **2 messages per hour**
+and is not meant for real users. Resend replaces it as Supabase's SMTP
+provider, so confirmation and password-reset emails actually get delivered.
+There is no application code and no environment variable for this — Supabase
+talks to Resend directly, and the API key lives only in the Supabase dashboard.
+
+### 6a. The settings
+
+Supabase Dashboard → **Project Settings → Authentication → SMTP Settings**,
+with *Enable Custom SMTP* on:
+
+| Field | Value | Notes |
+|-------|-------|-------|
+| Host | `smtp.resend.com` | |
+| Port | `587` | STARTTLS. Try 465 only if 587 is blocked |
+| Username | `resend` | The literal word. **Not** the API key, **not** an email address |
+| Password | `re_...` | The Resend API key |
+| Sender email | see 6b | Must be an address Resend will send *from* |
+| Sender name | `Dink & Ladder` | |
+
+Then, on the same page, raise **Rate Limits → Emails per hour** above the
+default. Leaving it at the default throttles signups even after custom SMTP is
+working, and the failure is silent.
+
+Do all of this on **both** Supabase projects, dev and prod. Two separate API
+keys beats one shared key — either can then be revoked alone.
+
+### 6b. Sender email: what to use, and when
+
+The sender address is the `From:` header. It has nothing to do with where the
+app is hosted. Resend rejects any address on a domain it has not verified, and
+a domain can only be verified by whoever controls its DNS.
+
+| Stage | Sender email | Delivers to | Why |
+|-------|--------------|-------------|-----|
+| **No domain yet** | `onboarding@resend.dev` | **Only the Resend account owner's own address** | Resend's shared test sender. Needs no verification, works immediately, enough to exercise the full signup and reset flows yourself |
+| **Domain verified** | `noreply@dinkandladder.app` | Anyone | The only option that works for real users |
+| **Never** | anything `@*.vercel.app` | Nobody | Vercel owns that DNS; Resend answers `550 domain is not verified` |
+| **Never** | a `@gmail.com` address | Nobody | Same reason — DKIM records cannot be added to gmail.com |
+
+`onboarding@resend.dev` is a development stopgap. Shipping it to production
+means every user who is not you silently receives nothing.
+
+### 6c. Verifying a real domain
+
+1. Resend → **Domains** → **Add Domain** (e.g. `dinkandladder.app`)
+2. Add the MX and TXT records it prints — SPF and DKIM, plus a DMARC record
+   while you are there
+3. If the DNS sits behind Cloudflare (see 5b), add them with the proxy **off**
+   (grey cloud). Proxying breaks mail records
+4. Wait for the domain to read **Verified**, then set the sender address
+
+### 6d. URL configuration
+
+Supabase → **Authentication → URL Configuration**, per project. The two settings
+do different jobs: **Site URL** is the fallback used when a requested
+`redirect_to` is not allowed, and **Redirect URLs** is the allowlist itself.
+
+The app only ever asks for two paths — `/confirm` (signup and OAuth) and
+`/update-password` (password reset). Everything else is a redirect it never
+requests, so there is no reason to permit it.
+
+**Dev project** — convenience is fine here; nothing in it is real:
+
+| Setting | Value |
+|---------|-------|
+| Site URL | `http://localhost:3000` |
+| Redirect URLs | `http://localhost:3000/**`, and `https://*-<vercel-scope>.vercel.app/**` if previews point at this project |
+
+**Production project** — exact URLs only, no wildcards:
+
+| Setting | Value |
+|---------|-------|
+| Site URL | `https://dink-and-ladder-web.vercel.app` |
+| Redirect URLs | `https://dink-and-ladder-web.vercel.app/confirm` and `https://dink-and-ladder-web.vercel.app/update-password` |
+
+Why the difference: an entry on this list is a URL Supabase will hand a live
+auth code to. Anyone who can serve content at a matching address can complete
+the sign-in as the victim, so every wildcard widens who that could be.
+
+- `https://*.vercel.app/**` is genuinely dangerous — that is *every* Vercel
+  account on the internet. Never use it.
+- `https://*-<your-scope>.vercel.app/**` is far narrower, since only
+  deployments in your own Vercel team can hold that hostname. Acceptable on the
+  dev project; still unnecessary on prod, which has one fixed domain.
+- `http://localhost:3000/**` must never appear on the **production** project.
+  It lets a crafted link deliver a production auth code to a server running on
+  the victim's own machine.
+
+Keeping localhost and preview wildcards on the dev project only works because
+dev and prod are separate Supabase projects, and Vercel's Preview environment
+variables point at the dev one. Check that before tightening prod — see 6a.
+
+Without a matching allowlist entry, Supabase does not report an error. It
+silently substitutes Site URL, dropping the path: a reset link then lands on
+`/` with a `?code=` instead of `/update-password`. The app builds the
+requested `redirect_to` in `apps/web/server/utils/site-url.ts`, and traps a
+failed link in `middleware/auth-callback-error.global.ts`.
+
+### 6e. When email fails
+
+A failed send surfaces as HTTP **500** from `/auth/v1/recover` (or
+`/auth/v1/signup`) with `"msg":"Error sending recovery email"`. That body says
+nothing useful; the real reason is one level down.
+
+1. **Supabase → Logs → Auth Logs**, filtered by the `error_id` from the 500
+   response. The entry's `error` field carries the verbatim SMTP reply, e.g.
+   `550 "The <domain> domain is not verified"`
+2. **Resend → Logs**. No entry at all means the connection never authenticated
+   — check the username is `resend`, and the port. An entry that failed means
+   Resend rejected the message — check the sender domain
+
+| Symptom | Cause |
+|---------|-------|
+| `550 ... domain is not verified` | Sender email is on a domain Resend has not verified (see 6b) |
+| `535 authentication failed` | Username is not the literal `resend`, or the API key is wrong |
+| Nothing in Resend's logs, connection errors | Wrong port — switch 465 to 587 |
+| Silent throttling after a few sends | Auth rate limit still at its default (see 6a) |
+| No email even attempted on signup | The address already has an account: Supabase returns a decoy success and sends nothing. The app detects this and offers a password reset instead — see `registerWithPassword` |
+
+---
+
+## 7. Environment Variables Summary
 
 ```env
 # Supabase (required)
@@ -274,7 +398,7 @@ TURNSTILE_SECRET_KEY=0x4AAAAAAA...
 
 ---
 
-## 7. Webhook Endpoints to Create
+## 8. Webhook Endpoints to Create
 
 | Provider | Endpoint | Purpose |
 |----------|----------|---------|
@@ -283,7 +407,7 @@ TURNSTILE_SECRET_KEY=0x4AAAAAAA...
 
 ---
 
-## 8. Testing
+## 9. Testing
 
 ### Stripe Test Cards
 - Success: `4242 4242 4242 4242`
@@ -300,7 +424,7 @@ TURNSTILE_SECRET_KEY=0x4AAAAAAA...
 
 ---
 
-## 9. Go-Live Checklist
+## 10. Go-Live Checklist
 
 - [ ] Switch all API keys from test to live
 - [ ] Complete PayMongo business verification
@@ -310,4 +434,6 @@ TURNSTILE_SECRET_KEY=0x4AAAAAAA...
 - [ ] Set up payment failure notifications
 - [ ] Configure refund policies
 - [ ] Create a production Cloudflare Turnstile site and set real `TURNSTILE_SITE_KEY`/`TURNSTILE_SECRET_KEY` (see 5a)
+- [ ] Buy and verify a real sending domain in Resend, and move the Supabase sender email off `onboarding@resend.dev` (see 6b) — it delivers to nobody but the Resend account owner
+- [ ] Raise Supabase's Auth "Emails per hour" rate limit on the production project (see 6a)
 - [ ] Point the production domain's nameservers at Cloudflare and re-add DNS records as proxied (see 5b)

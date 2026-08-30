@@ -33,6 +33,7 @@ function makeEvent(overrides?: Partial<EventRecord>): EventRecord {
     max_participants: null,
     queue_enabled: false,
     queue_courts: 1,
+    match_format: 'doubles',
     queue_mode: 'first_come',
     queue_skip_timeout_seconds: 120,
     created_by_player_id: 'organizer-1',

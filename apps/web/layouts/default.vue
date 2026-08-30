@@ -16,11 +16,23 @@ import type { PlayerProfileDto } from '~/server/domains/player/dto/player-profil
 import type { PlayerRatingDto } from '~/server/domains/rating/dto/rating.dto'
 import type { IconName } from '~/utils/icons'
 import { formatRating, tierForRating } from '~/utils/rating-tiers'
+import { isChromelessRoute } from '~/utils/route-groups'
 
 const user = useSupabaseUser()
 const route = useRoute()
 const supabase = useSupabaseClient()
 const { accountMode, activeClubId } = useAccountMode()
+
+/**
+ * Whether to draw the app shell at all.
+ *
+ * This used to be plain `user`, and that was the bug: a password-recovery
+ * link creates a real session, so the reset form rendered inside the full
+ * sidebar and every nav item was an exit from the flow with the password
+ * still unchanged. The auth and marketing pages now opt out via their own
+ * layouts; this is the backstop for anything that forgets to.
+ */
+const showShell = computed(() => Boolean(user.value) && !isChromelessRoute(route.path))
 
 const sidebarOpen = ref(false)
 
@@ -36,20 +48,17 @@ watch(
   }
 )
 
-const { data: myProfile } = await useFetch<PlayerProfileDto>('/api/v1/players/me', {
+const { data: myProfile } = useFetch<PlayerProfileDto>('/api/v1/players/me', {
   server: false
 })
 
-const { data: adminStatus } = await useFetch<{ is_superadmin: boolean }>(
-  '/api/v1/me/is-superadmin',
-  {
-    server: false
-  }
-)
+const { data: adminStatus } = useFetch<{ is_superadmin: boolean }>('/api/v1/me/is-superadmin', {
+  server: false
+})
 
 // Powers the sidebar user card. Deliberately not blocking: the shell must
 // render even if the rating service is down.
-const { data: myRatings } = await useFetch<{
+const { data: myRatings } = useFetch<{
   singles: PlayerRatingDto | null
   doubles: PlayerRatingDto | null
 }>('/api/v1/players/me/ratings', { server: false })
@@ -80,6 +89,16 @@ interface NavItem {
  */
 const { incomingCount: partnerRequestCount } = usePartnerRequestCount()
 
+// Achievements is a switchable surface (feature_flags, 'achievements.enabled').
+// A nav item pointing at a feature the SuperAdmin turned off is a dead link.
+// The bell carried no badge at all, so the only way to find out a notification
+// had arrived was to go and look — which is why they felt like they never came.
+// /api/v1/notifications/unread-count already existed; nothing surfaced it.
+const { unreadCount } = useUnreadNotificationCount()
+
+const { isEnabled } = useFeatureFlags()
+const achievementsEnabled = computed(() => isEnabled('achievements.enabled'))
+
 // Player vs Club account mode changes what the sidebar nav shows — see
 // composables/useAccountMode.ts and components/AccountSwitcher.vue.
 const playerNavItems = computed<NavItem[]>(() => [
@@ -92,7 +111,9 @@ const playerNavItems = computed<NavItem[]>(() => [
   { name: 'My Clubs', href: '/my-clubs', icon: 'clubs' },
   { name: 'Discover Clubs', href: '/clubs', icon: 'clubs' },
   { name: 'Players', href: '/players', icon: 'user' },
-  { name: 'Achievements', href: '/achievements', icon: 'achievements' }
+  ...(achievementsEnabled.value
+    ? [{ name: 'Achievements', href: '/achievements', icon: 'achievements' as IconName }]
+    : [])
 ])
 
 const clubNavItems = computed<NavItem[]>(() => [
@@ -109,7 +130,9 @@ const clubNavItems = computed<NavItem[]>(() => [
   { name: 'Players', href: '/players', icon: 'user' },
   {
     name: 'Club Settings',
-    href: activeClubId.value ? `/clubs/${activeClubId.value}` : '/my-clubs',
+    // Was pointing at the *public* club profile, because no settings page
+    // existed. It does now.
+    href: activeClubId.value ? `/club/${activeClubId.value}/settings` : '/my-clubs',
     icon: 'settings'
   }
 ])
@@ -125,14 +148,16 @@ const navItems = computed(() =>
 // scope (docs/03), and a nav item that goes nowhere is worse than none.
 const bottomNavItems = computed<NavItem[]>(() => {
   const items: NavItem[] = [
-    { name: 'Notifications', href: '/notifications', icon: 'bell' },
+    { name: 'Notifications', href: '/notifications', icon: 'bell', badge: unreadCount.value },
     { name: 'Settings', href: '/settings', icon: 'settings' }
   ]
   if (isSuperAdmin.value) {
+    items.push({ name: 'Reports', href: '/admin/reports', icon: 'alert' })
     items.push({ name: 'Club Verification', href: '/admin/clubs/verification', icon: 'verified' })
     items.push({ name: 'Platform Features', href: '/admin/features', icon: 'settings' })
     items.push({ name: 'Platform Theme', href: '/admin/theme', icon: 'star' })
     items.push({ name: 'Platform Branding', href: '/admin/branding', icon: 'edit' })
+    items.push({ name: 'Sponsors', href: '/admin/sponsors', icon: 'star' })
   }
   return items
 })
@@ -163,7 +188,7 @@ async function handleLogout() {
   <div class="min-h-screen bg-canvas">
     <!-- Desktop sidebar -->
     <aside
-      v-if="user"
+      v-if="showShell"
       class="fixed left-0 top-0 z-40 hidden h-screen w-52 border-r border-border bg-canvas lg:block"
     >
       <div class="flex h-full flex-col">
@@ -210,6 +235,12 @@ async function handleLogout() {
           >
             <UiIcon :name="item.icon" />
             {{ item.name }}
+            <span
+              v-if="item.badge"
+              class="ml-auto rounded-pill bg-primary px-1.5 py-0.5 text-caption font-semibold tabular-nums text-on-primary"
+              :aria-label="`${item.badge} unread`"
+              >{{ item.badge }}</span
+            >
           </NuxtLink>
         </nav>
 
@@ -262,7 +293,7 @@ async function handleLogout() {
 
     <!-- Mobile drawer -->
     <Teleport to="body">
-      <div v-if="sidebarOpen && user" class="fixed inset-0 z-50 lg:hidden">
+      <div v-if="sidebarOpen && showShell" class="fixed inset-0 z-50 lg:hidden">
         <div class="absolute inset-0 bg-black/60" @click="sidebarOpen = false" />
         <aside class="absolute left-0 top-0 flex h-full w-64 flex-col bg-canvas">
           <div class="flex h-14 shrink-0 items-center justify-between border-b border-border px-4">
@@ -328,7 +359,7 @@ async function handleLogout() {
 
     <!-- Mobile header -->
     <header
-      v-if="user"
+      v-if="showShell"
       class="fixed left-0 right-0 top-0 z-30 flex h-14 items-center justify-between border-b border-border bg-canvas px-4 lg:hidden"
     >
       <button
@@ -343,16 +374,21 @@ async function handleLogout() {
       </NuxtLink>
       <NuxtLink
         to="/notifications"
-        class="rounded-button p-2 text-fg-muted hover:bg-surface-2 hover:text-fg"
-        aria-label="Notifications"
+        class="relative rounded-button p-2 text-fg-muted hover:bg-surface-2 hover:text-fg"
+        :aria-label="unreadCount ? `Notifications, ${unreadCount} unread` : 'Notifications'"
       >
         <UiIcon name="bell" />
+        <span
+          v-if="unreadCount"
+          class="absolute right-1 top-1 flex h-4 min-w-[1rem] items-center justify-center rounded-pill bg-primary px-1 text-[10px] font-semibold tabular-nums text-on-primary"
+          >{{ unreadCount > 9 ? '9+' : unreadCount }}</span
+        >
       </NuxtLink>
     </header>
 
     <!-- Mobile bottom tab bar -->
     <nav
-      v-if="user"
+      v-if="showShell"
       class="fixed bottom-0 left-0 right-0 z-30 border-t border-border bg-canvas pb-[env(safe-area-inset-bottom,0px)] lg:hidden"
     >
       <div class="flex h-16 items-center justify-around">
@@ -391,7 +427,7 @@ async function handleLogout() {
          marketing header — rendering both put two "Log in" links on / and made
          every role-based locator ambiguous. -->
     <header
-      v-if="!user && route.path !== '/'"
+      v-if="!showShell && !isChromelessRoute(route.path)"
       class="fixed left-0 right-0 top-0 z-30 flex h-14 items-center justify-between border-b border-border bg-canvas px-4 lg:px-8"
     >
       <NuxtLink to="/" class="flex items-center gap-2">
@@ -406,9 +442,9 @@ async function handleLogout() {
 
     <main
       :class="{
-        'pt-14 lg:pl-52 lg:pt-0': user,
-        'pt-14': !user && route.path !== '/',
-        'pb-20 lg:pb-0': user
+        'pt-14 lg:pl-52 lg:pt-0': showShell,
+        'pt-14': !showShell && !isChromelessRoute(route.path),
+        'pb-20 lg:pb-0': showShell
       }"
     >
       <slot />

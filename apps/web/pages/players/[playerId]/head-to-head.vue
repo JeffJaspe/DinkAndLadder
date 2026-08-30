@@ -50,21 +50,7 @@ function formatDate(dateStr: string): string {
 <template>
   <div class="min-h-screen bg-canvas p-4 lg:p-6">
     <div class="page-shell">
-      <!-- Back Button -->
-      <NuxtLink
-        to="/community"
-        class="inline-flex items-center gap-2 text-sm text-fg-muted hover:text-fg"
-      >
-        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            d="M15 19l-7-7 7-7"
-          />
-        </svg>
-        Back to Community
-      </NuxtLink>
+      <UiPageHeader to="/community" back-label="Community" />
 
       <!-- Loading -->
       <div v-if="pending" class="mt-6 space-y-4">

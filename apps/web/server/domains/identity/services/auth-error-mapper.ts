@@ -10,14 +10,30 @@ export interface MappedAuthError {
  * since Supabase's message wording isn't a stable contract and has changed
  * across versions; the code is.
  */
+/**
+ * Shared so the two routes into this outcome say the same thing. Supabase
+ * reports an existing address either as an error code (confirmations off) or,
+ * with confirmations on, as a silent decoy signup that registerWithPassword
+ * detects — see auth.service.ts. The copy names Google explicitly because the
+ * decoy carries no provider information, and an account created through
+ * "Continue with Google" has no password to log in with yet.
+ */
+export const EMAIL_ALREADY_REGISTERED: MappedAuthError = {
+  code: 'EMAIL_ALREADY_REGISTERED',
+  message:
+    'That email already has an account. Send yourself a reset link to set a password — or log in, or use "Continue with Google" if that is how you signed up.'
+}
+
 const AUTH_ERROR_MESSAGES: Record<string, MappedAuthError> = {
-  user_already_exists: {
-    code: 'EMAIL_ALREADY_REGISTERED',
-    message: 'That email is already registered. Try logging in instead.'
+  user_already_exists: EMAIL_ALREADY_REGISTERED,
+  email_exists: EMAIL_ALREADY_REGISTERED,
+  reauthentication_needed: {
+    code: 'REAUTH_REQUIRED',
+    message: 'For security, log in again before changing your password, then retry from Settings.'
   },
-  email_exists: {
-    code: 'EMAIL_ALREADY_REGISTERED',
-    message: 'That email is already registered. Try logging in instead.'
+  same_password: {
+    code: 'SAME_PASSWORD',
+    message: 'That is already your password. Choose a different one.'
   },
   weak_password: {
     code: 'WEAK_PASSWORD',

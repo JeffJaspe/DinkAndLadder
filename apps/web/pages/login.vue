@@ -1,11 +1,20 @@
 <script setup lang="ts">
+// Chromeless shell: these are the pages you reach when you cannot get into the
+// app, and the default layout would draw the whole sidebar around them. A
+// recovery link is a real session, so gating on the session alone wrapped the
+// password form in the full app and let every nav link out of the flow.
+definePageMeta({ layout: 'auth' })
+
 useHead({ title: 'Log in' })
 
 const { appName } = useBranding()
 
 const supabase = useSupabaseClient()
 const { public: publicConfig } = useRuntimeConfig()
-const email = ref('')
+// Prefilled when /register hands someone over here because their address
+// already has an account — retyping it would be pure friction.
+const route = useRoute()
+const email = ref(typeof route.query.email === 'string' ? route.query.email : '')
 const password = ref('')
 const turnstileToken = ref('')
 const turnstileWidget = ref<{ reset: () => void } | null>(null)

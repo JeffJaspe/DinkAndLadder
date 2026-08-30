@@ -1,5 +1,8 @@
 import { serverSupabaseUser } from '#supabase/server'
-import { BrandingServiceError, type HeroInput } from '~/server/domains/platform/services/branding.service'
+import {
+  BrandingServiceError,
+  type HeroInput
+} from '~/server/domains/platform/services/branding.service'
 import { apiError } from '~/server/utils/api-error'
 import { createBrandingServiceFor, invalidateBrandingCache } from '~/server/utils/branding'
 

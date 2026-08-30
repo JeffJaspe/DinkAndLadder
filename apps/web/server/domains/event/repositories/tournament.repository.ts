@@ -205,7 +205,8 @@ export function createTournamentRegistrationRepository(
 
       // `.is(null)` and `.eq(id)` are different scopes on purpose: the flat draw
       // of a category-less tournament must not collide with a real category.
-      query = categoryId === null ? query.is('category_id', null) : query.eq('category_id', categoryId)
+      query =
+        categoryId === null ? query.is('category_id', null) : query.eq('category_id', categoryId)
 
       const { data, error } = await query
       if (error) throw error

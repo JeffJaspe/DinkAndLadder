@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Club cover photo and logo.
+
+     clubs had no image column at all. pages/clubs/[clubId].vue renders
+     <UiCoverArt variant="banner" />, a banner generated deterministically from
+     the club's name, and its own comment says "there is no image column on
+     clubs, so this is generated from the name". That stays as the fallback -
+     a club that uploads nothing should still look finished.
+
+     Stored as bucket-relative PATHS rather than URLs, for the reason
+     025-platform-branding already documents: the URL shape depends on whether
+     the bucket is public, which is a deployment decision, not a property of the
+     row. Storing a URL bakes today's answer into every record.
+
+     Note this changeset does NOT touch clubs.slug. The column already exists
+     (003-club) with a unique constraint, and ClubRepository.findBySlug() is
+     already written - it simply had no caller and no route resolved it. That
+     gap is application-layer only. -->
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+    <changeSet id="040-add-club-branding-columns" author="claude">
+        <preConditions onFail="MARK_RAN">
+            <not><columnExists tableName="clubs" columnName="cover_photo_path"/></not>
+        </preConditions>
+        <addColumn tableName="clubs">
+            <!-- Both nullable: NULL means "use the generated cover art", which
+                 is what every existing club has and is a complete design on its
+                 own. A default here would make "never set" indistinguishable
+                 from "deliberately set to the same thing". -->
+            <column name="cover_photo_path" type="text">
+                <constraints nullable="true"/>
+            </column>
+            <column name="logo_path" type="text">
+                <constraints nullable="true"/>
+            </column>
+        </addColumn>
+        <rollback>
+            <dropColumn tableName="clubs" columnName="logo_path"/>
+            <dropColumn tableName="clubs" columnName="cover_photo_path"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="040-club-slug-format" author="claude">
+        <!-- The slug was validated only in application code
+             (server/api/v1/clubs/index.post.ts). Now that it is editable and
+             routable, a malformed one is a broken URL rather than a cosmetic
+             problem, so the rule belongs where it cannot be bypassed.
+
+             NOT VALID: existing rows are left alone. Enforcing retroactively
+             could fail the migration on a club created before the regex was
+             tightened, and breaking a deploy to reject a slug nobody has
+             complained about is the wrong trade. New and updated rows are
+             checked from here on. -->
+        <sql>
+            ALTER TABLE clubs
+                ADD CONSTRAINT ck_clubs_slug_format
+                CHECK (slug IS NULL OR slug ~ '^[a-z0-9]+(-[a-z0-9]+)*$')
+                NOT VALID;
+        </sql>
+        <rollback>
+            ALTER TABLE clubs DROP CONSTRAINT ck_clubs_slug_format;
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

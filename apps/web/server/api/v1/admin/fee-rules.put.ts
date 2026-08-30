@@ -50,7 +50,11 @@ export default defineEventHandler(async (event) => {
   // ladder comes back as a sentence instead of a constraint violation.
   const rules = body.rules.map((rule, index) => {
     if (rule.fee_type !== 'percentage' && rule.fee_type !== 'fixed') {
-      throw apiError(400, 'VALIDATION_ERROR', `Rule ${index + 1}: type must be percentage or fixed.`)
+      throw apiError(
+        400,
+        'VALIDATION_ERROR',
+        `Rule ${index + 1}: type must be percentage or fixed.`
+      )
     }
     if (typeof rule.value !== 'number' || rule.value < 0) {
       throw apiError(400, 'VALIDATION_ERROR', `Rule ${index + 1}: value must be zero or more.`)

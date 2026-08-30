@@ -49,6 +49,7 @@ function makeEventRecord(overrides?: Partial<EventRecord>): EventRecord {
     max_participants: null,
     queue_enabled: true,
     queue_courts: 4,
+    match_format: 'doubles',
     queue_mode: 'first_come',
     queue_skip_timeout_seconds: 120,
     created_by_player_id: 'organizer-1',
@@ -100,6 +101,7 @@ function createFakeRegistrationRepository(
     findRegisteredEventIds: vi.fn().mockResolvedValue(new Set<string>()),
     create: vi.fn(),
     updateStatus: vi.fn(),
+    reinstate: vi.fn(),
     checkIn: vi.fn(),
     withdraw: vi.fn(),
     ...overrides
@@ -118,7 +120,10 @@ function createFakeEventRepository(overrides?: Partial<EventRepository>): EventR
     countBlockingChildren: vi
       .fn()
       .mockResolvedValue({ registrations: 0, matches: 0, queueEntries: 0 }),
-    deleteWithChildren: vi.fn().mockResolvedValue(undefined),    countByClubForLimits: vi.fn().mockResolvedValue({ drafts: 0, liveTournaments: 0, liveOpenPlay: 0 }),
+    deleteWithChildren: vi.fn().mockResolvedValue(undefined),
+    countByClubForLimits: vi
+      .fn()
+      .mockResolvedValue({ drafts: 0, liveTournaments: 0, liveOpenPlay: 0 }),
     ...overrides
   }
 }

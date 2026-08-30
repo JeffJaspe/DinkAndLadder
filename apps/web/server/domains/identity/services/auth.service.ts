@@ -43,7 +43,14 @@ export interface PasswordAuthClient {
       email: string
       password: string
       options?: { emailRedirectTo?: string }
-    }): Promise<{ error: PasswordAuthError | null }>
+    }): Promise<{
+      // `identities` is the only way to tell a real signup from the decoy
+      // Supabase returns for an address that already has an account — see
+      // registerWithPassword. Typed loosely (and optionally) because nothing
+      // here reads the identity rows themselves, only how many came back.
+      data?: { user?: { identities?: unknown[] | null } | null } | null
+      error: PasswordAuthError | null
+    }>
     signInWithPassword(params: { email: string; password: string }): Promise<{
       data: { session: AuthSession | null }
       error: PasswordAuthError | null
@@ -70,15 +77,31 @@ export async function registerWithPassword(
   email: string,
   password: string,
   emailRedirectTo?: string
-): Promise<{ error: string | null; code: string | undefined }> {
-  const { error } = await client.auth.signUp({
+): Promise<{ error: string | null; code: string | undefined; alreadyRegistered: boolean }> {
+  const { data, error } = await client.auth.signUp({
     email,
     password,
     // Omitted rather than guessed when there is nothing to send: Supabase then
     // falls back to Site URL, which is exactly the previous behaviour.
     ...(emailRedirectTo ? { options: { emailRedirectTo } } : {})
   })
-  return { error: error?.message ?? null, code: error?.code }
+
+  // Signing up an address that already has an account does NOT error while
+  // email confirmations are on: Supabase's user-enumeration protection returns
+  // success with a decoy user — a throwaway id, no session, and an *empty*
+  // `identities` array — and sends no email at all. Reading only `error` (as
+  // this did originally) made that indistinguishable from a real signup, so the
+  // UI told people to check an inbox nothing had been sent to. A genuine new
+  // signup always comes back carrying one identity, so an empty array is the
+  // signal. The `user_already_exists` / `email_exists` codes in
+  // auth-error-mapper.ts cover the other configuration, where confirmations are
+  // off and Supabase errors outright instead.
+  const identities = data?.user?.identities
+  return {
+    error: error?.message ?? null,
+    code: error?.code,
+    alreadyRegistered: !error && Array.isArray(identities) && identities.length === 0
+  }
 }
 
 /**
@@ -100,4 +123,36 @@ export async function loginWithPassword(
 ): Promise<{ error: string | null; code: string | undefined; session: AuthSession | null }> {
   const { data, error } = await client.auth.signInWithPassword({ email, password })
   return { error: error?.message ?? null, code: error?.code, session: data?.session ?? null }
+}
+
+/**
+ * The slice of the auth namespace needed to set a password on the *current*
+ * session's user — kept separate from PasswordAuthClient so the register/login
+ * fakes don't have to grow a method they never call.
+ */
+export interface PasswordUpdateClient {
+  auth: {
+    updateUser(params: { password: string }): Promise<{ error: PasswordAuthError | null }>
+  }
+}
+
+/**
+ * Adds a password to an account, or replaces the one it has. Supabase treats
+ * both as the same call, and it attaches an `email` identity to a user that
+ * only had `google` — which is what makes one account reachable through both
+ * sign-in methods rather than becoming two accounts.
+ *
+ * Deliberately no "current password" argument. Supabase does not verify one
+ * here; the session itself is the proof of identity, and the project-level
+ * "Secure password change" setting is what escalates that to a reauthentication
+ * challenge (surfaced as `reauthentication_needed` — see auth-error-mapper.ts).
+ * Asking for a password the caller may not have would also lock out exactly the
+ * Google-only users this exists for.
+ */
+export async function setPassword(
+  client: PasswordUpdateClient,
+  password: string
+): Promise<{ error: string | null; code: string | undefined }> {
+  const { error } = await client.auth.updateUser({ password })
+  return { error: error?.message ?? null, code: error?.code }
 }

@@ -4379,3 +4379,881 @@ files), **894 unit tests passing** (was 884).
 The dashboard changes and both OAuth flows (Vercel and localhost) have not been
 driven in a browser yet, nor has a real signup email been checked from each
 environment.
+
+---
+
+## Post-MVP Enhancement Plan — Phase 1: auth, routing and navigation defects
+
+Status: **COMPLETE** (code + automated checks). Not yet driven in a browser —
+see "Still to verify live" below.
+
+Phase 1 of the phased enhancement plan (bugs first). Phases 2–5 (feed and
+shout-outs, club profile/settings, open-play courts, tournaments/sponsors) are
+NOT STARTED.
+
+### The root causes
+
+Five reported symptoms turned out to be four causes, none of which was where
+the symptom pointed.
+
+**1. There was no signed-in route guard at all.** `nuxt.config.ts` delegates all
+route protection to `@nuxtjs/supabase`'s `redirectOptions.exclude`, which is
+deny-by-default for signed-*out* users only. Nothing redirected a signed-*in*
+user away from `/`, `/login` or `/register`. `pages/index.vue` tried to handle
+its own case inside `<script setup>`, but `useSupabaseUser()` is empty on the
+SSR pass and only fills in client-side, so the redirect fired late or — on a
+hard URL load — not at all.
+
+**2. The app shell was drawn from the session alone.** Every block in
+`layouts/default.vue` was gated on `v-if="user"` and never consulted the route.
+A password-recovery link *is* a session, so the reset form arrived wrapped in
+the full sidebar and every nav item was an exit from the flow with the password
+still unchanged. On the landing page the same flag drew the sidebar *underneath*
+the page's own fixed marketing header — two sets of chrome.
+
+**3. Navigation had no feedback and was serialized.** There was no
+`<NuxtLoadingIndicator>`, no page transition, and no `lazy`/`useLazyFetch`
+anywhere in the app. Every page did consecutive top-level `await useFetch`,
+which suspends setup on each call before starting the next — so a page cost the
+*sum* of its queries rather than the slowest one, with nothing on screen
+changing meanwhile.
+
+**4. "You are already registered" with an empty roster was an RLS asymmetry,
+not duplicate detection.** `register.post.ts` checked for duplicates with the
+**service-role** client (RLS bypassed — sees every row), while
+`registrations.get.ts` listed with the **user** client *and* an inner join,
+`player_profiles!inner`. RLS policy `player_profiles_select_public`
+(008-security) exposes a profile only when `profile_visibility = 'public'`, so
+the inner join silently deleted the registration of anyone with a private
+profile. The organiser saw 0 registered; the player retrying got a 409.
+
+**5. (Found while fixing 4, not reported.)** `uq_event_registrations_event_player`
+is UNIQUE, and withdrawing leaves the row in place with `status = 'withdrawn'`.
+Registering again called `create()`, which violated the constraint and surfaced
+as a 500 — so withdraw-then-rejoin was broken for every event.
+
+### Files changed
+
+**New**
+- `apps/web/utils/route-groups.ts` — one declaration of guest/chromeless routes,
+  read by both the middleware and the layout so they cannot drift.
+- `apps/web/utils/recovery-lock.ts` — sessionStorage flag marking a session as
+  recovery-only. Fails *open*, so a storage error never strands anyone on the
+  password form.
+- `apps/web/middleware/guest-only.global.ts` — the missing signed-in guard, plus
+  the recovery trap.
+- `apps/web/layouts/auth.vue`, `apps/web/layouts/marketing.vue` — chromeless
+  shells.
+- `apps/web/components/ui/PageHeader.vue` — shared back affordance. Uses
+  `router.back()` when there is real history (returns you to the list you came
+  from, filters and scroll intact) and falls back to a declared `to` for deep
+  links.
+- `apps/web/tests/unit/route-groups.spec.ts` — 11 specs.
+
+**Modified**
+- `layouts/default.vue` — shell now gated on `showShell` (session **and**
+  route), not the session alone. Eight call sites.
+- `app.vue`, `nuxt.config.ts`, `assets/css/main.css` — loading indicator, 150ms
+  opacity page transition, `prefers-reduced-motion` honoured.
+- `pages/{login,register,reset-password,update-password,check-email,confirm,auth-error}.vue`
+  — `definePageMeta({ layout: 'auth' })`.
+- `pages/index.vue` — marketing layout; the late self-redirect removed.
+- `pages/update-password.vue` — the 10×300 ms `getUser()` poll (up to a 3-second
+  spinner) replaced with `onAuthStateChange` + immediate `getUser()` + a 3s
+  backstop; recovery lock set on entry and released on success or cancel;
+  "Back to sign in" now signs out rather than leaving a half-session behind.
+- `server/api/v1/events/[eventId]/registrations.get.ts` — service-role read
+  behind an explicit authorization check mirroring the RLS intent; left join;
+  a profile the caller may not see is **redacted, never dropped**.
+- `server/api/v1/events/[eventId]/register.post.ts` — duplicate check moved
+  *after* the event lookup (a bad event id used to answer "already registered"
+  instead of 404); withdrawn rows reinstated rather than re-inserted; the 409
+  now distinguishes registered from checked-in.
+- `server/domains/event/repositories/event-registration.repository.ts` — new
+  `reinstate()`, which clears `withdrawn_at` and refreshes `registered_at`
+  (queue order is first-come; keeping the old timestamp would hand back a place
+  that was given up).
+- Fetch parallelization — `pages/players/[playerId].vue` (6 SSR reads),
+  `pages/dashboard.vue` (7), `pages/club/[clubId]/dashboard.vue` (6) grouped
+  into `Promise.all`; 17 client-only (`server: false`) calls across 7 files had
+  their `await` dropped, since those never feed SSR and the `await` only
+  serialized them.
+- `PageHeader` rolled out to `events/[eventId]`, `clubs/[clubId]`,
+  `matches/[matchId]`, `matches/submit`, `players/[playerId]/head-to-head`
+  (the last replaced a hand-rolled inline `<svg>` link).
+
+### Database changes
+
+**None.** Phase 1 is application-layer only; no changeset was needed. Next free
+Liquibase prefix remains `036-`.
+
+### Validation
+
+`typecheck` clean, `eslint` 0 errors (8 pre-existing warnings in
+`PlayerCard.vue` / `Skeleton.vue`, untouched), `prettier` clean on every changed
+file, **923 unit tests passing** (was 912).
+
+### Still to verify live
+
+Nothing in this phase has been driven in a browser yet:
+- Signed in, hit `/`, `/login`, `/register` by URL — each should redirect to
+  `/dashboard` with no sidebar ever appearing over the landing page.
+- A full password reset from a real email link — no nav reachable until the
+  password is set; "Back to sign in" should sign out.
+- Register a player whose `profile_visibility` is `private` for an event and
+  confirm they appear in the roster.
+- Withdraw from an event, then register again — should succeed, not 500.
+
+### Newly discovered architectural decisions
+
+- **Redaction over omission on roster reads.** A registration is a fact about
+  the event; who the player is, is a fact about the player. Only the second is
+  private, so a non-public profile now returns a redacted player object rather
+  than removing the row. Any future service-role listing endpoint should re-apply
+  the visibility rule in application code the same way, since the service-role
+  client bypasses RLS entirely.
+- **Recovery sessions need an application-level flag.** Supabase exposes nothing
+  on the session object distinguishing a password-recovery session from a normal
+  one, so "this session may only set a password" has to be tracked by us.
+
+---
+
+## Post-MVP Enhancement Plan — Phase 2: feed, shout-outs, notifications, moderation
+
+Status: **COMPLETE** (code + automated checks). Migrations authored but **not yet
+applied to any live database**.
+
+### The root causes
+
+**1. The feature-flag system had no readers.** `composables/useFeatureFlags.ts`
+and `server/utils/feature-flags.ts` are both complete and correct, and
+`pages/admin/features.vue` is fully data-driven off the `feature_flags` table —
+but `isEnabled()` had **zero call sites** in the entire app, and only one key
+had ever been seeded. So the SuperAdmin toggle saved to the database and nothing
+anywhere read it. This is why turning achievements off changed nothing.
+
+**2. Notifications looked inert because of a silent contract mismatch.**
+`pages/notifications.vue` declared `is_read` and a free-form `data` bag. The API
+has never sent either — `toNotificationDto()` emits `read`, and the payload is a
+typed `reference_type`/`reference_id` pair. Both fields were permanently
+`undefined`, which disabled every unread ring, the "Mark all as read" button and
+all deep links. A third mismatch: the page read `unreadCount.count` while the
+endpoint returns `{ data: { unread_count } }`. **The notifications were being
+created correctly all along** — `match.verified` and `match.rejected` *are*
+emitted from `verification/decision.post.ts`, contrary to an earlier survey.
+
+**3. Feed prioritisation only ever reordered one page.**
+`ActivityService.reprioritize()` re-sorted the records it had already fetched —
+its own comment flags this as a known simplification, and it is a real one: at a
+page size of 20, an item that should lead the feed but sits at row 400 by
+timestamp never appears at all. Geo priority cannot be bolted onto that, because
+"your barangay first" is only meaningful across the whole result set.
+
+**4. Shout-out expiry already worked.** 020 gave `player_shoutouts` an
+`expires_at`, the service sets it on create *and* update, and reads filter on
+it. What was missing was housekeeping, phone-number rejection and event linking.
+
+**5. No moderation existed at any layer.** No table, endpoint, UI or
+notification type. "MODERATOR" in `club_memberships.role` is a *club* role and
+unrelated to platform moderation.
+
+### Database changes
+
+Four changesets, `db.changelog-master.xml` updated. Next free prefix: **`040-`**.
+
+- **`036-feature-flag-keys`** — seeds `achievements.enabled`. Because the admin
+  page is data-driven the switch appears with no page change. Seeded **on**:
+  achievements have been live since they shipped, so seeding off would silently
+  remove a working feature the moment the migration ran.
+- **`037-moderation`** — `player_reports` (reason/status CHECKs, a not-self
+  CHECK, a partial unique index giving one *open* report per reporter/target
+  pair, `(status, created_at)` for the queue). RLS lets a reporter insert and
+  read only their own rows; there is deliberately **no** policy letting the
+  reported player read rows about themselves, because the row names the
+  reporter. `reporter_player_id` is `ON DELETE SET NULL` so a deleted account
+  does not erase moderation history.
+- **`038-shoutout-event-link`** — nullable `event_id` (FK `ON DELETE SET NULL`:
+  deleting an event must not delete somebody's shout-out), a partial expiry
+  index, `fn_sweep_expired_shoutouts()` and an hourly pg_cron schedule. The cron
+  changeset is guarded by a `pg_available_extensions` precondition so it
+  `MARK_RAN`s on the plain postgres:16 that CI runs — the sweeper is hygiene, and
+  read-time filtering remains the correctness guarantee.
+- **`039-feed-geo-priority`** — `fn_feed_for_player(...)` scoring barangay 3,
+  city 2, province 1, else 0, with the old verified-club rule folded in as a
+  tiebreak and `created_at DESC` last. Ordering happens **before** LIMIT/OFFSET,
+  which is the entire point. Comparison is `lower(btrim(...))` because both
+  columns are free text. A NULL viewer id (signed out) scores 0 everywhere and
+  degrades to plain newest-first.
+
+### Files changed
+
+**New** — `server/utils/require-feature.ts`; `middleware/feature-achievements.ts`;
+`composables/useUnreadNotificationCount.ts`; the whole `server/domains/moderation`
+domain (dto/repository/service); `server/api/v1/players/[playerId]/report.post.ts`;
+`server/api/v1/admin/reports/{index.get,[reportId].patch}.ts`;
+`pages/admin/reports.vue`; `server/domains/shoutout/services/contact-info.ts`;
+`server/api/v1/players/me/linkable-events.get.ts`;
+`tests/unit/{contact-info,report.service}.spec.ts`.
+
+**Modified** — seven achievement/badge endpoints gated with `requireFeature`
+(404, not 403: with the feature off the resource does not exist, and 403 would
+confirm it does); `pages/players/[playerId].vue` (four achievement surfaces
+gated, plus the report action and modal); `layouts/default.vue` (achievements nav
+item, Reports nav item, unread badge on both bells); `pages/notifications.vue`
+(corrected to the DTO, deep links rebuilt off `reference_type`);
+`pages/feed.vue` (rewritten as a vertical stack); the activity
+repository/service/endpoint (geo feed); the shout-out DTO/repository/service
+(shared `validateMessage`, phone rejection, event link) and both write endpoints;
+`pages/dashboard.vue` (event picker, error display).
+
+### Two extra defects found and fixed
+
+- `pages/dashboard.vue` declared its **own** local `ShoutoutDto` that had already
+  drifted from the server type — the same class of bug as the notifications
+  mismatch. Replaced with an import of the real DTO.
+- The shout-out composer swallowed API errors entirely, so a rejected post left
+  the box full of text with no explanation. It now shows the message.
+
+### Tests added
+
+- `contact-info.spec.ts` — 23 specs. Catches `09171234567`, `+63…`, `0063…`, and
+  the separator and letter-substitution evasions (`O9I7 - I23 . 4567`). Just as
+  important, the negative cases: scores (`11-9, 11-7`), ratings (`4.25`), dates
+  and times, and court counts must all still post. `s`→`5` / `e`→`3` are
+  deliberately **not** folded, because they turn ordinary words into digits.
+- `report.service.spec.ts` — 14 specs, most of them about the privacy rule: the
+  warning notification must never contain the reporter's id, filing a report must
+  not notify the reported player, and `warn_player` must be ignored on a
+  dismissal.
+
+### Validation
+
+`typecheck` clean, `eslint` 0 errors (the same 8 pre-existing warnings in
+`PlayerCard.vue`/`Skeleton.vue`), `prettier` clean, **960 unit tests passing**
+(was 923).
+
+### Still to verify live
+
+**No migration in this phase has been applied to a database.** Run 036–039
+through CI's ephemeral postgres first (apply *and* rollback), then dev.
+- Toggle `achievements.enabled` off: achievements should vanish from the profile,
+  the nav, the standalone page, and the API should 404.
+- Post a shout-out containing a phone number in several formats.
+- Confirm the bell badge appears and notification deep links work.
+- File a report, warn from `/admin/reports`, and confirm the warning names the
+  reason and never the reporter.
+- Confirm the feed orders by proximity — this needs at least two players with
+  different `province`/`city`/`barangay` values.
+
+### Newly discovered architectural decisions
+
+- **Ordering that spans the result set belongs in SQL.** PostgREST cannot order
+  by a joined table's column, so any future "rank by something relational" work
+  should follow `fn_feed_for_player` rather than re-sorting a fetched page.
+- **Two DTOs where one of them is privileged.** `PlayerReportDto` structurally
+  cannot carry the reporter; `AdminPlayerReportDto` adds it. Leaking the reporter
+  takes a deliberate change of type rather than forgetting a `delete`.
+- **Client feature gates always need a server twin.** `require-feature.ts` is now
+  the pattern; a flag that only hides UI is not a gate.
+- **Locally re-declared DTOs are a recurring bug source.** Two were found in this
+  phase alone, one of which had silently broken a whole page. Import server DTOs
+  rather than restating them.
+
+---
+
+## Post-MVP Enhancement Plan — Phase 3: club profile and settings
+
+Status: **COMPLETE** (code + automated checks). Migration authored but **not yet
+applied to any live database**.
+
+### The root causes
+
+**1. Club URLs were UUIDs because nothing called the code that already existed.**
+`clubs.slug` has been present and unique-constrained since 003-club, and
+`ClubRepository.findBySlug()` was fully written — it simply had **no caller**,
+and no route ever resolved a slug. This was wiring, not a feature.
+
+**2. Upcoming vs previous events was split by status, not by date.**
+`loadClubEvents()` read upcoming = `published` + `active`, previous =
+`completed`. An event whose date had passed but which nobody marked complete
+stayed under "Upcoming" forever, and `cancelled` events appeared in **neither**
+list — a cancelled fixture simply vanished with no explanation.
+
+**3. Club rankings were singles-only because the page never asked.**
+`GET /api/v1/clubs/:id/rankings` has always accepted `?rating_type=doubles`. The
+card was hardcoded to singles and even labelled "By singles rating", so the
+format most club play actually happens in was unreachable.
+
+**4. Announcement colour came from `pinned` alone.** `announcement_type` —
+which already includes `urgent` and `maintenance` — had no colour treatment at
+all, so a court closure looked identical to a social post. The one highlight
+that did exist was a 10% wash that barely read on either theme.
+
+**5. There was no cover photo column and no club settings page.** `clubs` had no
+image column at all; the profile rendered `UiCoverArt`, a banner generated from
+the club name. The sidebar's "Club Settings" pointed at the *public* profile, and
+every edit happened through inline staff controls scattered across it.
+
+### Database changes
+
+**`040-club-branding`** (registered in `db.changelog-master.xml`). Next free
+prefix: **`041-`**.
+
+- `clubs.cover_photo_path`, `clubs.logo_path` — both nullable, both **paths**
+  rather than URLs, for the reason 025-platform-branding documents: the URL
+  shape depends on whether the bucket is public, which is a deployment decision.
+  NULL means "use the generated cover art", which is a finished design.
+- `ck_clubs_slug_format` — the slug regex was previously enforced only in
+  application code. Now that a slug is a routable address, a malformed one is a
+  broken URL. Added **`NOT VALID`**: existing rows are left alone, because
+  failing a deploy to reject a slug nobody has complained about is the wrong
+  trade. New and updated rows are checked.
+
+**Also fixed:** `CLUB_COLUMNS` in the repository is the select list for *every*
+club read, so the new columns had to be added there or they would have read as
+`undefined` everywhere rather than failing loudly.
+
+### Files changed
+
+**New**
+- `server/domains/club/dto/club-slug.ts` — slug rules shared by the create and
+  edit paths. Adds a reserved-word list (`admin`, `settings`, `clubs`, `api`,
+  `login`, `superadmin`, …) and a UUID-shape check.
+- `server/domains/club/services/club-branding.service.ts` — reuses the
+  platform's `BrandingAssetRepository` (same bucket, same public-vs-signed URL
+  logic) rather than growing a second storage path that could drift.
+- `server/api/v1/clubs/[clubId]/images/[slot].{post,delete}.ts`
+- `pages/club/[clubId]/settings.vue` — cover photo, logo, custom URL, details.
+- `components/club/AnnouncementCard.vue`
+- `tests/unit/club-slug.spec.ts` — 32 specs.
+
+**Modified**
+- `server/api/v1/clubs/[clubId].get.ts` — resolves by **shape**: a UUID is
+  looked up by id, anything else by slug. Both keep working forever rather than
+  redirecting, so a slug change never breaks a link already printed on a poster
+  or encoded in a QR code.
+- `server/api/v1/clubs/[clubId].patch.ts` — slug editing with a 409 on
+  `SLUG_TAKEN`. Also **fixed in passing**: `barangay`, `court_name` and
+  `court_address` were already on `UpdateClubInput` but the body parser never
+  accepted them, so they could not be edited at all.
+- `server/api/v1/clubs/index.post.ts` — now uses the shared slug rules; its
+  inline regex accepted reserved words like `admin` and `settings`.
+- `pages/clubs/[clubId].vue` — date-based event split, singles/doubles ranking
+  toggle, cover photo and logo rendering, announcements via the new component.
+- `layouts/default.vue` and `pages/club/[clubId]/dashboard.vue` — "Club
+  Settings" now points at the settings page rather than the public profile.
+
+### Design note on the announcement highlight
+
+The request was "easier to see but not too vivid". The fix is a **2px left
+rule** plus a `/15` tint, rather than a louder wash: an edge reads at a glance
+while staying quiet, so the colour does *less* work, not more. `pinned` keeps its
+own star mark rather than borrowing the type colour — "pinned" and "urgent" are
+different claims and a reader has to be able to tell which they are looking at.
+
+### Validation
+
+`typecheck` clean, `eslint` 0 errors (the same 8 pre-existing warnings),
+`prettier` clean, **992 unit tests passing** (was 960).
+
+One TypeScript subtlety worth recording: `$fetch(\`/api/v1/clubs/\${id}\`, { method: 'PATCH' })`
+fails to typecheck because the template literal also matches the GET-only literal
+routes (`/api/v1/clubs/mine`, `/api/v1/clubs/all`), so Nuxt intersects the
+allowed methods down to GET. Supplying an explicit response type selects the
+generic overload.
+
+### Still to verify live
+
+**`040` has not been applied to any database.** Run it through CI's ephemeral
+postgres (apply *and* rollback) before dev.
+- Visit a club by slug and by UUID — both must resolve to the same page.
+- Change a slug, then confirm the old UUID URL still works.
+- Try to claim a reserved slug (`admin`) and a taken one; both should be refused
+  with a readable message.
+- Upload a cover photo and a logo, then remove them and confirm the generated
+  cover art returns.
+- Confirm a past-dated `published` event moves to Previous, and that a cancelled
+  event now appears there rather than vanishing.
+- Toggle the club rankings between singles and doubles.
+- Post an `urgent` announcement and check contrast in both light and dark.
+
+### Newly discovered architectural decisions
+
+- **Resolve by shape, keep both addresses.** A slug change must never invalidate
+  a printed link, so the UUID route stays valid permanently instead of issuing a
+  redirect. Any future human-readable URL should follow the same rule.
+- **Reserved words are a routing concern, not a naming one.** A club at
+  `/clubs/settings` is only a problem the day someone adds that page — by which
+  time the club has the URL on a banner.
+- **Reuse the asset repository, not the pattern.** Club images share the
+  platform's bucket, signing rules and public-vs-private detection outright. A
+  parallel implementation would have duplicated the signed-URL lifetime logic and
+  let the two drift.
+
+---
+
+## Post-MVP Enhancement Plan — Phase 4: open play courts, live scoring, mixup
+
+Status: **COMPLETE** (code + automated checks). Migration authored but **not yet
+applied to any live database**.
+
+### The two blockers, and what they were
+
+**1. There was no way to start an event.** `UpdateEventInput` has no `status`
+field, so `'active'` was unreachable through the API — while check-in, the
+Record Match card and the withdraw/check-in branches **all** gated on
+`status === 'active'`. Every one of those paths was dead code. Nothing in the
+product could ever have reached them.
+
+**2. `event_courts` was dead schema.** The table has existed since 017 with
+`court_number`, `court_name`, `status`, `current_match_id` and
+`match_started_at`, and `EventCourtRecord`/`EventCourtDto` existed in
+`event.dto.ts` — with **no repository, service, endpoint or UI**. A "court" in
+practice was the integer `events.queue_courts` plus a free-text `court_number`
+on `event_queue`, which two entries could both claim with nothing noticing.
+
+### Database changes
+
+**`041-open-play-live`**. Next free prefix: **`042-`**.
+
+- `event_courts.live_score` (jsonb), `team1_queue_id`, `team2_queue_id`,
+  `live_score_updated_at`. The live score is deliberately **not** in
+  `match_scores`: an unfinished game is not a result, and a `matches` row
+  carries verification semantics (`submitted → pending_verification →
+  verified`). Writing a half-finished score there would create matches that look
+  submitted, feed the rating engine, and need verifying by players still on
+  court.
+- `events.match_format` (`singles`/`doubles`, default `doubles`). Tournaments
+  answer this via `tournaments.match_type`; open play never asked, so the queue
+  had to guess.
+- Indexes including a partial one on `status = 'playing'`, which is the hottest
+  read in the phase — every poll asks "is anything live here".
+- RLS on `event_courts`: reads as open as the event itself; **no INSERT/UPDATE
+  policy at all**, because scores are the one thing players must not write
+  directly. Every write goes through the service-role client behind an
+  organiser/club-staff check.
+
+### Files changed
+
+**New**
+- `server/domains/event/repositories/event-court.repository.ts` —
+  `ensureCourts` is idempotent, so starting, completing and restarting an event
+  cannot produce two sets of courts.
+- `server/domains/event/services/event-court.service.ts`
+- `server/domains/event/services/mixup-scheduler.ts` — pure function.
+- `server/utils/event-organizer.ts` — "organiser **or** club staff", mirroring
+  `assertCanReviewRegistrations`: a club night is run by whoever is on the desk,
+  not by whoever created the event a fortnight ago.
+- `server/api/v1/events/[eventId]/{start,complete}.post.ts`
+- `server/api/v1/events/[eventId]/courts/index.get.ts` and
+  `courts/[courtId]/{start.post,score.patch,submit.post}.ts`
+- `server/api/v1/events/[eventId]/queue/mixup.post.ts`
+- `composables/useLiveScores.ts`
+- `components/event/CourtCard.vue`
+- `tests/unit/mixup-scheduler.spec.ts` — 15 specs.
+
+**Modified** — `event.dto.ts` (live score types, court side DTOs,
+`match_format`), `event.service.ts` (`startEvent`/`completeEvent`),
+`event.repository.ts`, `pages/events/[eventId]/index.vue` (Start/End Event, a
+Courts tab, the LIVE dot, the court start modal, the Queue/Mixup toggle and
+preview), `pages/create-event.vue` (format choice, doubles first).
+
+### The mixup scheduler, and the bug the tests caught
+
+"Mixup" rotates partners **and** opponents so that, as far as possible, nobody
+partners the same person twice. It is a pure function — players, courts, rounds
+in, a schedule out — specifically so the hardest logic in the phase could be run
+a thousand times in a unit test rather than against a live session.
+
+The tests immediately caught a real inversion: sit-outs were sorted **ascending**
+by sit-out count, and since the players *taken* are `slice(0, playersPerRound)`,
+that benched the same two people every single round. Sorting descending is what
+"fewest sit-outs first" actually requires when you are selecting from the front.
+
+A single greedy pass reliably missed the canonical case (8 players, 2 courts, 7
+rounds), because one early arbitrary choice rules it out. Adding **best-of-24
+restarts** with derived seeds now produces a *perfect* rotation there — all 28
+possible pairings exactly once, which is `C(8,2)`. Restarts stay deterministic,
+so the preview an organiser approves is the schedule they get.
+
+The schedule is a **preview and writes nothing**. People arrive late, leave
+early and pull out with a bad ankle, so an evening's pairings committed to the
+database at 7pm is a liability by 8. Courts are still started one at a time.
+
+### Live scores: 30-second polling, not Realtime
+
+Per your decision. Two guards are what make polling reasonable rather than
+wasteful, and both live in `useLiveScores`:
+1. It only polls while a court is actually `playing` — a session that has not
+   started, or has finished, costs nothing.
+2. It stops while the tab is hidden, so a phone in a pocket is not asking.
+
+Everything goes through that one composable, so swapping to Realtime later is a
+single-file change.
+
+### Submit order, and why
+
+`submit.post.ts` frees the court **first**, then creates the match, then pulls
+the next pair on. If match creation fails the organiser is left with an empty
+court they can restart rather than a court permanently stuck on a game nobody
+can end. Failures are returned as `warnings` rather than swallowed, so the desk
+finds out while the players are still standing there.
+
+### Validation
+
+`typecheck` clean, `eslint` 0 errors (same 8 pre-existing warnings), `prettier`
+clean, **1007 unit tests passing** (was 992).
+
+### Still to verify live
+
+**`041` has not been applied to any database.**
+- Start an event, confirm courts appear and check-in becomes usable (it has
+  never been reachable before).
+- Start a court, add points, submit — confirm a real `matches` row is created
+  and the next queued pair loads automatically.
+- Open the event in a second browser and confirm the LIVE dot and score update
+  within 30 seconds, and that hiding the tab stops the polling.
+- Generate a mixup rotation with 8 players and check nobody repeats a partner.
+- End the event and confirm an unverified club can then publish another.
+
+### Newly discovered architectural decisions
+
+- **In-progress state does not belong in the result table.** A live score lives
+  on the court, not in `match_scores`, because a `matches` row means "this
+  happened and needs verifying". The same reasoning applies to the tournament
+  live scores in Phase 5.
+- **Running a session is a staff capability, not an ownership one.** Tying court
+  control to the event's creator stalls the evening the moment they step away.
+- **Pure functions for anything combinatorial.** The scheduler had a genuine
+  inversion bug that only a test could have found; keeping it free of
+  repositories and clocks is what made that test possible.
+
+---
+
+## Post-MVP Enhancement Plan — Phase 5: tournaments, fees, sponsors
+
+Status: **COMPLETE** (code + automated checks). Migration authored but **not yet
+applied to any live database**. This completes all five phases.
+
+### The root causes
+
+**1. Double elimination did not work.** `advanceWinner` bailed out with "the
+losers bracket (100+) and grand final (200) are not routed" — so winners
+advanced, **losers simply vanished**, and every losers-bracket match stayed a
+pair of TBDs that could never be filled. A "double elimination" draw was in
+practice a single elimination with an unreachable second half, and the grand
+final never received either participant: the winners final fell through
+`nextSlotFor` to a round that does not exist and was treated as "the final".
+
+**2. `tournament_categories.status` was never enforced.** `'closed'` and
+`'completed'` have always existed in the enum, but `EventService.register()`
+checked tournament status, `registration_closes`, band, capacity and duplicates
+— never the category's own status. The card's Open/Full/Complete label was
+*derived from the bracket*, so an organiser could close a category, watch the UI
+agree, and still take entries through a stale page or a direct call.
+
+**3. The header Register button was event-level on a tournament.** It posted to
+`/events/:id/register` for any `published|active` event regardless of type, so a
+player could be "registered for the weekend" without being in any draw.
+
+**4. The band warning replaced the Register button**, and the button only
+appeared once a category opened. A player looking at a category that had not
+opened could not tell whether they would even be *eligible* — and finding that
+out on the morning registration opens is the worst possible time.
+
+### Database changes
+
+**`042-sponsors`**.
+
+- `platform_sponsors` (label, `image_path`, `link_url`, `display_order`,
+  `enabled`) plus `platform_config.sponsors_heading`. A table rather than more
+  config columns because sponsors are many and ordered, where the hero is one —
+  but the section *heading* is a single value, so it sits with the hero fields.
+- Images as bucket-relative **paths**, per 025/026.
+- `enabled` exists so a lapsed sponsor can be hidden without deleting the row
+  and losing the image with it.
+- RLS: public read of enabled rows; **no write policy at all** — writes go
+  through the service-role client behind a SuperAdmin check.
+
+### Files changed
+
+**New** — `server/domains/platform/{dto/sponsor.dto.ts,repositories/sponsor.repository.ts,services/sponsor.service.ts}`;
+`server/utils/sponsors.ts`; `server/api/v1/platform/sponsors.get.ts`;
+`server/api/v1/admin/sponsors/*` (list, create, patch, delete, image upload);
+`pages/admin/sponsors.vue`; `pages/events/[eventId]/matches.vue`;
+`server/domains/event/services/registration-fee.ts`;
+`tests/unit/{double-elimination,sponsor}.spec.ts`.
+
+**Modified** — `bracket.service.ts` (losers/grand-final routing),
+`event.service.ts` (category status enforced), `CategoryCard.vue`,
+`CategorySection.vue`, `RegisterSummaryModal.vue`,
+`pages/events/[eventId]/index.vue`, `pages/index.vue`, `layouts/default.vue`.
+
+### The bracket fix
+
+Two new routing functions, and one deletion of a bail-out:
+
+- **`routeLoser`** — the half that was missing entirely. Round-1 losers pair into
+  losers round 1 by parity; round *r* losers (r ≥ 2) drop into losers round
+  `2r-2`, into slot 2. Slot 1 is reserved for whoever came *up* the losers
+  bracket, so a card always reads "survivor vs the person who just lost".
+- **`nextLosersSlot`** — the losers bracket alternates between a *minor* round
+  (survivors play each other, the field halves) and a *major* round (same size,
+  each survivor meets a winners-bracket dropdown), which is why one
+  "round+1, position/2" rule cannot describe it. Rather than recompute the
+  generator's arithmetic and risk the two drifting, it reads the **actual match
+  counts** of both rounds and picks the mapping that fits.
+- **`nextWinnersSlot`** — routes the winners finalist into the grand final.
+
+Called from **both** `updateBracketMatch` (the organiser override) and
+`recordMatchResult` (the real scoring path) — the second was easy to miss and is
+the one players actually go through.
+
+**Known limitation, deliberately not built:** a grand-final reset. A
+losers-bracket player who wins the grand final has only lost once, so a strict
+double elimination plays a decider — but the generator emits a single
+grand-final match, and inventing a round the draw does not contain would put a
+fixture on the schedule no view knows how to render.
+
+### Fee waiver — display only, per your decision
+
+`resolveFeeWaiver` runs **server-side** and the client renders what it is told.
+A price the browser calculates is a suggestion, not a price, and the whole
+reason `convenience-fee.ts` is shared is that the quote and the charge can never
+disagree. `OWNER`/`ADMIN` only, not `MODERATOR`: a moderator reviews
+registrations, they do not run the club's finances. Nothing is charged yet
+(webhooks still throw 501); this decides what a player is *told* and is the hook
+billing will read.
+
+### Tests added
+
+- `double-elimination.spec.ts` — 6 specs driving the **real service** against an
+  in-memory bracket repository, because the bug was in the routing *between*
+  matches, which no generator-shape assertion can see. Plays an 8-player draw to
+  a champion and asserts every losers match ends up with both participants.
+- `sponsor.spec.ts` — 10 specs, mostly on link safety: `javascript:`, `data:`,
+  `file:` and relative URLs are all refused, because that value is rendered as an
+  `href` on the public landing page.
+
+### Two existing tests changed, both deliberately
+
+- `event.service.spec.ts` — category fixtures gained `status: 'open'`. The
+  column is NOT NULL with default `'open'` (018), so a real record always has
+  one; the fixtures simply predated anything reading it.
+- `category-card.spec.ts` — "replaces Register with the reason" became "shows
+  the reason **and** a disabled Register". That test asserted the behaviour this
+  phase intentionally changed.
+
+### Validation
+
+`typecheck` clean, `eslint` 0 errors (same 8 pre-existing warnings), `prettier`
+clean, **1023 unit tests passing** (was 1007).
+
+### Still to verify live
+
+**`042` has not been applied to any database.**
+- Generate a **double-elimination** draw and play it to completion. This is the
+  highest-risk item in the whole plan: confirm losers land correctly, the grand
+  final fills from both sides, and a champion is declared.
+- Close a category and confirm the API refuses an entry, not just the UI.
+- Check a not-yet-open category shows a disabled Register *and* the band warning.
+- Register as a club owner for your own club's tournament and confirm ₱0 with
+  "Waived — club organizer".
+- Open `/events/:id/matches` on a second screen.
+- Add a sponsor with a logo and a link; confirm it appears on the landing page,
+  that hiding it removes it, and that a `javascript:` link is refused.
+
+### Newly discovered architectural decisions
+
+- **Read the data, don't re-derive the formula.** `nextLosersSlot` infers the
+  mapping from the actual match counts rather than recomputing the generator's
+  arithmetic. Any future format should route the same way — the alternative is
+  two copies of a formula that must agree forever.
+- **A status column that nothing reads is not a status.** `category.status` sat
+  unenforced through several releases while the UI derived a label that happened
+  to look right. Worth auditing the other status enums for the same pattern.
+- **Prices are server-side facts.** The waiver joins the fee ladder as something
+  the client displays rather than decides.
+
+---
+
+## Liquibase bookkeeping tables were world-writable (2026-08-30)
+
+Supabase's linter reported "RLS Disabled in Public" for
+`public.databasechangeloglock`. It is not a cosmetic finding. Verified against
+dev with nothing but the publishable anon key:
+
+- `GET  /rest/v1/databasechangeloglock` → `200 [{"id":1,"locked":false,...}]`
+- `GET  /rest/v1/databasechangelog`     → `200` with the full changeset history
+- `PATCH` and `DELETE` on the lock table → `204`
+
+Liquibase creates both tables in `public` as `postgres`, so Supabase's default
+privileges handed `anon`/`authenticated` full CRUD, and nothing had ever enabled
+RLS on them. Anyone holding the public key could set `locked = true` and wedge
+every future migration, or delete `databasechangelog` rows and make Liquibase
+re-run applied changesets against a live database.
+
+### Database changes
+
+**`044-liquibase-table-lockdown`**. Next free prefix: **`045-`**.
+
+- `REVOKE ALL` on both tables from `PUBLIC`, `anon`, `authenticated`,
+  `service_role` — no client, server or edge code reads them.
+- `ENABLE ROW LEVEL SECURITY` on both, with **no policies**: deny by absence, so
+  a future default-privilege grant still exposes zero rows.
+- Deliberately **not** `FORCE ROW LEVEL SECURITY`. Liquibase connects as the
+  tables' owner and an owner bypasses ordinary RLS — that is what keeps
+  migrations working. Under FORCE, the empty policy set would apply to the owner
+  too and Liquibase's release-lock `UPDATE` would match zero rows, silently.
+
+Moving the tables out of `public` via `liquibaseSchemaName` was considered and
+rejected: the move would have to `ALTER` the very lock table the running
+migration holds, so it cannot be done from inside a changeset, and doing it
+outside Liquibase means hand-run SQL against production.
+
+**Prod is still exposed until `db-migrate.yml` is dispatched against
+`db-production`.** Dev picks this up automatically on merge to `main`.
+
+---
+
+## Post-MVP Enhancement Plan — Phase 6: closing the outstanding items
+
+Status: **COMPLETE** (code + automated checks). Migration authored but **not yet
+applied to any live database**. Nothing from the original request list is now
+outstanding.
+
+This phase exists because an audit of Phases 1-5 against the original request
+found three items reported as done that were not, plus one limitation that had
+been deliberately deferred and one piece of dead code left behind.
+
+### What was actually still missing
+
+**1. Team-up notifications had a type but no emitter.** `team_up.invited` and
+`team_up.accepted` were added to `NotificationType` during the moderation work
+in Phase 2, and **nothing ever fired them**. Being added to somebody's roster —
+which lets them commit your evening by entering you for a session — announced
+itself nowhere.
+
+**2. Notifications were one undifferentiated stream.** Phase 2 fixed the broken
+plumbing (the `is_read`/`read` contract mismatch, the missing bell badge, the
+dead deep links) but did no filtering, so "did anyone ask to team up with me?"
+still meant scrolling past every rating recalculation.
+
+**3. Tournament live scoring did not exist.** Phase 5 fixed bracket
+*progression* and added the big-screen matches page, but only final-result entry
+(`result.post.ts`) was ever built. There was no way to show a score changing
+during a draw match — the thing the red LIVE label was supposed to point at.
+
+**4. Double elimination had no grand-final reset** (a known, documented
+limitation from Phase 5).
+
+**5. `ShoutoutService.getRecent()` / `findActiveWithPlayer()` were dead code** —
+Phase 2 said delete or wire them and did neither.
+
+### Database changes
+
+**`043-tournament-live-score`**.
+
+Note: `044-liquibase-table-lockdown` already exists in the tree from separate
+work and is registered after this one, so the next free prefix is **`045-`**.
+
+- `bracket_matches.live_score` (jsonb), `live_score_updated_at`, `started_at`.
+  Same reasoning as `event_courts.live_score` in 041: an unfinished game is not
+  a result, and writing a half-played score into `matches` would create rows
+  that look submitted, feed the rating engine, and need verifying by a pair
+  still on court.
+- `started_at` is a separate column rather than a new `status` value, because
+  `status` already carries the DRAW's state (pending/ready/completed/bye) and
+  overloading it would make `ready` ambiguous.
+- A partial index on live matches, which is what every poll asks about.
+
+### Files changed
+
+**New** — `utils/notification-categories.ts`;
+`server/api/v1/bracket-matches/[bracketMatchId]/{start.post,score.patch}.ts`.
+
+**Modified** — `players/[playerId]/team-up.post.ts` and
+`team-ups/[teamUpId]/respond.post.ts` (emitters); `pages/notifications.vue`
+(category tabs); `bracket.dto.ts`, `bracket.repository.ts`,
+`bracket.service.ts` (live score + reset routing); `utils/bracket-rounds.ts`
+(`GRAND_FINAL_RESET_ROUND`); `CategoryMatchRow.vue`, `CategoryMatches.vue`,
+`CategoryCard.vue`, `CategorySection.vue` (live controls and the event chain);
+`shoutout.{service,repository}.ts` (dead code removed).
+
+### Notification categories
+
+Four: Account, Clubs, Community, Warnings — derived from the type prefix rather
+than stored on the row. `notifications` has no category column, and adding one
+would mean a migration plus a backfill to express what the prefix already
+encodes. An unrecognised type falls into `account`, so a new type shows up
+somewhere rather than becoming silently unreachable.
+
+`match.*` and `rating.*` sit under Account deliberately: they are things that
+happened to *your record*, not social events. Filtering is client-side because
+the page is already fetched — a round trip per tab would be slower than the
+filter it replaces.
+
+### Tournament live scoring
+
+Mirrors the open-play court model exactly, including the ordering rule: starting
+a match is **not** recording a result. A started match has no winner and no
+`matches` row, so nothing has entered anybody's record; the result still goes
+through `recordMatchResult` and its verification semantics. Recording a result
+now also clears the live state, so a finished match stops claiming to be in
+progress.
+
+The per-point handler deliberately does **not** refresh the whole bracket: a
+draw refetch on every tap would make the scoreboard lag behind the person
+pressing the button.
+
+### The grand-final reset
+
+Round 201, generated with the draw rather than inserted when it becomes
+necessary — a bracket is a fixed set of rows that views render and organisers
+schedule, and materialising a fixture mid-tournament would mean every reader had
+to cope with the shape changing underneath it. It stays empty, and therefore
+renders as nothing, unless the losers-bracket entrant wins the grand final.
+
+`finalMatchOf()` now prefers the decider **only once it has a winner**, so the
+champion is read from the match that actually settled the title.
+
+### Two extra defects found and fixed
+
+- `NewBracketMatch` was spelled out inline in three places as
+  `Omit<BracketMatchRecord, 'id' | 'created_at'>`. Adding columns broke all of
+  them; the shape is now declared once in the DTO and shared by the repository
+  and the generators.
+- A JSDoc block in `bracket.repository.ts` had been orphaned from its
+  declaration by an earlier edit.
+
+### Validation
+
+`typecheck` clean, `eslint` 0 errors (the same 8 pre-existing warnings in
+`PlayerCard.vue`/`Skeleton.vue`), `prettier` clean, **1027 unit tests passing**
+(was 1023). The four new specs cover the reset: empty when the unbeaten finalist
+wins, seeded with both players when the challenger wins, settled on the decider,
+and exactly one decider slot per draw.
+
+### Still to verify live
+
+**`043` has not been applied to any database.**
+- Send a team-up request and accept it; confirm both notifications arrive and
+  that a *decline* sends nothing.
+- Check the notification tabs, including the per-tab unread counts.
+- Start a draw match, add points, and confirm a second browser sees the red LIVE
+  label and the running score. Submit the result and confirm the live state
+  clears.
+- Play a double elimination where the **losers-bracket** entrant wins the grand
+  final, and confirm the decider appears and settles the title. This is the
+  single highest-value manual check in the whole plan.
+
+### Newly discovered architectural decisions
+
+- **An enum value with no emitter is not a feature.** Two notification types sat
+  in the union for a whole phase looking implemented. Worth grepping the rest of
+  `NotificationType` for the same pattern before adding more.
+- **Derive categories from the type, not a column.** The prefix already encodes
+  the grouping; a column would need a migration, a backfill, and a second place
+  to keep in step.
+- **Declare "insert shape" types once.** `NewBracketMatch` broke in three files
+  the moment the table gained columns.

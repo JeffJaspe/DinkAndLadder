@@ -168,7 +168,7 @@ const {
 })
 
 // "Where am I?" is the first question anyone asks on a rankings page.
-const { data: myProfile } = await useFetch<PlayerProfileDto>('/api/v1/players/me', {
+const { data: myProfile } = useFetch<PlayerProfileDto>('/api/v1/players/me', {
   server: false
 })
 

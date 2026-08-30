@@ -214,7 +214,9 @@ function partnerLine(reg: TournamentRegistrationWithPlayerDto): string {
             class="rounded-lg border border-border-strong px-4 py-2 text-sm text-fg-secondary hover:bg-surface-2 disabled:opacity-50"
             @click="emit('generate')"
           >
-            {{ generating ? 'Generating…' : hasBracket ? 'Regenerate bracket' : 'Generate bracket' }}
+            {{
+              generating ? 'Generating…' : hasBracket ? 'Regenerate bracket' : 'Generate bracket'
+            }}
           </button>
 
           <button

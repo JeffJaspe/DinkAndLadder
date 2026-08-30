@@ -13,6 +13,35 @@ export interface BracketMatchRecord {
   scheduled_at: string | null
   created_at: string
   category_id: string | null
+  /**
+   * The score of a game in progress. See 043-tournament-live-score for why
+   * this is not written into match_scores: an unfinished game is not a
+   * result, and a matches row carries verification semantics.
+   */
+  live_score: LiveBracketScore[] | null
+  live_score_updated_at: string | null
+  /** Non-null once the match is actually being played. */
+  started_at: string | null
+}
+
+/**
+ * A bracket row as the generators emit it and the repository inserts it.
+ *
+ * The live-score columns are omitted alongside id/created_at: a freshly drawn
+ * match has never been played, so the database defaults (NULL) are the correct
+ * values, and requiring them would make every generator spell out three nulls
+ * on every literal it builds.
+ */
+export type NewBracketMatch = Omit<
+  BracketMatchRecord,
+  'id' | 'created_at' | 'live_score' | 'live_score_updated_at' | 'started_at'
+>
+
+/** One game of a bracket match while it is still being played. */
+export interface LiveBracketScore {
+  game_number: number
+  team1_score: number
+  team2_score: number
 }
 
 /**
@@ -70,6 +99,11 @@ export interface BracketMatchDto {
    * orientation yields nothing rather than a guess.
    */
   scores: BracketMatchScoreDto[]
+  /** In-progress score, when this match is being played right now. */
+  live_score: LiveBracketScore[] | null
+  started_at: string | null
+  /** Started, and no winner yet. What drives the red LIVE label. */
+  is_live: boolean
 }
 
 export function toBracketMatchDto(
@@ -94,7 +128,12 @@ export function toBracketMatchDto(
     category_id: record.category_id,
     participant1: resolve(record.participant1_registration_id),
     participant2: resolve(record.participant2_registration_id),
-    scores: scores?.get(record.id) ?? []
+    scores: scores?.get(record.id) ?? [],
+    live_score: record.live_score ?? null,
+    started_at: record.started_at ?? null,
+    // Started and undecided. A finished match keeps its started_at, so the
+    // winner check is what stops it claiming to be live forever.
+    is_live: !!record.started_at && !record.winner_registration_id
   }
 }
 

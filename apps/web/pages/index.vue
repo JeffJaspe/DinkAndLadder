@@ -3,7 +3,32 @@ import type { IconName } from '~/utils/icons'
 import type { EventDto } from '~/server/domains/event/dto/event.dto'
 import type { RankingEntryDto } from '~/server/domains/rating/dto/ranking.dto'
 
-const user = useSupabaseUser()
+// This page ships its own fixed marketing header. Under the default layout a
+// signed-in visitor got that header *and* the app sidebar - two sets of chrome
+// on one screen. middleware/guest-only.global.ts now redirects them away
+// before render; the marketing layout is what a signed-out visitor sees.
+definePageMeta({ layout: 'marketing' })
+
+/**
+ * Sponsors, controlled from the SuperAdmin console (042-sponsors).
+ *
+ * Lazy and non-blocking: the hero and the stat strip are what the page is
+ * for, and a logo row must never hold up first paint. An empty list hides the
+ * whole section, which is also what a platform with no sponsors shows - so
+ * there is no empty-state to design.
+ */
+interface Sponsor {
+  id: string
+  label: string
+  image_url: string | null
+  link_url: string | null
+}
+
+const { data: sponsorsData } = useLazyFetch<{ data: Sponsor[] }>('/api/v1/platform/sponsors', {
+  default: () => ({ data: [] as Sponsor[] })
+})
+
+const sponsors = computed(() => sponsorsData.value?.data ?? [])
 
 /**
  * Landing hero, overridable by the SuperAdmin (docs/30 §2.3).
@@ -39,11 +64,6 @@ function withAlpha(hex: string, alpha: number): string {
 /** Closes the url() a stray quote or paren could otherwise escape. */
 function cssUrl(url: string): string {
   return url.replace(/["'()\\]/g, encodeURIComponent)
-}
-
-// Redirect logged-in users immediately to avoid landing page flash
-if (user.value) {
-  await navigateTo('/dashboard', { replace: true })
 }
 
 type LandingTabId = 'home' | 'rankings' | 'events' | 'clubs' | 'players'
@@ -605,6 +625,43 @@ const stats = computed(() => ({
             </div>
           </div>
         </div>
+
+        <!-- Sponsors. Above the closing CTA rather than in the footer: the
+             people paying for the section should not be below the fold that
+             nobody scrolls to. Hidden entirely when there are none. -->
+        <section v-if="sponsors.length" class="mb-12">
+          <h2
+            class="mb-6 text-center text-caption font-semibold uppercase tracking-widest text-fg-muted"
+          >
+            Our sponsors
+          </h2>
+          <div class="flex flex-wrap items-center justify-center gap-6 sm:gap-10">
+            <component
+              :is="sponsor.link_url ? 'a' : 'div'"
+              v-for="sponsor in sponsors"
+              :key="sponsor.id"
+              :href="sponsor.link_url || undefined"
+              :target="sponsor.link_url ? '_blank' : undefined"
+              :rel="sponsor.link_url ? 'noopener noreferrer' : undefined"
+              class="flex flex-col items-center gap-2"
+              :class="sponsor.link_url ? 'transition-opacity hover:opacity-80' : ''"
+            >
+              <!-- The label is the alt text, which is why it is required on
+                   the row: a logo with no accessible name is invisible to a
+                   screen reader and unreadable when the image fails. -->
+              <img
+                v-if="sponsor.image_url"
+                :src="sponsor.image_url"
+                :alt="sponsor.label"
+                class="h-12 w-auto max-w-[10rem] object-contain sm:h-14"
+                loading="lazy"
+              />
+              <span v-else class="text-body-2 font-medium text-fg-secondary">
+                {{ sponsor.label }}
+              </span>
+            </component>
+          </div>
+        </section>
 
         <div
           class="relative overflow-hidden rounded-3xl bg-gradient-to-r from-primary to-primary-hover p-8 text-center shadow-raised sm:p-12"

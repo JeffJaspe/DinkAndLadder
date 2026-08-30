@@ -42,57 +42,141 @@ const route = useRoute()
 const user = useSupabaseUser()
 const playerId = computed(() => route.params.playerId as string)
 
-const {
-  data: profile,
-  pending,
-  error
-} = await useFetch<PlayerProfileDto>(() => `/api/v1/players/${playerId.value}`)
+/**
+ * Achievements are a switchable platform surface (feature_flags,
+ * 'achievements.enabled'). Turning it off in the SuperAdmin console used to do
+ * nothing at all — isEnabled() had no call sites anywhere in the app — so the
+ * toggle saved and the tab, the stat tile and the showcase badge all stayed.
+ *
+ * Hiding UI is all this does. The endpoints behind it are gated separately in
+ * server/utils/require-feature.ts, because a client cannot be trusted to
+ * withhold data it was already sent.
+ */
+const { isEnabled } = useFeatureFlags()
+const achievementsEnabled = computed(() => isEnabled('achievements.enabled'))
 
-const { data: ratings } = await useFetch<{
+/**
+ * The six server-rendered reads for this profile, fired together.
+ *
+ * These were six consecutive top-level `await useFetch` calls, so setup
+ * suspended on each before starting the next and the profile took as long as
+ * all six queries added up — the single slowest page in the app. They still
+ * await (a public profile has to render server-side for SEO), just at once.
+ *
+ * Header stats row and the Stats tab used to be hardcoded mock numbers (124 matches,
+ * 68% win rate, etc.) — identical no matter which player's profile you opened. Both of
+ * these, plus the rating-history chart and activity feed below, now come from the real
+ * per-player analytics/activity endpoints, which already enforce the profile's public
+ * visibility server-side.
+ */
+const profileQuery = useFetch<PlayerProfileDto>(() => `/api/v1/players/${playerId.value}`)
+const ratingsQuery = useFetch<{
   singles: PlayerRatingDto | null
   doubles: PlayerRatingDto | null
 }>(() => `/api/v1/players/${playerId.value}/ratings`)
-
-const { data: achievementsData } = await useFetch<{ achievements: PlayerAchievement[] }>(
+const achievementsQuery = useFetch<{ achievements: PlayerAchievement[] }>(
   () => `/api/v1/players/${playerId.value}/achievements`
 )
-
-// Header stats row and the Stats tab used to be hardcoded mock numbers (124 matches,
-// 68% win rate, etc.) — identical no matter which player's profile you opened. Both of
-// these, plus the rating-history chart and activity feed below, now come from the real
-// per-player analytics/activity endpoints, which already enforce the profile's public
-// visibility server-side.
-const { data: stats } = await useFetch<PlayerStatsDto>(
-  () => `/api/v1/players/${playerId.value}/stats`
-)
-
-const { data: ratingHistoryData } = await useFetch<{ history: RatingHistoryPointDto[] }>(
+const statsQuery = useFetch<PlayerStatsDto>(() => `/api/v1/players/${playerId.value}/stats`)
+const ratingHistoryQuery = useFetch<{ history: RatingHistoryPointDto[] }>(
   () => `/api/v1/players/${playerId.value}/rating-history`,
   { query: { type: 'singles', days: 180 } }
 )
-
-const { data: activitiesData } = await useFetch<{ activities: ActivityDto[] }>(
+const activitiesQuery = useFetch<{ activities: ActivityDto[] }>(
   () => `/api/v1/players/${playerId.value}/activities`,
   { query: { limit: 10 } }
 )
 
-const { data: badgeData } = await useFetch<{ data: SelectedBadge | null }>(
+await Promise.all([
+  profileQuery,
+  ratingsQuery,
+  achievementsQuery,
+  statsQuery,
+  ratingHistoryQuery,
+  activitiesQuery
+])
+
+const { data: profile, pending, error } = profileQuery
+const { data: ratings } = ratingsQuery
+const { data: achievementsData } = achievementsQuery
+const { data: stats } = statsQuery
+const { data: ratingHistoryData } = ratingHistoryQuery
+const { data: activitiesData } = activitiesQuery
+
+const { data: badgeData } = useFetch<{ data: SelectedBadge | null }>(
   () => `/api/v1/players/${playerId.value}/badge`,
   { server: false }
 )
 
-const { data: myProfile } = await useFetch<PlayerProfileDto | null>('/api/v1/players/me', {
+const { data: myProfile } = useFetch<PlayerProfileDto | null>('/api/v1/players/me', {
   server: false
 })
 
 const isOwnProfile = computed(() => myProfile.value?.id === playerId.value)
+
+/**
+ * Reporting a player.
+ *
+ * Blocking already existed, but it is a private one-way mute: it hides someone
+ * from you and tells nobody that anything happened. There was no way at all to
+ * escalate behaviour to the platform. This goes to the SuperAdmin queue.
+ *
+ * The reported player is deliberately NOT notified at this point - a report is
+ * an accusation until a moderator has looked at it, and announcing it on submit
+ * would turn the button into the harassment tool it exists to answer.
+ */
+const REPORT_REASONS: { value: string; label: string }[] = [
+  { value: 'harassment', label: 'Harassment or abusive behaviour' },
+  { value: 'cheating', label: 'Cheating during play' },
+  { value: 'fake_scores', label: 'Submitting false scores' },
+  { value: 'no_show', label: 'Repeatedly not turning up' },
+  { value: 'inappropriate_content', label: 'Inappropriate content' },
+  { value: 'impersonation', label: 'Impersonating someone else' },
+  { value: 'spam', label: 'Spam or unwanted promotion' },
+  { value: 'other', label: 'Something else' }
+]
+
+const reportOpen = ref(false)
+const reportReason = ref('')
+const reportDetails = ref('')
+const reportLoading = ref(false)
+const reportError = ref('')
+
+function openReport() {
+  reportReason.value = ''
+  reportDetails.value = ''
+  reportError.value = ''
+  reportOpen.value = true
+}
+
+async function submitReport() {
+  if (!reportReason.value) {
+    reportError.value = 'Pick a reason first.'
+    return
+  }
+  reportLoading.value = true
+  reportError.value = ''
+  try {
+    await $fetch(`/api/v1/players/${playerId.value}/report`, {
+      method: 'POST',
+      body: { reason: reportReason.value, details: reportDetails.value.trim() || null }
+    })
+    reportOpen.value = false
+    useToast().success('Report submitted. The moderation team will review it.')
+  } catch (err) {
+    const fetchError = err as { data?: { message?: string } }
+    reportError.value = fetchError.data?.message ?? 'Could not submit the report.'
+  } finally {
+    reportLoading.value = false
+  }
+}
 
 // match_participants/matches RLS restricts raw match rows to participants only — there's
 // no public policy for browsing another player's individual match history, only for
 // aggregate stats (fetched above). So real match data is only ever shown for your own
 // profile; viewing someone else's shows an honest "private" message instead of the old
 // fake match list every profile used to display.
-const { data: myMatchesData, execute: fetchMyMatches } = await useFetch<{ data: MatchSummary[] }>(
+const { data: myMatchesData, execute: fetchMyMatches } = useFetch<{ data: MatchSummary[] }>(
   '/api/v1/players/me/matches',
   { query: { limit: 10 }, immediate: false, server: false }
 )
@@ -118,12 +202,12 @@ interface PartnerRequestDto {
   status: string
 }
 
-const { data: partnersData, refresh: refreshPartners } = await useFetch<{ data: PartnerDto[] }>(
+const { data: partnersData, refresh: refreshPartners } = useFetch<{ data: PartnerDto[] }>(
   '/api/v1/players/me/partners',
   { server: false }
 )
 
-const { data: outgoingRequests, refresh: refreshOutgoing } = await useFetch<{
+const { data: outgoingRequests, refresh: refreshOutgoing } = useFetch<{
   data: PartnerRequestDto[]
 }>('/api/v1/players/me/partner-requests/outgoing', { server: false })
 
@@ -134,7 +218,7 @@ const { data: outgoingRequests, refresh: refreshOutgoing } = await useFetch<{
  * as Duo Partner" and pressing it failed with INCOMING_REQUEST_EXISTS — the
  * server telling the user to accept an invitation the page never showed them.
  */
-const { data: incomingRequests, refresh: refreshIncoming } = await useFetch<{
+const { data: incomingRequests, refresh: refreshIncoming } = useFetch<{
   data: PartnerRequestDto[]
 }>('/api/v1/players/me/partner-requests/incoming', { server: false })
 
@@ -169,7 +253,7 @@ const partnerLoading = ref(false)
  * beside it rather than in place of it. Directional, so the question is only
  * ever "is this player on MY team", never the reverse.
  */
-const { data: myTeamData, refresh: refreshTeam } = await useFetch<{
+const { data: myTeamData, refresh: refreshTeam } = useFetch<{
   team: { id: string; player_id: string; status: string }[]
 }>('/api/v1/players/me/team', {
   server: false,
@@ -210,19 +294,19 @@ async function leaveTeam() {
   }
 }
 
-const PROFILE_TABS = [
+const PROFILE_TABS = computed(() => [
   { value: 'overview', label: 'Overview' },
   { value: 'matches', label: 'Matches' },
   { value: 'stats', label: 'Stats' },
-  { value: 'achievements', label: 'Achievements' },
+  ...(achievementsEnabled.value ? [{ value: 'achievements', label: 'Achievements' }] : []),
   { value: 'activity', label: 'Activity' },
   { value: 'clubs', label: 'Clubs' }
-]
+])
 
 // Seeded from `?tab=` so a linked tab opens on that tab; UiTabs keeps the query
 // in sync from there.
 const activeTab = ref<string>(
-  PROFILE_TABS.some((t) => t.value === route.query.tab) ? String(route.query.tab) : 'overview'
+  PROFILE_TABS.value.some((t) => t.value === route.query.tab) ? String(route.query.tab) : 'overview'
 )
 
 const { data: clubsData } = await useFetch<{
@@ -470,9 +554,12 @@ function formatActivityText(activity: ActivityDto): string {
             <div>
               <div class="flex items-center gap-2">
                 <h1 class="text-2xl font-bold text-fg">{{ profile.display_name }}</h1>
-                <span v-if="selectedBadge" :title="selectedBadge.name" class="text-xl">{{
-                  selectedBadge.icon
-                }}</span>
+                <span
+                  v-if="achievementsEnabled && selectedBadge"
+                  :title="selectedBadge.name"
+                  class="text-xl"
+                  >{{ selectedBadge.icon }}</span
+                >
               </div>
               <p v-if="profile.city || profile.province" class="mt-1 text-sm text-fg-muted">
                 {{ [profile.city, profile.province].filter(Boolean).join(', ') }}
@@ -571,6 +658,17 @@ function formatActivityText(activity: ActivityDto): string {
               >
                 {{ teamLoading ? '...' : 'Team Up' }}
               </button>
+
+              <!-- Quiet on purpose. Reporting is a last resort, not a peer of
+                   "Team Up", and giving it equal weight invites use as a
+                   reaction to losing a match. -->
+              <button
+                type="button"
+                class="mt-1 text-caption text-fg-muted underline-offset-2 transition-colors hover:text-danger hover:underline"
+                @click="openReport"
+              >
+                Report this player
+              </button>
             </template>
           </div>
         </div>
@@ -591,7 +689,7 @@ function formatActivityText(activity: ActivityDto): string {
             </p>
             <p class="text-xs text-fg-muted">W - L</p>
           </div>
-          <div class="text-center">
+          <div v-if="achievementsEnabled" class="text-center">
             <p class="text-xl font-bold text-fg">{{ stats?.achievements_count ?? 0 }}</p>
             <p class="text-xs text-fg-muted">Achievements</p>
           </div>
@@ -712,7 +810,7 @@ function formatActivityText(activity: ActivityDto): string {
         </template>
 
         <!-- Achievements Tab -->
-        <template v-if="activeTab === 'achievements'">
+        <template v-if="activeTab === 'achievements' && achievementsEnabled">
           <div class="rounded-xl bg-surface p-5 shadow-card">
             <h3 class="mb-4 text-sm font-medium text-fg">Achievements</h3>
             <div v-if="achievements.length > 0" class="grid grid-cols-2 gap-3 sm:grid-cols-3">
@@ -799,5 +897,64 @@ function formatActivityText(activity: ActivityDto): string {
         </template>
       </div>
     </div>
+
+    <!-- Report modal. hide-actions because the footer needs a disabled state
+         driven by the reason select, which the built-in row cannot express. -->
+    <UiModal
+      v-model="reportOpen"
+      title="Report this player"
+      description="Reports go to the platform moderation team. The player is not told who reported them."
+      hide-actions
+    >
+      <div class="space-y-4">
+        <div>
+          <label for="report-reason" class="mb-1.5 block text-sm font-medium text-fg-secondary">
+            Reason
+          </label>
+          <select
+            id="report-reason"
+            v-model="reportReason"
+            class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+          >
+            <option value="" disabled>Pick a reason…</option>
+            <option v-for="r in REPORT_REASONS" :key="r.value" :value="r.value">
+              {{ r.label }}
+            </option>
+          </select>
+        </div>
+
+        <div>
+          <label for="report-details" class="mb-1.5 block text-sm font-medium text-fg-secondary">
+            What happened? <span class="text-fg-muted">(optional)</span>
+          </label>
+          <textarea
+            id="report-details"
+            v-model="reportDetails"
+            rows="4"
+            maxlength="1000"
+            placeholder="Dates, events or matches help the moderator a lot."
+            class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+          />
+          <p class="mt-1 text-xs text-fg-muted">{{ reportDetails.length }}/1000</p>
+        </div>
+
+        <p v-if="reportError" class="rounded-lg bg-danger/10 px-4 py-3 text-sm text-danger">
+          {{ reportError }}
+        </p>
+
+        <div class="flex justify-end gap-2">
+          <UiButton variant="ghost" :disabled="reportLoading" @click="reportOpen = false">
+            Cancel
+          </UiButton>
+          <UiButton
+            variant="danger"
+            :disabled="reportLoading || !reportReason"
+            @click="submitReport"
+          >
+            {{ reportLoading ? 'Submitting…' : 'Submit report' }}
+          </UiButton>
+        </div>
+      </div>
+    </UiModal>
   </div>
 </template>

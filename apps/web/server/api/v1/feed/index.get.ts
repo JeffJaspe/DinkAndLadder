@@ -1,14 +1,9 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import {
-  serverSupabaseClient,
-  serverSupabaseServiceRole,
-  serverSupabaseUser
-} from '#supabase/server'
+import { serverSupabaseClient, serverSupabaseUser } from '#supabase/server'
 import { createActivityRepository } from '~/server/domains/activity/repositories/activity.repository'
 import { createRelationshipRepository } from '~/server/domains/social/repositories/relationship.repository'
 import { createActivityService } from '~/server/domains/activity/services/activity.service'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
-import { createClubMembershipRepository } from '~/server/domains/club/repositories/club-membership.repository'
 import { createClubRepository } from '~/server/domains/club/repositories/club.repository'
 import type {
   ActivityDto,
@@ -16,8 +11,51 @@ import type {
   FeedQuery
 } from '~/server/domains/activity/dto/activity.dto'
 
+interface LinkedEvent {
+  id: string
+  name: string
+  start_date: string | null
+  city: string | null
+  venue: string | null
+}
+
 interface EnrichedActivity extends ActivityDto {
   actor_display_name: string
+  /** Present when a shout-out was posted against an event. */
+  event?: LinkedEvent | null
+}
+
+/**
+ * Resolve the events shout-outs point at, in one round trip for the whole page.
+ *
+ * The id rides in the activity metadata (see ActivityLogger.logShoutout), so
+ * this is a lookup rather than a join - and an event that has since been
+ * deleted simply resolves to nothing, leaving the message to stand on its own.
+ */
+async function attachLinkedEvents(
+  client: SupabaseClient,
+  activities: EnrichedActivity[]
+): Promise<EnrichedActivity[]> {
+  const eventIds = [
+    ...new Set(
+      activities
+        .map((a) => (a.metadata as Record<string, unknown> | null)?.event_id)
+        .filter((id): id is string => typeof id === 'string')
+    )
+  ]
+  if (eventIds.length === 0) return activities
+
+  const { data } = await client
+    .from('events')
+    .select('id, name, start_date, city, venue')
+    .in('id', eventIds)
+
+  const byId = new Map(((data ?? []) as LinkedEvent[]).map((e) => [e.id, e]))
+
+  return activities.map((a) => {
+    const id = (a.metadata as Record<string, unknown> | null)?.event_id
+    return typeof id === 'string' ? { ...a, event: byId.get(id) ?? null } : a
+  })
 }
 
 async function enrichWithDisplayNames(
@@ -44,27 +82,6 @@ async function enrichWithDisplayNames(
   }))
 }
 
-async function getCirclePlayerIds(client: SupabaseClient, playerId: string): Promise<string[]> {
-  const { data: myParticipations } = await client
-    .from('match_participants')
-    .select('match_id, team_number')
-    .eq('player_id', playerId)
-
-  if (!myParticipations || myParticipations.length === 0) return []
-
-  const matchIds = myParticipations.map((p: { match_id: string }) => p.match_id)
-
-  const { data: allParticipants } = await client
-    .from('match_participants')
-    .select('player_id')
-    .in('match_id', matchIds)
-    .neq('player_id', playerId)
-
-  if (!allParticipants) return []
-
-  return [...new Set(allParticipants.map((p: { player_id: string }) => p.player_id))]
-}
-
 export default defineEventHandler(async (event) => {
   const user = await serverSupabaseUser(event)
 
@@ -82,29 +99,29 @@ export default defineEventHandler(async (event) => {
   const clubRepo = createClubRepository(client)
   const service = createActivityService(activityRepo, relationshipRepo, clubRepo)
 
-  if (!user) {
-    const activities = await service.getPublicFeed(query)
-    const enriched = await enrichWithDisplayNames(client, activities)
-    return { activities: enriched }
+  /**
+   * One feed for everyone, ordered by proximity.
+   *
+   * This used to build a personalised feed from the follow graph plus a
+   * "circle" of past opponents, which meant a new player with no follows saw
+   * almost nothing - precisely the person who most needs to find a game. The
+   * feed is now everyone's public activity, ordered nearest-first (barangay,
+   * then city, then province) by fn_feed_for_player.
+   *
+   * A signed-out visitor passes a null player id and gets the same feed with
+   * every geo score at 0, i.e. plain newest-first.
+   */
+  let viewerPlayerId: string | null = null
+  if (user) {
+    const playerRepo = createPlayerProfileRepository(client)
+    const profile = await playerRepo.findByUserId(user.sub)
+    viewerPlayerId = profile?.id ?? null
   }
 
-  const playerRepo = createPlayerProfileRepository(client)
-  const profile = await playerRepo.findByUserId(user.sub)
-
-  if (!profile) {
-    const activities = await service.getPublicFeed(query)
-    const enriched = await enrichWithDisplayNames(client, activities)
-    return { activities: enriched }
-  }
-
-  const membershipRepo = createClubMembershipRepository(client)
-  const memberships = await membershipRepo.listOwnWithClub(profile.id)
-  const clubIds = memberships.filter((m) => m.status === 'active').map((m) => m.club_id)
-
-  const serviceRoleClient = serverSupabaseServiceRole(event)
-  const circlePlayerIds = await getCirclePlayerIds(serviceRoleClient, profile.id)
-
-  const activities = await service.getPersonalizedFeed(profile.id, clubIds, query, circlePlayerIds)
-  const enriched = await enrichWithDisplayNames(client, activities)
+  const activities = await service.getGeoFeed(viewerPlayerId, query)
+  const enriched = await attachLinkedEvents(
+    client,
+    await enrichWithDisplayNames(client, activities)
+  )
   return { activities: enriched }
 })

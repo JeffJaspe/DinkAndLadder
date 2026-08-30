@@ -9,6 +9,8 @@ import {
   createTeamUpService,
   TeamUpServiceError
 } from '~/server/domains/partnership/services/team-up.service'
+import { createNotificationRepository } from '~/server/domains/notification/repositories/notification.repository'
+import { createNotificationService } from '~/server/domains/notification/services/notification.service'
 import { apiError } from '~/server/utils/api-error'
 
 /**
@@ -34,10 +36,32 @@ export default defineEventHandler(async (event) => {
     throw apiError(400, 'VALIDATION_ERROR', 'An accept boolean is required.')
   }
 
-  const service = createTeamUpService(createTeamUpRepository(serverSupabaseServiceRole(event)))
+  const serviceClient = serverSupabaseServiceRole(event)
+  const service = createTeamUpService(createTeamUpRepository(serviceClient))
 
   try {
     const request = await service.respond(profile.id, teamUpId, body.accept)
+
+    // Only an acceptance is announced. A decline is a private answer, and
+    // telling somebody they were turned down invites them to ask why — the
+    // partner-request flow makes the same choice for the same reason.
+    if (body.accept) {
+      const owner = await createPlayerProfileRepository(serviceClient).findById(
+        request.owner_player_id
+      )
+      if (owner) {
+        const notifications = createNotificationService(createNotificationRepository(serviceClient))
+        await notifications.notify({
+          user_id: owner.user_id,
+          type: 'team_up.accepted',
+          title: 'Team-up accepted',
+          body: `${profile.display_name} joined your team. You can now enter them for open play sessions.`,
+          reference_type: 'team_up',
+          reference_id: request.id
+        })
+      }
+    }
+
     return { data: request, request_id: crypto.randomUUID() }
   } catch (err) {
     if (err instanceof TeamUpServiceError) throw apiError(err.status, err.code, err.message)

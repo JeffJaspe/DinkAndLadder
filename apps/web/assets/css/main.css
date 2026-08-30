@@ -126,3 +126,25 @@ body {
     transform: translateX(0);
   }
 }
+
+/* Page transition (nuxt.config.ts app.pageTransition).
+   Opacity only — a transform here would fight the fixed sidebar and the
+   mobile bottom bar, both of which live outside the transitioning element. */
+.page-enter-active,
+.page-leave-active {
+  transition: opacity 150ms ease;
+}
+
+.page-enter-from,
+.page-leave-to {
+  opacity: 0;
+}
+
+/* A cross-fade on every navigation is exactly the kind of motion people turn
+   off. The loading indicator still reports progress, so nothing is lost. */
+@media (prefers-reduced-motion: reduce) {
+  .page-enter-active,
+  .page-leave-active {
+    transition: none;
+  }
+}

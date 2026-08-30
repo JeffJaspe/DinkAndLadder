@@ -183,7 +183,12 @@ export function createBrandingService(
 
       if (input.overlay_opacity !== undefined) {
         const opacity = input.overlay_opacity
-        if (typeof opacity !== 'number' || !Number.isFinite(opacity) || opacity < 0 || opacity > 1) {
+        if (
+          typeof opacity !== 'number' ||
+          !Number.isFinite(opacity) ||
+          opacity < 0 ||
+          opacity > 1
+        ) {
           throw new BrandingServiceError(
             400,
             'VALIDATION_ERROR',

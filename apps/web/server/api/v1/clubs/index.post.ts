@@ -5,6 +5,7 @@ import { createClubService } from '~/server/domains/club/services/club.service'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
 import { apiError } from '~/server/utils/api-error'
 import type { ClubVisibility, CreateClubInput } from '~/server/domains/club/dto/club.dto'
+import { slugProblemMessage, validateSlug } from '~/server/domains/club/dto/club-slug'
 
 function parseCreateInput(body: unknown): CreateClubInput {
   if (typeof body !== 'object' || body === null) {
@@ -15,11 +16,20 @@ function parseCreateInput(body: unknown): CreateClubInput {
   if (typeof record.name !== 'string' || record.name.trim().length === 0) {
     throw apiError(400, 'VALIDATION_ERROR', 'name is required.')
   }
-  if (typeof record.slug !== 'string' || !/^[a-z0-9]+(-[a-z0-9]+)*$/.test(record.slug)) {
-    throw apiError(400, 'VALIDATION_ERROR', 'slug is required and must be lowercase-kebab-case.')
+  if (typeof record.slug !== 'string') {
+    throw apiError(400, 'VALIDATION_ERROR', 'slug is required.')
+  }
+  // Same rules as the edit path (see club-slug.ts). This carried its own inline
+  // regex, which accepted reserved words like "admin" and "settings" - now that
+  // a slug is a routable address rather than a stored string, one of those is a
+  // club permanently squatting a platform route.
+  const slug = record.slug.trim().toLowerCase()
+  const slugProblem = validateSlug(slug)
+  if (slugProblem) {
+    throw apiError(400, 'INVALID_SLUG', slugProblemMessage(slugProblem))
   }
 
-  const input: CreateClubInput = { name: record.name.trim(), slug: record.slug }
+  const input: CreateClubInput = { name: record.name.trim(), slug }
 
   for (const field of ['description', 'province', 'city'] as const) {
     const value = record[field]

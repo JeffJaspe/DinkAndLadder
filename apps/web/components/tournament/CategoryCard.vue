@@ -1,5 +1,9 @@
 <script setup lang="ts">
-import type { BracketDto, RecordBracketResultInput } from '~/server/domains/event/dto/bracket.dto'
+import type {
+  BracketDto,
+  LiveBracketScore,
+  RecordBracketResultInput
+} from '~/server/domains/event/dto/bracket.dto'
 import type {
   TournamentDto,
   TournamentRegistrationWithPlayerDto
@@ -86,6 +90,8 @@ const emit = defineEmits<{
   withdraw: [registrationId: string]
   trash: [categoryId: string]
   record: [bracketMatchId: string, input: RecordBracketResultInput]
+  startMatch: [bracketMatchId: string]
+  liveScore: [bracketMatchId: string, scores: LiveBracketScore[]]
   'select-player': [playerId: string]
 }>()
 
@@ -118,6 +124,33 @@ const isComplete = computed(() =>
 
 /** What tells the organiser the draw is ready to be closed. */
 const drawDecided = computed(() => isDrawDecided(props.bracket))
+
+/**
+ * Whether this category is actually taking entries.
+ *
+ * Read from `category.status`, not derived from the bracket. The label below
+ * has always been derived, which meant an organiser could close a category and
+ * the card would carry on saying "Open" — and until this release the API
+ * accepted the entry too.
+ */
+const isOpenForEntry = computed(() => (props.category ? props.category.status === 'open' : true))
+
+/**
+ * Why the Register button is disabled, in the order a player needs to hear it.
+ *
+ * The button is now rendered even when entry is impossible, rather than
+ * replaced by a sentence or hidden entirely. A player looking at a category
+ * that has not opened yet needs to know two things: that they will be able to
+ * enter, and whether they will be *eligible* when they can. Hiding the control
+ * answers neither, and finding out you are out of band on the morning
+ * registration opens is the worst possible time to learn it.
+ */
+const registerBlockedReason = computed<string | null>(() => {
+  if (props.category?.status === 'completed') return 'This category has finished.'
+  if (!isOpenForEntry.value) return 'Not open for registration yet.'
+  if (props.isFull) return 'This category is full.'
+  return null
+})
 
 const statusLabel = computed(() => {
   if (isComplete.value) return 'Complete'
@@ -336,20 +369,37 @@ function confirmTrash() {
           </option>
         </select>
 
-        <!-- The band decides whether registering is even possible, so the
-             button is replaced by the reason rather than left to fail. -->
-        <span v-if="!myRegistration && bandReason" class="text-sm text-warning">
-          {{ bandReason }}
-        </span>
-        <button
-          v-else-if="!myRegistration"
-          type="button"
-          :disabled="registering || isFull"
-          class="rounded-lg bg-primary px-4 py-1.5 text-sm font-medium text-on-primary hover:bg-primary-hover disabled:opacity-50"
-          @click="emit('register')"
-        >
-          {{ registering ? 'Registering…' : isFull ? 'Full' : 'Register' }}
-        </button>
+        <!-- Shown even when entry is impossible.
+             The band warning used to REPLACE the button, and the button only
+             appeared once a category opened — so a player could not tell
+             whether a not-yet-open category was one they would even be allowed
+             to enter. Both are visible now: the reason sits under a disabled
+             button rather than instead of it. -->
+        <template v-if="!myRegistration">
+          <button
+            type="button"
+            :disabled="registering || !!registerBlockedReason || !!bandReason"
+            class="rounded-lg bg-primary px-4 py-1.5 text-sm font-medium text-on-primary hover:bg-primary-hover disabled:opacity-50"
+            @click="emit('register')"
+          >
+            {{
+              registering
+                ? 'Registering…'
+                : registerBlockedReason
+                  ? registerBlockedReason === 'This category is full.'
+                    ? 'Full'
+                    : 'Not open yet'
+                  : 'Register'
+            }}
+          </button>
+
+          <!-- The band reason outranks "not open yet": being ineligible is
+               permanent for this category, where being early is not. -->
+          <span v-if="bandReason" class="text-sm text-warning">{{ bandReason }}</span>
+          <span v-else-if="registerBlockedReason" class="text-sm text-fg-muted">
+            {{ registerBlockedReason }}
+          </span>
+        </template>
         <span v-else class="rounded-lg px-3 py-1.5 text-sm" :class="myStatusTone">
           {{ myStatusLabel }}
         </span>
@@ -370,7 +420,10 @@ function confirmTrash() {
 
       <!-- Having partners but none free is a different problem from having
            none, and points at a different fix. -->
-      <p v-if="allPartnersTaken && !myRegistration && !bandReason" class="mb-4 text-sm text-warning">
+      <p
+        v-if="allPartnersTaken && !myRegistration && !bandReason"
+        class="mb-4 text-sm text-warning"
+      >
         No partner available — all of your linked partners are already in this category.
       </p>
       <p v-if="registerError" role="alert" class="mb-4 text-sm text-danger">{{ registerError }}</p>
@@ -397,6 +450,8 @@ function confirmTrash() {
           :recording-id="recordingId"
           :record-error="recordError"
           @record="(id, input) => emit('record', id, input)"
+          @start="(id) => emit('startMatch', id)"
+          @score="(id, scores) => emit('liveScore', id, scores)"
         />
 
         <TournamentCategorySchedule
@@ -465,8 +520,8 @@ function confirmTrash() {
               Publishes the final standings. Players see the table only after this.
             </p>
             <p v-if="!canComplete" class="mt-1 text-sm text-warning">
-              Every match needs a result first. If this category is not going to be played,
-              remove it below instead.
+              Every match needs a result first. If this category is not going to be played, remove
+              it below instead.
             </p>
             <button
               type="button"

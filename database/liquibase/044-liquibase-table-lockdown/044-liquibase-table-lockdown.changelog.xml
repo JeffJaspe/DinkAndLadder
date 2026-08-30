@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 044-liquibase-table-lockdown: take Liquibase's own bookkeeping tables off
+     the public API.
+
+     DATABASECHANGELOG and DATABASECHANGELOGLOCK are created by Liquibase in
+     `public`, which on Supabase is the schema PostgREST exposes. Because they
+     are created by `postgres`, Supabase's default privileges granted them to
+     `anon` and `authenticated` like any application table, and nothing ever
+     enabled RLS on them. Verified against dev on 2026-08-30: an anonymous
+     request carrying only the publishable key could SELECT, UPDATE and DELETE
+     rows in both. That is not just a lint finding —
+
+       - UPDATE databasechangeloglock SET locked = true  wedges every future
+         migration until someone clears it by hand;
+       - DELETE FROM databasechangelog  makes Liquibase believe changesets were
+         never applied and re-run them.
+
+     No client ever reads these tables, so the access model is simply "nobody
+     but the migration user". That is enforced twice over: privileges are
+     revoked from every API role, and RLS is enabled with NO policies so even a
+     re-grant leaves zero rows reachable.
+
+     Deliberately NOT `FORCE ROW LEVEL SECURITY`. Liquibase connects as the
+     tables' owner, and an owner bypasses ordinary RLS — that is exactly what
+     keeps migrations working. FORCE would apply the (empty) policy set to the
+     owner too, and the first thing that would break is Liquibase's own
+     release-lock UPDATE, silently, by matching zero rows.
+
+     Moving the tables to a non-exposed schema (liquibaseSchemaName) was the
+     other option and is rejected: the move would have to ALTER the very lock
+     table the running migration holds, so it cannot be done from inside a
+     changeset, and doing it outside Liquibase means hand-run SQL against prod
+     — which this project does not do. -->
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+    <!-- Revoke first, so there is no window in which the tables are reachable
+         with RLS off. Both statements are idempotent. -->
+    <changeSet id="044-revoke-liquibase-table-grants" author="claude">
+        <sql>
+            REVOKE ALL PRIVILEGES ON TABLE public.databasechangelog
+                FROM PUBLIC, anon, authenticated, service_role;
+            REVOKE ALL PRIVILEGES ON TABLE public.databasechangeloglock
+                FROM PUBLIC, anon, authenticated, service_role;
+        </sql>
+        <!-- No rollback: restoring these grants would restore the hole. -->
+        <rollback/>
+    </changeSet>
+
+    <!-- Deny by absence of policies: RLS on, zero policies, so every role
+         subject to RLS sees no rows and can write none. The owner (the
+         migration user) is unaffected. -->
+    <changeSet id="044-enable-rls-on-liquibase-tables" author="claude">
+        <sql>
+            ALTER TABLE public.databasechangelog ENABLE ROW LEVEL SECURITY;
+            ALTER TABLE public.databasechangeloglock ENABLE ROW LEVEL SECURITY;
+        </sql>
+        <rollback>
+            ALTER TABLE public.databasechangelog DISABLE ROW LEVEL SECURITY;
+            ALTER TABLE public.databasechangeloglock DISABLE ROW LEVEL SECURITY;
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

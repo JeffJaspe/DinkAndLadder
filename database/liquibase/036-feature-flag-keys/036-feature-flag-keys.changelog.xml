@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Feature-flag catalog rows for surfaces that had no switch.
+
+     The flag machinery from 023 works and is complete: the SuperAdmin console
+     (pages/admin/features.vue) is data-driven off this table, the read path is
+     cached in server/utils/feature-flags.ts, and an unknown key fails closed.
+     What was missing was rows to switch and gates to read them — only one key
+     had ever been seeded (events.registered_badge), so a SuperAdmin turning
+     "achievements" off saw the toggle save and nothing change anywhere.
+
+     Seeding here rather than in code is the point of 023: the catalog is data,
+     so adding a switch is a changeset, not a deploy. -->
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+    <changeSet id="036-seed-achievements-flag" author="claude">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">
+                SELECT count(*) FROM feature_flags WHERE key = 'achievements.enabled'
+            </sqlCheck>
+        </preConditions>
+        <insert tableName="feature_flags">
+            <column name="key" value="achievements.enabled"/>
+            <column name="label" value="Achievements"/>
+            <column name="description"
+                    value="Badges, achievement unlocks and the Achievements tab on player profiles. Off hides the feature everywhere: the nav item, the profile tab, the stat tile, the showcase badge, and the API that serves them."/>
+            <!-- Defaults ON: achievements have been live and visible since the
+                 feature shipped, so seeding it off would silently remove a
+                 working feature the moment this migration ran. -->
+            <column name="enabled" valueBoolean="true"/>
+            <column name="display_order" valueNumeric="2"/>
+        </insert>
+        <rollback>
+            <delete tableName="feature_flags">
+                <where>key = 'achievements.enabled'</where>
+            </delete>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

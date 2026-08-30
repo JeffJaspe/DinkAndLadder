@@ -1,6 +1,19 @@
 <script setup lang="ts">
+// Chromeless shell: these are the pages you reach when you cannot get into the
+// app, and the default layout would draw the whole sidebar around them. A
+// recovery link is a real session, so gating on the session alone wrapped the
+// password form in the full app and let every nav link out of the flow.
+definePageMeta({ layout: 'auth' })
+
 const supabase = useSupabaseClient()
-const email = ref('')
+// Prefilled when /register sends someone here to add a password to an account
+// they created with Google.
+const route = useRoute()
+const email = ref(typeof route.query.email === 'string' ? route.query.email : '')
+// Only /register hands the address over, so its presence marks the "you tried to
+// sign up with an address that already has an account" arrival — worth naming,
+// since someone who signed up with Google has never had a password to "reset".
+const fromRegister = computed(() => typeof route.query.email === 'string')
 const errorMessage = ref('')
 const successMessage = ref('')
 const loading = ref(false)
@@ -38,6 +51,14 @@ async function handleReset() {
 
       <!-- Card -->
       <div class="rounded-xl bg-surface p-6 shadow-card">
+        <p
+          v-if="fromRegister"
+          class="mb-4 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-fg-secondary"
+        >
+          This works even if you signed up with Google and never had a password. The link adds one
+          to that same account — you'll be able to log in either way afterwards.
+        </p>
+
         <!-- Success Message -->
         <div
           v-if="successMessage"

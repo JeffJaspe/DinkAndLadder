@@ -35,12 +35,12 @@ watch(statusFilter, (value) => {
   router.replace({ query: { ...route.query, status: value === 'all' ? undefined : value } })
 })
 
-const { data, pending, error, refresh } = await useFetch<{ data: MatchSummary[] }>(
+const { data, pending, error, refresh } = useFetch<{ data: MatchSummary[] }>(
   '/api/v1/players/me/matches',
   { query: { limit: 50 }, server: false }
 )
 
-const { data: myProfile } = await useFetch<PlayerProfileDto>('/api/v1/players/me', {
+const { data: myProfile } = useFetch<PlayerProfileDto>('/api/v1/players/me', {
   server: false
 })
 
