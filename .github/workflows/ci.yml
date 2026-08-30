@@ -87,21 +87,36 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Stub Supabase's auth schema for plain Postgres
+      - name: Stub Supabase's auth schema and API roles for plain Postgres
         # This CI Postgres instance is vanilla postgres:16, not a real Supabase project, so it
-        # has no `auth` schema or `auth.uid()` function. Our RLS policies (008-security) reference
-        # auth.uid() because that's what runs in production. This stub exists ONLY to let the
-        # changelog apply cleanly here — it is never part of the versioned Liquibase changesets
-        # and must never be run against a real Supabase database (which already has the real one).
+        # has no `auth` schema, no `auth.uid()` function, and none of the roles PostgREST
+        # authenticates as. Our changesets reference all of them because that is what runs in
+        # production: RLS policies (008-security) call auth.uid(), and grants such as
+        # 039-feed-function-grants and 044-liquibase-table-lockdown name anon / authenticated /
+        # service_role. This stub exists ONLY to let the changelog apply cleanly here — it is
+        # never part of the versioned Liquibase changesets and must never be run against a real
+        # Supabase database (which already has the real ones).
         env:
           PGPASSWORD: liquibase
         run: |
-          psql -h localhost -U liquibase -d dinkandladder -v ON_ERROR_STOP=1 -c "
+          psql -h localhost -U liquibase -d dinkandladder -v ON_ERROR_STOP=1 <<'SQL'
             CREATE SCHEMA IF NOT EXISTS auth;
-            CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid AS \$\$
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid AS $$
               SELECT NULL::uuid;
-            \$\$ LANGUAGE sql STABLE;
-          "
+            $$ LANGUAGE sql STABLE;
+
+            -- Postgres has no CREATE ROLE IF NOT EXISTS.
+            DO $$
+            DECLARE r text;
+            BEGIN
+              FOREACH r IN ARRAY ARRAY['anon', 'authenticated', 'service_role'] LOOP
+                IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r) THEN
+                  EXECUTE format('CREATE ROLE %I NOLOGIN', r);
+                END IF;
+              END LOOP;
+            END
+            $$;
+          SQL
 
       - uses: liquibase/setup-liquibase@v3
         with:
