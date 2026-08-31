@@ -63,25 +63,44 @@ Note the variable names differ from the web app's. `apps/web/.env` uses
 `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` (the convention set by
 `scripts/find-email-derived-display-names.mjs`). Same values, different names.
 
+The script uses the global `fetch` against the Auth Admin and PostgREST
+endpoints rather than `@supabase/supabase-js`. That is not stylistic: this is a
+pnpm workspace and the package is only installed under `apps/web`, so a bare
+import from `scripts/` fails to resolve with `ERR_MODULE_NOT_FOUND`. Six HTTP
+calls did not justify a workspace-root dependency. (The same trap applies to
+`scripts/find-email-derived-display-names.mjs`, which does import it and
+therefore only runs from inside `apps/web`.)
+
+**Pushing to git does not run any of this.** The seed is not a Liquibase
+changeset, so `db-migrate.yml` never applies it — that is what keeps it out of
+production. CI's "Database (Liquibase changelog validate)" job runs the
+changelog against a throwaway `postgres:16` container and never touches a real
+database either. Seeding is a thing you do by hand, against dev.
+
 Accounts created: `demo.player001@demo.dinkandladder.test` …
 `demo.player100@demo.dinkandladder.test`, all with `DEMO_PASSWORD`.
 
-### 2. Point the seed at your own account (optional but recommended)
+### 2. Point the seed at your own accounts
 
-Open `00-config.sql` and replace `CHANGE_ME@example.com` in
-`fn_demo_link_player()` with the email you sign in with.
+`fn_demo_link_players()` in `00-config.sql` holds the email list. Edit it to
+match the accounts you actually sign in with — **all of them**; every account
+listed gets the full treatment independently.
 
 This matters more than it looks. `/community`'s tabs, a club's roster, club
 rankings and club matches are all computed **for the signed-in viewer** — they
-403 or come back empty for a non-member with no matches. Linking your account
-makes it a member of four clubs, a registrant in ~15 events, a participant in
-verified doubles matches, and the other end of several partnerships and
-team-ups. Left as `CHANGE_ME@example.com`, the function returns `NULL` and every
-linking step is silently skipped.
+403 or come back empty for a non-member with no matches. Each linked account
+becomes a member of 7 clubs, a registrant in ~15 events, the organizer of 3
+published tournaments, a participant in 8 verified doubles matches, and the
+other end of several partnerships and team-ups.
 
-Your real rows are never modified — the linking steps only *insert* new
-demo-namespaced rows that reference your player id, and `player_ratings` updates
-are restricted to demo rows.
+An email with no `player_profiles` row **in this database** is skipped silently,
+and an empty list makes every linking step a no-op. `00-config.sql` ends with a
+query listing exactly which accounts matched — check it before running the rest.
+
+Your real rows are never modified. The linking steps only *insert* new
+demo-namespaced rows that reference your player id; the one exception is
+`events.created_by_player_id` on five demo events, which are deleted wholesale
+on rollback. `player_ratings` updates are restricted to demo rows.
 
 ### 3. SQL, in order
 

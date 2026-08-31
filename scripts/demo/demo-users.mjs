@@ -12,7 +12,7 @@
  *
  * so --purge is exact and cannot touch a real account.
  *
- * Usage (from the repo root):
+ * Usage (from anywhere in the repo):
  *   node scripts/demo/demo-users.mjs --seed
  *   node scripts/demo/demo-users.mjs --purge
  *
@@ -26,15 +26,21 @@
  *                                in .github/workflows/db-migrate.yml.
  *   DEMO_PASSWORD                optional, defaults to 'DemoPickle!2026'
  *
- * This is data, not schema, so it is deliberately NOT a Liquibase changeset
- * (same reasoning as scripts/find-email-derived-display-names.mjs).
+ * Deliberately talks to the Auth Admin and PostgREST endpoints with the global
+ * fetch rather than @supabase/supabase-js: this is a pnpm workspace and that
+ * package is only installed under apps/web, so a bare import here fails to
+ * resolve. Adding a workspace-root dependency for six HTTP calls is not worth
+ * it. (The same trap applies to scripts/find-email-derived-display-names.mjs,
+ * which does import it and therefore only runs from inside apps/web.)
+ *
+ * This is data, not schema, so it is deliberately NOT a Liquibase changeset.
  */
-import { createClient } from '@supabase/supabase-js'
 
 const DEMO_DOMAIN = '@demo.dinkandladder.test'
 const PLAYER_COUNT = 100
+const PAGE_SIZE = 1000
 
-const url = process.env.SUPABASE_URL
+const url = (process.env.SUPABASE_URL || '').replace(/\/+$/, '')
 const key = process.env.SUPABASE_SERVICE_ROLE_KEY
 const expectedRef = process.env.DEMO_EXPECTED_PROJECT_REF
 const password = process.env.DEMO_PASSWORD || 'DemoPickle!2026'
@@ -69,21 +75,36 @@ if (!url.includes(expectedRef)) {
 }
 console.log(`Target: ${url} (ref ${expectedRef})`)
 
-const admin = createClient(url, key, { auth: { persistSession: false } })
+const headers = {
+  apikey: key,
+  Authorization: `Bearer ${key}`,
+  'Content-Type': 'application/json'
+}
+
+async function api(path, init = {}) {
+  const res = await fetch(`${url}${path}`, {
+    ...init,
+    headers: { ...headers, ...(init.headers || {}) }
+  })
+  if (!res.ok) {
+    const body = await res.text().catch(() => '')
+    throw new Error(`${init.method || 'GET'} ${path} -> ${res.status} ${res.statusText} ${body}`)
+  }
+  // 204 and Prefer: return=minimal give an empty body.
+  const text = await res.text()
+  return text ? JSON.parse(text) : null
+}
 
 /** Every auth user whose email is in the reserved demo domain. */
 async function listDemoAuthUsers() {
   const found = []
   for (let page = 1; ; page++) {
-    const { data, error } = await admin.auth.admin.listUsers({ page, perPage: 1000 })
-    if (error) {
-      console.error('Could not list auth users:', error.message)
-      process.exit(1)
-    }
-    for (const u of data.users) {
+    const data = await api(`/auth/v1/admin/users?page=${page}&per_page=${PAGE_SIZE}`)
+    const users = data?.users ?? []
+    for (const u of users) {
       if ((u.email ?? '').toLowerCase().endsWith(DEMO_DOMAIN)) found.push(u)
     }
-    if (data.users.length < 1000) break
+    if (users.length < PAGE_SIZE) break
   }
   return found
 }
@@ -92,87 +113,80 @@ function emailFor(n) {
   return `demo.player${String(n).padStart(3, '0')}${DEMO_DOMAIN}`
 }
 
-if (SEED) {
-  // Existing accounts are reused rather than re-created, so --seed is
-  // idempotent and safe to re-run after a partial failure.
-  const existing = new Map(
-    (await listDemoAuthUsers()).map((u) => [u.email.toLowerCase(), u.id])
-  )
-  console.log(`Found ${existing.size} existing demo auth users.`)
-
-  const rows = []
-  let created = 0
-  for (let n = 1; n <= PLAYER_COUNT; n++) {
-    const email = emailFor(n)
-    let id = existing.get(email)
-    if (!id) {
-      const { data, error } = await admin.auth.admin.createUser({
-        email,
-        password,
-        email_confirm: true,
-      })
-      if (error) {
-        console.error(`createUser failed for ${email}: ${error.message}`)
-        process.exit(1)
-      }
-      id = data.user.id
-      created++
-    }
-    rows.push({
-      id,
-      email,
-      status: 'active',
-      email_verified_at: new Date().toISOString(),
-    })
-    if (n % 20 === 0) console.log(`  ...${n}/${PLAYER_COUNT}`)
-  }
-
-  // public.users mirrors auth.users by id; there is no FK between them and no
-  // INSERT policy on users, so this has to go through the service role — the
-  // same thing POST /api/v1/auth/session does on a real sign-in.
-  const { error: upsertError } = await admin
-    .from('users')
-    .upsert(rows, { onConflict: 'id' })
-  if (upsertError) {
-    console.error('Could not upsert public.users rows:', upsertError.message)
-    process.exit(1)
-  }
-
-  console.log(
-    `\nDone. ${created} auth users created, ${rows.length} public.users rows upserted.`
-  )
-  console.log(`Sign in as ${emailFor(1)} with password: ${password}`)
-  console.log('Next: run database/seeds/demo/00-config.sql, then 01..05.')
-}
-
-if (PURGE) {
-  const users = await listDemoAuthUsers()
-  console.log(`Deleting ${users.length} demo auth users...`)
-
-  // public.users first: nothing FKs to auth.users, but player_profiles FKs to
-  // public.users, so 99-rollback.sql must already have run.
-  const { error: deleteRowsError } = await admin
-    .from('users')
-    .delete()
-    .like('email', `%${DEMO_DOMAIN}`)
-  if (deleteRowsError) {
-    console.error(
-      `Could not delete public.users rows: ${deleteRowsError.message}\n` +
-        'Run database/seeds/demo/99-rollback.sql first — player_profiles ' +
-        'references users.'
+try {
+  if (SEED) {
+    // Existing accounts are reused rather than re-created, so --seed is
+    // idempotent and safe to re-run after a partial failure.
+    const existing = new Map(
+      (await listDemoAuthUsers()).map((u) => [u.email.toLowerCase(), u.id])
     )
-    process.exit(1)
-  }
+    console.log(`Found ${existing.size} existing demo auth users.`)
 
-  let deleted = 0
-  for (const u of users) {
-    const { error } = await admin.auth.admin.deleteUser(u.id)
-    if (error) {
-      console.error(`deleteUser failed for ${u.email}: ${error.message}`)
-      process.exit(1)
+    const rows = []
+    let created = 0
+    for (let n = 1; n <= PLAYER_COUNT; n++) {
+      const email = emailFor(n)
+      let id = existing.get(email)
+      if (!id) {
+        const user = await api('/auth/v1/admin/users', {
+          method: 'POST',
+          body: JSON.stringify({ email, password, email_confirm: true })
+        })
+        id = user.id
+        created++
+      }
+      rows.push({
+        id,
+        email,
+        status: 'active',
+        email_verified_at: new Date().toISOString()
+      })
+      if (n % 20 === 0) console.log(`  ...${n}/${PLAYER_COUNT}`)
     }
-    deleted++
+
+    // public.users mirrors auth.users by id; there is no FK between them and no
+    // INSERT policy on users, so this goes through the service role — the same
+    // thing POST /api/v1/auth/session does on a real sign-in.
+    await api('/rest/v1/users?on_conflict=id', {
+      method: 'POST',
+      headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+      body: JSON.stringify(rows)
+    })
+
+    console.log(
+      `\nDone. ${created} auth users created, ${rows.length} public.users rows upserted.`
+    )
+    console.log(`Sign in as ${emailFor(1)} with password: ${password}`)
+    console.log('Next: run database/seeds/demo/00-config.sql, then 01..06.')
   }
 
-  console.log(`Done. ${deleted} auth users and their public.users rows removed.`)
+  if (PURGE) {
+    const users = await listDemoAuthUsers()
+    console.log(`Deleting ${users.length} demo auth users...`)
+
+    // public.users first: nothing FKs to auth.users, but player_profiles FKs to
+    // public.users, so 99-rollback.sql must already have run.
+    const pattern = encodeURIComponent(`*${DEMO_DOMAIN}`)
+    await api(`/rest/v1/users?email=like.${pattern}`, {
+      method: 'DELETE',
+      headers: { Prefer: 'return=minimal' }
+    })
+
+    let deleted = 0
+    for (const u of users) {
+      await api(`/auth/v1/admin/users/${u.id}`, { method: 'DELETE' })
+      deleted++
+    }
+
+    console.log(`Done. ${deleted} auth users and their public.users rows removed.`)
+  }
+} catch (err) {
+  console.error(`\nFailed: ${err.message}`)
+  if (String(err.message).includes('/rest/v1/users')) {
+    console.error(
+      'If this was the purge, run database/seeds/demo/99-rollback.sql first — ' +
+        'player_profiles references users.'
+    )
+  }
+  process.exit(1)
 }

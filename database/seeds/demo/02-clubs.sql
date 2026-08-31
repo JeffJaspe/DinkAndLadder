@@ -200,17 +200,17 @@ INSERT INTO club_memberships (
     id, club_id, player_id, role, status, joined_at, created_at, updated_at
 )
 SELECT
-    public.fn_demo_id('cm:link:' || c.n),
+    public.fn_demo_id('cm:link:' || lp.ord || ':' || c.n),
     c.club_id,
-    public.fn_demo_link_player(),
+    lp.player_id,
     CASE WHEN c.n = 12 THEN 'ADMIN' ELSE 'MEMBER' END,
     'active',
     now() - (40 + c.n) * interval '1 day',
     now() - (40 + c.n) * interval '1 day',
     now()
 FROM public.v_demo_clubs c
-WHERE public.fn_demo_link_player() IS NOT NULL
-  AND c.n IN (1, 3, 5, 6, 7, 9, 12)
+CROSS JOIN public.fn_demo_link_players() lp
+WHERE c.n IN (1, 3, 5, 6, 7, 9, 12)
 ON CONFLICT DO NOTHING;
 
 COMMIT;

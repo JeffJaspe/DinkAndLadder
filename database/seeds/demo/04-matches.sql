@@ -296,11 +296,11 @@ INSERT INTO matches (
     played_at, submitted_at, verified_at, affects_rating, created_at, updated_at
 )
 SELECT
-    public.fn_demo_id('match:link:' || kk.k),
+    public.fn_demo_id('match:link:' || lp.ord || ':' || kk.k),
     e.event_id,
     'doubles',
     CASE WHEN kk.k <= 6 THEN 'verified' ELSE 'pending_verification' END,
-    public.fn_demo_link_player(),
+    lp.player_id,
     'Demo Courts',
     now() - (kk.k * 3) * interval '1 day',
     now() - (kk.k * 3) * interval '1 day' + interval '30 minutes',
@@ -309,6 +309,7 @@ SELECT
     now() - (kk.k * 3) * interval '1 day',
     now()
 FROM generate_series(1, 8) AS kk(k)
+CROSS JOIN public.fn_demo_link_players() lp
 CROSS JOIN LATERAL (
     SELECT v.event_id
     FROM public.v_demo_events v
@@ -316,13 +317,12 @@ CROSS JOIN LATERAL (
     ORDER BY v.i
     OFFSET (kk.k % 5) LIMIT 1
 ) e
-WHERE public.fn_demo_link_player() IS NOT NULL
 ON CONFLICT DO NOTHING;
 
 INSERT INTO match_participants (id, match_id, player_id, team_number, result_status, created_at)
 SELECT
-    public.fn_demo_id('mp:link:' || kk.k || ':' || slot.j),
-    public.fn_demo_id('match:link:' || kk.k),
+    public.fn_demo_id('mp:link:' || lp.ord || ':' || kk.k || ':' || slot.j),
+    public.fn_demo_id('match:link:' || lp.ord || ':' || kk.k),
     q.player_id,
     CASE WHEN slot.j < 2 THEN 1 ELSE 2 END,
     CASE WHEN kk.k > 6 THEN 'pending'
@@ -331,34 +331,35 @@ SELECT
     now() - (kk.k * 3) * interval '1 day'
 FROM generate_series(1, 8) AS kk(k)
 CROSS JOIN generate_series(0, 3) AS slot(j)
-JOIN public.v_demo_players q ON q.n = 1 + (((kk.k * 9) + slot.j) % 90)
-WHERE public.fn_demo_link_player() IS NOT NULL
-  AND slot.j > 0
+CROSS JOIN public.fn_demo_link_players() lp
+JOIN public.v_demo_players q
+     ON q.n = 1 + (((kk.k * 9) + slot.j + lp.ord * 7) % 90)
+WHERE slot.j > 0
 ON CONFLICT DO NOTHING;
 
 INSERT INTO match_participants (id, match_id, player_id, team_number, result_status, created_at)
 SELECT
-    public.fn_demo_id('mp:link:' || kk.k || ':0'),
-    public.fn_demo_id('match:link:' || kk.k),
-    public.fn_demo_link_player(),
+    public.fn_demo_id('mp:link:' || lp.ord || ':' || kk.k || ':0'),
+    public.fn_demo_id('match:link:' || lp.ord || ':' || kk.k),
+    lp.player_id,
     1,
     CASE WHEN kk.k > 6 THEN 'pending' WHEN 1 = 1 + (kk.k % 2) THEN 'won' ELSE 'lost' END,
     now() - (kk.k * 3) * interval '1 day'
 FROM generate_series(1, 8) AS kk(k)
-WHERE public.fn_demo_link_player() IS NOT NULL
+CROSS JOIN public.fn_demo_link_players() lp
 ON CONFLICT DO NOTHING;
 
 INSERT INTO match_scores (id, match_id, set_number, team1_score, team2_score, created_at)
 SELECT
-    public.fn_demo_id('ms:link:' || kk.k || ':' || g.s),
-    public.fn_demo_id('match:link:' || kk.k),
+    public.fn_demo_id('ms:link:' || lp.ord || ':' || kk.k || ':' || g.s),
+    public.fn_demo_id('match:link:' || lp.ord || ':' || kk.k),
     g.s,
     CASE WHEN 1 + (kk.k % 2) = 1 THEN 11 ELSE 6 + g.s END,
     CASE WHEN 1 + (kk.k % 2) = 2 THEN 11 ELSE 6 + g.s END,
     now() - (kk.k * 3) * interval '1 day'
 FROM generate_series(1, 8) AS kk(k)
 CROSS JOIN generate_series(1, 2) AS g(s)
-WHERE public.fn_demo_link_player() IS NOT NULL
+CROSS JOIN public.fn_demo_link_players() lp
 ON CONFLICT DO NOTHING;
 
 DROP TABLE IF EXISTS demo_match_plan;

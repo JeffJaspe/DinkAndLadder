@@ -79,7 +79,13 @@ SELECT
     2 + (v.i % 3),
     (ARRAY['first_come', 'rating_based', 'random'])[1 + (v.i % 3)],
     120,
-    CASE WHEN v.i % 5 = 0 THEN 'singles' ELSE 'doubles' END,
+    -- Singles only on the odd COMPLETED events (i = 13, 15, 17), which
+    -- keeps the three active sessions on doubles for the queue/court demo
+    -- while still giving the singles rankings enough matches. An earlier
+    -- 1-in-5 split left 59% of singles ratings provisional
+    -- (matches_played < 5), because a singles match seats two players
+    -- where a doubles match seats four.
+    CASE WHEN v.i >= 13 AND v.i % 2 = 1 THEN 'singles' ELSE 'doubles' END,
     now() - (60 + v.i) * interval '1 day',
     now() - (v.i % 9) * interval '1 day'
 FROM public.v_demo_events v
@@ -205,7 +211,17 @@ SELECT
              'round_robin_double_elimination', 'single_elimination', 'round_robin'
          ])[1 + (v.i % 5)]
     END,
-    CASE WHEN v.i % 5 = 0 THEN 'singles' ELSE 'doubles' END,
+    -- Singles on the ODD drawn tournaments (i 11, 13, 15, 17), which are
+    -- the round robins. This is the main source of singles matches for the
+    -- WHOLE player pool: the ordinary event matches in 04 only reach the
+    -- rosters of the eight clubs that hold match-bearing events, whereas
+    -- tournament entrants are drawn globally.
+    --
+    -- Odd, not even, and the parity is load-bearing: format above is
+    -- round_robin on odd i and single_elimination on even i, and a round
+    -- robin of 8 draws 28 matches against a knockout's 7. Putting singles
+    -- on the even half left MORE singles ratings provisional, not fewer.
+    CASE WHEN v.i % 2 = 1 THEN 'singles' ELSE 'doubles' END,
     NULL,
     NULL,
     32,
@@ -420,25 +436,25 @@ WHERE ps.id = shout.id
 
 -- ---------------------------------------------------------------------
 -- 8. Register the real account into events across every status
---    (no-op when fn_demo_link_player() is NULL).
+--    (a no-op when no account is configured).
 -- ---------------------------------------------------------------------
 INSERT INTO event_registrations (id, event_id, player_id, status, registered_at, checked_in_at)
 SELECT
-    public.fn_demo_id('reg:link:' || v.event_type || ':' || v.i),
+    public.fn_demo_id('reg:link:' || lp.ord || ':' || v.event_type || ':' || v.i),
     v.event_id,
-    public.fn_demo_link_player(),
+    lp.player_id,
     CASE WHEN v.status IN ('active', 'completed') THEN 'checked_in' ELSE 'registered' END,
     now() - (15 + v.i) * interval '1 day',
     CASE WHEN v.status IN ('active', 'completed')
          THEN now() - v.i * interval '1 day' ELSE NULL END
 FROM public.v_demo_events v
-WHERE public.fn_demo_link_player() IS NOT NULL
-  AND v.status <> 'draft'
+CROSS JOIN public.fn_demo_link_players() lp
+WHERE v.status <> 'draft'
   AND v.i % 6 = 1
 ON CONFLICT DO NOTHING;
 
 -- ---------------------------------------------------------------------
--- 9. Hand five published tournaments to the real account, so YOU can
+-- 9. Hand the published tournaments to the real accounts, so YOU can
 --    press "Generate bracket".
 --
 -- assertEventOrganizer compares events.created_by_player_id to the
@@ -446,27 +462,25 @@ ON CONFLICT DO NOTHING;
 -- enough. Without this you would have to sign in as a demo club owner to
 -- draw anything, which is a miserable way to test the generator.
 --
--- These five are one of each format, and they are the ones 06-brackets.sql
--- leaves alone:
---   i=1  round_robin_single_elimination
---   i=3  single_elimination
---   i=5  double_elimination
---   i=7  round_robin_double_elimination
---   i=9  round_robin
+-- The nine published tournaments are dealt three each, in i order, so
+-- every configured account owns a spread of formats:
+--   ord 1 -> i=1,2,3  (rr->single, rr->double, single elim)
+--   ord 2 -> i=4,5,6  (round robin, double elim, rr->single)
+--   ord 3 -> i=7,8,9  (rr->double, single elim, round robin)
 --
 -- Each already has 8 confirmed entrants against max_participants = 8, is
 -- status 'open', and is unlocked — which is every gate generateBracket
--- checks.
+-- checks. These are also the tournaments 06-brackets.sql leaves alone.
 -- ---------------------------------------------------------------------
 UPDATE events e
-SET created_by_player_id = public.fn_demo_link_player(),
+SET created_by_player_id = lp.player_id,
     updated_at = now()
 FROM public.v_demo_events v
+CROSS JOIN public.fn_demo_link_players() lp
 WHERE v.event_id = e.id
-  AND public.fn_demo_link_player() IS NOT NULL
   AND v.event_type = 'tournament'
   AND v.status = 'published'
-  AND v.i IN (1, 3, 5, 7, 9);
+  AND lp.ord = 1 + ((v.i - 1) / 3);
 
 COMMIT;
 

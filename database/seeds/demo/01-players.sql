@@ -83,8 +83,14 @@ ON CONFLICT DO NOTHING;
 -- GENERATED ALWAYS AS (matches_played < 5) STORED — never insert it.
 -- There are no wins/losses columns.
 --
--- The distribution is bell-shaped around ~4.4 (mean of two pseudo-random
--- draws) so the rankings podium and the rating bands look plausible.
+-- The spread is deliberately UNIFORM across 2.0-6.5, not bell-shaped.
+-- A bell (the mean of two pseudo-random draws) was tried first and put 63
+-- of 100 players in the Advanced band with ZERO in Beginner and ZERO in
+-- Pro, which makes the rating-banded tournament categories and the
+-- rankings filters meaningless. A demo needs every band populated more
+-- than it needs a realistic population curve.
+--
+-- 37 and 46 are coprime, so (n * 37) % 46 walks every residue once.
 -- matches_played starts at 0 and is recomputed in 04-matches.sql.
 -- ---------------------------------------------------------------------
 INSERT INTO player_ratings (
@@ -96,8 +102,8 @@ SELECT
     p.player_id,
     rt.rating_type,
     LEAST(8.000, GREATEST(2.000, round(
-        2.2
-        + ((((p.n * 37) % 45) + ((p.n * 53) % 45))::numeric / 2 / 10)
+        2.0
+        + (((p.n * 37) % 46)::numeric / 10)
         + CASE WHEN rt.rating_type = 'doubles'
                THEN (((p.n * 17) % 7)::numeric - 3) / 10
                ELSE 0 END
@@ -253,78 +259,81 @@ WHERE a.n % 2 = 1 AND a.n <= 93
 ON CONFLICT DO NOTHING;
 
 -- ---------------------------------------------------------------------
--- 10. Link the real account (no-op when fn_demo_link_player() is NULL).
+-- 10. Link the real accounts.
 --     /community's Partners and Team tabs are per-signed-in-player, so
 --     without this they stay empty no matter how much data exists.
+--     fn_demo_link_players() returns one row per configured account, so
+--     every block below fans out across all of them; an empty result
+--     makes each one a silent no-op.
 -- ---------------------------------------------------------------------
 INSERT INTO player_relationships (
     id, from_player_id, to_player_id, relationship_type, status, created_at, updated_at
 )
 SELECT
-    public.fn_demo_id('rel:link:out:' || p.n),
-    public.fn_demo_link_player(),
+    public.fn_demo_id('rel:link:out:' || lp.ord || ':' || p.n),
+    lp.player_id,
     p.player_id,
     'follow',
     'active',
     now() - (p.n % 30) * interval '1 day',
     now()
 FROM public.v_demo_players p
-WHERE public.fn_demo_link_player() IS NOT NULL
-  AND p.n % 5 = 0
+CROSS JOIN public.fn_demo_link_players() lp
+WHERE p.n % 5 = 0
 ON CONFLICT DO NOTHING;
 
 INSERT INTO player_relationships (
     id, from_player_id, to_player_id, relationship_type, status, created_at, updated_at
 )
 SELECT
-    public.fn_demo_id('rel:link:in:' || p.n),
+    public.fn_demo_id('rel:link:in:' || lp.ord || ':' || p.n),
     p.player_id,
-    public.fn_demo_link_player(),
+    lp.player_id,
     'follow',
     'active',
     now() - (p.n % 30) * interval '1 day',
     now()
 FROM public.v_demo_players p
-WHERE public.fn_demo_link_player() IS NOT NULL
-  AND p.n % 3 = 0
+CROSS JOIN public.fn_demo_link_players() lp
+WHERE p.n % 3 = 0
 ON CONFLICT DO NOTHING;
 
 INSERT INTO partnerships (id, player1_id, player2_id, created_at)
 SELECT
-    public.fn_demo_id('pship:link:' || p.n),
-    LEAST(public.fn_demo_link_player(), p.player_id),
-    GREATEST(public.fn_demo_link_player(), p.player_id),
+    public.fn_demo_id('pship:link:' || lp.ord || ':' || p.n),
+    LEAST(lp.player_id, p.player_id),
+    GREATEST(lp.player_id, p.player_id),
     now() - (p.n % 60) * interval '1 day'
 FROM public.v_demo_players p
-WHERE public.fn_demo_link_player() IS NOT NULL
-  AND p.n IN (2, 6, 14, 33, 58)
+CROSS JOIN public.fn_demo_link_players() lp
+WHERE p.n IN (2, 6, 14, 33, 58)
 ON CONFLICT DO NOTHING;
 
 INSERT INTO partner_requests (id, from_player_id, to_player_id, status, message, created_at)
 SELECT
-    public.fn_demo_id('preq:link:in:' || p.n),
+    public.fn_demo_id('preq:link:in:' || lp.ord || ':' || p.n),
     p.player_id,
-    public.fn_demo_link_player(),
+    lp.player_id,
     'pending',
     'Partner up for the next open ranked event?',
     now() - (p.n % 7) * interval '1 day'
 FROM public.v_demo_players p
-WHERE public.fn_demo_link_player() IS NOT NULL
-  AND p.n IN (9, 21, 47)
+CROSS JOIN public.fn_demo_link_players() lp
+WHERE p.n IN (9, 21, 47)
 ON CONFLICT DO NOTHING;
 
 INSERT INTO team_ups (id, owner_player_id, member_player_id, status, message, responded_at, created_at)
 SELECT
-    public.fn_demo_id('teamup:link:' || p.n),
-    public.fn_demo_link_player(),
+    public.fn_demo_id('teamup:link:' || lp.ord || ':' || p.n),
+    lp.player_id,
     p.player_id,
     'accepted',
     'My regular crew.',
     now() - (p.n % 15) * interval '1 day',
     now() - (p.n % 45) * interval '1 day'
 FROM public.v_demo_players p
-WHERE public.fn_demo_link_player() IS NOT NULL
-  AND p.n IN (3, 11, 26, 40, 61, 77)
+CROSS JOIN public.fn_demo_link_players() lp
+WHERE p.n IN (3, 11, 26, 40, 61, 77)
 ON CONFLICT DO NOTHING;
 
 COMMIT;

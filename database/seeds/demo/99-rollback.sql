@@ -118,6 +118,7 @@ DROP VIEW IF EXISTS public.v_demo_events;
 DROP VIEW IF EXISTS public.v_demo_clubs;
 DROP VIEW IF EXISTS public.v_demo_players;
 DROP VIEW IF EXISTS public.v_demo_clusters;
+DROP FUNCTION IF EXISTS public.fn_demo_link_players();
 DROP FUNCTION IF EXISTS public.fn_demo_link_player();
 DROP FUNCTION IF EXISTS public.fn_demo_id(text);
 

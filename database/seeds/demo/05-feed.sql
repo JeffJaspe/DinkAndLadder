@@ -335,7 +335,7 @@ INSERT INTO notifications (
     id, user_id, type, title, body, reference_type, reference_id, read_at, created_at
 )
 SELECT
-    public.fn_demo_id('notif:link:' || k),
+    public.fn_demo_id('notif:link:' || lp.ord || ':' || g.k),
     pp.user_id,
     (ARRAY['match.verification_requested', 'match.verified', 'rating.updated',
            'club.announcement', 'partner.request_received', 'team_up.invited',
@@ -349,8 +349,8 @@ SELECT
     CASE WHEN k > 12 THEN now() - k * interval '1 hour' ELSE NULL END,
     now() - (k * 2) * interval '1 hour'
 FROM generate_series(1, 40) AS g(k)
-JOIN player_profiles pp ON pp.id = public.fn_demo_link_player()
-WHERE public.fn_demo_link_player() IS NOT NULL
+CROSS JOIN public.fn_demo_link_players() lp
+JOIN player_profiles pp ON pp.id = lp.player_id
 ON CONFLICT DO NOTHING;
 
 COMMIT;
