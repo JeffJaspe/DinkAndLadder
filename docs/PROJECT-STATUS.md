@@ -5257,3 +5257,151 @@ and exactly one decider slot per draw.
   to keep in step.
 - **Declare "insert shape" types once.** `NewBracketMatch` broke in three files
   the moment the table gained columns.
+
+---
+
+## Demo data seeding (2026-08-31)
+
+Backlog item "3. Dummy Data Seeding" in `/docs/10-IMPLEMENTATION-BACKLOG.md`,
+which had been on hold. The dev database was near-empty, so the surfaces that
+are supposed to feel like a community — the feed, `/community`, `/events`,
+`/clubs`, `/rankings`, event detail — all rendered as empty states, and there
+was no way to tell whether geo-priority ranking, registration slot bars, the
+event roster or the rankings podium actually looked right.
+
+**Scope, deliberately larger than the backlog line asked for**: 100 players
+(not 10-20), 12 clubs, and **100 events — 20 in every one of the five
+`event_type` categories** — because the point was to see the app full, not
+merely non-empty.
+
+### Files
+
+- `scripts/demo/demo-users.mjs` — `--seed` creates 100 real Supabase auth users
+  (`demo.playerNNN@demo.dinkandladder.test`) plus their `public.users` rows;
+  `--purge` removes them. Refuses to run unless `SUPABASE_URL` contains
+  `DEMO_EXPECTED_PROJECT_REF`, the same shape of guard as the "Confirm target
+  database" step in `.github/workflows/db-migrate.yml`.
+- `database/seeds/demo/00-config.sql` — helper function/views.
+- `database/seeds/demo/01-players.sql` … `06-brackets.sql` — the seed.
+- `database/seeds/demo/99-rollback.sql` — the teardown.
+- `database/seeds/demo/README.md` — run order, env vars, safety notes.
+- **Deleted** `database/seeds/test-data.sql`.
+
+### Reversibility is the design
+
+Every demo row's primary key is `public.fn_demo_id(<text key>)`, which lands in
+a reserved namespace `deadbeef-xxxx-4000-8000-xxxxxxxxxxxx`. That single choice
+buys three properties at once: teardown is an exact `id::text LIKE 'deadbeef-%'`
+with no bookkeeping table and no risk to real rows; the seed is idempotent and
+re-runnable, since ids are a pure function of their key; and child rows can
+reference parents without a `RETURNING` round-trip, so the whole thing is
+`generate_series` + arrays rather than thousands of literal rows.
+
+Auth users are the one thing SQL cannot own, so they are namespaced by a
+reserved email domain instead and torn down by it.
+
+This is data, not schema, so it is **not** a Liquibase changeset — the precedent
+set by `scripts/find-email-derived-display-names.mjs`. Nothing goes near
+`databasechangelog`, which `044` locked down.
+
+### Why the old seed had to go
+
+`database/seeds/test-data.sql` could not run against the current schema. It
+referenced ~12 columns that do not exist (`player_profiles.skill_level`,
+`is_public`, `player_ratings.wins`/`losses`, `clubs.contact_email`,
+`clubs.created_by`, `tournaments.scoring_type`, `tournament_categories.entry_fee`
+and more), used lowercase membership roles against an UPPERCASE CHECK, used an
+`open_play` event type that `ck_events_event_type` rejects, omitted the NOT NULL
+`clubs.slug`, and inserted `player_profiles` with no matching `users` row. It was
+referenced by nothing.
+
+### Constraints the seed is written around
+
+- `events.start_date`/`end_date` are `DATE` — `CURRENT_DATE + n`, never
+  `NOW() + INTERVAL`; `chk_event_time_order` needs `end_time > start_time` on a
+  single-day event.
+- `club_memberships.role` is UPPERCASE; `status` is lowercase.
+- `player_ratings.provisional` is `GENERATED ALWAYS AS (matches_played < 5)` —
+  never inserted. The cluster-10 players belong to no club and so play no
+  matches, which is what produces provisional rows.
+- `trg_tournament_registrations_one_per_category` (032) raises `23505` if a
+  player *or their partner* already holds a live slot in the same
+  `(tournament_id, category_id)`; the pairing gives each roster member exactly
+  one appearance per category.
+- `idx_shoutouts_single_active` allows one active shout-out per player, and
+  `expires_at` must be in the future or the hourly `fn_sweep_expired_shoutouts()`
+  pg_cron job deletes them.
+- `fn_feed_for_player` (039) only returns `activities.visibility = 'public'`, and
+  scores geography on `lower(btrim(...))` equality — so profiles, clubs and
+  events all draw their province/city/barangay from one shared cluster list.
+- A match with no `match_scores` rows is silently skipped by the event
+  leaderboard, so every generated match gets its sets.
+
+### Two findings worth recording
+
+1. **The app writes two activity types the feed can never show.**
+   `social.started_following` is written with `visibility = 'followers'` and
+   `club.member_joined` with `'club'`, but `fn_feed_for_player` filters
+   `visibility = 'public'`. They are seeded as `'public'` here so their rendering
+   can be reviewed, but the live app will never surface them as written. Worth a
+   decision: widen the feed function, or change what the writers store.
+2. **Three activity types have no writer at all.** `achievement.earned`,
+   `profile.updated` and `club.announcement` are rendered by
+   `formatActivityText()` but never produced by any handler.
+
+### Remaining work
+
+- [ ] Run `--seed` + `00`..`05` against the dev database and walk the surfaces.
+- [ ] Rollback drill: `99-rollback.sql` + `--purge`, confirm the verification
+      counts are all zero, then re-seed.
+- [ ] Decide what to do about the two findings above.
+- [ ] Production cleanup / data wipe (after go-live dry run).
+
+### Brackets and open play (added after the first pass)
+
+The first cut skipped `bracket_matches` on the grounds that the app generates
+draws itself. That left the Matchups view and the round-robin standings empty,
+which is precisely one of the things the seed exists to show, so `06-brackets.sql`
+was added.
+
+It draws and plays tournaments **10..17**, in the only two formats it can
+reproduce byte-for-byte as `bracket.service.ts` emits them — `single_elimination`
+(`buildFirstRound` + empty later rounds, winners advanced by `nextSlotFor()`) and
+`round_robin` (the circle method from `generateRoundRobinBracket`, entrant 0
+fixed and the other seven rotating one place per round). Eight entrants per
+category, a power of two, so there are no byes and no empty slots. Completed
+events play through to a champion; the three active ones stop mid-draw with one
+slot `in_progress` carrying a live score.
+
+**`double_elimination` and the two staged pool→playoff formats are deliberately
+not seeded.** Their losers-bracket routing (`routeLoser`'s major/minor
+alternation, the grand-final reset) and pool seeding are intricate enough that a
+hand-written draw that is subtly wrong renders as a *broken* bracket, which is
+worse than an empty one. Those three sit on the published tournaments (1..9)
+with 8 confirmed entrants and `max_participants = 8` so `generateBracket` will
+accept them — the draw is produced in-app by the real generator.
+
+Three constraints found while wiring this up, all of which changed the seed:
+
+1. **`generateBracket` refuses a category that is not full** (`CATEGORY_NOT_FULL`)
+   whenever `tournament_categories.max_participants` is set. The first cut had
+   capacity 16 against 4 entries, so every draw would have been undrawable.
+   Capacity is now exactly the entry count.
+2. **Entrants had to come from the global player pool, not the club roster** —
+   the smaller clubs have 12 active members and a category needs 16 people for 8
+   doubles pairs. They are taken from 16 consecutive pool indices, which is also
+   what satisfies the `032` one-entry-per-category trigger.
+3. **`event_courts.live_score` is `LiveGameScore[]`, a JSON array of
+   `{game_number, team1_score, team2_score}` — not an object**, and one
+   `event_queue` row is one *side* of a court (the courts endpoint builds a side
+   from `[player_id, partner_id]`), not one person. The first cut had both wrong,
+   which would have rendered an empty board rather than an error. The open-play
+   sessions now seed 8 sides, courts 1 and 2 in play with `team1_queue_id` /
+   `team2_queue_id` set and a running score, and the rest waiting to fill
+   "Up next".
+
+The rollback was changed to match: brackets and matches are now cleaned by their
+**tournament and event**, not by the id namespace. Anything created through the
+app on top of the seed — generating a draw, recording a result, finishing a game
+on a court — gets a random UUID, and a namespace filter alone would have stranded
+those rows and blocked the event deletes.

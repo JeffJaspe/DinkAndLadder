@@ -206,11 +206,21 @@ Per `docs/32-DASHBOARD-SPECIFICATION.md`:
 - [x] Add club events (previous + upcoming) — reuses the existing public events search endpoint
 
 ### 3. Dummy Data Seeding
-- [ ] Seed test players (10-20)
-- [ ] Seed test clubs (2-3)
-- [ ] Seed test events (5-10)
-- [ ] Seed test matches with ratings
-- [ ] Seed rankings data
+- [x] Seed test players (10-20) — 100 loginable auth users via `scripts/demo/demo-users.mjs`
+- [x] Seed test clubs (2-3) — 12, with rosters and announcements
+- [x] Seed test events (5-10) — 100: 20 in each of the five `event_type` categories
+- [x] Seed test matches with ratings — ~600 matches, full participant/score/verification/rating chain
+- [x] Seed rankings data — singles + doubles ratings plus 7-day trend transactions
+- [x] Feed + community data — 280 activities covering every renderable activity type
+- [x] Tournament brackets — 560 slots across 32 draws (single-elim + round-robin),
+      completed draws played to a champion, live ones mid-round with a running score
+- [x] Open play — 3 live sessions with queued sides, courts in play and live scores
+- [x] Reversible teardown — `database/seeds/demo/99-rollback.sql` + `demo-users.mjs --purge`
+
+Written, not yet applied to a database. See `database/seeds/demo/README.md`.
+Dev-only, guarded by `DEMO_EXPECTED_PROJECT_REF`, and deliberately not a
+Liquibase changeset (data, not schema). The old `database/seeds/test-data.sql`
+was removed — it referenced ~12 columns that no longer exist and could not run.
 
 ### 4. Production Cleanup (Later)
 - [ ] Wipe all test data
