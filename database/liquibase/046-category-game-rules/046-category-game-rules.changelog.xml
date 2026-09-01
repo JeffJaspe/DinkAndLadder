@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- How a match is won: how many games, and how long each one is.
+
+     A category could not express "best of 3 in the pools, best of 5 in the
+     final", and nothing anywhere recorded how many points a game is played to.
+     11 was assumed by every surface that needed a number, so a 15- or 21-point
+     event had to be scored by hand and no stored result said which it had been.
+
+     Vocabulary note: these are GAMES, not sets. The sport, the paper score
+     sheet and the existing `bracket_matches.live_score` shape
+     (`[{ game_number, team1_score, team2_score }]`, see 043) all say game, and
+     `match_scores.set_number` is the one place that says otherwise. That column
+     is NOT renamed here - it is written and read by working code, and a rename
+     is a separate, riskier change than an addition.
+
+     Four columns on tournament_categories:
+
+     1. games_default   - best-of for a normal round. 1 means a single game.
+     2. round_game_rules- jsonb, round number -> best-of, for the rounds that
+                          differ. Empty object means "every round uses the
+                          default", which is what every existing category is.
+     3. target_points   - points that win a game. 11 is the pickleball default
+                          and what every existing row was implicitly played to.
+     4. win_by_two      - whether a game must be won by a clear two. On by
+                          default because that is the standard rule, and it is
+                          what makes 12-10 and 15-13 possible at all.
+
+     jsonb rather than a child table for the per-round overrides: a category has
+     at most a handful of rounds, the value is always read whole with its
+     category and never queried across categories, and a `category_round_rules`
+     table would mean a join on every bracket read to carry two integers. -->
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+    <changeSet id="046-add-games-default" author="claude">
+        <preConditions onFail="MARK_RAN">
+            <not><columnExists tableName="tournament_categories" columnName="games_default"/></not>
+        </preConditions>
+        <addColumn tableName="tournament_categories">
+            <!-- 1, not 3: a single game per match is what every category in the
+                 table has actually been played to, since nothing could express
+                 anything else. Defaulting to 3 would rewrite history. -->
+            <column name="games_default" type="integer" defaultValueNumeric="1">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+        <rollback>
+            <dropColumn tableName="tournament_categories" columnName="games_default"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="046-add-round-game-rules" author="claude">
+        <preConditions onFail="MARK_RAN">
+            <not><columnExists tableName="tournament_categories" columnName="round_game_rules"/></not>
+        </preConditions>
+        <addColumn tableName="tournament_categories">
+            <!-- { "3": 5 } = round 3 is best of 5. Absent rounds fall back to
+                 games_default, so only the exceptions are stored. -->
+            <column name="round_game_rules" type="jsonb" defaultValue="{}">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+        <rollback>
+            <dropColumn tableName="tournament_categories" columnName="round_game_rules"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="046-add-target-points" author="claude">
+        <preConditions onFail="MARK_RAN">
+            <not><columnExists tableName="tournament_categories" columnName="target_points"/></not>
+        </preConditions>
+        <addColumn tableName="tournament_categories">
+            <column name="target_points" type="integer" defaultValueNumeric="11">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+        <rollback>
+            <dropColumn tableName="tournament_categories" columnName="target_points"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="046-add-win-by-two" author="claude">
+        <preConditions onFail="MARK_RAN">
+            <not><columnExists tableName="tournament_categories" columnName="win_by_two"/></not>
+        </preConditions>
+        <addColumn tableName="tournament_categories">
+            <column name="win_by_two" type="boolean" defaultValueBoolean="true">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+        <rollback>
+            <dropColumn tableName="tournament_categories" columnName="win_by_two"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="046-add-game-rule-checks" author="claude">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">SELECT count(*) FROM pg_constraint WHERE conname = 'tournament_categories_game_rules_valid'</sqlCheck>
+        </preConditions>
+        <!-- games_default is odd and small: a best-of has to be decidable, and
+             an even number cannot be. 1..9 covers every real format with room
+             to spare. target_points has no upper bound worth guessing beyond
+             stopping a typo like 1100. -->
+        <sql>ALTER TABLE tournament_categories ADD CONSTRAINT tournament_categories_game_rules_valid CHECK (games_default BETWEEN 1 AND 9 AND games_default % 2 = 1 AND target_points BETWEEN 1 AND 99)</sql>
+        <rollback>
+            <sql>ALTER TABLE tournament_categories DROP CONSTRAINT tournament_categories_game_rules_valid</sql>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { attachLinkedEvents, type LinkedEvent } from '~/server/domains/activity/services/linked-event'
 import { serverSupabaseClient, serverSupabaseUser } from '#supabase/server'
 import { createActivityRepository } from '~/server/domains/activity/repositories/activity.repository'
 import { createRelationshipRepository } from '~/server/domains/social/repositories/relationship.repository'
@@ -11,51 +12,10 @@ import type {
   FeedQuery
 } from '~/server/domains/activity/dto/activity.dto'
 
-interface LinkedEvent {
-  id: string
-  name: string
-  start_date: string | null
-  city: string | null
-  venue: string | null
-}
-
 interface EnrichedActivity extends ActivityDto {
   actor_display_name: string
   /** Present when a shout-out was posted against an event. */
   event?: LinkedEvent | null
-}
-
-/**
- * Resolve the events shout-outs point at, in one round trip for the whole page.
- *
- * The id rides in the activity metadata (see ActivityLogger.logShoutout), so
- * this is a lookup rather than a join - and an event that has since been
- * deleted simply resolves to nothing, leaving the message to stand on its own.
- */
-async function attachLinkedEvents(
-  client: SupabaseClient,
-  activities: EnrichedActivity[]
-): Promise<EnrichedActivity[]> {
-  const eventIds = [
-    ...new Set(
-      activities
-        .map((a) => (a.metadata as Record<string, unknown> | null)?.event_id)
-        .filter((id): id is string => typeof id === 'string')
-    )
-  ]
-  if (eventIds.length === 0) return activities
-
-  const { data } = await client
-    .from('events')
-    .select('id, name, start_date, city, venue')
-    .in('id', eventIds)
-
-  const byId = new Map(((data ?? []) as LinkedEvent[]).map((e) => [e.id, e]))
-
-  return activities.map((a) => {
-    const id = (a.metadata as Record<string, unknown> | null)?.event_id
-    return typeof id === 'string' ? { ...a, event: byId.get(id) ?? null } : a
-  })
 }
 
 async function enrichWithDisplayNames(

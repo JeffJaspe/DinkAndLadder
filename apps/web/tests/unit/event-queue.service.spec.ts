@@ -51,6 +51,13 @@ function makeEventRecord(overrides?: Partial<EventRecord>): EventRecord {
     queue_courts: 4,
     match_format: 'doubles',
     queue_mode: 'first_come',
+    min_players_to_start: null,
+    close_policy: 'manual',
+    closes_at: null,
+    closed_at: null,
+    coach_player_id: null,
+    fee_payer: 'player',
+    organizer_fee_amount: null,
     queue_skip_timeout_seconds: 120,
     created_by_player_id: 'organizer-1',
     created_at: '2026-08-01T00:00:00Z',
@@ -149,6 +156,44 @@ describe('EventQueueService', () => {
         match_type: 'singles',
         partner_id: null
       })
+    })
+
+    /**
+     * OP-2. Reported as "on doubles open play it doesn't need a partner, only
+     * in tournament". The refusal was here, not in tournament registration:
+     * joinQueue demanded a partner for ANY doubles queue, including Mix & Match
+     * — whose entire purpose is to pair people itself — so a solo drop-in, the
+     * normal way somebody joins an open play session, could not enter.
+     */
+    it('requires a partner for doubles in a first-come queue', async () => {
+      const service = createEventQueueService(
+        createFakeQueueRepository(),
+        createFakeRegistrationRepository(),
+        createFakeEventRepository()
+      )
+
+      await expect(service.joinQueue('event-1', 'player-1', 'doubles')).rejects.toMatchObject({
+        code: 'VALIDATION_ERROR'
+      })
+    })
+
+    it('lets a player join doubles alone in Mix & Match', async () => {
+      const queueRepo = createFakeQueueRepository({
+        create: vi.fn().mockResolvedValue(makeQueueEntry())
+      })
+      const service = createEventQueueService(
+        queueRepo,
+        createFakeRegistrationRepository(),
+        createFakeEventRepository({
+          findById: vi.fn().mockResolvedValue(makeEventRecord({ queue_mode: 'random' }))
+        })
+      )
+
+      await service.joinQueue('event-1', 'player-1', 'doubles')
+
+      expect(queueRepo.create).toHaveBeenCalledWith(
+        expect.objectContaining({ match_type: 'doubles', partner_id: null })
+      )
     })
 
     it('rejects joining if the player is not registered', async () => {

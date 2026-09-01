@@ -10,6 +10,7 @@ import type {
   MatchListParticipantDto
 } from '~/server/domains/match/dto/match-join-row.dto'
 import type { PartnerDto } from '~/server/domains/partnership/dto/partnership.dto'
+import type { BoxScoreMatch } from '~/components/match/BoxScore.vue'
 import type { PlayerProfileDto } from '~/server/domains/player/dto/player-profile.dto'
 import { apiErrorMessage } from '~/utils/api-error-message'
 import type { PlatformFeeRule } from '~/utils/convenience-fee'
@@ -49,8 +50,21 @@ const visibleTabs = computed(() => {
     'matches'
   ]
   if (courts.value.length > 0) tabs.push('courts')
-  tabs.push('players', 'rankings', 'queue')
+  tabs.push('players', 'rankings')
+
+  // The queue is a live control surface. On a finished or cancelled event it
+  // can only offer actions that cannot do anything, so it is withheld rather
+  // than shown empty — the roster stays reachable under Players.
+  const over = event.value?.status === 'completed' || event.value?.status === 'cancelled'
+  if (!over) tabs.push('queue')
+
   return tabs
+})
+
+// A tab can disappear underneath the reader — finishing an event while sitting
+// on Queue, for instance — so fall back rather than render nothing.
+watch(visibleTabs, (tabs) => {
+  if (!tabs.includes(activeTab.value)) activeTab.value = 'info'
 })
 
 interface EventRankingEntry {
@@ -102,6 +116,45 @@ const {
   pending: matchesPending,
   refresh: refreshMatches
 } = await useFetch<{ data: MatchListItemDto[] }>(`/api/v1/events/${eventId}/matches`)
+
+/**
+ * The spectator boxscore, below the header and above the tabs.
+ *
+ * Aggregates every recorded match in the event, whatever category it came from.
+ * Live scores lived only inside a category before, so somebody watching the
+ * whole tournament had to open each one in turn and hold the picture in their
+ * head.
+ *
+ * Recorded matches only: a match that has not been scored has nothing to show,
+ * and the running courts are already on the Courts tab with their own controls.
+ */
+const boxScoreMatches = computed<BoxScoreMatch[]>(() =>
+  (matchesData.value?.data ?? [])
+    .filter((match) => match.scores.length > 0)
+    .slice(0, 12)
+    .map((match) => {
+      const side = (team: 1 | 2) =>
+        match.participants
+          .filter((p) => p.team_number === team)
+          .map((p) => p.display_name ?? 'Unknown player')
+
+      return {
+        id: match.id,
+        teams: [side(1), side(2)] as [string[], string[]],
+        games: match.scores.map((s) => ({
+          team1_score: s.team1_score,
+          team2_score: s.team2_score
+        })),
+        context: [match.match_type === 'singles' ? 'Singles' : 'Doubles', match.venue]
+          .filter(Boolean)
+          .join(' · '),
+        // The event's own match list holds finished results; anything still
+        // being played is on a court, which the Courts tab owns.
+        liveGame: null,
+        complete: match.status === 'verified'
+      }
+    })
+)
 
 const { data: rankingsData, pending: rankingsPending } = await useFetch<{
   data: EventRankingEntry[]
@@ -161,6 +214,25 @@ async function startEvent() {
     useToast().error(apiErrorMessage(err, 'Could not start the event.'))
   } finally {
     startingEvent.value = false
+  }
+}
+
+const closingSession = ref(false)
+
+/**
+ * Stop taking entries without ending the event — the manual half of the close
+ * policy. Play carries on; only new registrations stop.
+ */
+async function closeSession() {
+  closingSession.value = true
+  try {
+    await $fetch(`/api/v1/events/${eventId}/close`, { method: 'POST' })
+    await refreshEvent()
+    useToast().success('Session closed. No new players can join.')
+  } catch (err) {
+    useToast().error(apiErrorMessage(err, 'Could not close the session.'))
+  } finally {
+    closingSession.value = false
   }
 }
 
@@ -393,9 +465,16 @@ watch(
   { immediate: true }
 )
 
+/**
+ * Mix & Match forms the pairs itself, so a partner is neither asked for nor
+ * sent. Requiring one made a solo drop-in impossible to enter, which is the
+ * normal way somebody joins an open play session.
+ */
+const queuePairsForYou = computed(() => queuePairsAutomatically(event.value?.queue_mode))
+
 async function handleJoinQueue() {
   queueError.value = ''
-  if (joinMatchType.value === 'doubles' && !joinPartnerId.value) {
+  if (joinMatchType.value === 'doubles' && !queuePairsForYou.value && !joinPartnerId.value) {
     queueError.value = 'Select a partner to join as a doubles pair.'
     return
   }
@@ -405,7 +484,8 @@ async function handleJoinQueue() {
       method: 'POST',
       body: {
         match_type: joinMatchType.value,
-        partner_id: joinMatchType.value === 'doubles' ? joinPartnerId.value : null
+        partner_id:
+          joinMatchType.value === 'doubles' && !queuePairsForYou.value ? joinPartnerId.value : null
       }
     })
     await refreshQueue()
@@ -642,7 +722,8 @@ const eventTypeLabels: Record<string, string> = {
   open_ranked: 'Open Ranked',
   club_casual: 'Club Casual',
   club_ranked: 'Club Ranked',
-  tournament: 'Tournament'
+  tournament: 'Tournament',
+  coaching: 'Coaching'
 }
 
 /**
@@ -757,10 +838,75 @@ async function handleDeleteEvent() {
  * many more are needed rather than only how many have joined.
  */
 const registeredCount = computed(() => registrationsData.value?.data.length ?? 0)
+
+/**
+ * Registered and checked-in are different things and only one of them plays.
+ *
+ * Registered is a claimed slot. Checked in is a player who has arrived and is
+ * eligible for the rotation — which is why the queue draws on the second and
+ * not the first. Both numbers were on screen with nothing saying so.
+ */
+const checkedInCount = computed(
+  () => registrationsData.value?.data.filter((r) => r.status === 'checked_in').length ?? 0
+)
+const registeredOnlyCount = computed(
+  () => registrationsData.value?.data.filter((r) => r.status === 'registered').length ?? 0
+)
 const placesRemaining = computed(() => {
   const capacity = event.value?.max_participants
   if (!capacity) return null
   return Math.max(0, capacity - registeredCount.value)
+})
+
+/**
+ * Why the session cannot start yet, or null when it can.
+ *
+ * Capacity and readiness are different numbers and were being conflated: a
+ * session at 3 of 14 was treated as not startable because it was not FULL,
+ * when what actually matters is whether enough people are there to fill a
+ * court. `effective_min_players_to_start` is the server's answer to that (the
+ * organiser's override, or 4 for doubles / 2 for singles), so the button and
+ * the API cannot disagree about it.
+ */
+const startBlockedReason = computed(() => {
+  const needed = event.value?.effective_min_players_to_start ?? 0
+  const short = needed - registeredCount.value
+  if (short <= 0) return null
+  return `${short} more ${short === 1 ? 'player' : 'players'} to start`
+})
+
+/**
+ * What the session is doing right now, in words.
+ *
+ * The panel previously showed a bare count and left the reader to work out what
+ * it meant. Full and playing are not mutually exclusive, so this reports the
+ * play state and the capacity state separately rather than collapsing them.
+ */
+/**
+ * The coach's name, for a coaching session.
+ *
+ * A separate lookup because the event carries only the id — and it is a player
+ * like any other, so the name links to their profile the way every other player
+ * reference on this page does.
+ */
+const { data: coachProfile } = await useFetch<{ id: string; display_name: string }>(
+  () => `/api/v1/players/${event.value?.coach_player_id}`,
+  { immediate: false, watch: [() => event.value?.coach_player_id] }
+)
+
+const sessionState = computed(() => {
+  const e = event.value
+  if (!e || isTournament.value) return null
+  if (e.closed_at || e.status === 'completed') return { label: 'Session closed', tone: 'muted' }
+  if (e.status === 'active') return { label: 'Currently playing', tone: 'live' }
+  if (placesRemaining.value === 0) return { label: 'Full — no slots', tone: 'full' }
+  if (placesRemaining.value !== null) {
+    return {
+      label: `${placesRemaining.value} ${placesRemaining.value === 1 ? 'slot' : 'slots'} left`,
+      tone: 'open'
+    }
+  }
+  return null
 })
 </script>
 
@@ -805,6 +951,15 @@ const placesRemaining = computed(() => {
         <div class="mb-6 rounded-xl bg-surface p-6 shadow-card">
           <div class="flex items-start justify-between gap-4">
             <div class="flex-1">
+              <!-- What kind of event this is, before its name. Nothing on the
+                   page said so at a glance, so a tournament and an open play
+                   session were indistinguishable until you read the body. -->
+              <p
+                class="mb-1 text-xs font-bold tracking-[0.14em]"
+                :class="isTournament ? 'text-accent' : 'text-primary'"
+              >
+                {{ eventKindLabel(event.event_type) }}
+              </p>
               <div class="flex flex-wrap items-center gap-2">
                 <h1 class="text-2xl font-bold text-fg">{{ event.name }}</h1>
                 <span
@@ -818,6 +973,18 @@ const placesRemaining = computed(() => {
               </div>
               <p class="mt-1 text-sm text-primary">
                 {{ eventTypeLabels[event.event_type] || event.event_type }}
+              </p>
+
+              <!-- Who is teaching. Any player can be the coach, so it links to
+                   their profile like every other player reference here. -->
+              <p v-if="event.coach_player_id" class="mt-1 text-sm text-fg-secondary">
+                Coach:
+                <NuxtLink
+                  :to="`/players/${event.coach_player_id}`"
+                  class="font-medium text-primary hover:underline"
+                >
+                  {{ coachProfile?.display_name ?? 'View profile' }}
+                </NuxtLink>
               </p>
               <p class="mt-2 text-fg-muted">
                 {{ formatDateRange(event.start_date, event.end_date) }}
@@ -834,12 +1001,31 @@ const placesRemaining = computed(() => {
                    size, so one event-wide "2 / 16 players" was a number that
                    matched nothing anybody could enter. Open play and leagues
                    keep it, where the event really is the thing with a limit. -->
-              <div v-if="!isTournament && event.max_participants" class="text-sm text-fg-muted">
-                {{ registeredCount }} / {{ event.max_participants }} players
-                <span v-if="placesRemaining" class="ml-1 text-warning">
-                  — {{ placesRemaining }} {{ placesRemaining === 1 ? 'slot' : 'slots' }} left
+              <div v-if="!isTournament" class="flex flex-wrap items-center gap-2 text-sm">
+                <span v-if="event.max_participants" class="text-fg-muted">
+                  {{ registeredCount }} / {{ event.max_participants }} players
                 </span>
-                <span v-else-if="placesRemaining === 0" class="ml-1 text-primary">— full</span>
+
+                <!-- Singles or doubles, which the record has carried since 041
+                     but nothing ever showed — an all-singles session looked
+                     identical to an all-doubles one. -->
+                <span class="rounded-md bg-surface-3 px-2 py-0.5 text-caption font-medium capitalize text-fg-secondary">
+                  {{ event.match_format }}
+                </span>
+
+                <!-- What the session is doing, said plainly. -->
+                <span
+                  v-if="sessionState"
+                  class="rounded-md px-2 py-0.5 text-caption font-medium"
+                  :class="{
+                    'bg-warning-soft text-warning': sessionState.tone === 'live',
+                    'bg-primary-soft text-primary': sessionState.tone === 'full',
+                    'bg-surface-3 text-fg-secondary': sessionState.tone === 'open',
+                    'bg-surface-2 text-fg-muted': sessionState.tone === 'muted'
+                  }"
+                >
+                  {{ sessionState.label }}
+                </span>
               </div>
             </div>
             <div class="flex flex-col items-end gap-2">
@@ -852,13 +1038,38 @@ const placesRemaining = computed(() => {
 
               <!-- Start the session. Per event; courts are started individually
                    from the Courts tab once this is running. -->
+              <!-- Disabled with its reason, never absent. An organiser who
+                   cannot start needs to know what is missing; a button that
+                   simply is not there reads as a broken page. -->
+              <div v-if="canManageEvent && event.status === 'published'" class="text-right">
+                <button
+                  :disabled="startingEvent || startBlockedReason !== null"
+                  :title="startBlockedReason ?? undefined"
+                  class="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-on-primary hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-50"
+                  @click="startEvent"
+                >
+                  {{ startingEvent ? 'Starting…' : 'Start Event' }}
+                </button>
+                <p v-if="startBlockedReason" class="mt-1 text-caption text-fg-muted">
+                  {{ startBlockedReason }}
+                </p>
+              </div>
+
+              <!-- Stop taking entries while play continues. Only offered on a
+                   manual-close session that is still open — a scheduled one
+                   closes by its own clock, and closing twice does nothing. -->
               <button
-                v-if="canManageEvent && event.status === 'published'"
-                :disabled="startingEvent"
-                class="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-on-primary hover:bg-primary-hover disabled:opacity-50"
-                @click="startEvent"
+                v-if="
+                  canManageEvent &&
+                  !isTournament &&
+                  !event.closed_at &&
+                  (event.status === 'published' || event.status === 'active')
+                "
+                :disabled="closingSession"
+                class="rounded-lg border border-border-strong px-4 py-2 text-sm font-medium text-fg-secondary hover:bg-surface-2 disabled:opacity-50"
+                @click="closeSession"
               >
-                {{ startingEvent ? 'Starting…' : 'Start Event' }}
+                {{ closingSession ? 'Closing…' : 'Close to new players' }}
               </button>
 
               <button
@@ -869,6 +1080,17 @@ const placesRemaining = computed(() => {
               >
                 {{ startingEvent ? 'Ending…' : 'End Event' }}
               </button>
+
+              <!-- Drafts are editable. Published events are not: people have
+                   registered against their terms, and rewriting the date or
+                   the fee underneath them is a different feature. -->
+              <NuxtLink
+                v-if="canManageEvent && event.status === 'draft'"
+                :to="`/create-event?edit=${event.id}`"
+                class="rounded-lg border border-border-strong px-4 py-2 text-sm font-medium text-fg-secondary hover:bg-surface-2"
+              >
+                Edit event
+              </NuxtLink>
 
               <!-- Publish Button for Draft Events -->
               <button
@@ -944,6 +1166,19 @@ const placesRemaining = computed(() => {
              switch between once every category owns its own players, draw,
              schedule and result. Queue is deliberately absent — it is an
              open-play feature, and the tournament "Queue" tab was never one. -->
+        <!--
+          Live scores, for anyone watching rather than organising.
+
+          Sits above the tabs on purpose: a spectator's question is "what is
+          happening", and answering it should not require choosing a tab first.
+          The same grid as the score sheet and the match view, so a result reads
+          identically wherever it is seen.
+        -->
+        <section v-if="boxScoreMatches.length" class="mb-6">
+          <h2 class="mb-2 font-display text-heading-3 text-fg">Scores</h2>
+          <MatchBoxScore :matches="boxScoreMatches" />
+        </section>
+
         <template v-if="isTournament">
           <!-- The board on its own page, for the screen at the desk. Running a
                draw from inside an expanded card works on a laptop and is
@@ -1148,11 +1383,14 @@ const placesRemaining = computed(() => {
 
             <!-- Queue Settings Info -->
             <div v-if="event.queue_enabled" class="rounded-xl bg-surface p-6 shadow-card">
-              <h2 class="mb-3 text-lg font-semibold text-fg">Queue System</h2>
+              <h2 class="mb-3 text-lg font-semibold text-fg">
+                {{ queueModeLabel(event.queue_mode) }}
+              </h2>
               <p class="text-fg-secondary">
-                This event has matchmaking queue enabled with {{ event.queue_courts }} court(s).
-                Mode:
-                <span class="capitalize">{{ event.queue_mode.replace('_', ' ') }}</span>
+                {{ queueModeDescription(event.queue_mode) }}
+              </p>
+              <p class="mt-1 text-sm text-fg-muted">
+                {{ event.queue_courts }} court(s) in rotation.
               </p>
 
               <!-- How the next match gets picked. -->
@@ -1312,6 +1550,24 @@ const placesRemaining = computed(() => {
 
           <!-- Tab Content: Players -->
           <div v-if="activeTab === 'players'" class="rounded-xl bg-surface p-6 shadow-card">
+            <!--
+              EV-8. Both counts appeared with no stated difference, so nobody
+              could tell what either meant or why the queue drew on one and not
+              the other. Said once, here, rather than left to be inferred.
+            -->
+            <div class="mb-4 flex flex-wrap items-center gap-x-5 gap-y-1 text-caption">
+              <span class="flex items-center gap-1.5">
+                <span class="h-2 w-2 rounded-pill bg-primary" />
+                <span class="font-medium text-fg">{{ checkedInCount }} checked in</span>
+                <span class="text-fg-muted">— here and in the rotation</span>
+              </span>
+              <span class="flex items-center gap-1.5">
+                <span class="h-2 w-2 rounded-pill bg-border-strong" />
+                <span class="font-medium text-fg-secondary">{{ registeredOnlyCount }} registered</span>
+                <span class="text-fg-muted">— holding a slot, not arrived</span>
+              </span>
+            </div>
+
             <div v-if="registrationsPending" class="space-y-3">
               <div v-for="i in 5" :key="i" class="h-12 animate-pulse rounded-lg bg-canvas" />
             </div>
@@ -1411,7 +1667,7 @@ const placesRemaining = computed(() => {
             <template v-if="event.queue_enabled">
               <div class="rounded-xl bg-surface p-6 shadow-card">
                 <p class="text-sm text-fg-muted">
-                  {{ event.queue_courts }} court(s) · {{ event.queue_mode.replace('_', ' ') }} mode
+                  {{ event.queue_courts }} court(s) · {{ queueModeLabel(event.queue_mode) }}
                 </p>
 
                 <div
@@ -1456,7 +1712,9 @@ const placesRemaining = computed(() => {
                         <option value="doubles">Doubles</option>
                       </select>
                     </div>
-                    <div v-if="joinMatchType === 'doubles'">
+                    <!-- Hidden in Mix & Match: the rotation pairs you, so
+                         there is nothing to choose. -->
+                    <div v-if="joinMatchType === 'doubles' && !queuePairsForYou">
                       <label class="mb-1.5 block text-xs text-fg-secondary">Partner</label>
                       <select
                         v-model="joinPartnerId"

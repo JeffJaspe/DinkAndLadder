@@ -160,9 +160,19 @@ const statusLabel = computed(() => {
   return 'Open'
 })
 
+/**
+ * Colour carries the state, not just the word.
+ *
+ * "In progress" used to fall through to the same muted neutral as everything
+ * else, so the one category actually being played looked identical to the ones
+ * waiting — the single most useful thing on the page was the least visible.
+ * Amber while it is happening, green when it is done, using the semantic
+ * tokens that already clear contrast in both themes.
+ */
 const statusTone = computed(() => {
   if (isComplete.value) return 'bg-primary/15 text-primary'
-  if (props.isFull && !props.bracket?.rounds.length) return 'bg-accent-soft text-on-accent'
+  if (props.bracket?.rounds.length) return 'bg-warning-soft text-warning'
+  if (props.isFull) return 'bg-accent-soft text-on-accent'
   return 'bg-surface-2 text-fg-secondary'
 })
 
@@ -332,8 +342,28 @@ function confirmTrash() {
     </button>
 
     <!-- What is on now, without opening anything. -->
-    <div class="border-t border-border-strong/40 px-5 py-3">
+    <div class="flex items-center justify-between gap-3 border-t border-border-strong/40 px-5 py-3">
       <TournamentCategoryUpNext :bracket="bracket" :loading="bracketPending" />
+
+      <!--
+        This category on a screen of its own.
+
+        The event-wide "open matches in a new tab" opened every draw at once,
+        which on a TV at the desk is the picture nobody wanted. Per category it
+        is the thing being run right now, full width, nothing competing with it.
+        A plain anchor, not NuxtLink: target=_blank is the entire point.
+      -->
+      <a
+        v-if="category && bracket?.rounds.length"
+        :href="`/events/${tournament.event_id}/matches?category=${category.id}`"
+        target="_blank"
+        rel="noopener"
+        class="inline-flex shrink-0 items-center gap-1.5 rounded-button border border-border-strong px-2.5 py-1 text-caption text-fg-secondary transition-colors hover:border-primary hover:text-fg"
+        :title="`Open ${category.name} on its own screen`"
+      >
+        <UiIcon name="share" size="h-3.5 w-3.5" />
+        Open
+      </a>
     </div>
 
     <div v-if="expanded" class="border-t border-border-strong/40 p-5">

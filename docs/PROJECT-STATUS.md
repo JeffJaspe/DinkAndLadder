@@ -5405,3 +5405,441 @@ The rollback was changed to match: brackets and matches are now cleaned by their
 app on top of the seed — generating a draw, recording a result, finishing a game
 on a court — gets a random UUID, and a namespace filter alone would have stranded
 those rows and blocked the event deletes.
+
+## Tournament results never moved ratings (2026-09-01)
+
+**RT-1 / RT-2 from the post-MVP punch list.** Reported as "so many matches on
+this account but rating progress has no data" and "the rating seems not
+working". Both were one bug, and it was not in the rating engine.
+
+A match becomes `verified` down exactly two paths:
+
+1. a player-submitted match, once its verifiers confirm it — `MatchService`
+   resolves the status and `api/v1/matches/[matchId]/verification/decision.post.ts`
+   handles the transition, **and**
+2. an organiser recording a draw result — `BracketService.recordMatchResult`,
+   which writes `'verified'` directly and correctly (asking the pair who just
+   lost to confirm the bracket would be backwards).
+
+The rating trigger lived as a private `triggerRatingCalculation` function
+*inside the controller file* for path 1, so nothing else could reach it. Path 2
+never rated anything: every tournament match ever recorded moved no rating and
+wrote no `rating_transactions` row. An account whose play is mostly tournament
+play therefore has a correct match history and an empty rating chart, which is
+exactly what was reported.
+
+Fixed by moving the trigger into the rating domain as
+`server/domains/rating/services/apply-match-rating.ts` (`applyRatingForMatch`),
+and calling it from both paths. `BracketService` takes the Rating domain's
+**service**, not its repository, and as an optional constructor argument in the
+same style as `matches` and `categories` — the Event domain must not touch
+`player_ratings` or `rating_transactions` itself (CLAUDE.md §4), and the
+bracket endpoints that only read or generate a draw should not have to build a
+rating service they never use. Only `bracket-matches/[id]/result.post.ts`
+passes one.
+
+Best-effort semantics are unchanged and now apply to both paths: the result is
+already recorded and the winner already advanced by the time rating runs, so a
+rating failure logs and returns rather than throwing out of a completed domain
+action. The relations are read off the created row with `?? []` for the same
+reason.
+
+- **Tests**: `tests/unit/bracket.service.spec.ts` gains a `rating` block — that
+  a recorded result is rated with points totalled across all games, that a
+  rating failure still records the result, and that a service built without a
+  rating service still records and verifies. 1030 unit tests pass (was 1027).
+- **Validated**: `typecheck` clean, `lint` 0 errors (8 pre-existing
+  `vue/require-default-prop` warnings in unrelated components), full unit suite
+  green. **Not yet verified against the live database** — that is the next
+  checkpoint, and it needs a real tournament result recorded end to end.
+- **Remaining**: existing tournament matches are still unrated. `applyMatchResult`
+  is idempotent (`hasTransactionsForMatch`), so a backfill that replays every
+  `verified` match with no `rating_transactions` rows is safe, but it has not
+  been written or run. Until it is, historical tournament play stays missing
+  from rating history even though new results now rate correctly.
+
+### Rating backfill (RT-2, same day)
+
+Fixing the trigger only rates matches recorded from now on. The matches already
+sitting at `verified` with no `rating_transactions` rows — which is every
+tournament match ever recorded — stay missing from rating history until they are
+replayed. That is what an account full of tournament play and an empty progress
+chart is still showing after the fix above.
+
+- `MatchRepository.findVerifiedForRating(limit, offset)` — verified matches,
+  **oldest first**, one page at a time. Ordering is load-bearing, not cosmetic:
+  ratings are path-dependent, so replaying a player's matches out of order
+  computes each against the wrong starting rating. Ordered by `played_at` then
+  `id`, because seeded events stamp several matches with the same timestamp and
+  an unstable sort would let a page boundary skip or repeat a row.
+- `RatingBackfillService` (`server/domains/rating/services/rating-backfill.service.ts`)
+  — walks a page and replays each match through `applyRatingForMatch`, strictly
+  sequentially. Reports `scanned` / `rated` / `already_rated` / `failed` plus the
+  failed ids, and `has_more` / `next_offset` for resuming.
+- `POST /api/v1/admin/rating/backfill` — SuperAdmin only, same guard as the
+  moderation queue. Body takes `limit` (default 100, max 500), `offset`, and
+  `dry_run`. Call it repeatedly with the previous response's `next_offset` until
+  `has_more` is false.
+
+An endpoint rather than a standalone SQL script on purpose. The work is business
+logic: every replayed match has to go through RatingService so it uses the same
+algorithm, the same `RATING_ALGORITHM_VERSION` stamp and the same idempotency
+check as a live one. A script writing rating rows directly would be a second
+implementation of the rating engine, and the two would drift.
+
+Safe to re-run. `applyMatchResult` refuses a match that already has transactions
+(`hasTransactionsForMatch`), so an overlapping page is a no-op rather than a
+double count — which is also why it can be paged without holding a lock. This
+matters more than usual here: there is no "unrate", so a match rated twice
+leaves every player in it with a permanently doubled delta.
+
+`failed` is expected to be non-zero. `applyRatingForMatch` swallows
+`PLAYER_UNRATED`, which is every match involving a player who has no seeded
+rating — a known gap until the initial-rating questionnaire (ADR-001) exists.
+Those matches are reported rather than hidden, and replaying them later is safe.
+
+- **Tests**: `tests/unit/rating-backfill.service.spec.ts` — 7 tests covering the
+  rate path, the already-rated skip, failure reporting, strict sequencing,
+  both pagination directions, and dry run. 1037 unit tests pass (was 1030).
+- **Validated**: `typecheck` clean, `lint` 0 errors, full unit suite green.
+- **Not yet run.** Nobody has called this endpoint against the real database,
+  so historical tournament matches are still unrated in dev and prod. Suggested
+  first call is `{"dry_run": true}` to see the scale before writing anything.
+
+## Post-MVP punch list — Slices 1 and 2 (2026-09-01)
+
+Worked from the triaged punch list. Tests and the data backfill were explicitly
+deferred to the end of the run by the user; typecheck and lint were run between
+every item. Three plan items turned out to be misdiagnosed and one was already
+correct — recorded here because the wrong diagnosis is the more useful note.
+
+**Corrections to the triage**
+
+- **EV-1 "All Status shows only completed" was a sort bug, not a filter bug.**
+  The filter was always correct. `search` ordered by `start_date` ASCENDING with
+  a limit of 20, so page one of an unfiltered list was the twenty oldest events
+  in the database, every one long finished. Now descending, with `id` as a
+  stable tiebreak.
+- **OP-2 was the queue join, not tournament registration.** Tournament
+  registration's PARTNER_REQUIRED is correctly scoped to a tournament category.
+  What refused a solo entrant was `EventQueueService.joinQueue`, which demanded
+  a partner for any doubles queue — including Mix & Match, whose whole purpose
+  is to pair people itself. Partner is now optional (and ignored) when
+  `queue_mode = 'random'`.
+- **MS-1 needed no migration.** `notifications.reference_type`/`reference_id`
+  already exist and most types map to a route. `team_up` was emitted by both
+  team-up endpoints and declared in NotificationReferenceType but missing from
+  the page's link map, so it fell through to `default → null` and rendered as an
+  inert div. Proposed changelog `051-notification-targets` is not needed.
+- **CL-2 was already correct**, but exposed a real bug next to it: every
+  sub-resource fetch on the club page passed the raw route param, and only
+  `GET /clubs/{id}` resolves a slug. Visiting a club by slug loaded the club and
+  then silently failed to load its members, rankings, matches and events. CL-1's
+  canonicalisation would have made that the normal case, so the page now resolves
+  `club.value.id` once and uses it for everything underneath.
+- **TU-6 is half wrong and remains open.** The shout-out event link already works
+  in the feed. The gap is the player profile, which never renders a linked event
+  at all — and its activity endpoint does not return one, so this is API work
+  rather than a template fix.
+
+**Database**
+
+`045-open-play-capacity` adds `events.min_players_to_start` (nullable — null
+means derive 4 for doubles / 2 for singles), `close_policy` (defaulted
+`manual`, which is what every existing session already is), `closes_at`,
+`closed_at`, two check constraints and a partial index on sessions due to close.
+Registered in the master changelog. **Not applied to any database yet** — every
+new column is read through a `?? null` default, so the app is correct before and
+after `liquibase update`.
+
+**Items completed**
+
+Slice 1: RT-1, RT-2, CL-1, MT-1, MT-3, MS-1 (plus TU-1 and TU-5 pulled forward).
+Slice 2: OP-1, OP-3, OP-4, OP-5, OP-6, OP-7, OP-8, EV-1, EV-4, EV-5, EV-6, EV-7.
+Also from Slice 5: CL-3, CL-4, CL-5, PF-2, MS-2.
+
+Notable additions: `utils/queue-mode.ts` (Mix & Match labelling, enum value
+untouched), `utils/event-type.ts` (kind vs qualifiers, and the broad
+Open Play/Tournament filter), `POST /events/{id}/close` (stop taking entries
+without ending the event — distinct from `/complete`), `?edit=` mode on
+create-event so a draft can be corrected rather than recreated, and
+`GET /players/me/submittable-events`.
+
+**Validation**: `typecheck` clean, `lint` 0 errors (8 pre-existing
+`vue/require-default-prop` warnings in unrelated components), 1037 unit tests
+pass. No new tests were written for this batch — deferred by instruction, and
+owed before any of it can be called done.
+
+## Punch list — Slice 3 groundwork and TU-6 (2026-09-01)
+
+**TU-6, correctly diagnosed this time.** The shout-out event link always worked
+in the feed; the player profile could not render it because
+`GET /players/{id}/activities` returned the event id in metadata and nothing
+else. The enrichment was a private function inside the feed endpoint — the same
+shape of bug as the rating trigger — so it was extracted to
+`server/domains/activity/services/linked-event.ts` and both endpoints now use
+it. The profile renders the same card the feed does.
+
+Its date formatter is deliberately local rather than promoted: the three
+existing `formatEventDate` copies in this codebase format differently (the feed
+shows a weekday, the others do not), so unifying them would have restyled dates
+on pages this change has nothing to do with.
+
+**Two migrations, both unapplied.**
+
+`046-category-game-rules` — `games_default`, `round_game_rules` (jsonb, round →
+best-of, holding only the exceptions), `target_points` and `win_by_two` on
+`tournament_categories`, plus a check that games_default is odd and in range.
+Defaults reproduce exactly what every existing category was implicitly played
+to: one game, to 11, win by 2. `target_points`/`win_by_two` come from the
+scoresheet mockup — the original plan only covered how many games, not how long
+each one is, and the paper sheet's own score key (12-10, 13-11, 15-13) only
+makes sense with a margin rule.
+
+`047-match-result-integrity` — `matches.result_type` (normal/retired/dq/
+walkover) and `matches.submitted_by_role` (team_1/team_2/organizer).
+`submitted_by_role` is nullable rather than backfilled to 'team_1': every
+existing row did come through the player path, but asserting that as fact is a
+guess about history. Application code reads null as "not recorded" and never as
+authority to skip verification.
+
+**Vocabulary decision.** These are **games**, not sets. The sport, the paper
+score sheet and `bracket_matches.live_score` (`{ game_number, ... }`, 043) all
+say game; only `match_scores.set_number` disagrees, and that column is left
+alone — it is written and read by working code, and renaming it is a separate,
+riskier change than an addition. New code says game throughout.
+
+**`utils/game-rules.ts`** — one pure module holding the rules, shared by the
+score sheet, the live input, the bracket and server-side validation so the four
+cannot disagree about whether 11-10 is a finished game. `isGameComplete`
+requires the target AND the margin (which is what lets a game run to 13-11);
+`gameWinner` returns null until then rather than naming whoever is ahead — that
+distinction is what stopped the live panel skipping to the next game mid-rally
+in the mockup. `isGameLive` implements SC-4 (a game after the match was already
+won could not have happened), and `resolveResult` implements SC-3 (a DQ or
+walkover names a winner the score cannot).
+
+**MT-2, three submitters.** `MatchService.submitMatch` took a player id and
+demanded that player be a participant — "You can only submit a match you played
+in" — which is exactly what stopped an organiser recording anything. It now
+takes a role. The controller resolves it (organiser of the event, or which team
+the submitter played on) rather than trusting the body, and the organiser path
+skips both the participation guard and the registration check, since someone
+running the desk holds no registration.
+
+**Validation**: `typecheck` clean, `lint` 0 errors, 1037 unit tests pass. Still
+no new tests — deferred by instruction, and now owed for `game-rules.ts` in
+particular, which is pure logic and the easiest thing in this codebase to test.
+
+## Punch list — Slice 3 UI, Slice 4 partial, and the deferred tests (2026-09-01)
+
+**One score sheet, three surfaces.** `components/match/ScoreSheet.vue` renders
+the paper sheet — one row per side, one column per game, winner marked on the
+row — and is used by score entry and the match view, read-only in the second.
+Entry, the match view and the boxscore each drew a result differently before, so
+the same match looked like three different things depending where it was seen.
+Every rule comes from `utils/game-rules.ts`; the component decides nothing.
+
+Partners stack one name per line throughout, rather than being joined into
+"A / B" — a doubles pair on one line is the first thing a narrow column
+truncates, and a cut-off name is the MT-3 problem in another form.
+
+**SC-5, and the bug behind it.** The "Next game" button was a second, divergent
+way to advance: press it early and a game nobody had played was opened; forget
+it and the next rally landed on the previous game's score. Removed from both
+`CourtCard` and `CategoryMatchRow`; a game that meets the rules now opens the
+next one itself, and only on a point being ADDED — taking one back to correct a
+mistake must never spawn a game.
+
+**SC-6 diagnosed.** "Round 1 · Ready to start" on a running category was not a
+round-numbering bug. `statusLabel` was computed from the DRAW's status, which
+only ever means "scheduled onto a court", and never consulted `is_live` — so a
+match with a running scoreboard and points going in still read "Ready to start".
+`is_live` now comes first.
+
+**MT-4** replaced the match view's left/right layout, where the games were
+squeezed between the two sides — a best-of-five ran out of room and no column
+lined up with any other match on the page. It also removed `didTeamWinSet`,
+which answered "who won this game" by comparing the two numbers; being ahead is
+not winning, and the sheet applies the real rule instead.
+
+**RT-3** reads the delta from the `rating_transactions` row the engine wrote —
+never recomputed on the client, which would be a second implementation of the
+algorithm. One extra query per page, not one per match. A match with no row
+shows nothing rather than a zero: "not rated" and "gained nothing" are different
+claims.
+
+**RT-4** withholds the rank number from a provisional player rather than hiding
+them from the board. A provisional rating is explicitly not settled, so ranking
+it against established ones states something the engine does not claim; hiding
+them entirely would make a new player's first week bleak.
+
+**Tests, now written (the deferred batch).** 1083 pass, up from 1037.
+
+- `tests/unit/game-rules.spec.ts` — 28 tests. Covers the margin rule (12-10 and
+  15-13 are legal, 11-10 and 13-12 are not), the "leading is not winning" rule
+  that the mockup's first draft got wrong, SC-4's dead games, SC-1's per-round
+  overrides, and SC-3's DQ/walkover paths.
+- `tests/unit/punch-list-fixes.spec.ts` — 13 tests over the pure logic behind
+  OP-1, OP-7, OP-8, MS-2 and EV-4/EV-5. Each block is named after the reported
+  symptom rather than the function, since the symptom is what a future reader
+  will recognise.
+- OP-2 and MT-2 gained service-level regression tests in their existing specs.
+
+**A real bug the tests found.** `EventQueueService.joinQueue` wrote
+`partner_id: undefined` for a Mix & Match doubles entry rather than `null`,
+which omits the column from the insert instead of writing an explicit "nobody".
+Fixed in the service, not the test.
+
+**Validation**: `typecheck` clean, `lint` 0 errors (8 pre-existing warnings),
+1083 unit tests pass.
+
+**Still outstanding**: the three migrations (045, 046, 047) are unapplied, the
+rating backfill has never been run, and RT-1 has not been verified against a
+live database. Remaining punch-list items: SC-7, SC-8, SC-9, SC-12, SC-13, TU-2,
+TU-3, TU-4, PF-1, PF-3, EV-2, EV-3, EV-8, MT-5, MS-3.
+
+## Punch list — final code pass (2026-09-01)
+
+**SC-12, the spectator boxscore.** `components/match/BoxScore.vue`, mounted on
+the event page above the tabs. A spectator's question is "what is happening",
+and answering it should not require picking a tab first. One column count for
+the whole table rather than per row, so a single game and a best-of-three line
+up down the page — per-row widths were most of what made the old per-category
+view hard to scan.
+
+Note: `/tournaments/[id]` is a 301 redirect to the event, so "tournament level"
+means the event page. There is no separate tournament page to put this on.
+
+**A bug introduced and caught in the same pass.** The boxscore was first placed
+between a `<template v-if="isTournament">` and its `<template v-else>`, which
+silently breaks the v-if/v-else pairing — `vue-tsc` passes and the page misbehaves
+at runtime. Moved above the branch so the two remain adjacent siblings.
+
+**SC-9.** The bracket card marked only the winner, so the two rows of a match
+ended at different widths and their score columns did not line up — the reported
+misalignment. Both sides are now marked in a fixed-width cell (W on primary, L
+on danger), an undecided match keeps the same space empty, and a bye is marked
+neither: nobody beat anybody.
+
+**SC-13.** The matches page already accepted `?category=`; nothing passed one.
+The event-wide "open in a new tab" opened every draw at once, which on a screen
+at the desk is the picture nobody wanted. Each category card now carries its
+own link, shown once it has a draw.
+
+**SC-7** adds what the live panel never said: that points go to the scoreboard
+as you tap, which game is being scored, and a deuce banner — the one state where
+"first to 11" stops being true and an operator who does not know it is on will
+call the game early.
+
+**MT-5** paginates the matches list (25 a page) and adds a date window, both in
+the query. `players/me/matches` gained `offset`, `from` and `to`, and an `id`
+tiebreak on the sort so a page boundary cannot repeat or skip a row when several
+matches share a `played_at`.
+
+**Three more triage corrections.**
+
+- **TU-2 was already implemented.** `TeamUpService` has had request → pending →
+  accept/decline the whole time. Proposed changelog `050-team-up-requests` is
+  **not needed**.
+- **TU-4 was already implemented.** TeamPanel shows incoming and outgoing;
+  DuoPartnersPanel already had cancel-outgoing.
+- **MS-3 needs no code change.** `00-config.sql` already contains
+  `jeffreyjoyjaspe@gmail.com`; the reported command replaced the string with
+  itself. Whether a different address was intended is a question for the user,
+  not something to guess.
+
+**TU-3** now gates "Request as Duo Partner" on an accepted team-up. A duo is who
+you enter a doubles DRAW with — a bigger commitment than a team-up — and the
+button previously appeared on every profile, so it could be pressed at a
+stranger. Existing duos, incoming requests and pending ones are still shown
+whatever the team-up state: withdrawing the way to answer a request you already
+have would be worse than never offering it.
+
+**Validation**: `typecheck` clean, `lint` 0 errors, 1083 unit tests pass.
+
+**Not done, and why.** EV-2 (coaching event type) and EV-3 (organiser-paid fee)
+both need a migration and both depend on unanswered questions from the punch
+list — whether a coaching event records matches at all, and whether an
+organiser-covered fee shows the player nothing or shows it as covered. PF-1
+needs the Partners/Community endpoint profiled against a real database before
+anything is changed; guessing at an N+1 without measuring is how the wrong thing
+gets optimised. EV-8 (registered vs checked-in) is a definition to agree, then a
+label.
+
+**Blocking on database access**: migrations 045, 046 and 047 are unapplied, the
+rating backfill has never been run, and RT-1 is unverified live.
+
+## Punch list — EV-2, EV-3, EV-8 (2026-09-01)
+
+Built under the assumptions written into the punch list, because they were put
+to the user four times without an answer and building under a stated assumption
+is more useful than leaving three items unbuilt. Both assumptions are recorded
+in the changelog header so the next reader sees the decision rather than
+inheriting it silently.
+
+**`048-coaching-and-fees`** (unapplied, like 045-047).
+
+- `event_type` gains `coaching`. It is a text column with a CHECK named
+  `ck_events_event_type` — added in **017**, not 006, and the first draft of
+  this changeset guessed the Postgres default name and would have failed the
+  precondition and silently marked itself run. Verified against the changelog
+  before use.
+- The rollback moves any coaching events to `open_casual` first: rolling back
+  with rows in the table would otherwise fail the narrower constraint.
+- Coaching is unrated **by construction** — `toEventDto` derives affects_rating
+  from an allow-list, so a new type is unrated unless deliberately added. That
+  is the safe direction for this to fail in, and it is asserted in a test.
+- `fee_payer` (`player`/`organizer`/`split`, defaulted to `player`, which is
+  what every existing event means today) and `organizer_fee_amount`. The
+  organiser's share is only written on a split — carrying a figure on a
+  player-pays event would make it look part-funded when it is not.
+
+**ASSUMPTION — coaching records no matches.** Nothing here blocks it (matches
+attach by `event_id`), but the UI offers no way to, so the decision stays open
+rather than being made by omission.
+
+**ASSUMPTION — an organiser-covered fee is shown as covered**, not as ₱0. The
+amount is still recorded, so what the session actually cost is not lost.
+
+**EV-8** states the difference where both counts appear: checked in is "here and
+in the rotation", registered is "holding a slot, not arrived". This is the rule
+the queue already follows — it draws on checked-in — and nothing on screen said
+so.
+
+**Validation**: `typecheck` clean, `lint` 0 errors, 1088 unit tests pass.
+
+**Nothing has been committed.** The working tree holds the whole run; the user
+is committing manually.
+
+**Left undone, deliberately**: PF-1 (Partners/Community slowness) needs the
+endpoint profiled against a real database first — guessing at an N+1 without
+measuring is how the wrong thing gets optimised, and the fix would be unverifiable
+either way. MS-3 needs no code: `00-config.sql` already holds the address the
+reported command replaced with itself.
+
+### Coach selection (EV-2 follow-up)
+
+`coach_player_id` referenced `player_profiles` from the start — any player can
+be the coach, including the organiser — but 048 shipped the column with no way
+to set it, so the capability existed and was unreachable. Closed:
+
+- A player search on the create form, shown only for a coaching event. Two
+  characters before it queries; one letter matches most of the table and the
+  request would be discarded by the next keystroke anyway.
+- Optional, because the column is: a session where nobody in particular is being
+  credited is a real case.
+- Cleared when the type changes away from coaching, rather than carrying a value
+  nothing reads.
+- The edit form resolves the stored id to a real name rather than showing a
+  placeholder — a chip reading "Selected coach" tells an organiser nothing about
+  whether it is the right person. A coach whose profile has gone private keeps
+  the id (so saving does not silently drop it) and reads "Unknown player".
+- **The PATCH path was missing `coach_player_id`, `fee_payer` and
+  `organizer_fee_amount` entirely**, so editing a draft would have silently
+  reset all three. Found while wiring the coach in.
+- The event page shows the coach, linked to their profile like every other
+  player reference, and `eventTypeLabels` gained `coaching` — without it a
+  coaching event's type line fell back to printing the raw enum value.
+
+**Validation**: `typecheck` clean, `lint` 0 errors, 1088 unit tests pass.

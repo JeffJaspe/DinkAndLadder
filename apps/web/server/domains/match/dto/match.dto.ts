@@ -1,3 +1,5 @@
+import type { MatchResultType, SubmittedByRole } from '~/utils/game-rules'
+
 export type MatchType = 'singles' | 'doubles'
 export type MatchStatus =
   | 'draft'
@@ -52,6 +54,10 @@ export interface MatchRecord {
   id: string
   match_type: MatchType
   status: MatchStatus
+  /** How the match ended — see 047. Anything but normal names a winner without a full score. */
+  result_type: MatchResultType
+  /** Which of the three parties entered the score. Null on rows predating 047. */
+  submitted_by_role: SubmittedByRole | null
   submitted_by_player_id: string
   event_id: string | null
   affects_rating: boolean
@@ -70,6 +76,8 @@ export interface MatchDto {
   id: string
   match_type: MatchType
   status: MatchStatus
+  result_type: MatchResultType
+  submitted_by_role: SubmittedByRole | null
   submitted_by_player_id: string
   event_id: string | null
   affects_rating: boolean
@@ -117,6 +125,13 @@ export interface SubmitMatchScoreInput {
 }
 
 export interface SubmitMatchInput {
+  /** Defaults to normal. Only an abandoned match needs anything else. */
+  result_type?: MatchResultType
+  /**
+   * Winner when the score cannot name one — a walkover with no game played.
+   * Ignored for a normal result, where the score is the only authority.
+   */
+  winner_team?: 1 | 2 | null
   event_id: string
   match_type: MatchType
   venue?: string | null
@@ -131,9 +146,13 @@ export interface CounterScoreInput {
 
 export function toMatchDto(match: MatchRecord): MatchDto {
   return {
+    // Defaulted for rows created before 047: every one of them was played
+    // out normally and submitted by a participant.
     id: match.id,
     match_type: match.match_type,
     status: match.status,
+    result_type: match.result_type ?? 'normal',
+    submitted_by_role: match.submitted_by_role ?? null,
     submitted_by_player_id: match.submitted_by_player_id,
     event_id: match.event_id,
     affects_rating: match.affects_rating,

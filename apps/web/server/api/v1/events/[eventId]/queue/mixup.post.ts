@@ -5,7 +5,7 @@ import {
 } from '#supabase/server'
 import { createEventQueueRepository } from '~/server/domains/event/repositories/event-queue.repository'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
-import { generateMixupSchedule } from '~/server/domains/event/services/mixup-scheduler'
+import { generateMixupSchedule, mixupShortfall } from '~/server/domains/event/services/mixup-scheduler'
 import { assertCanRunEvent } from '~/server/utils/event-organizer'
 import { apiError } from '~/server/utils/api-error'
 
@@ -82,6 +82,13 @@ export default defineEventHandler(async (event) => {
       .filter((id): id is string => !!id)
       .map((playerId) => ({ queue_id: entry.id, player_id: playerId }))
   )
+
+  // Refuse before building rather than returning an empty schedule: a preview
+  // that silently shows nothing is what made a short queue look like a bug.
+  const shortfall = mixupShortfall(players.length, format)
+  if (shortfall) {
+    throw apiError(409, 'NOT_ENOUGH_PLAYERS', shortfall)
+  }
 
   const schedule = generateMixupSchedule({
     players,

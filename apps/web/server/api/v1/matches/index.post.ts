@@ -10,6 +10,8 @@ import {
 } from '~/server/domains/match/services/match.service'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
 import { createEventRegistrationRepository } from '~/server/domains/event/repositories/event-registration.repository'
+import { createEventRepository } from '~/server/domains/event/repositories/event.repository'
+import type { MatchResultType, SubmittedByRole } from '~/utils/game-rules'
 import { apiError } from '~/server/utils/api-error'
 import type {
   SubmitMatchInput,
@@ -75,11 +77,21 @@ function parseSubmitInput(body: unknown): SubmitMatchInput {
     throw apiError(400, 'VALIDATION_ERROR', 'venue must be a string or null.')
   }
 
+  const resultType = record.result_type ?? 'normal'
+  if (!['normal', 'retired', 'dq', 'walkover'].includes(resultType as string)) {
+    throw apiError(400, 'VALIDATION_ERROR', "result_type must be normal, retired, dq or walkover.")
+  }
+  if (record.winner_team !== undefined && record.winner_team !== null && record.winner_team !== 1 && record.winner_team !== 2) {
+    throw apiError(400, 'VALIDATION_ERROR', 'winner_team must be 1, 2 or null.')
+  }
+
   return {
     event_id: record.event_id as string,
     match_type: record.match_type,
     played_at: record.played_at,
     venue: (venue as string | null | undefined) ?? null,
+    result_type: resultType as MatchResultType,
+    winner_team: (record.winner_team as 1 | 2 | null | undefined) ?? null,
     participants,
     scores
   }
@@ -109,17 +121,49 @@ export default defineEventHandler(async (event) => {
 
   const input = parseSubmitInput(await readBody(event))
 
-  const registrationRepo = createEventRegistrationRepository(userClient)
-  const registration = await registrationRepo.findByEventAndPlayer(input.event_id, playerProfile.id)
-  if (!registration || registration.status === 'withdrawn') {
-    throw apiError(403, 'NOT_REGISTERED', 'You must be registered to this event to submit matches.')
+  const serviceClient = serverSupabaseServiceRole(event)
+
+  /**
+   * Which of the three parties this is.
+   *
+   * Three are involved in any match — team 1, team 2 and the organiser — and
+   * any of them may report the score. Only the server can tell which, so it is
+   * resolved here rather than trusted from the body.
+   *
+   * The organiser branch is what registration used to block: they are running
+   * the desk, not playing, so they hold no registration and were refused before
+   * the service ever saw the request.
+   */
+  const eventRow = await createEventRepository(serviceClient).findById(input.event_id)
+  if (!eventRow) {
+    throw apiError(404, 'NOT_FOUND', 'Event not found.')
   }
 
-  const serviceClient = serverSupabaseServiceRole(event)
+  const isOrganizer = eventRow.created_by_player_id === playerProfile.id
+  let role: SubmittedByRole = 'organizer'
+
+  if (!isOrganizer) {
+    const registrationRepo = createEventRegistrationRepository(userClient)
+    const registration = await registrationRepo.findByEventAndPlayer(
+      input.event_id,
+      playerProfile.id
+    )
+    if (!registration || registration.status === 'withdrawn') {
+      throw apiError(
+        403,
+        'NOT_REGISTERED',
+        'You must be registered to this event to submit matches.'
+      )
+    }
+    // Which side they played on, so the record says who reported it.
+    const own = input.participants.find((p) => p.player_id === playerProfile.id)
+    role = own?.team_number === 2 ? 'team_2' : 'team_1'
+  }
+
   const service = createMatchService(createMatchRepository(serviceClient))
 
   try {
-    const match = await service.submitMatch(playerProfile.id, input)
+    const match = await service.submitMatch(playerProfile.id, input, role)
     return { data: match, message: 'Match submitted', request_id: crypto.randomUUID() }
   } catch (err) {
     if (err instanceof MatchServiceError) throw apiError(err.status, err.code, err.message)

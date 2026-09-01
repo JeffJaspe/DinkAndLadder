@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
+import type { SubmittedByRole } from '../../utils/game-rules'
 import { createMatchService } from '../../server/domains/match/services/match.service'
 import type { MatchRepository } from '../../server/domains/match/repositories/match.repository'
 import type { MatchRecord, SubmitMatchInput } from '../../server/domains/match/dto/match.dto'
@@ -11,6 +12,12 @@ function createFakeMatchRepository(): MatchRepository {
   const rows = new Map<string, MatchRecord>()
 
   return {
+    // Read-only page over verified matches, used by the rating backfill;
+    // nothing in the match workflow calls it.
+    async findVerifiedForRating() {
+      return []
+    },
+
     // Read-only lookup used by the bracket to line scores up with a draw;
     // nothing in the match workflow calls it.
     async findScoreRowsByMatchIds(matchIds: string[]) {
@@ -44,13 +51,19 @@ function createFakeMatchRepository(): MatchRepository {
           }
         : null
     },
-    async create(input: SubmitMatchInput, submittedByPlayerId: string) {
+    async create(
+      input: SubmitMatchInput,
+      submittedByPlayerId: string,
+      submittedByRole?: SubmittedByRole
+    ) {
       const now = new Date().toISOString()
       const id = `match-${++matchCounter}`
       const record: MatchRecord = {
         id,
         match_type: input.match_type,
         status: 'submitted',
+        result_type: input.result_type ?? 'normal',
+        submitted_by_role: submittedByRole ?? null,
         submitted_by_player_id: submittedByPlayerId,
         event_id: input.event_id,
         affects_rating: true,
@@ -168,6 +181,37 @@ describe('MatchService', () => {
     expect(match.status).toBe('submitted')
     expect(match.participants).toHaveLength(2)
     expect(match.scores).toHaveLength(1)
+  })
+
+  /**
+   * MT-2. Three parties are involved in any match — team 1, team 2 and the
+   * organiser — and only one could submit. "You can only submit a match you
+   * played in" is exactly what stopped somebody running the desk from
+   * recording a score, since they did not play in it.
+   */
+  it('lets the organiser submit a match they did not play in', async () => {
+    const service = createMatchService(repository)
+
+    const match = await service.submitMatch('organiser-1', baseSinglesInput, 'organizer')
+
+    expect(match.status).toBe('submitted')
+    expect(match.submitted_by_role).toBe('organizer')
+  })
+
+  it('still refuses a player who did not play in the match', async () => {
+    const service = createMatchService(repository)
+
+    await expect(
+      service.submitMatch('some-other-player', baseSinglesInput, 'team_1')
+    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' })
+  })
+
+  it('records which side reported the score', async () => {
+    const service = createMatchService(repository)
+
+    const match = await service.submitMatch('player-opponent', baseSinglesInput, 'team_2')
+
+    expect(match.submitted_by_role).toBe('team_2')
   })
 
   it('submits a valid doubles match', async () => {

@@ -10,10 +10,8 @@ import {
 } from '~/server/domains/match/services/match.service'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
 import { createRatingRepository } from '~/server/domains/rating/repositories/rating.repository'
-import {
-  createRatingService,
-  RatingServiceError
-} from '~/server/domains/rating/services/rating.service'
+import { createRatingService } from '~/server/domains/rating/services/rating.service'
+import { applyRatingForMatch } from '~/server/domains/rating/services/apply-match-rating'
 import { createAuditRepository } from '~/server/domains/audit/repositories/audit.repository'
 import { createAuditService } from '~/server/domains/audit/services/audit.service'
 import { createNotificationRepository } from '~/server/domains/notification/repositories/notification.repository'
@@ -22,12 +20,7 @@ import type { NotificationType } from '~/server/domains/notification/dto/notific
 import { createActivityRepository } from '~/server/domains/activity/repositories/activity.repository'
 import { createActivityLogger } from '~/server/domains/activity/services/activity.service'
 import { apiError } from '~/server/utils/api-error'
-import type {
-  MatchDto,
-  RecordVerificationDecisionInput
-} from '~/server/domains/match/dto/match.dto'
-import type { RatingUpdateResult } from '~/server/domains/rating/dto/rating.dto'
-import type { SupabaseClient } from '@supabase/supabase-js'
+import type { RecordVerificationDecisionInput } from '~/server/domains/match/dto/match.dto'
 
 function parseDecisionInput(body: unknown): RecordVerificationDecisionInput {
   if (typeof body !== 'object' || body === null) {
@@ -60,49 +53,6 @@ function parseDecisionInput(body: unknown): RecordVerificationDecisionInput {
   }
 }
 
-/**
- * Best-effort: a match's verification is already a complete, successful domain action in its
- * own right (see MatchService's own domain boundary) by the time this runs, so a rating
- * failure must never fail or roll back the verification response. The most likely failure —
- * RatingServiceError('PLAYER_UNRATED') — is an expected, known gap right now: the
- * initial-rating questionnaire (ADR-001, docs/18-ADR-INDEX.md) hasn't been built yet, so
- * brand-new players have no seeded rating for the engine to update from. Once that lands,
- * whatever process seeds those ratings is also responsible for re-running this for any match
- * that failed here — applyMatchResult is idempotent (see hasTransactionsForMatch) so replaying
- * it is always safe.
- *
- * Returns rating updates for activity/notification logging, or empty array if calculation failed.
- */
-async function triggerRatingCalculation(
-  match: MatchDto,
-  client: SupabaseClient
-): Promise<RatingUpdateResult[]> {
-  const service = createRatingService(createRatingRepository(client))
-  const team1Points = match.scores.reduce((sum, s) => sum + s.team1_score, 0)
-  const team2Points = match.scores.reduce((sum, s) => sum + s.team2_score, 0)
-
-  try {
-    const updates = await service.applyMatchResult({
-      match_id: match.id,
-      rating_type: match.match_type,
-      participants: match.participants.map((p) => ({
-        player_id: p.player_id,
-        team_number: p.team_number
-      })),
-      team1_points: team1Points,
-      team2_points: team2Points,
-      played_at: match.played_at
-    })
-    return updates ?? []
-  } catch (err) {
-    if (err instanceof RatingServiceError) {
-      console.warn(`[match ${match.id}] rating calculation skipped: ${err.code} — ${err.message}`)
-      return []
-    }
-    console.error(`[match ${match.id}] rating calculation failed unexpectedly:`, err)
-    return []
-  }
-}
 
 /**
  * Records one verifier's decision. Same service-role rationale as the rest of the match
@@ -170,8 +120,12 @@ export default defineEventHandler(async (event) => {
         )
       )
 
-      // Trigger rating calculation and log rating changes
-      const ratingUpdates = await triggerRatingCalculation(match, serviceClient)
+      // Trigger rating calculation and log rating changes. Shared with
+      // BracketService, which reaches 'verified' without passing through here.
+      const ratingUpdates = await applyRatingForMatch(
+        createRatingService(createRatingRepository(serviceClient)),
+        match
+      )
 
       // Log rating changes as activities and send notifications
       for (const update of ratingUpdates) {

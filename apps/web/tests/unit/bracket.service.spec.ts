@@ -21,6 +21,7 @@ import type { EventRecord } from '../../server/domains/event/dto/event.dto'
 import type { TournamentCategoryRepository } from '../../server/domains/event/repositories/tournament-category.repository'
 import type { MatchRepository } from '../../server/domains/match/repositories/match.repository'
 import type { MatchScoreLookupRow } from '../../server/domains/match/dto/match.dto'
+import type { RatingService } from '../../server/domains/rating/services/rating.service'
 
 function createFakeBracketRepository(overrides?: Partial<BracketRepository>): BracketRepository {
   return {
@@ -93,6 +94,7 @@ function createFakeMatchRepository(
 ): MatchRepository {
   return {
     findById: vi.fn().mockResolvedValue(null),
+    findVerifiedForRating: vi.fn().mockResolvedValue([]),
     create: vi.fn(),
     createPendingVerifications: vi.fn().mockResolvedValue([]),
     updateVerificationDecision: vi.fn(),
@@ -129,6 +131,13 @@ function makeEventRecord(overrides?: Partial<EventRecord>): EventRecord {
     queue_courts: 1,
     match_format: 'doubles',
     queue_mode: 'first_come',
+    min_players_to_start: null,
+    close_policy: 'manual',
+    closes_at: null,
+    closed_at: null,
+    coach_player_id: null,
+    fee_payer: 'player',
+    organizer_fee_amount: null,
     queue_skip_timeout_seconds: 120,
     created_by_player_id: 'player-1',
     created_at: '2026-08-01T00:00:00Z',
@@ -1404,6 +1413,12 @@ describe('BracketService', () => {
         entrants?: Record<string, TournamentRegistrationRecord | null>
         matchRepo?: MatchRepository
         organizerId?: string
+        /**
+         * Omitted by every pre-existing test on purpose: the rating service is
+         * optional, and a bracket that is only being read or generated never
+         * builds one.
+         */
+        ratings?: RatingService
       } = {}
     ) {
       const entrants = options.entrants ?? {
@@ -1445,11 +1460,95 @@ describe('BracketService', () => {
               makeEventRecord({ created_by_player_id: options.organizerId ?? 'player-1' })
             )
         }),
-        matchRepo
+        matchRepo,
+        undefined,
+        options.ratings
       )
 
       return { service, bracketRepo, matchRepo }
     }
+
+    /**
+     * A verified match has to move ratings, and this path reaches 'verified'
+     * without going through the verification endpoint that used to be the only
+     * place rating was triggered from. That gap meant every tournament match
+     * ever recorded left ratings untouched and wrote no history, which is what
+     * an empty rating-progress chart on an account full of tournament play was
+     * actually showing. Asserted here so it cannot silently come back.
+     */
+    describe('rating', () => {
+      const ratedMatch = {
+        id: 'match-new',
+        match_type: 'doubles',
+        played_at: '2026-09-01T10:00:00.000Z',
+        match_participants: [
+          { player_id: 'player-1', team_number: 1 },
+          { player_id: 'player-2', team_number: 2 }
+        ],
+        match_scores: [
+          { team1_score: 11, team2_score: 9 },
+          { team1_score: 11, team2_score: 7 }
+        ]
+      }
+
+      function ratedMatchRepo() {
+        return createFakeMatchRepository([], {
+          create: vi.fn().mockResolvedValue(ratedMatch as never),
+          updateMatchStatus: vi.fn().mockResolvedValue(undefined)
+        })
+      }
+
+      it('rates the match it just verified', async () => {
+        const applyMatchResult = vi.fn().mockResolvedValue([])
+        const { service } = build({
+          matchRepo: ratedMatchRepo(),
+          ratings: { applyMatchResult } as unknown as RatingService
+        })
+
+        await service.recordMatchResult('player-1', 'bm-1', result)
+
+        expect(applyMatchResult).toHaveBeenCalledWith(
+          expect.objectContaining({
+            match_id: 'match-new',
+            rating_type: 'doubles',
+            participants: [
+              { player_id: 'player-1', team_number: 1 },
+              { player_id: 'player-2', team_number: 2 }
+            ],
+            // Points are totalled across every game, not read off the last one.
+            team1_points: 22,
+            team2_points: 16
+          })
+        )
+      })
+
+      it('still records the result when rating fails', async () => {
+        const warn = vi.spyOn(console, 'error').mockImplementation(() => {})
+        const { service, bracketRepo } = build({
+          matchRepo: ratedMatchRepo(),
+          ratings: {
+            applyMatchResult: vi.fn().mockRejectedValue(new Error('rating engine down'))
+          } as unknown as RatingService
+        })
+
+        // The draw result is already recorded and the winner already advanced
+        // by the time rating runs, so a rating failure must not throw out of it.
+        await expect(service.recordMatchResult('player-1', 'bm-1', result)).resolves.toBeDefined()
+        expect(bracketRepo.update).toHaveBeenCalled()
+        warn.mockRestore()
+      })
+
+      it('records the result when no rating service is supplied', async () => {
+        const { service, matchRepo } = build({ matchRepo: ratedMatchRepo() })
+
+        await expect(service.recordMatchResult('player-1', 'bm-1', result)).resolves.toBeDefined()
+        expect(matchRepo.updateMatchStatus).toHaveBeenCalledWith(
+          'match-new',
+          'verified',
+          expect.any(String)
+        )
+      })
+    })
 
     it('creates the match with participant1 as team 1', async () => {
       const { service, matchRepo } = build()

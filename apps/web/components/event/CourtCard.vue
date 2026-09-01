@@ -1,4 +1,11 @@
 <script setup lang="ts">
+import {
+  DEFAULT_GAME_RULES,
+  isGameComplete,
+  seriesWinner,
+  type GameRules,
+  type GameScore
+} from '~/utils/game-rules'
 import type {
   CourtSideDto,
   EventCourtDto,
@@ -57,14 +64,59 @@ function adjust(team: 1 | 2, delta: number) {
   }
 
   games[index] = next
+
+  /**
+   * Advancing is a consequence of finishing a game, not a separate action.
+   *
+   * There used to be a "Next game" button beside this, which meant two
+   * divergent ways to move on: press it early and you opened a game nobody had
+   * finished; forget it and the next rally went onto the previous game's score.
+   * A game that meets the rules opens the next one by itself.
+   *
+   * Only on a point being ADDED — taking one back to correct a mistake must
+   * never spawn a game.
+   */
+  if (delta > 0 && isGameComplete(toGameScore(next), rules.value)) {
+    const played = games.map(toGameScore)
+    if (!seriesWinner(played, rules.value)) {
+      games.push({ game_number: games.length + 1, team1_score: 0, team2_score: 0 })
+    }
+  }
+
   emit('score', games)
 }
 
-/** Start the next game of the same match, keeping the ones already played. */
-function nextGame() {
-  const games = [...(props.court.live_score ?? [])]
-  emit('score', [...games, { game_number: games.length + 1, team1_score: 0, team2_score: 0 }])
+/** The live-score row shape, in the shape the shared rules read. */
+function toGameScore(game: { team1_score: number; team2_score: number }): GameScore {
+  return { team1_score: game.team1_score, team2_score: game.team2_score }
 }
+
+/**
+ * Open play is one game to 11. There is no category here to say otherwise —
+ * a court belongs to an event, not a draw — so the defaults apply.
+ */
+/**
+ * Whether the game is in its two-clear-points tail, and what to say about it.
+ *
+ * Null when it does not apply. Only meaningful while the margin rule is on —
+ * with it off, reaching the target ends the game and there is no tail.
+ */
+const deuceNote = computed(() => {
+  const game = currentGame.value
+  const a = game.team1_score
+  const b = game.team2_score
+  if (!rules.value.winByTwo) return null
+  if (Math.max(a, b) < rules.value.targetPoints - 1) return null
+  if (Math.abs(a - b) >= 2) return null
+  if (a === b) return `Deuce at ${a}-${b} — the game runs on until someone leads by two.`
+  const leader = a > b ? sideLabel(props.court.team1) : sideLabel(props.court.team2)
+  return `Game point — ${leader} needs one more clear point.`
+})
+
+const rules = computed<GameRules>(() => ({
+  ...DEFAULT_GAME_RULES,
+  bestOf: Math.max(1, (props.court.live_score ?? []).length)
+}))
 </script>
 
 <template>
@@ -115,6 +167,28 @@ function nextGame() {
 
       <!-- Organiser controls -->
       <div v-if="canManage" class="mt-4 space-y-2">
+        <!--
+          SC-7. Nothing here said what the panel was for or which game it was
+          on, so an operator could not tell whether their taps were reaching
+          anybody or which game they were affecting.
+        -->
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <p class="text-caption text-fg-muted">
+            Points go to the live scoreboard as you tap.
+          </p>
+          <span
+            class="rounded-badge bg-warning-soft px-2 py-0.5 font-mono text-caption font-bold text-warning"
+          >
+            GAME {{ currentGame.game_number }}
+          </span>
+        </div>
+
+        <!-- Deuce is the one state where "first to 11" stops being true, and an
+             operator who does not know it is on will call the game early. -->
+        <p v-if="deuceNote" class="rounded-button bg-warning-soft px-3 py-1.5 text-caption font-medium text-warning">
+          {{ deuceNote }}
+        </p>
+
         <div class="grid grid-cols-2 gap-2">
           <div class="flex items-center justify-center gap-2">
             <button
@@ -159,9 +233,6 @@ function nextGame() {
         </div>
 
         <div class="flex gap-2">
-          <UiButton variant="ghost" size="sm" :disabled="busy" @click="nextGame">
-            Next game
-          </UiButton>
           <UiButton size="sm" full-width :disabled="busy" @click="emit('submit')">
             {{ busy ? 'Submitting…' : 'Submit final score' }}
           </UiButton>

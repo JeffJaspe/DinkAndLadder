@@ -168,6 +168,13 @@ function getNotificationLink(notification: Notification): string | null {
     case 'partner_request':
     case 'partnership':
       return '/community?tab=partners'
+    // Emitted by both team-up endpoints and declared in
+    // NotificationReferenceType, but never handled here — so every team-up
+    // notification fell through to `default` and rendered as an inert div.
+    // Clicking one appeared to do nothing, which is what "the notification
+    // stays in notifications" was.
+    case 'team_up':
+      return '/community?tab=team'
     case 'player_rating':
       return '/dashboard'
     case 'player_report':

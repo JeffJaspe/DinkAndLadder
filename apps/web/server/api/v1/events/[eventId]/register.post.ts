@@ -62,7 +62,9 @@ export default defineEventHandler(async (event) => {
 
   const { data: eventData, error: eventError } = await serviceClient
     .from('events')
-    .select('id, status, max_participants, event_type, club_id')
+    .select(
+      'id, status, max_participants, event_type, club_id, close_policy, closes_at, closed_at, registration_closes'
+    )
     .eq('id', eventId)
     .single()
 
@@ -72,6 +74,34 @@ export default defineEventHandler(async (event) => {
 
   if (eventData.status !== 'published' && eventData.status !== 'active') {
     throw apiError(409, 'EVENT_NOT_OPEN', 'This event is not open for registration.')
+  }
+
+  /**
+   * A running session keeps taking players — that is the point of a drop-in —
+   * so `active` above is deliberate, and capacity below is the only ceiling.
+   * What stops entries is the session being CLOSED, which is a different thing
+   * from it being over: see 045.
+   *
+   * Checked here rather than only on a schedule, because a scheduled session
+   * whose time has passed is closed whether or not anything has swept it yet.
+   */
+  const closedManually = Boolean(eventData.closed_at)
+  const closedOnSchedule =
+    eventData.close_policy === 'scheduled' &&
+    Boolean(eventData.closes_at) &&
+    new Date(eventData.closes_at as string) <= new Date()
+
+  if (closedManually || closedOnSchedule) {
+    throw apiError(409, 'EVENT_CLOSED', 'This session has closed.')
+  }
+
+  if (eventData.registration_closes) {
+    // Date-only column: a deadline of "the 5th" means the end of the 5th, not
+    // its first instant, so an event closing today still accepts entries today.
+    const deadline = new Date(`${eventData.registration_closes}T23:59:59`)
+    if (new Date() > deadline) {
+      throw apiError(409, 'REGISTRATION_CLOSED', 'Registration for this event has closed.')
+    }
   }
 
   // After the event lookup on purpose: this used to run first, so a bad event

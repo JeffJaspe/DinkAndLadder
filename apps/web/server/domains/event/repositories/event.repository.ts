@@ -12,6 +12,8 @@ const EVENT_COLUMNS =
   'start_time, end_time, ' +
   'registration_opens, registration_closes, status, visibility, event_type, ' +
   'fee_amount, fee_currency, max_participants, queue_enabled, queue_courts, queue_mode, match_format, ' +
+  'min_players_to_start, close_policy, closes_at, closed_at, ' +
+  'coach_player_id, fee_payer, organizer_fee_amount, ' +
   'queue_skip_timeout_seconds, created_by_player_id, created_at, updated_at'
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -94,6 +96,19 @@ export function createEventRepository(client: SupabaseClient): EventRepository {
           queue_courts: input.queue_courts ?? 1,
           match_format: input.match_format ?? 'doubles',
           queue_mode: input.queue_mode ?? 'first_come',
+          // Null means "derive the floor from the format" — see 045. Only a
+          // deliberate override is stored.
+          min_players_to_start: input.min_players_to_start ?? null,
+          close_policy: input.close_policy ?? 'manual',
+          // Only meaningful under a scheduled policy; a manual session that
+          // carried a stray time would look like it closes itself.
+          closes_at: input.close_policy === 'scheduled' ? (input.closes_at ?? null) : null,
+          coach_player_id: input.coach_player_id ?? null,
+          fee_payer: input.fee_payer ?? 'player',
+          // Only meaningful on a split; carrying a figure on a player-pays
+          // event would make it look part-funded when it is not.
+          organizer_fee_amount:
+            input.fee_payer === 'split' ? (input.organizer_fee_amount ?? null) : null,
           status: 'draft',
           created_by_player_id: createdByPlayerId
         })
@@ -253,9 +268,26 @@ export function createEventRepository(client: SupabaseClient): EventRepository {
       if (query.event_type) {
         builder = builder.eq('event_type', query.event_type)
       }
+      // Broad kind filter. Empty list is not the same as absent - it would be a
+      // filter that can only match nothing - so it is ignored rather than sent.
+      if (query.event_types?.length) {
+        builder = builder.in('event_type', query.event_types)
+      }
 
+      // Newest first, deliberately.
+      //
+      // This was ascending, which sorts the whole table oldest-first and then
+      // takes the first 20 — so page one of an unfiltered list was the twenty
+      // oldest events in the database, every one of them long finished. That
+      // is what "the All Status filter only shows completed" was: the filter
+      // was correct and the ordering was hiding everything current behind
+      // pages of history.
+      //
+      // `id` breaks the tie so paging is stable when several events share a
+      // start date, which seeded and same-day events routinely do.
       builder = builder
-        .order('start_date', { ascending: true })
+        .order('start_date', { ascending: false })
+        .order('id', { ascending: false })
         .range(query.offset, query.offset + query.limit - 1)
 
       const { data, error } = await builder

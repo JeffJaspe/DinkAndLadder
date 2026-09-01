@@ -1,0 +1,132 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Coaching sessions, and who pays for an event.
+
+     1. COACHING (EV-2). A coaching session had to be faked as a casual event,
+        which dragged in categories, draws and ranking that do not apply to it.
+        `event_type` gains 'coaching': a plain event with a name, a time, a
+        venue and an amount.
+
+        It must fall outside rating BY CONSTRUCTION, not by a toggle somebody
+        can flip. `toEventDto` derives affects_rating from an allow-list
+        (open_ranked, club_ranked, tournament), so a new type is unrated unless
+        it is deliberately added there - which is the safe direction for this
+        to fail in.
+
+        ASSUMPTION, stated rather than buried: a coaching event is an
+        attendance and fee record, and does NOT record matches. That was the
+        default written into the punch list and has not been confirmed. If
+        coaching should record matches, nothing here blocks it - matches attach
+        to an event by event_id and no constraint added here prevents that -
+        but the UI deliberately offers no way to, so the decision stays open
+        rather than being made by omission.
+
+     2. WHO PAYS (EV-3). `fee_amount` has always meant "what the player is
+        charged", with no way to say the organiser is covering it. `fee_payer`
+        says who bears it, and `organizer_fee_amount` records what the organiser
+        pays when that is a different number from the player's fee (a split).
+
+        Defaulted to 'player', which is what every existing event means today,
+        so no existing row changes meaning. -->
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+    <!-- event_type is a text column with a CHECK named ck_events_event_type
+         (added in 017-event-match-enhancement, not 006), not a native enum, so
+         widening it means replacing the constraint rather than ALTER TYPE. The
+         precondition matches on that exact name, so this is a no-op rather than
+         a failure on a database where the constraint is missing or renamed. -->
+    <changeSet id="048-allow-coaching-event-type" author="claude">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="1">
+                SELECT count(*) FROM pg_constraint WHERE conname = 'ck_events_event_type'
+            </sqlCheck>
+        </preConditions>
+        <sql>ALTER TABLE events DROP CONSTRAINT ck_events_event_type</sql>
+        <sql>ALTER TABLE events ADD CONSTRAINT ck_events_event_type CHECK (event_type IN ('open_casual', 'open_ranked', 'club_casual', 'club_ranked', 'tournament', 'coaching'))</sql>
+        <rollback>
+            <!-- Rolling back with coaching events in the table would fail the
+                 narrower constraint, so they are moved to the type they would
+                 have been created as before this changeset existed. -->
+            <sql>UPDATE events SET event_type = 'open_casual' WHERE event_type = 'coaching'</sql>
+            <sql>ALTER TABLE events DROP CONSTRAINT ck_events_event_type</sql>
+            <sql>ALTER TABLE events ADD CONSTRAINT ck_events_event_type CHECK (event_type IN ('open_casual', 'open_ranked', 'club_casual', 'club_ranked', 'tournament'))</sql>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="048-add-coach-player-id" author="claude">
+        <preConditions onFail="MARK_RAN">
+            <not><columnExists tableName="events" columnName="coach_player_id"/></not>
+        </preConditions>
+        <addColumn tableName="events">
+            <!-- Who is teaching. Nullable: the organiser is often the coach, and
+                 a session run by a guest still has an organiser who is not. -->
+            <column name="coach_player_id" type="uuid">
+                <constraints nullable="true"
+                             foreignKeyName="fk_events_coach_player"
+                             references="player_profiles(id)"/>
+            </column>
+        </addColumn>
+        <rollback>
+            <dropColumn tableName="events" columnName="coach_player_id"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="048-index-coach-player" author="claude">
+        <preConditions onFail="MARK_RAN">
+            <not><indexExists indexName="idx_events_coach_player"/></not>
+        </preConditions>
+        <!-- Partial: only coaching events have one, and "what has this person
+             coached" is the only question asked of it. -->
+        <sql>CREATE INDEX idx_events_coach_player ON events (coach_player_id) WHERE coach_player_id IS NOT NULL</sql>
+        <rollback>
+            <sql>DROP INDEX IF EXISTS idx_events_coach_player</sql>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="048-add-fee-payer" author="claude">
+        <preConditions onFail="MARK_RAN">
+            <not><columnExists tableName="events" columnName="fee_payer"/></not>
+        </preConditions>
+        <addColumn tableName="events">
+            <column name="fee_payer" type="varchar(20)" defaultValue="player">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+        <rollback>
+            <dropColumn tableName="events" columnName="fee_payer"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="048-add-fee-payer-check" author="claude">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">
+                SELECT count(*) FROM pg_constraint WHERE conname = 'events_fee_payer_valid'
+            </sqlCheck>
+        </preConditions>
+        <sql>ALTER TABLE events ADD CONSTRAINT events_fee_payer_valid CHECK (fee_payer IN ('player', 'organizer', 'split'))</sql>
+        <rollback>
+            <sql>ALTER TABLE events DROP CONSTRAINT events_fee_payer_valid</sql>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="048-add-organizer-fee-amount" author="claude">
+        <preConditions onFail="MARK_RAN">
+            <not><columnExists tableName="events" columnName="organizer_fee_amount"/></not>
+        </preConditions>
+        <addColumn tableName="events">
+            <!-- Only read on a split, where the organiser covers part of the
+                 fee and the player pays the rest. Same numeric shape as
+                 fee_amount so the two can be compared without casting. -->
+            <column name="organizer_fee_amount" type="numeric(10,2)">
+                <constraints nullable="true"/>
+            </column>
+        </addColumn>
+        <rollback>
+            <dropColumn tableName="events" columnName="organizer_fee_amount"/>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

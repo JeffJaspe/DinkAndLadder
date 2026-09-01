@@ -20,6 +20,27 @@ export interface PlayerProfileRepository {
   search(query: PlayerSearchQuery): Promise<PlayerSearchResultRow[]>
 }
 
+/**
+ * The spellings of NCR seen in this database, or null when the value is an
+ * ordinary province.
+ *
+ * Exported so a test can assert the list rather than rediscover it, and so the
+ * next place that filters on province can reuse it instead of inventing a
+ * second list that drifts from this one.
+ */
+export const NCR_PROVINCE_ALIASES = [
+  'NCR (National Capital Region)',
+  'National Capital Region',
+  'NCR',
+  'Metro Manila'
+] as const
+
+export function ncrAliasesFor(province: string): string[] | null {
+  const normalised = province.trim().toLowerCase()
+  const isNcr = NCR_PROVINCE_ALIASES.some((alias) => alias.toLowerCase() === normalised)
+  return isNcr ? [...NCR_PROVINCE_ALIASES] : null
+}
+
 export function createPlayerProfileRepository(client: SupabaseClient): PlayerProfileRepository {
   return {
     async findById(profileId) {
@@ -79,7 +100,24 @@ export function createPlayerProfileRepository(client: SupabaseClient): PlayerPro
         builder = builder.ilike('display_name', `%${escapeLikePattern(query.q)}%`)
       }
       if (query.province) {
-        builder = builder.eq('province', query.province)
+        /**
+         * NCR is a region, not a province, and it has been written down several
+         * ways: the location picker offers "NCR (National Capital Region)",
+         * while profiles created another way carry "NCR", "National Capital
+         * Region" or "Metro Manila". An equality match on the picker's label
+         * therefore returned nothing at all for the one filter people reach for
+         * most, which is what "the NCR filter is not working" was.
+         *
+         * Only NCR gets this treatment. Every real province has exactly one
+         * spelling in the PSGC list, so widening the match for all of them
+         * would trade a correct filter for a fuzzy one.
+         */
+        const aliases = ncrAliasesFor(query.province)
+        if (aliases) {
+          builder = builder.in('province', aliases)
+        } else {
+          builder = builder.eq('province', query.province)
+        }
       }
       if (query.city) {
         builder = builder.eq('city', query.city)

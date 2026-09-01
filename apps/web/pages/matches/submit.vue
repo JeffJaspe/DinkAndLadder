@@ -3,6 +3,14 @@ import type { PlayerProfileDto } from '~/server/domains/player/dto/player-profil
 import type { MatchDto } from '~/server/domains/match/dto/match.dto'
 import type { EventDto, EventRegistrationDto } from '~/server/domains/event/dto/event.dto'
 import type { PartnerDto } from '~/server/domains/partnership/dto/partnership.dto'
+import {
+  DEFAULT_GAME_RULES,
+  resolveResult,
+  validateGames,
+  type GameRules,
+  type GameScore,
+  type MatchResultType
+} from '~/utils/game-rules'
 
 useHead({ title: 'Submit a match' })
 
@@ -16,6 +24,32 @@ const route = useRoute()
 const eventId = computed(() => route.query.event as string | undefined)
 
 const { data: myProfile } = await useFetch<PlayerProfileDto>('/api/v1/players/me')
+
+/**
+ * The events this player may submit from, for the picker shown when the page is
+ * opened without an `?event=` id. Only fetched in that case — arriving from an
+ * event already knows the answer.
+ */
+interface SubmittableEvent {
+  id: string
+  name: string
+  start_date: string
+  status: string
+  venue: string | null
+}
+
+const { data: myEventsData, pending: myEventsPending } = await useFetch<{
+  data: SubmittableEvent[]
+}>('/api/v1/players/me/submittable-events', { immediate: !eventId.value })
+
+const myEvents = computed(() => myEventsData.value?.data ?? [])
+
+const formatEventDate = (value: string) =>
+  new Date(value).toLocaleDateString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric'
+  })
 
 const { data: eventData, error: eventError } = await useFetch<EventDto>(
   () => `/api/v1/events/${eventId.value}`,
@@ -47,9 +81,58 @@ const team1Player2 = ref<RegisteredPlayer | null>(null)
 const team2Player1 = ref<RegisteredPlayer | null>(null)
 const team2Player2 = ref<RegisteredPlayer | null>(null)
 
-// Numbers, not strings: the score inputs are steppers now, so a value can only
-// ever be a number within range. See UiStepper and docs/33 §5.7.
-const sets = ref([{ team1Score: 0, team2Score: 0 }])
+/**
+ * Games in the shared shape from utils/game-rules.ts, not a local one.
+ *
+ * These used to be { team1Score, team2Score } with 0 defaults, which made an
+ * untouched game indistinguishable from a genuine 0-0 and let an all-zeros
+ * match through whenever the tie check was satisfied some other way. Null means
+ * "nobody has typed here".
+ */
+const games = ref<GameScore[]>([{ team1_score: null, team2_score: null }])
+
+/**
+ * Open play is one game. A category can say otherwise once the event carries
+ * game rules; until then the defaults are the rules every existing match was
+ * played to anyway (to 11, win by 2).
+ */
+const rules = computed<GameRules>(() => ({
+  ...DEFAULT_GAME_RULES,
+  bestOf: games.value.length
+}))
+
+const resultType = ref<MatchResultType>('normal')
+
+/** Only asked for when the score cannot name a winner — a walkover. */
+const explicitWinner = ref<1 | 2 | null>(null)
+
+const result = computed(() =>
+  resolveResult(games.value, rules.value, resultType.value, explicitWinner.value)
+)
+
+const scoreProblems = computed(() => validateGames(games.value, rules.value, resultType.value))
+
+/**
+ * Names for the sheet, one player per line. Placeholders until a slot is
+ * filled — the grid should show its shape before the players are chosen, not
+ * appear once they are.
+ */
+const scoreSheetTeams = computed<[string[], string[]]>(() => {
+  const side = (a: RegisteredPlayer | null, b: RegisteredPlayer | null, fallback: string) => {
+    const names = [a?.display_name, matchType.value === 'doubles' ? b?.display_name : null].filter(
+      (n): n is string => !!n
+    )
+    return names.length ? names : [fallback]
+  }
+  return [
+    side(team1Player1.value, team1Player2.value, 'Team 1'),
+    side(team2Player1.value, team2Player2.value, 'Team 2')
+  ]
+})
+
+const winnerLabel = computed(() =>
+  result.value.winner ? scoreSheetTeams.value[result.value.winner - 1].join(' / ') : ''
+)
 
 const searchQuery = ref('')
 const activeSearchField = ref<
@@ -135,15 +218,15 @@ function clearPlayer(field: typeof activeSearchField.value) {
   else if (field === 'team2Player2') team2Player2.value = null
 }
 
-function addSet() {
-  if (sets.value.length < 5) {
-    sets.value.push({ team1Score: 0, team2Score: 0 })
+function addGame() {
+  if (games.value.length < 5) {
+    games.value.push({ team1_score: null, team2_score: null })
   }
 }
 
-function removeSet(index: number) {
-  if (sets.value.length > 1) {
-    sets.value.splice(index, 1)
+function removeGame(index: number) {
+  if (games.value.length > 1) {
+    games.value.splice(index, 1)
   }
 }
 
@@ -155,10 +238,10 @@ const canSubmit = computed(() => {
   if (!team1Player1.value || !team2Player1.value) return false
   if (matchType.value === 'doubles' && (!team1Player2.value || !team2Player2.value)) return false
   if (!playedAt.value) return false
-  // Pickleball sets cannot tie, so equal scores are always wrong. Checking that
-  // here also stops an all-zeros submission, which the old empty-string check
-  // caught only because the fields started blank.
-  return sets.value.every((s) => s.team1Score !== s.team2Score)
+  // The score rules live in one place now, so this cannot drift from what the
+  // server accepts: every game must be finished and none may be unplayable,
+  // and the result has to name a winner.
+  return scoreProblems.value.length === 0 && result.value.winner !== null
 })
 
 async function handleSubmit() {
@@ -178,11 +261,17 @@ async function handleSubmit() {
       participants.push({ player_id: team2Player2.value.id, team_number: 2 })
     }
 
-    const scores = sets.value.map((s, i) => ({
-      set_number: i + 1,
-      team1_score: s.team1Score,
-      team2_score: s.team2Score
-    }))
+    // set_number, not game_number: the API and match_scores still use the
+    // older column name (see 046's note on why it is not being renamed).
+    // Unplayed games are dropped rather than sent as zeros — an abandoned
+    // match legitimately has fewer games than the format allows.
+    const scores = games.value
+      .filter((g) => g.team1_score !== null || g.team2_score !== null)
+      .map((g, i) => ({
+        set_number: i + 1,
+        team1_score: g.team1_score ?? 0,
+        team2_score: g.team2_score ?? 0
+      }))
 
     const response = await $fetch<{ data: MatchDto }>('/api/v1/matches', {
       method: 'POST',
@@ -191,6 +280,8 @@ async function handleSubmit() {
         match_type: matchType.value,
         played_at: new Date(playedAt.value).toISOString(),
         venue: venue.value || null,
+        result_type: resultType.value,
+        winner_team: resultType.value === 'normal' ? null : result.value.winner,
         participants,
         scores
       }
@@ -224,19 +315,60 @@ onMounted(() => {
         subtitle="Submit a match from an event"
       />
 
-      <!-- No Event Selected -->
-      <div v-if="!eventId" class="rounded-xl bg-surface p-8 text-center shadow-card">
-        <p class="text-4xl">🎾</p>
-        <h3 class="mt-4 text-lg font-semibold text-fg">No Event Selected</h3>
-        <p class="mt-2 text-sm text-fg-muted">
-          You need to submit matches from within an active event.
+      <!-- Pick which event this match was played in -->
+      <div v-if="!eventId" class="rounded-xl bg-surface p-6 shadow-card">
+        <h3 class="text-lg font-semibold text-fg">Which event was this?</h3>
+        <p class="mt-1 text-sm text-fg-muted">
+          Pick the event you played in. Only events you are registered for are listed.
         </p>
-        <NuxtLink
-          to="/events"
-          class="mt-6 inline-block rounded-lg bg-primary px-6 py-2.5 font-medium text-on-primary hover:bg-primary-hover"
-        >
-          Browse Events
-        </NuxtLink>
+
+        <div v-if="myEventsPending" class="mt-5 space-y-2">
+          <UiSkeleton v-for="n in 3" :key="n" height="4rem" />
+        </div>
+
+        <!-- Registration is what makes an event submittable, so someone with no
+             registrations cannot be helped by a list - send them to find one. -->
+        <div v-else-if="!myEvents.length" class="mt-5 rounded-lg bg-canvas p-6 text-center">
+          <p class="text-sm text-fg-secondary">
+            You are not registered for any events yet. Matches are submitted from an event you
+            played in.
+          </p>
+          <NuxtLink
+            to="/events"
+            class="mt-4 inline-block rounded-lg bg-primary px-6 py-2.5 font-medium text-on-primary hover:bg-primary-hover"
+          >
+            Browse events
+          </NuxtLink>
+        </div>
+
+        <ul v-else class="mt-5 space-y-2">
+          <li v-for="option in myEvents" :key="option.id">
+            <NuxtLink
+              :to="`/matches/submit?event=${option.id}`"
+              class="flex items-center justify-between gap-4 rounded-lg bg-canvas p-4 transition hover:bg-surface-3"
+            >
+              <span class="min-w-0">
+                <span class="block truncate font-medium text-fg">{{ option.name }}</span>
+                <span class="mt-0.5 block text-caption text-fg-muted">
+                  {{ formatEventDate(option.start_date) }}
+                  <template v-if="option.venue"> · {{ option.venue }}</template>
+                </span>
+              </span>
+              <!-- Not UiStatusPill: its Status union is the match/club
+                   vocabulary and has no 'published' or 'completed'. -->
+              <span
+                class="shrink-0 rounded-md px-2 py-0.5 text-caption font-medium capitalize"
+                :class="
+                  option.status === 'completed'
+                    ? 'bg-surface-3 text-fg-secondary'
+                    : 'bg-primary-soft text-primary'
+                "
+              >
+                {{ option.status }}
+              </span>
+            </NuxtLink>
+          </li>
+        </ul>
       </div>
 
       <!-- Event Error -->
@@ -659,58 +791,76 @@ onMounted(() => {
             <div class="mb-4 flex items-center justify-between">
               <h2 class="font-semibold text-fg">Score</h2>
               <button
-                v-if="sets.length < 5"
+                v-if="games.length < 5"
                 type="button"
                 class="text-sm text-primary hover:underline"
-                @click="addSet"
+                @click="addGame"
               >
-                + Add Set
+                + Add game
               </button>
             </div>
 
-            <div class="space-y-3">
-              <div
-                v-for="(set, i) in sets"
-                :key="i"
-                class="flex items-center gap-3 rounded-lg bg-canvas p-3"
-              >
-                <span class="w-14 text-sm text-fg-muted">Set {{ i + 1 }}</span>
-                <!-- Steppers, not free-text number fields: entering a score on a
-                     phone courtside is the app's highest-friction moment, and a
-                     stepper makes it thumb-operable while putting an invalid
-                     value out of reach entirely (docs/33 §5.7). -->
-                <div class="flex flex-1 flex-wrap items-center justify-center gap-2">
-                  <UiStepper
-                    v-model="set.team1Score"
-                    :min="0"
-                    :max="99"
-                    :label="`Team 1 score, set ${i + 1}`"
-                  />
-                  <span class="text-fg-muted">–</span>
-                  <UiStepper
-                    v-model="set.team2Score"
-                    :min="0"
-                    :max="99"
-                    :label="`Team 2 score, set ${i + 1}`"
-                  />
-                </div>
-                <button
-                  v-if="sets.length > 1"
-                  type="button"
-                  class="text-fg-muted hover:text-red-400"
-                  @click="removeSet(i)"
+            <!-- The paper score sheet: one row per side, one column per game.
+                 The same component renders the match view and the boxscore, so
+                 a result reads identically wherever it appears. -->
+            <MatchScoreSheet
+              v-model:games="games"
+              :teams="scoreSheetTeams"
+              :rules="rules"
+              :result-type="resultType"
+              :explicit-winner="explicitWinner"
+            />
+
+            <div class="mt-4 flex flex-wrap items-end gap-4">
+              <label class="flex flex-col gap-1.5">
+                <span class="text-xs text-fg-secondary">How did it end?</span>
+                <select
+                  v-model="resultType"
+                  class="rounded-lg border border-border-strong bg-canvas px-3 py-2 text-sm text-fg focus:border-primary focus:outline-none"
                 >
-                  <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                      d="M6 18L18 6M6 6l12 12"
-                    />
-                  </svg>
-                </button>
-              </div>
+                  <option value="normal">Played out</option>
+                  <option value="retired">Retired</option>
+                  <option value="dq">Disqualification</option>
+                  <option value="walkover">Walkover</option>
+                </select>
+              </label>
+
+              <!-- Only when the score cannot settle it. A walkover may have no
+                   game played at all, so nothing in the grid can name a side. -->
+              <label v-if="resultType !== 'normal'" class="flex flex-col gap-1.5">
+                <span class="text-xs text-fg-secondary">Which side advances?</span>
+                <select
+                  v-model="explicitWinner"
+                  class="rounded-lg border border-border-strong bg-canvas px-3 py-2 text-sm text-fg focus:border-primary focus:outline-none"
+                >
+                  <option :value="null">From the score</option>
+                  <option :value="1">Team 1</option>
+                  <option :value="2">Team 2</option>
+                </select>
+              </label>
+
+              <button
+                v-if="games.length > 1"
+                type="button"
+                class="pb-2 text-sm text-fg-muted hover:text-danger"
+                @click="removeGame(games.length - 1)"
+              >
+                Remove last game
+              </button>
             </div>
+
+            <!-- Says what is missing rather than only disabling submit. -->
+            <p v-if="result.winner" class="mt-4 text-sm text-fg-secondary">
+              <span class="font-medium text-fg">{{ winnerLabel }}</span> wins.
+            </p>
+            <ul v-else-if="scoreProblems.length" class="mt-4 space-y-1">
+              <li v-for="problem in scoreProblems" :key="problem" class="text-sm text-warning">
+                {{ problem }}
+              </li>
+            </ul>
+            <p v-else-if="result.problem" class="mt-4 text-sm text-fg-muted">
+              {{ result.problem }}
+            </p>
           </div>
 
           <!-- Error -->

@@ -35,10 +35,40 @@ watch(statusFilter, (value) => {
   router.replace({ query: { ...route.query, status: value === 'all' ? undefined : value } })
 })
 
+/**
+ * A page at a time, with an optional date window.
+ *
+ * The list used to ask for 50 and render whatever came back, so an account with
+ * more than that simply could not reach its older matches — there was no next
+ * page and no way to narrow by when something was played.
+ */
+const PAGE_SIZE = 25
+const page = ref(0)
+const fromDate = ref('')
+const toDate = ref('')
+
+// Any change to the window starts again at the first page: staying on page 3 of
+// a different result set shows a page that has nothing to do with the filter.
+watch([fromDate, toDate, statusFilter], () => {
+  page.value = 0
+})
+
 const { data, pending, error, refresh } = useFetch<{ data: MatchSummary[] }>(
   '/api/v1/players/me/matches',
-  { query: { limit: 50 }, server: false }
+  {
+    query: computed(() => ({
+      limit: PAGE_SIZE,
+      offset: page.value * PAGE_SIZE,
+      from: fromDate.value || undefined,
+      to: toDate.value || undefined
+    })),
+    watch: [page, fromDate, toDate],
+    server: false
+  }
 )
+
+/** A short page means there is nothing after it. */
+const hasNextPage = computed(() => (data.value?.data.length ?? 0) === PAGE_SIZE)
 
 const { data: myProfile } = useFetch<PlayerProfileDto>('/api/v1/players/me', {
   server: false
@@ -131,6 +161,38 @@ function relative(iso: string): string {
       <UiSegmented v-model="statusFilter" :items="filterItems" size="sm" label="Match status" />
     </div>
 
+    <!-- Narrowing by when something was played. Sent to the server, so it
+         narrows the query rather than the page that happened to load. -->
+    <div class="mb-4 flex flex-wrap items-end gap-3">
+      <label class="flex flex-col gap-1">
+        <span class="text-caption text-fg-secondary">From</span>
+        <input
+          v-model="fromDate"
+          type="date"
+          class="rounded-button border border-border-strong bg-surface px-3 py-1.5 text-body-2 text-fg focus:border-primary focus:outline-none"
+        />
+      </label>
+      <label class="flex flex-col gap-1">
+        <span class="text-caption text-fg-secondary">To</span>
+        <input
+          v-model="toDate"
+          type="date"
+          class="rounded-button border border-border-strong bg-surface px-3 py-1.5 text-body-2 text-fg focus:border-primary focus:outline-none"
+        />
+      </label>
+      <button
+        v-if="fromDate || toDate"
+        type="button"
+        class="pb-1.5 text-body-2 text-primary hover:underline"
+        @click="
+          fromDate = ''
+          toDate = ''
+        "
+      >
+        Clear dates
+      </button>
+    </div>
+
     <UiErrorState
       v-if="error"
       message="Could not load your matches."
@@ -195,5 +257,20 @@ function relative(iso: string): string {
         </NuxtLink>
       </li>
     </ul>
+
+    <!-- Pager. Shown whenever there is somewhere to go, so a full first page
+         does not look like the whole history. -->
+    <div
+      v-if="!pending && (page > 0 || hasNextPage)"
+      class="mt-5 flex items-center justify-between gap-3"
+    >
+      <UiButton size="sm" variant="ghost" :disabled="page === 0" @click="page = page - 1">
+        Previous
+      </UiButton>
+      <span class="text-caption text-fg-muted">Page {{ page + 1 }}</span>
+      <UiButton size="sm" variant="ghost" :disabled="!hasNextPage" @click="page = page + 1">
+        Next
+      </UiButton>
+    </div>
   </div>
 </template>

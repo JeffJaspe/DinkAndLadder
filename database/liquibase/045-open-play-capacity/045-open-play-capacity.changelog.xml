@@ -1,0 +1,138 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Open play capacity and closing policy.
+
+     Two problems that look unrelated share one root: an open play session had a
+     ceiling and nothing else. `events.max_participants` was doing double duty as
+     both "how many fit" and "how many are needed", and there was no way at all
+     to say when a session stops.
+
+     1. min_players_to_start - the floor, distinct from the ceiling. A session at
+        3 of 14 offered the organiser no way to begin, because capacity was being
+        read as the threshold to start. Nullable: null means "derive it", which
+        is 4 for a doubles session and 2 for a singles one - the number needed to
+        fill one court. An organiser may raise it, never lower it below what a
+        court needs, so the application derives the floor and this column only
+        ever records a deliberate override.
+
+     2. close_policy / closes_at / closed_at - when a session stops. Sessions
+        previously stayed open forever with no mechanism to end them.
+        `scheduled` closes itself at closes_at; `manual` waits for the organiser
+        and stamps closed_at when they act. Defaulted to 'manual' because that
+        is the behaviour every existing session already has - a session nobody
+        has closed - so the default makes no existing row lie.
+
+        Deliberately separate from registration_closes, which already exists and
+        means something narrower: registration_closes stops NEW entries, while
+        closing a session ends the play itself. A drop-in session can keep
+        accepting players right up until the organiser calls it. -->
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+    <changeSet id="045-add-min-players-to-start" author="claude">
+        <preConditions onFail="MARK_RAN">
+            <not><columnExists tableName="events" columnName="min_players_to_start"/></not>
+        </preConditions>
+        <addColumn tableName="events">
+            <!-- Null on purpose rather than defaulted to a number: null means
+                 "use the format's own floor", so a session created before this
+                 column existed behaves identically to one created after it. A
+                 default of 4 would have quietly imposed a doubles floor on every
+                 singles session already in the table. -->
+            <column name="min_players_to_start" type="integer">
+                <constraints nullable="true"/>
+            </column>
+        </addColumn>
+        <rollback>
+            <dropColumn tableName="events" columnName="min_players_to_start"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="045-add-min-players-positive-check" author="claude">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">SELECT count(*) FROM pg_constraint WHERE conname = 'events_min_players_positive'</sqlCheck>
+        </preConditions>
+        <sql>ALTER TABLE events ADD CONSTRAINT events_min_players_positive CHECK (min_players_to_start IS NULL OR min_players_to_start &gt;= 2)</sql>
+        <rollback>
+            <sql>ALTER TABLE events DROP CONSTRAINT events_min_players_positive</sql>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="045-add-close-policy" author="claude">
+        <preConditions onFail="MARK_RAN">
+            <not><columnExists tableName="events" columnName="close_policy"/></not>
+        </preConditions>
+        <addColumn tableName="events">
+            <column name="close_policy" type="varchar(20)" defaultValue="manual">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+        <rollback>
+            <dropColumn tableName="events" columnName="close_policy"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="045-add-close-policy-check" author="claude">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">SELECT count(*) FROM pg_constraint WHERE conname = 'events_close_policy_valid'</sqlCheck>
+        </preConditions>
+        <sql>ALTER TABLE events ADD CONSTRAINT events_close_policy_valid CHECK (close_policy IN ('manual', 'scheduled'))</sql>
+        <rollback>
+            <sql>ALTER TABLE events DROP CONSTRAINT events_close_policy_valid</sql>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="045-add-closes-at" author="claude">
+        <preConditions onFail="MARK_RAN">
+            <not><columnExists tableName="events" columnName="closes_at"/></not>
+        </preConditions>
+        <addColumn tableName="events">
+            <!-- Only meaningful when close_policy = 'scheduled'. Left nullable
+                 rather than enforced by a table check, because the application
+                 writes the pair together and a check here would block the
+                 intermediate state of an organiser switching policy before
+                 picking a time. -->
+            <column name="closes_at" type="timestamptz">
+                <constraints nullable="true"/>
+            </column>
+        </addColumn>
+        <rollback>
+            <dropColumn tableName="events" columnName="closes_at"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="045-add-closed-at" author="claude">
+        <preConditions onFail="MARK_RAN">
+            <not><columnExists tableName="events" columnName="closed_at"/></not>
+        </preConditions>
+        <addColumn tableName="events">
+            <!-- When it ACTUALLY closed, under either policy. Distinct from
+                 closes_at, which is only ever an intention: a scheduled session
+                 nobody attended still has a closes_at in the past and a null
+                 closed_at until something acts on it. -->
+            <column name="closed_at" type="timestamptz">
+                <constraints nullable="true"/>
+            </column>
+        </addColumn>
+        <rollback>
+            <dropColumn tableName="events" columnName="closed_at"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="045-index-pending-close" author="claude">
+        <preConditions onFail="MARK_RAN">
+            <not><indexExists indexName="idx_events_pending_close"/></not>
+        </preConditions>
+        <!-- Partial: the only question ever asked of these columns is "which
+             scheduled sessions are due to close and have not", which is a tiny
+             slice of the table. A full index on closes_at would be mostly
+             nulls. -->
+        <sql>CREATE INDEX idx_events_pending_close ON events (closes_at) WHERE close_policy = 'scheduled' AND closed_at IS NULL</sql>
+        <rollback>
+            <sql>DROP INDEX IF EXISTS idx_events_pending_close</sql>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

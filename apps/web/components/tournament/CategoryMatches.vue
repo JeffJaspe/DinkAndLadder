@@ -73,6 +73,19 @@ const HEADINGS: Record<Bucket, string> = {
   done: 'Played'
 }
 
+/**
+ * A dot of colour per section.
+ *
+ * All three headings were the same weight and colour, so "Played · 6" and
+ * "Ready to play · 2" were distinguishable only by reading them — the state
+ * that matters most on a running draw took the longest to find.
+ */
+const BUCKET_TONES: Record<Bucket, string> = {
+  ready: 'bg-warning-fill',
+  waiting: 'bg-border-strong',
+  done: 'bg-primary'
+}
+
 const locked = computed(() => props.bracket?.locked ?? false)
 </script>
 
@@ -95,7 +108,8 @@ const locked = computed(() => props.bracket?.locked ?? false)
     </div>
 
     <section v-for="group in groups" :key="group.bucket">
-      <h4 class="mb-2 text-sm font-medium text-fg-secondary">
+      <h4 class="mb-2 flex items-center gap-2 text-sm font-medium text-fg-secondary">
+        <span class="h-2 w-2 shrink-0 rounded-pill" :class="BUCKET_TONES[group.bucket]" />
         {{ HEADINGS[group.bucket] }}
         <span class="font-normal text-fg-muted">· {{ group.rows.length }}</span>
       </h4>

@@ -22,6 +22,8 @@ import type { TournamentCategoryRepository } from '../repositories/tournament-ca
 import { resolveBracketLock, resolveFormat, resolveMatchType } from '../dto/tournament-category.dto'
 import type { TournamentFormat, TournamentMatchType } from '../dto/tournament.dto'
 import { resolveEntrantRating } from '../dto/tournament.dto'
+import type { RatingService } from '~/server/domains/rating/services/rating.service'
+import { applyRatingForMatch } from '~/server/domains/rating/services/apply-match-rating'
 import { hasGroupStage } from '~/utils/tournament-formats'
 import {
   GRAND_FINAL_RESET_ROUND,
@@ -182,7 +184,21 @@ export function createBracketService(
    * Without it the TOURNAMENT's values are used throughout, which is exactly
    * what it was before categories could differ.
    */
-  categories?: TournamentCategoryRepository
+  categories?: TournamentCategoryRepository,
+  /**
+   * Rates the match a recorded draw result creates.
+   *
+   * Optional for the same reason `matches` is: generating or reading a bracket
+   * never rates anything, so those callers should not have to build it. Passed
+   * as the Rating domain's own service rather than its repository — this domain
+   * must not reach into `player_ratings` or `rating_transactions` itself
+   * (CLAUDE.md §4), and the rating rules are not the Event domain's to know.
+   *
+   * Without it a draw result is still recorded and still marked verified; it
+   * simply moves nobody's rating, which is exactly the behaviour that made
+   * tournament play invisible to the rating engine.
+   */
+  ratings?: RatingService
 ): BracketService {
   async function assertEventOrganizer(playerId: string, eventId: string) {
     const event = await events.findById(eventId)
@@ -808,6 +824,33 @@ export function createBracketService(
       // pair who just lost to confirm the bracket would be backwards, and a
       // tournament result that sits unverified never reaches a player's record.
       await matches.updateMatchStatus(match.id, 'verified', new Date().toISOString())
+
+      // ...and a verified match has to be rated, which this path never did.
+      // The rating trigger lived inside the verification endpoint, so every
+      // tournament match ever recorded reached 'verified' above and stopped
+      // there — no rating moved, no history row was written. Best-effort by
+      // the same rule as that endpoint: the draw result is already recorded
+      // and correct, so a rating failure must not undo it.
+      if (ratings) {
+        // Read back off the created row rather than rebuilt from the input:
+        // what was actually persisted is what should be rated.
+        await applyRatingForMatch(ratings, {
+          id: match.id,
+          match_type: match.match_type,
+          played_at: match.played_at,
+          // Defaulted rather than assumed present: rating is best-effort, and
+          // a missing relation must not throw out of a result that is already
+          // recorded and advanced.
+          participants: (match.match_participants ?? []).map((p) => ({
+            player_id: p.player_id,
+            team_number: p.team_number
+          })),
+          scores: (match.match_scores ?? []).map((s) => ({
+            team1_score: s.team1_score,
+            team2_score: s.team2_score
+          }))
+        })
+      }
 
       const updated = await brackets.update(bracketMatchId, {
         match_id: match.id,

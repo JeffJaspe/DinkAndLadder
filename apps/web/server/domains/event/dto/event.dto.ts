@@ -4,9 +4,65 @@ export type EventStatus = 'draft' | 'published' | 'active' | 'completed' | 'canc
 
 export type EventVisibility = 'public' | 'registered_only' | 'private'
 
-export type EventType = 'open_casual' | 'open_ranked' | 'club_casual' | 'club_ranked' | 'tournament'
+/**
+ * `coaching` is a plain event: no categories, no draw, no ranking, an amount
+ * only. It is unrated by construction — `toEventDto` derives affects_rating from
+ * an allow-list, so a type is unrated unless deliberately added to it, which is
+ * the safe direction for that to fail in.
+ */
+export type EventType =
+  | 'open_casual'
+  | 'open_ranked'
+  | 'club_casual'
+  | 'club_ranked'
+  | 'tournament'
+  | 'coaching'
 
+/**
+ * Who bears the fee.
+ *
+ * `fee_amount` has always meant "what the player is charged" with no way to say
+ * the organiser is covering it. `split` is the case where both pay something,
+ * and `organizer_fee_amount` records the organiser's share.
+ */
+export type EventFeePayer = 'player' | 'organizer' | 'split'
+
+/**
+ * `random` is labelled **Mix & Match** everywhere a person can see it — see
+ * `utils/queue-mode.ts`. The stored value is unchanged: renaming a column value
+ * would mean a migration and a backfill to express something that only ever
+ * appears on screen.
+ */
 export type QueueMode = 'first_come' | 'rating_based' | 'random'
+
+/**
+ * How an open play session stops.
+ *
+ * `manual` waits for the organiser; `scheduled` closes itself at `closes_at`.
+ * Distinct from `registration_closes`, which stops new entries rather than
+ * ending play — a drop-in session can keep taking players until it is called.
+ */
+export type EventClosePolicy = 'manual' | 'scheduled'
+
+/**
+ * Players needed to start when the organiser has not set a floor of their own:
+ * one court's worth. Kept here rather than inline so the API, the UI and the
+ * Start button's disabled reason cannot drift apart.
+ */
+export function defaultMinPlayersToStart(matchFormat: 'singles' | 'doubles'): number {
+  return matchFormat === 'singles' ? 2 : 4
+}
+
+/** The floor actually in force: the organiser's override, or the format's own. */
+export function effectiveMinPlayersToStart(event: {
+  min_players_to_start?: number | null
+  match_format?: 'singles' | 'doubles' | null
+}): number {
+  const floor = defaultMinPlayersToStart(event.match_format ?? 'doubles')
+  // An override may raise the floor, never drop it below what a court needs —
+  // a session that cannot fill one court has nothing to start.
+  return Math.max(event.min_players_to_start ?? floor, floor)
+}
 
 /**
  * Wall-clock start/end for an event, `HH:MM` or `HH:MM:SS`.
@@ -43,6 +99,15 @@ export interface EventRecord {
   /** Singles or doubles for open play. See 041-open-play-live. */
   match_format: 'singles' | 'doubles'
   queue_mode: QueueMode
+  /** Override for the floor. Null means derive it from match_format — see 045. */
+  min_players_to_start: number | null
+  close_policy: EventClosePolicy
+  closes_at: string | null
+  closed_at: string | null
+  /** Who is teaching. Only meaningful on a coaching event. */
+  coach_player_id: string | null
+  fee_payer: EventFeePayer
+  organizer_fee_amount: number | null
   queue_skip_timeout_seconds: number
   created_by_player_id: string
   created_at: string
@@ -86,6 +151,15 @@ export interface EventDto {
   /** Singles or doubles for open play. See 041-open-play-live. */
   match_format: 'singles' | 'doubles'
   queue_mode: QueueMode
+  min_players_to_start: number | null
+  /** The floor actually in force, so a client never re-derives it. */
+  effective_min_players_to_start: number
+  close_policy: EventClosePolicy
+  closes_at: string | null
+  closed_at: string | null
+  coach_player_id: string | null
+  fee_payer: EventFeePayer
+  organizer_fee_amount: number | null
   affects_rating: boolean
   created_by_player_id: string
   created_at: string
@@ -119,6 +193,17 @@ export function toEventDto(record: EventRecord): EventDto {
     // predates the question, and doubles is what those sessions were.
     match_format: record.match_format ?? 'doubles',
     queue_mode: record.queue_mode,
+    min_players_to_start: record.min_players_to_start ?? null,
+    effective_min_players_to_start: effectiveMinPlayersToStart(record),
+    // Defaulted for the same reason match_format is: every event created
+    // before 045 predates the question, and none of them was ever closed.
+    close_policy: record.close_policy ?? 'manual',
+    closes_at: record.closes_at ?? null,
+    closed_at: record.closed_at ?? null,
+    coach_player_id: record.coach_player_id ?? null,
+    // 'player' is what every event created before 048 means today.
+    fee_payer: record.fee_payer ?? 'player',
+    organizer_fee_amount: record.organizer_fee_amount ?? null,
     affects_rating: affectsRating,
     created_by_player_id: record.created_by_player_id,
     created_at: record.created_at
@@ -147,6 +232,12 @@ export interface CreateEventInput {
   queue_courts?: number
   match_format?: 'singles' | 'doubles'
   queue_mode?: QueueMode
+  min_players_to_start?: number | null
+  close_policy?: EventClosePolicy
+  closes_at?: string | null
+  coach_player_id?: string | null
+  fee_payer?: EventFeePayer
+  organizer_fee_amount?: number | null
   /**
    * Only read when event_type is 'tournament', where they configure the one
    * tournament created alongside the event. match_type in particular is not a
@@ -185,6 +276,13 @@ export interface UpdateEventInput {
   queue_courts?: number
   match_format?: 'singles' | 'doubles'
   queue_mode?: QueueMode
+  min_players_to_start?: number | null
+  close_policy?: EventClosePolicy
+  closes_at?: string | null
+  closed_at?: string | null
+  coach_player_id?: string | null
+  fee_payer?: EventFeePayer
+  organizer_fee_amount?: number | null
 }
 
 export interface EventSearchQuery {
@@ -194,6 +292,12 @@ export interface EventSearchQuery {
   status?: EventStatus
   visibility?: EventVisibility
   event_type?: EventType
+  /**
+   * Broad kind filter: several event_type values at once. Someone browsing
+   * wants "tournaments" or "open play", not one of the four open-play
+   * variants. Applied with IN; event_type above still filters to exactly one.
+   */
+  event_types?: EventType[]
   /**
    * When set, unpublished drafts created by this player are included alongside
    * the public results, so an organiser can see and finish their own drafts.

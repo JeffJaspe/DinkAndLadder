@@ -175,8 +175,25 @@ const tierName = (rating: number) => tierForRating(rating).name
         :caption="isRating ? 'Player rankings by rating' : 'Player standings by record'"
         @row-click="emit('select', $event)"
       >
+        <!--
+          A provisional player has no rank number.
+
+          They were being given one, which reads as a placing they have earned —
+          but a provisional rating is explicitly not settled yet, so ranking it
+          against established ones states something the rating engine does not
+          claim. They stay on the board (hiding a new player from it entirely is
+          a bleak first week) and are marked instead.
+        -->
         <template #cell-rank="{ row }">
           <span
+            v-if="row.provisional"
+            class="inline-flex h-7 items-center justify-center rounded-button bg-surface-2 px-1.5 text-caption font-bold text-fg-muted"
+            title="Provisional — not ranked until the rating settles"
+          >
+            —
+          </span>
+          <span
+            v-else
             class="inline-flex h-7 min-w-[1.75rem] items-center justify-center rounded-button px-1.5 text-caption font-bold tabular-nums"
             :class="row.rank <= 3 ? 'bg-primary-soft text-primary' : 'text-fg-muted'"
             >{{ row.rank }}</span
@@ -218,8 +235,8 @@ const tierName = (rating: number) => tierForRating(rating).name
               {{ row.rating_value == null ? 'Unrated' : formatRating(row.rating_value) }}
             </span>
             <span v-if="row.rating_value != null" class="text-caption text-fg-muted">
-              {{ tierName(row.rating_value)
-              }}<template v-if="row.provisional"> · provisional</template>
+              {{ tierName(row.rating_value) }}
+              <span v-if="row.provisional" class="font-medium text-warning">· Provisional</span>
             </span>
           </span>
         </template>

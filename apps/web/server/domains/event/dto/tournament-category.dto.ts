@@ -21,6 +21,17 @@ export interface TournamentCategoryRecord {
   /** Null while the draw is still being worked on — see resolveBracketLock. */
   bracket_locked_at: string | null
   bracket_locked_by_player_id: string | null
+  /**
+   * Game rules for this category — see 046 and utils/game-rules.ts.
+   *
+   * Read through rulesForRound(), never directly: round_game_rules holds only
+   * the rounds that differ from games_default, so a raw lookup misses the
+   * fallback and quietly scores a final as best-of-1.
+   */
+  games_default: number
+  round_game_rules: Record<string, number> | null
+  target_points: number
+  win_by_two: boolean
   created_at: string
   updated_at: string
 }
@@ -44,6 +55,11 @@ export interface TournamentCategoryDto {
    * longer be regenerated or undone.
    */
   bracket_locked_at: string | null
+  /** Game rules — see 046. Read via rulesForRound(), never field by field. */
+  games_default: number
+  round_game_rules: Record<string, number> | null
+  target_points: number
+  win_by_two: boolean
 }
 
 export function toTournamentCategoryDto(record: TournamentCategoryRecord): TournamentCategoryDto {
@@ -60,7 +76,14 @@ export function toTournamentCategoryDto(record: TournamentCategoryRecord): Tourn
     status: record.status,
     match_type: record.match_type,
     format: record.format,
-    bracket_locked_at: record.bracket_locked_at
+    bracket_locked_at: record.bracket_locked_at,
+    // Defaulted the same way match_format is on events: every category created
+    // before 046 was played to a single game of 11, win by 2, because nothing
+    // could express anything else.
+    games_default: record.games_default ?? 1,
+    round_game_rules: record.round_game_rules ?? null,
+    target_points: record.target_points ?? 11,
+    win_by_two: record.win_by_two ?? true
   }
 }
 

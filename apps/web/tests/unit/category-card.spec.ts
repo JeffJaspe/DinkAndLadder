@@ -39,6 +39,10 @@ function category(overrides: Partial<TournamentCategoryDto> = {}): TournamentCat
     status: 'open',
     match_type: 'doubles',
     bracket_locked_at: null,
+    games_default: 1,
+    round_game_rules: null,
+    target_points: 11,
+    win_by_two: true,
     format: 'single_elimination',
     ...overrides
   }

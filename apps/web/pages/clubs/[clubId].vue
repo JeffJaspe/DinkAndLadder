@@ -4,6 +4,7 @@ import type { ClubRole, RosterMemberDto } from '~/server/domains/club/dto/club-m
 import type { PlayerProfileDto } from '~/server/domains/player/dto/player-profile.dto'
 import type { AnnouncementDto } from '~/server/domains/announcement/dto/announcement.dto'
 import type { EventDto } from '~/server/domains/event/dto/event.dto'
+import { looksLikeUuid } from '~/server/domains/club/dto/club-slug'
 
 interface ClubRankingEntry {
   rank: number
@@ -31,6 +32,18 @@ const {
   refresh: refreshClub
 } = await useFetch<ClubDto>(() => `/api/v1/clubs/${clubId.value}`)
 
+/**
+ * The club's UUID, however the page was reached.
+ *
+ * Only `GET /clubs/{id}` accepts a slug; every sub-resource under it —
+ * members, rankings, matches, announcements — is keyed by UUID, and the event
+ * search filters on `club_id`. Passing the route param straight through meant
+ * a visit to /clubs/my-club loaded the club and then quietly failed to load
+ * anything belonging to it. Falls back to the param so the first render, before
+ * the club resolves, still addresses a UUID visit correctly.
+ */
+const resolvedClubId = computed(() => club.value?.id ?? clubId.value)
+
 const { data: myProfile } = await useFetch<PlayerProfileDto>('/api/v1/players/me')
 
 const roster = ref<RosterMemberDto[] | null>(null)
@@ -42,6 +55,31 @@ const hasPendingRequest = ref(false)
 const membershipStatus = ref<string | null>(null)
 
 const announcements = ref<AnnouncementDto[]>([])
+/**
+ * Show the club's own URL once we know it.
+ *
+ * `GET /api/v1/clubs/{id}` resolves a UUID or a slug on purpose, and a UUID
+ * link must keep working forever (see the note on that controller) — so this
+ * deliberately does not redirect. It rewrites the address in place after the
+ * club loads, which is what was missing: editing the custom URL saved
+ * correctly, then every link and every visit still showed the UUID, so the
+ * setting looked like it had not taken.
+ *
+ * `history.replaceState` rather than `router.replace`: this is the same page
+ * showing the same club, and a router navigation would re-run the route and
+ * refetch everything to arrive exactly where it already is.
+ */
+watch(
+  club,
+  (value) => {
+    if (!import.meta.client) return
+    if (!value?.slug) return
+    if (!looksLikeUuid(clubId.value)) return
+    history.replaceState(history.state, '', `/clubs/${value.slug}`)
+  },
+  { immediate: true }
+)
+
 const clubRankings = ref<ClubRankingEntry[]>([])
 const clubMatches = ref<ClubMatchSummary[]>([])
 const upcomingClubEvents = ref<EventDto[]>([])
@@ -51,7 +89,7 @@ async function loadRoster() {
   notAMember.value = false
   try {
     const response = await $fetch<{ items: RosterMemberDto[] }>(
-      `/api/v1/clubs/${clubId.value}/members`
+      `/api/v1/clubs/${resolvedClubId.value}/members`
     )
     roster.value = response.items
   } catch {
@@ -63,7 +101,7 @@ async function loadRoster() {
 async function checkPendingRequest() {
   try {
     const response = await $fetch<{ pending: boolean; status: string | null }>(
-      `/api/v1/clubs/${clubId.value}/membership-requests`
+      `/api/v1/clubs/${resolvedClubId.value}/membership-requests`
     )
     hasPendingRequest.value = response.pending
     membershipStatus.value = response.status
@@ -76,7 +114,7 @@ async function checkPendingRequest() {
 async function loadAnnouncements() {
   try {
     const response = await $fetch<{ announcements: AnnouncementDto[] }>(
-      `/api/v1/clubs/${clubId.value}/announcements`
+      `/api/v1/clubs/${resolvedClubId.value}/announcements`
     )
     announcements.value = response.announcements
   } catch {
@@ -102,10 +140,10 @@ const visibleRankings = computed(() =>
 async function loadClubRankings() {
   try {
     const [singles, doubles] = await Promise.all([
-      $fetch<{ data: ClubRankingEntry[] }>(`/api/v1/clubs/${clubId.value}/rankings`, {
+      $fetch<{ data: ClubRankingEntry[] }>(`/api/v1/clubs/${resolvedClubId.value}/rankings`, {
         query: { rating_type: 'singles' }
       }),
-      $fetch<{ data: ClubRankingEntry[] }>(`/api/v1/clubs/${clubId.value}/rankings`, {
+      $fetch<{ data: ClubRankingEntry[] }>(`/api/v1/clubs/${resolvedClubId.value}/rankings`, {
         query: { rating_type: 'doubles' }
       })
     ])
@@ -120,7 +158,7 @@ async function loadClubRankings() {
 async function loadClubMatches() {
   try {
     const response = await $fetch<{ data: ClubMatchSummary[] }>(
-      `/api/v1/clubs/${clubId.value}/matches?limit=50`
+      `/api/v1/clubs/${resolvedClubId.value}/matches?limit=50`
     )
     clubMatches.value = response.data
   } catch {
@@ -157,16 +195,16 @@ async function loadClubEvents() {
   try {
     const [published, active, completed, cancelled] = await Promise.all([
       $fetch<{ events: EventDto[] }>('/api/v1/events', {
-        query: { club_id: clubId.value, status: 'published' }
+        query: { club_id: resolvedClubId.value, status: 'published' }
       }),
       $fetch<{ events: EventDto[] }>('/api/v1/events', {
-        query: { club_id: clubId.value, status: 'active' }
+        query: { club_id: resolvedClubId.value, status: 'active' }
       }),
       $fetch<{ events: EventDto[] }>('/api/v1/events', {
-        query: { club_id: clubId.value, status: 'completed' }
+        query: { club_id: resolvedClubId.value, status: 'completed' }
       }),
       $fetch<{ events: EventDto[] }>('/api/v1/events', {
-        query: { club_id: clubId.value, status: 'cancelled' }
+        query: { club_id: resolvedClubId.value, status: 'cancelled' }
       })
     ])
 
@@ -226,7 +264,7 @@ const { isClubMode, activeClubId } = useAccountMode()
  * someone acting as Club A administer Club B, which is incoherent even though
  * they must still be staff of B for anything to be offered.
  */
-const isActingAsThisClub = computed(() => isClubMode.value && activeClubId.value === clubId.value)
+const isActingAsThisClub = computed(() => isClubMode.value && activeClubId.value === resolvedClubId.value)
 
 /**
  * Club administration, split the way the product decided (2026-08-23).
@@ -264,7 +302,7 @@ async function handleRequestVerification() {
   verificationError.value = ''
   verificationLoading.value = true
   try {
-    await $fetch(`/api/v1/clubs/${clubId.value}/request-verification`, { method: 'POST' })
+    await $fetch(`/api/v1/clubs/${resolvedClubId.value}/request-verification`, { method: 'POST' })
     await refreshClub()
   } catch (err) {
     const fetchError = err as { data?: { message?: string } }
@@ -286,7 +324,7 @@ async function handleJoin() {
   joinMessage.value = ''
   joining.value = true
   try {
-    await $fetch(`/api/v1/clubs/${clubId.value}/membership-requests`, { method: 'POST' })
+    await $fetch(`/api/v1/clubs/${resolvedClubId.value}/membership-requests`, { method: 'POST' })
     joinMessage.value = 'Request sent — waiting for approval.'
   } catch (err) {
     const fetchError = err as { data?: { message?: string } }
@@ -297,7 +335,7 @@ async function handleJoin() {
 }
 
 async function handleLeave() {
-  await $fetch(`/api/v1/clubs/${clubId.value}/leave`, { method: 'POST' })
+  await $fetch(`/api/v1/clubs/${resolvedClubId.value}/leave`, { method: 'POST' })
   await loadRoster()
 }
 
@@ -308,7 +346,7 @@ async function updateMember(playerId: string, body: { status?: string; role?: st
   memberActionError.value = ''
   memberBusyId.value = playerId
   try {
-    await $fetch(`/api/v1/clubs/${clubId.value}/members/${playerId}`, { method: 'PATCH', body })
+    await $fetch(`/api/v1/clubs/${resolvedClubId.value}/members/${playerId}`, { method: 'PATCH', body })
     await loadRoster()
   } catch (err) {
     // Previously unhandled: a refused change left the row looking unchanged with
@@ -373,7 +411,7 @@ async function createAnnouncement() {
   announcementError.value = ''
   creatingAnnouncement.value = true
   try {
-    await $fetch(`/api/v1/clubs/${clubId.value}/announcements`, {
+    await $fetch(`/api/v1/clubs/${resolvedClubId.value}/announcements`, {
       method: 'POST',
       body: newAnnouncement.value
     })
@@ -389,22 +427,22 @@ async function createAnnouncement() {
 }
 
 async function publishAnnouncement(id: string) {
-  await $fetch(`/api/v1/clubs/${clubId.value}/announcements/${id}/publish`, { method: 'POST' })
+  await $fetch(`/api/v1/clubs/${resolvedClubId.value}/announcements/${id}/publish`, { method: 'POST' })
   await loadAnnouncements()
 }
 
 async function archiveAnnouncement(id: string) {
-  await $fetch(`/api/v1/clubs/${clubId.value}/announcements/${id}/archive`, { method: 'POST' })
+  await $fetch(`/api/v1/clubs/${resolvedClubId.value}/announcements/${id}/archive`, { method: 'POST' })
   await loadAnnouncements()
 }
 
 async function togglePin(id: string) {
-  await $fetch(`/api/v1/clubs/${clubId.value}/announcements/${id}/pin`, { method: 'POST' })
+  await $fetch(`/api/v1/clubs/${resolvedClubId.value}/announcements/${id}/pin`, { method: 'POST' })
   await loadAnnouncements()
 }
 
 async function markAsRead(id: string) {
-  await $fetch(`/api/v1/clubs/${clubId.value}/announcements/${id}/read`, { method: 'POST' })
+  await $fetch(`/api/v1/clubs/${resolvedClubId.value}/announcements/${id}/read`, { method: 'POST' })
 }
 
 function formatDate(dateStr: string): string {

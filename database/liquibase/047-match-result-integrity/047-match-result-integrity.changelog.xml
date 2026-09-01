@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- How a match ended, and who said so.
+
+     1. matches.result_type - a match does not always get played out. A
+        retirement, a disqualification and a walkover all produce a winner with
+        an incomplete score, and the submission path had no way to express any
+        of them: it demanded a full set of games and derived the winner from
+        them, so an abandoned match simply could not be recorded. Defaults to
+        'normal', which is what every existing row is.
+
+     2. matches.submitted_by_role - which of the three parties entered the
+        score. Three are involved in any match (team 1, team 2, the organiser)
+        and only one could submit, so the record could not say whether a score
+        came from a participant or from the desk. That distinction decides
+        whether it still needs the other side's confirmation: an organiser
+        entering a result IS the verification, exactly as a draw result already
+        is (see BracketService.recordMatchResult).
+
+        Nullable rather than defaulted: every row created before this column
+        existed came in through the player-submission path, but claiming to
+        know that for certain is a guess about history, and null honestly says
+        "not recorded". Application code treats null as 'team_1' for display
+        and never as authority to skip verification. -->
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+    <changeSet id="047-add-result-type" author="claude">
+        <preConditions onFail="MARK_RAN">
+            <not><columnExists tableName="matches" columnName="result_type"/></not>
+        </preConditions>
+        <addColumn tableName="matches">
+            <column name="result_type" type="varchar(20)" defaultValue="normal">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+        <rollback>
+            <dropColumn tableName="matches" columnName="result_type"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="047-add-result-type-check" author="claude">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">SELECT count(*) FROM pg_constraint WHERE conname = 'matches_result_type_valid'</sqlCheck>
+        </preConditions>
+        <sql>ALTER TABLE matches ADD CONSTRAINT matches_result_type_valid CHECK (result_type IN ('normal', 'retired', 'dq', 'walkover'))</sql>
+        <rollback>
+            <sql>ALTER TABLE matches DROP CONSTRAINT matches_result_type_valid</sql>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="047-add-submitted-by-role" author="claude">
+        <preConditions onFail="MARK_RAN">
+            <not><columnExists tableName="matches" columnName="submitted_by_role"/></not>
+        </preConditions>
+        <addColumn tableName="matches">
+            <column name="submitted_by_role" type="varchar(20)">
+                <constraints nullable="true"/>
+            </column>
+        </addColumn>
+        <rollback>
+            <dropColumn tableName="matches" columnName="submitted_by_role"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="047-add-submitted-by-role-check" author="claude">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">SELECT count(*) FROM pg_constraint WHERE conname = 'matches_submitted_by_role_valid'</sqlCheck>
+        </preConditions>
+        <sql>ALTER TABLE matches ADD CONSTRAINT matches_submitted_by_role_valid CHECK (submitted_by_role IS NULL OR submitted_by_role IN ('team_1', 'team_2', 'organizer'))</sql>
+        <rollback>
+            <sql>ALTER TABLE matches DROP CONSTRAINT matches_submitted_by_role_valid</sql>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

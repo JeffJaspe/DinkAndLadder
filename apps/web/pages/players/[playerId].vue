@@ -6,6 +6,7 @@ import type {
   RatingHistoryPointDto
 } from '~/server/domains/analytics/dto/analytics.dto'
 import type { ActivityDto } from '~/server/domains/activity/dto/activity.dto'
+import type { LinkedEvent } from '~/server/domains/activity/services/linked-event'
 
 interface Achievement {
   id: string
@@ -40,6 +41,20 @@ interface SelectedBadge {
 
 const route = useRoute()
 const user = useSupabaseUser()
+
+/**
+ * Duo and TeamUp are player-to-player relationships. A club is not a party to
+ * either, so while acting as one the whole block is replaced rather than
+ * disabled — a club pressing "Team Up" had nothing sensible to mean, and the
+ * request it sent would have come from the person behind the club account
+ * rather than the club.
+ *
+ * What a club actually wants from a player's profile is to bring them in, so
+ * that is what it is offered instead. There is no invite endpoint yet, so this
+ * links to the club's own page where joining is handled; a real invitation
+ * (sent, accepted, expiring) is its own feature.
+ */
+const { isClubMode, activeClubId } = useAccountMode()
 const playerId = computed(() => route.params.playerId as string)
 
 /**
@@ -82,7 +97,26 @@ const ratingHistoryQuery = useFetch<{ history: RatingHistoryPointDto[] }>(
   () => `/api/v1/players/${playerId.value}/rating-history`,
   { query: { type: 'singles', days: 180 } }
 )
-const activitiesQuery = useFetch<{ activities: ActivityDto[] }>(
+/** The profile's activity rows carry the shout-out's linked event, same as the feed. */
+type ProfileActivity = ActivityDto & { event?: LinkedEvent | null }
+
+/**
+ * Matches the feed's shout-out date exactly — same card, same context, so it
+ * should read the same in both places. Deliberately not promoted to a shared
+ * util: the other two `formatEventDate` copies in this codebase format
+ * differently (no weekday), and unifying them would silently restyle dates on
+ * pages this change has nothing to do with.
+ */
+function formatEventDate(startDate: string | null): string {
+  if (!startDate) return ''
+  return new Date(startDate).toLocaleDateString(undefined, {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric'
+  })
+}
+
+const activitiesQuery = useFetch<{ activities: ProfileActivity[] }>(
   () => `/api/v1/players/${playerId.value}/activities`,
   { query: { limit: 10 } }
 )
@@ -457,7 +491,7 @@ function getActivityIcon(type: string): string {
   }
 }
 
-function formatActivityText(activity: ActivityDto): string {
+function formatActivityText(activity: ProfileActivity): string {
   const payload = (activity.metadata ?? {}) as Record<string, string>
   switch (activity.activity_type) {
     case 'match.verified':
@@ -475,7 +509,7 @@ function formatActivityText(activity: ActivityDto): string {
     case 'club.announcement':
       return `posted an announcement${payload.club_name ? ` in ${payload.club_name}` : ''}`
     case 'social.started_following':
-      return `started following ${payload.target_display_name ?? 'someone'}`
+      return `started teaming up with ${payload.target_display_name ?? 'someone'}`
     case 'social.shoutout':
       return `shouts: "${payload.message ?? ''}"`
     default:
@@ -576,8 +610,17 @@ function formatActivityText(activity: ActivityDto): string {
                 {{ displayRating > 0 ? displayRating.toFixed(2) : '—' }}
               </p>
             </div>
+            <!-- Acting as a club: one club-shaped action, not the player ones. -->
+            <NuxtLink
+              v-if="user && !isOwnProfile && isClubMode"
+              :to="activeClubId ? `/clubs/${activeClubId}` : '/my-clubs'"
+              class="rounded-lg border border-primary px-5 py-2 text-sm font-medium text-primary transition-colors hover:bg-primary-soft"
+            >
+              Invite to club
+            </NuxtLink>
+
             <!-- Partner button (replaces Follow) -->
-            <template v-if="user && !isOwnProfile">
+            <template v-else-if="user && !isOwnProfile">
               <!-- Already partners -->
               <button
                 v-if="isPartner"
@@ -617,9 +660,20 @@ function formatActivityText(activity: ActivityDto): string {
               >
                 {{ partnerLoading ? '...' : 'Pending' }}
               </button>
-              <!-- Not partners -->
+              <!--
+                Not partners, and only offered to someone already teamed up.
+
+                A duo is who you enter a doubles DRAW with, which is a bigger
+                commitment than a team-up and made no sense to offer a stranger:
+                the button appeared on every profile, and pressing it sent a
+                request to somebody with no relationship to the sender at all.
+                Existing duos, incoming requests and pending ones above are all
+                still shown whatever the team-up state — withdrawing the way to
+                answer a request you already have would be worse than never
+                offering it.
+              -->
               <button
-                v-else
+                v-else-if="teamStatus === 'accepted'"
                 class="rounded-lg bg-primary px-5 py-2 text-sm font-medium text-on-primary transition-colors hover:bg-primary-hover"
                 :disabled="partnerLoading"
                 @click="sendPartnerRequest"
@@ -843,12 +897,35 @@ function formatActivityText(activity: ActivityDto): string {
               <div
                 v-for="a in activities"
                 :key="a.id"
-                class="flex items-center gap-3 rounded-lg bg-canvas p-3"
+                class="flex items-start gap-3 rounded-lg bg-canvas p-3"
               >
                 <span class="text-lg">{{ getActivityIcon(a.activity_type) }}</span>
-                <div>
+                <div class="min-w-0 flex-1">
                   <p class="text-sm text-fg capitalize">{{ formatActivityText(a) }}</p>
                   <p class="text-xs text-fg-muted">{{ formatRelativeTime(a.created_at) }}</p>
+
+                  <!-- The event a shout-out points at. The feed has always
+                       linked this; the profile could not, because its endpoint
+                       returned the id in metadata and nothing to render. -->
+                  <NuxtLink
+                    v-if="a.event"
+                    :to="`/events/${a.event.id}`"
+                    class="mt-2 flex items-center gap-2 rounded-button bg-surface p-2 transition-colors hover:bg-surface-2"
+                  >
+                    <UiIcon name="calendar" size="h-4 w-4" class="shrink-0 text-primary" />
+                    <span class="min-w-0">
+                      <span class="block truncate text-sm font-medium text-fg">
+                        {{ a.event.name }}
+                      </span>
+                      <span class="block truncate text-caption text-fg-muted">
+                        {{
+                          [formatEventDate(a.event.start_date), a.event.city]
+                            .filter(Boolean)
+                            .join(' · ')
+                        }}
+                      </span>
+                    </span>
+                  </NuxtLink>
                 </div>
               </div>
             </div>

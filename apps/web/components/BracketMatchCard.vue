@@ -40,6 +40,14 @@ const orderedScores = computed(() =>
   [...props.match.scores].sort((a, b) => a.set_number - b.set_number)
 )
 
+/**
+ * Whether this match has a result yet. A bye is not a contest, so it is not
+ * marked W/L — nobody beat anybody.
+ */
+const isDecided = computed(
+  () => !!props.match.winner_registration_id && props.match.status !== 'bye'
+)
+
 function slot(
   participant: BracketParticipantDto | null,
   registrationId: string | null,
@@ -111,7 +119,7 @@ const showRatings = computed(() => !orderedScores.value.length)
         <span
           v-for="(score, setIndex) in entry.setScores"
           :key="setIndex"
-          class="w-5 shrink-0 text-right text-sm tabular-nums"
+          class="w-6 shrink-0 text-right text-sm tabular-nums"
           :class="entry.isWinner ? 'font-semibold text-fg' : 'text-fg-secondary'"
         >
           {{ score }}
@@ -123,7 +131,22 @@ const showRatings = computed(() => !orderedScores.value.length)
           size="sm"
           :show-tier="false"
         />
-        <span v-if="entry.isWinner" class="shrink-0 text-xs font-semibold text-primary">W</span>
+        <!--
+          W and L, both of them, in a fixed-width cell.
+
+          Only the winner was marked before, so the two rows ended at different
+          widths and the score columns above them did not line up between the
+          rows of a match — the reported misalignment. A decided match now marks
+          both sides; an undecided one marks neither and keeps the same space.
+        -->
+        <span
+          v-if="isDecided"
+          class="w-5 shrink-0 rounded-badge text-center text-xs font-bold"
+          :class="entry.isWinner ? 'bg-primary text-on-primary' : 'bg-danger-soft text-danger'"
+        >
+          {{ entry.isWinner ? 'W' : 'L' }}
+        </span>
+        <span v-else class="w-5 shrink-0" aria-hidden="true" />
       </div>
     </div>
 

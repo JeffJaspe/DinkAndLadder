@@ -9,6 +9,7 @@ import type {
 const CATEGORY_COLUMNS =
   'id, tournament_id, template_id, name, category_type, min_rating, max_rating, max_participants, ' +
   'display_order, status, match_type, format, bracket_locked_at, bracket_locked_by_player_id, ' +
+  'games_default, round_game_rules, target_points, win_by_two, ' +
   'created_at, updated_at'
 
 const TEMPLATE_COLUMNS = 'id, name, min_rating, max_rating, display_order'

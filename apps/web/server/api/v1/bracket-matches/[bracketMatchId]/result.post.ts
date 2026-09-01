@@ -16,6 +16,8 @@ import {
   BracketServiceError
 } from '~/server/domains/event/services/bracket.service'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
+import { createRatingRepository } from '~/server/domains/rating/repositories/rating.repository'
+import { createRatingService } from '~/server/domains/rating/services/rating.service'
 import { apiError } from '~/server/utils/api-error'
 import type { RecordBracketResultInput } from '~/server/domains/event/dto/bracket.dto'
 
@@ -66,7 +68,11 @@ export default defineEventHandler(async (event) => {
     createTournamentRegistrationRepository(serviceClient),
     createEventRepository(serviceClient),
     createMatchRepository(serviceClient),
-    createTournamentCategoryRepository(serviceClient)
+    createTournamentCategoryRepository(serviceClient),
+    // Recording a draw result marks the match verified, and a verified match
+    // has to move ratings. This is the only bracket endpoint that needs it —
+    // the others read or generate a draw and rate nothing.
+    createRatingService(createRatingRepository(serviceClient))
   )
 
   try {

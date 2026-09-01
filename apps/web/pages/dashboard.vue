@@ -19,6 +19,9 @@ interface MatchSummary {
   played_at: string
   participants: Array<{ player_id: string; team_number: 1 | 2; display_name: string }>
   scores: Array<{ set_number: number; team1_score: number; team2_score: number }>
+  /** What this match did to the reader's rating. Null when it was not rated. */
+  rating_delta?: number | null
+  new_rating?: number | null
 }
 
 interface UpcomingEventEntry {
@@ -596,6 +599,16 @@ function formatEventDate(dateStr: string): string {
               {{ didIWin(match) === true ? 'Won' : didIWin(match) === false ? 'Lost' : 'Played' }}
               vs {{ getOpponentNames(match) }}
               <span class="text-fg-muted">{{ formatScore(match) }}</span>
+            </span>
+            <!-- What the match cost or earned. Green up, red down, and nothing
+                 at all for a match that did not affect rating — showing 0 there
+                 would say "you gained nothing", which is a different claim. -->
+            <span
+              v-if="match.rating_delta !== null && match.rating_delta !== undefined"
+              class="font-mono text-xs font-bold tabular-nums"
+              :class="match.rating_delta >= 0 ? 'text-success' : 'text-danger'"
+            >
+              {{ match.rating_delta >= 0 ? '+' : '' }}{{ match.rating_delta.toFixed(2) }}
             </span>
             <span class="text-xs text-fg-muted">{{ formatRelativeTime(match.played_at) }}</span>
           </NuxtLink>

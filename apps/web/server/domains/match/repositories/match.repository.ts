@@ -1,3 +1,4 @@
+import type { SubmittedByRole } from '~/utils/game-rules'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type {
   MatchRecord,
@@ -13,6 +14,7 @@ import type {
 
 const MATCH_SELECT =
   'id, match_type, status, submitted_by_player_id, event_id, affects_rating, venue, played_at, submitted_at, verified_at, created_at, ' +
+  'result_type, submitted_by_role, ' +
   'match_participants(id, match_id, player_id, team_number, result_status), ' +
   'match_scores(id, match_id, set_number, team1_score, team2_score), ' +
   'match_verifications(id, match_id, verifier_player_id, status, response_note, responded_at, created_at), ' +
@@ -20,7 +22,23 @@ const MATCH_SELECT =
 
 export interface MatchRepository {
   findById(matchId: string): Promise<MatchRecord | null>
-  create(input: SubmitMatchInput, submittedByPlayerId: string): Promise<MatchRecord>
+  /**
+   * Every verified match, oldest first, one page at a time.
+   *
+   * Exists for the rating backfill and nothing else. Ordered by `played_at`
+   * ascending because ratings are path-dependent — replaying a player's matches
+   * out of order would compute each one against the wrong starting rating and
+   * produce a different final number than playing them in sequence would have.
+   *
+   * `verified` only: a match that was rejected or is still awaiting
+   * verification has no business moving anyone's rating.
+   */
+  findVerifiedForRating(limit: number, offset: number): Promise<MatchRecord[]>
+  create(
+    input: SubmitMatchInput,
+    submittedByPlayerId: string,
+    submittedByRole?: SubmittedByRole
+  ): Promise<MatchRecord>
   createPendingVerifications(
     matchId: string,
     verifierPlayerIds: string[]
@@ -87,7 +105,23 @@ export function createMatchRepository(client: SupabaseClient): MatchRepository {
   return {
     findById,
 
-    async create(input, submittedByPlayerId) {
+    async findVerifiedForRating(limit, offset) {
+      const { data, error } = await client
+        .from('matches')
+        .select(MATCH_SELECT)
+        .eq('status', 'verified')
+        // played_at then id: two matches can share a timestamp (a seeded event
+        // stamps them all at once), and an unstable sort would let a page
+        // boundary skip or repeat a row.
+        .order('played_at', { ascending: true })
+        .order('id', { ascending: true })
+        .range(offset, offset + limit - 1)
+
+      if (error) throw error
+      return (data ?? []) as unknown as MatchRecord[]
+    },
+
+    async create(input, submittedByPlayerId, submittedByRole) {
       const { data: match, error: matchError } = await client
         .from('matches')
         .insert({
@@ -95,7 +129,11 @@ export function createMatchRepository(client: SupabaseClient): MatchRepository {
           event_id: input.event_id,
           venue: input.venue ?? null,
           played_at: input.played_at,
-          submitted_by_player_id: submittedByPlayerId
+          submitted_by_player_id: submittedByPlayerId,
+          // Defaulted here rather than relied on from the column default, so the
+          // row says what happened even when the caller said nothing.
+          result_type: input.result_type ?? 'normal',
+          submitted_by_role: submittedByRole ?? null
         })
         .select('id')
         .single()

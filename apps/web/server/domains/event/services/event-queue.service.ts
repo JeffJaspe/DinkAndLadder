@@ -97,7 +97,21 @@ export function createEventQueueService(
         throw new EventQueueServiceError(409, 'ALREADY_QUEUED', 'You are already in the queue.')
       }
 
-      if (matchType === 'doubles') {
+      /**
+       * Mix & Match pairs people itself, so asking for a partner contradicts
+       * the mode: the scheduler's whole job there is to rotate partners and
+       * opponents so nobody plays with the same person twice. Demanding one up
+       * front made a solo drop-in — the normal way somebody joins an open play
+       * session — impossible to enter.
+       *
+       * Every other mode still needs one. A first-come queue entry IS a side of
+       * a court, so without a partner there is no side to queue, and inventing
+       * one by pairing whoever is next is a scheduling rule nobody has decided.
+       */
+      const eventRecord = await events.findById(eventId)
+      const pairsAutomatically = eventRecord?.queue_mode === 'random'
+
+      if (matchType === 'doubles' && !pairsAutomatically) {
         if (!partnerId) {
           throw new EventQueueServiceError(
             400,
@@ -105,6 +119,9 @@ export function createEventQueueService(
             'A partner is required to join the queue for doubles.'
           )
         }
+      }
+
+      if (matchType === 'doubles' && partnerId) {
         if (partnerId === playerId) {
           throw new EventQueueServiceError(
             400,
@@ -119,7 +136,10 @@ export function createEventQueueService(
         event_id: eventId,
         player_id: playerId,
         match_type: matchType,
-        partner_id: matchType === 'doubles' ? partnerId : null
+        // Normalised to null rather than passed through: a Mix & Match doubles
+        // entry has no partner, and `undefined` would omit the column from the
+        // insert entirely instead of writing an explicit "nobody".
+        partner_id: matchType === 'doubles' ? (partnerId ?? null) : null
       })
     },
 

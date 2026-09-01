@@ -39,7 +39,12 @@ const TABS: Array<{ id: CommunityTab; label: string }> = [
   { id: 'partners', label: 'Partners' },
   // Distinct from Teammates below, which is a record of who you have played
   // with. This is the roster you may register FOR an open play session.
-  { id: 'team', label: 'Team' },
+  //
+  // Labelled TeamUp, which is what the rest of the product calls this
+  // relationship — the API path, the table and the notification type all say
+  // team-up, and "Team" here was the only place that did not. The tab ID stays
+  // `team` so existing links and the ?tab= query keep working.
+  { id: 'team', label: 'TeamUp' },
   { id: 'teammates', label: 'Teammates' },
   { id: 'opponents', label: 'Opponents' }
 ]

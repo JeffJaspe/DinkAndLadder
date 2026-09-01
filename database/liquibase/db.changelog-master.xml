@@ -49,5 +49,9 @@
     <include file="042-sponsors/042-sponsors.changelog.xml" relativeToChangelogFile="true"/>
     <include file="043-tournament-live-score/043-tournament-live-score.changelog.xml" relativeToChangelogFile="true"/>
     <include file="044-liquibase-table-lockdown/044-liquibase-table-lockdown.changelog.xml" relativeToChangelogFile="true"/>
+    <include file="045-open-play-capacity/045-open-play-capacity.changelog.xml" relativeToChangelogFile="true"/>
+    <include file="046-category-game-rules/046-category-game-rules.changelog.xml" relativeToChangelogFile="true"/>
+    <include file="047-match-result-integrity/047-match-result-integrity.changelog.xml" relativeToChangelogFile="true"/>
+    <include file="048-coaching-and-fees/048-coaching-and-fees.changelog.xml" relativeToChangelogFile="true"/>
 
 </databaseChangeLog>

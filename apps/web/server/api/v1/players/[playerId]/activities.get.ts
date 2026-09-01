@@ -2,6 +2,7 @@ import { serverSupabaseClient } from '#supabase/server'
 import { createActivityRepository } from '~/server/domains/activity/repositories/activity.repository'
 import { createRelationshipRepository } from '~/server/domains/social/repositories/relationship.repository'
 import { createActivityService } from '~/server/domains/activity/services/activity.service'
+import { attachLinkedEvents } from '~/server/domains/activity/services/linked-event'
 
 export default defineEventHandler(async (event) => {
   const playerId = getRouterParam(event, 'playerId')
@@ -19,5 +20,11 @@ export default defineEventHandler(async (event) => {
   const service = createActivityService(activityRepo, relationshipRepo)
 
   const activities = await service.getPlayerActivities(playerId, limit, offset)
-  return { activities }
+
+  // Same enrichment the feed does. Without it a shout-out on a profile carried
+  // the event id in its metadata and nothing else, so the profile could not
+  // render the link the feed already showed.
+  const enriched = await attachLinkedEvents(client, activities)
+
+  return { activities: enriched }
 })

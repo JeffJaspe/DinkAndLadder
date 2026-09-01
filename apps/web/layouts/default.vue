@@ -126,8 +126,17 @@ const clubNavItems = computed<NavItem[]>(() => [
   { name: 'Ranking', href: '/rankings', icon: 'rankings' },
   { name: 'Matches', href: '/matches', icon: 'matches' },
   { name: 'Events', href: '/events', icon: 'calendar' },
-  { name: 'Community', href: '/community', icon: 'chat', badge: partnerRequestCount.value },
+  // Community is deliberately absent in club mode. It is a player-to-player
+  // surface — duos, team-ups, who you have played with — and a club is not a
+  // party to any of those relationships, so every action on it was inapplicable.
   { name: 'Players', href: '/players', icon: 'user' },
+  {
+    // What a visitor sees. There was no route to it at all, so an owner could
+    // not check their own public page without hunting for the link.
+    name: 'Club Profile',
+    href: activeClubId.value ? `/clubs/${activeClubId.value}` : '/my-clubs',
+    icon: 'clubs'
+  },
   {
     name: 'Club Settings',
     // Was pointing at the *public* club profile, because no settings page

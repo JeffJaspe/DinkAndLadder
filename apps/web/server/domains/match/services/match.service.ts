@@ -1,4 +1,5 @@
 import type { MatchRepository } from '../repositories/match.repository'
+import type { SubmittedByRole } from '~/utils/game-rules'
 import type {
   MatchDto,
   MatchStatus,
@@ -34,7 +35,15 @@ export interface VerificationDecisionResult {
 
 export interface MatchService {
   getById(matchId: string): Promise<MatchDto | null>
-  submitMatch(submittedByPlayerId: string, input: SubmitMatchInput): Promise<MatchDto>
+  /**
+   * Records a score. Three parties may do it — either team, or the event
+   * organiser — and the caller says which, because only it can tell.
+   */
+  submitMatch(
+    submittedByPlayerId: string,
+    input: SubmitMatchInput,
+    role?: SubmittedByRole
+  ): Promise<MatchDto>
   initiateVerification(actingPlayerId: string, matchId: string): Promise<MatchDto>
   recordVerificationDecision(
     actingPlayerId: string,
@@ -55,7 +64,11 @@ export interface MatchService {
  * deliberately NOT validated — that's an unresolved product rule (see /docs/11-RATING-
  * SYSTEM-SPECIFICATION.md), not something to invent here.
  */
-function validateSubmission(submittedByPlayerId: string, input: SubmitMatchInput): void {
+function validateSubmission(
+  submittedByPlayerId: string,
+  input: SubmitMatchInput,
+  role: SubmittedByRole
+): void {
   const perTeam = TEAM_SIZE[input.match_type]
   const expectedTotal = perTeam * 2
 
@@ -87,7 +100,13 @@ function validateSubmission(submittedByPlayerId: string, input: SubmitMatchInput
     }
   }
 
-  if (!uniquePlayerIds.has(submittedByPlayerId)) {
+  /**
+   * A participant must have played in the match they are reporting. An
+   * ORGANISER must not — they are running the desk, not the court, and this
+   * guard was the whole reason a score could only ever come from one of the
+   * three parties involved.
+   */
+  if (role !== 'organizer' && !uniquePlayerIds.has(submittedByPlayerId)) {
     throw new MatchServiceError(
       400,
       'VALIDATION_ERROR',
@@ -137,9 +156,10 @@ export function createMatchService(repository: MatchRepository): MatchService {
       return match ? toMatchDto(match) : null
     },
 
-    async submitMatch(submittedByPlayerId, input) {
-      validateSubmission(submittedByPlayerId, input)
-      const match = await repository.create(input, submittedByPlayerId)
+    async submitMatch(submittedByPlayerId, input, role) {
+      const resolvedRole = role ?? 'team_1'
+      validateSubmission(submittedByPlayerId, input, resolvedRole)
+      const match = await repository.create(input, submittedByPlayerId, resolvedRole)
       return toMatchDto(match)
     },
 

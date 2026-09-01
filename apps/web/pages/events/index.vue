@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { EventDto } from '~/server/domains/event/dto/event.dto'
+import type { EventKindFilter } from '~/utils/event-type'
 
 useHead({ title: 'Events' })
 
@@ -59,6 +60,12 @@ const STATUS_FILTERS: { value: string; label: string; status?: EventDto['status'
 
 const statusFilter = ref('all')
 
+// Broad kind filter — Open Play vs Tournament. Sent to the server for the same
+// reason status is: filtering in the browser would only ever filter the page
+// that happened to load.
+const kindFilter = ref<EventKindFilter>('all')
+const selectedEventTypes = computed(() => eventTypesForFilter(kindFilter.value))
+
 const selectedStatus = computed(
   () => STATUS_FILTERS.find((f) => f.value === statusFilter.value)?.status
 )
@@ -81,9 +88,10 @@ const { data, pending, error } = await useFetch<EventsResponse>('/api/v1/events'
   query: computed(() => ({
     province: provinceName.value || undefined,
     city: cityName.value || undefined,
-    status: selectedStatus.value
+    status: selectedStatus.value,
+    event_types: selectedEventTypes.value?.join(',')
   })),
-  watch: [provinceName, cityName, selectedStatus],
+  watch: [provinceName, cityName, selectedStatus, selectedEventTypes],
   default: () => ({ events: [] as EventDto[] })
 })
 
@@ -209,6 +217,9 @@ function formatDateRange(start: string, end: string): string {
       <div class="mb-6 flex flex-wrap items-end gap-3">
         <div class="min-w-[10rem]">
           <UiSelect v-model="statusFilter" label="Status" :options="statusOptions" />
+        </div>
+        <div class="min-w-[10rem]">
+          <UiSelect v-model="kindFilter" label="Type" :options="EVENT_KIND_FILTERS" />
         </div>
         <div class="min-w-[12rem] flex-1">
           <label for="filter-province" class="mb-1.5 block text-xs text-fg-secondary"

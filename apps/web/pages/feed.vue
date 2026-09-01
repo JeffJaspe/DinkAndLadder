@@ -22,9 +22,73 @@ interface Activity {
   event?: LinkedEvent | null
 }
 
-const { data, status, error, refresh } = await useFetch<{ activities: Activity[] }>('/api/v1/feed')
+/**
+ * A page at a time, appended as the reader reaches the end.
+ *
+ * The feed used to request the endpoint's default and render whatever came
+ * back, so it was one fixed page that could never grow — scrolling to the
+ * bottom simply ended. 25 is the page size; the endpoint caps at 50.
+ */
+const PAGE_SIZE = 25
 
-const activities = computed(() => data.value?.activities ?? [])
+const { data, status, error, refresh } = await useFetch<{ activities: Activity[] }>('/api/v1/feed', {
+  query: { limit: PAGE_SIZE, offset: 0 }
+})
+
+/** Pages 2..n. Kept separate from `data` so `refresh()` still means "reload the top". */
+const olderActivities = ref<Activity[]>([])
+const loadingMore = ref(false)
+const reachedEnd = ref(false)
+
+const activities = computed(() => [
+  ...(data.value?.activities ?? []),
+  ...olderActivities.value
+])
+
+// A short page means the server has nothing further; asking again would be a
+// request that can only come back empty.
+watch(data, (value) => {
+  olderActivities.value = []
+  reachedEnd.value = (value?.activities?.length ?? 0) < PAGE_SIZE
+})
+
+async function loadMore() {
+  if (loadingMore.value || reachedEnd.value) return
+  loadingMore.value = true
+  try {
+    const response = await $fetch<{ activities: Activity[] }>('/api/v1/feed', {
+      query: { limit: PAGE_SIZE, offset: activities.value.length }
+    })
+    const batch = response.activities ?? []
+    olderActivities.value = [...olderActivities.value, ...batch]
+    if (batch.length < PAGE_SIZE) reachedEnd.value = true
+  } catch {
+    // Leave the button in place: a failed page is worth retrying, and losing
+    // the feed already on screen to an error state would be worse.
+  } finally {
+    loadingMore.value = false
+  }
+}
+
+/**
+ * Fires when the sentinel below the list scrolls into view. IntersectionObserver
+ * rather than a scroll handler so nothing runs on every frame of a scroll.
+ */
+const sentinel = ref<HTMLElement | null>(null)
+
+onMounted(() => {
+  if (!sentinel.value || typeof IntersectionObserver === 'undefined') return
+  const observer = new IntersectionObserver(
+    (entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) loadMore()
+    },
+    // Start fetching slightly before the sentinel is actually visible, so the
+    // next page is usually there by the time the reader arrives.
+    { rootMargin: '400px' }
+  )
+  observer.observe(sentinel.value)
+  onBeforeUnmount(() => observer.disconnect())
+})
 
 /**
  * The feed is a log of things that already happened, so an event published a
@@ -93,7 +157,7 @@ function formatActivityText(activity: Activity): string {
     case 'rating.changed':
       return `rating updated to ${meta.new_rating ?? '?'} (${meta.rating_type ?? 'singles'})`
     case 'social.started_following':
-      return `started following ${meta.target_display_name ?? 'someone'}`
+      return `started teaming up with ${meta.target_display_name ?? 'someone'}`
     case 'social.shoutout':
       return 'posted a shout-out'
     case 'achievement.earned':
@@ -265,6 +329,24 @@ function formatTime(dateStr: string): string {
             </div>
           </div>
         </article>
+
+        <!-- Scrolling this into view fetches the next page. It is also the
+             manual fallback: without IntersectionObserver, or if a page fails,
+             the button is still there to press. -->
+        <div ref="sentinel" class="pt-2 text-center">
+          <p v-if="loadingMore" class="py-3 text-caption text-fg-muted">Loading more…</p>
+          <button
+            v-else-if="!reachedEnd"
+            type="button"
+            class="rounded-lg border border-border-strong px-5 py-2 text-sm font-medium text-fg-secondary transition-colors hover:border-primary hover:text-fg"
+            @click="loadMore"
+          >
+            Load more
+          </button>
+          <p v-else-if="activities.length" class="py-3 text-caption text-fg-muted">
+            You're all caught up.
+          </p>
+        </div>
       </div>
     </div>
   </div>

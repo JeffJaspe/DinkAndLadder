@@ -328,6 +328,34 @@ const RESTARTS = 24
  * seed, so the same input always yields the same schedule and the preview an
  * organiser approves is the one they commit.
  */
+/**
+ * The fewest players a rotation can be built from: one court's worth.
+ *
+ * Below this there is nothing to rotate — a "schedule" for three doubles
+ * players is an empty one, and the scheduler returned it happily, so the
+ * session dead-ended with a preview that showed nothing and no explanation.
+ * Callers check this first and say what is missing.
+ */
+export function minPlayersForMixup(format: 'singles' | 'doubles'): number {
+  return format === 'singles' ? 2 : 4
+}
+
+/**
+ * Why a rotation cannot be built, or null when it can.
+ *
+ * Returns the sentence rather than a boolean: "not enough players" without a
+ * number is the message that sent an organiser looking for a bug.
+ */
+export function mixupShortfall(
+  playerCount: number,
+  format: 'singles' | 'doubles'
+): string | null {
+  const needed = minPlayersForMixup(format)
+  if (playerCount >= needed) return null
+  const short = needed - playerCount
+  return `Mix & Match needs at least ${needed} players in the queue for ${format}. ${short} more to go.`
+}
+
 export function generateMixupSchedule(options: MixupOptions): MixupSchedule {
   const baseSeed = options.seed ?? 1
 

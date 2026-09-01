@@ -46,6 +46,26 @@ export default defineEventHandler(async (event) => {
     province: query.province as string | undefined,
     city: query.city as string | undefined,
     status: query.status as EventSearchQuery['status'] | undefined,
+    // Comma-separated, because a repeated query param arrives as a string on a
+    // single value and an array on several — one shape is easier to trust.
+    // Values are checked against the union rather than passed through, since
+    // they reach a PostgREST `in` filter.
+    event_types:
+      typeof query.event_types === 'string'
+        ? (query.event_types
+            .split(',')
+            .map((v) => v.trim())
+            .filter((v) =>
+              [
+                'open_casual',
+                'open_ranked',
+                'club_casual',
+                'club_ranked',
+                'tournament',
+                'coaching'
+              ].includes(v)
+            ) as EventSearchQuery['event_types'])
+        : undefined,
     include_drafts_for_player_id: ownPlayerId,
     // Same id, second use: it also decides which cards can say "Registered".
     viewer_player_id: showRegisteredBadge ? ownPlayerId : undefined,

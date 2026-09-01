@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { MatchDto } from '~/server/domains/match/dto/match.dto'
 import type { PlayerProfileDto } from '~/server/domains/player/dto/player-profile.dto'
+import { DEFAULT_GAME_RULES, type GameRules, type GameScore } from '~/utils/game-rules'
 
 const route = useRoute()
 const matchId = computed(() => route.params.matchId as string)
@@ -172,12 +173,46 @@ function getTeamPlayers(teamNumber: number) {
   return match.value?.participants.filter((p) => p.team_number === teamNumber) ?? []
 }
 
-function didTeamWinSet(setNumber: number, teamNumber: number): boolean {
-  const score = match.value?.scores.find((s) => s.set_number === setNumber)
-  if (!score) return false
-  if (teamNumber === 1) return score.team1_score > score.team2_score
-  return score.team2_score > score.team1_score
+/**
+ * The match, in the shape the shared score sheet reads.
+ *
+ * `didTeamWinSet` used to answer "who won this set" by comparing the two
+ * numbers, which is not the rule — a game is won by reaching the target with
+ * the required margin, and being ahead partway through is not winning. The
+ * sheet applies the real rule from utils/game-rules.ts instead.
+ */
+const scoreSheetGames = computed<GameScore[]>(() =>
+  (match.value?.scores ?? []).map((s) => ({
+    team1_score: s.team1_score,
+    team2_score: s.team2_score
+  }))
+)
+
+/**
+ * Rules for reading this match back.
+ *
+ * A stored match does not carry the rules it was played under — the category
+ * does, and a match is not always attached to one. Reading with the defaults
+ * (to 11, win by 2) is right for everything recorded so far, and the bestOf is
+ * taken from the games actually played rather than assumed.
+ */
+const scoreSheetRules = computed<GameRules>(() => ({
+  ...DEFAULT_GAME_RULES,
+  bestOf: Math.max(1, scoreSheetGames.value.length)
+}))
+
+const scoreSheetTeams = computed<[string[], string[]]>(() => [
+  getTeamPlayers(1).map((p) => nameForPlayer(p.player_id)),
+  getTeamPlayers(2).map((p) => nameForPlayer(p.player_id))
+])
+
+const RESULT_TYPE_LABELS: Record<string, string> = {
+  retired: 'A player retired — the match was not played out.',
+  dq: 'Won by disqualification.',
+  walkover: 'Walkover — the match was not played.'
 }
+
+const resultTypeLabel = computed(() => RESULT_TYPE_LABELS[match.value?.result_type ?? ''] ?? '')
 </script>
 
 <template>
@@ -233,60 +268,24 @@ function didTeamWinSet(setNumber: number, teamNumber: number): boolean {
         </div>
 
         <!-- Score Card -->
+        <!--
+          The same grid as the entry sheet and the spectator boxscore, read-only.
+          It used to be a left/right layout with the games squeezed between the
+          two sides, which meant a best-of-five ran out of room and no column
+          lined up with any other match on the page.
+        -->
         <div class="mb-6 rounded-xl bg-surface p-5 shadow-card">
-          <div class="flex items-center justify-between gap-4">
-            <!-- Team 1 -->
-            <div class="flex-1 text-center">
-              <div class="space-y-1">
-                <NuxtLink
-                  v-for="p in getTeamPlayers(1)"
-                  :key="p.player_id"
-                  :to="`/players/${p.player_id}`"
-                  class="block text-sm font-medium text-primary hover:underline"
-                >
-                  {{ p.player_id === myProfile?.id ? 'You' : p.player_id.slice(0, 8) }}
-                </NuxtLink>
-              </div>
-            </div>
+          <MatchScoreSheet
+            :teams="scoreSheetTeams"
+            :games="scoreSheetGames"
+            :rules="scoreSheetRules"
+            :result-type="match.result_type"
+            readonly
+          />
 
-            <!-- Sets -->
-            <div class="flex items-center gap-2">
-              <div
-                v-for="s in match.scores"
-                :key="s.set_number"
-                class="flex flex-col items-center rounded-lg bg-canvas px-3 py-2"
-              >
-                <span class="text-xs text-fg-muted">Set {{ s.set_number }}</span>
-                <div class="flex items-center gap-1 text-lg font-bold">
-                  <span
-                    :class="didTeamWinSet(s.set_number, 1) ? 'text-primary' : 'text-fg-secondary'"
-                  >
-                    {{ s.team1_score }}
-                  </span>
-                  <span class="text-fg-muted">-</span>
-                  <span
-                    :class="didTeamWinSet(s.set_number, 2) ? 'text-primary' : 'text-fg-secondary'"
-                  >
-                    {{ s.team2_score }}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            <!-- Team 2 -->
-            <div class="flex-1 text-center">
-              <div class="space-y-1">
-                <NuxtLink
-                  v-for="p in getTeamPlayers(2)"
-                  :key="p.player_id"
-                  :to="`/players/${p.player_id}`"
-                  class="block text-sm font-medium text-primary hover:underline"
-                >
-                  {{ p.player_id === myProfile?.id ? 'You' : p.player_id.slice(0, 8) }}
-                </NuxtLink>
-              </div>
-            </div>
-          </div>
+          <p v-if="match.result_type !== 'normal'" class="mt-3 text-sm text-warning">
+            {{ resultTypeLabel }}
+          </p>
         </div>
 
         <!-- Verification timeline. The mockup's central element: an auditable
@@ -452,11 +451,7 @@ function didTeamWinSet(setNumber: number, teamNumber: number): boolean {
               <div class="mb-2 flex items-center justify-between">
                 <span class="text-sm text-fg-secondary">
                   Round {{ proposal.proposal_round }} by
-                  {{
-                    proposal.proposed_by_player_id === myProfile?.id
-                      ? 'you'
-                      : proposal.proposed_by_player_id.slice(0, 8)
-                  }}
+                  {{ nameForPlayer(proposal.proposed_by_player_id) }}
                 </span>
                 <span
                   class="rounded-md bg-yellow-500/20 px-2 py-0.5 text-xs font-medium capitalize text-yellow-400"
