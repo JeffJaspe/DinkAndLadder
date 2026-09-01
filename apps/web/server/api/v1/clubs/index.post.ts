@@ -1,4 +1,4 @@
-import { serverSupabaseClient, serverSupabaseUser } from '#supabase/server'
+import { serverSupabaseClient } from '#supabase/server'
 import { createClubRepository } from '~/server/domains/club/repositories/club.repository'
 import { createClubMembershipRepository } from '~/server/domains/club/repositories/club-membership.repository'
 import { createClubService } from '~/server/domains/club/services/club.service'
@@ -6,6 +6,7 @@ import { createPlayerProfileRepository } from '~/server/domains/player/repositor
 import { apiError } from '~/server/utils/api-error'
 import type { ClubVisibility, CreateClubInput } from '~/server/domains/club/dto/club.dto'
 import { slugProblemMessage, validateSlug } from '~/server/domains/club/dto/club-slug'
+import { getOptionalUser } from '~/server/utils/optional-user'
 
 function parseCreateInput(body: unknown): CreateClubInput {
   if (typeof body !== 'object' || body === null) {
@@ -51,7 +52,7 @@ function parseCreateInput(body: unknown): CreateClubInput {
 }
 
 export default defineEventHandler(async (event) => {
-  const claims = await serverSupabaseUser(event)
+  const claims = await getOptionalUser(event)
   if (!claims) {
     throw apiError(401, 'AUTH_REQUIRED', 'Sign in to create a club.')
   }

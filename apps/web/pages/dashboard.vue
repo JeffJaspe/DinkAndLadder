@@ -76,9 +76,22 @@ const ratingsQuery = useFetch<{
   doubles?: { rating_value: number }
 }>('/api/v1/players/me/ratings')
 const myClubsQuery = useFetch<{ items: MyClubMembershipDto[] }>('/api/v1/clubs/mine')
-const recentMatchesQuery = useFetch<{ data: MatchSummary[] }>('/api/v1/players/me/matches?limit=5')
-const upcomingEventsQuery = useFetch<{ data: UpcomingEventEntry[] }>(
-  '/api/v1/players/me/upcoming-events'
+/**
+ * Both lists are first pages now, not fixed windows.
+ *
+ * Recent Matches asked for five and stopped; My Upcoming Events asked for
+ * everything and rendered all of it. Neither could be walked. Same page size
+ * for both, appended below with a Show more button — see `loadMoreMatches` /
+ * `loadMoreEvents`.
+ */
+const LIST_PAGE_SIZE = 5
+
+const recentMatchesQuery = useFetch<{ data: MatchSummary[] }>('/api/v1/players/me/matches', {
+  query: { limit: LIST_PAGE_SIZE, offset: 0 }
+})
+const upcomingEventsQuery = useFetch<{ data: UpcomingEventEntry[]; has_more?: boolean }>(
+  '/api/v1/players/me/upcoming-events',
+  { query: { limit: LIST_PAGE_SIZE, offset: 0 } }
 )
 const pendingActionsQuery = useFetch<{ data: PendingActionsResponse }>(
   '/api/v1/players/me/pending-actions'
@@ -100,6 +113,85 @@ const { data: ratingsData } = ratingsQuery
 const { data: myClubsData } = myClubsQuery
 const { data: recentMatches } = recentMatchesQuery
 const { data: upcomingEvents } = upcomingEventsQuery
+
+/**
+ * Pages 2..n for the two lists.
+ *
+ * Held apart from the `useFetch` data so a refresh still means "reload the
+ * first page" rather than silently dropping whatever was appended. Same shape
+ * as the feed's loadMore, minus the scroll sentinel: these are short panels on
+ * a dashboard, so a button the reader chooses to press beats an infinite list
+ * that pushes everything below it out of reach.
+ */
+const moreMatches = ref<MatchSummary[]>([])
+const matchesEnd = ref(false)
+const loadingMatches = ref(false)
+
+const allRecentMatches = computed(() => [...(recentMatches.value?.data ?? []), ...moreMatches.value])
+
+watch(
+  recentMatches,
+  (value) => {
+    moreMatches.value = []
+    matchesEnd.value = (value?.data?.length ?? 0) < LIST_PAGE_SIZE
+  },
+  { immediate: true }
+)
+
+async function loadMoreMatches() {
+  if (loadingMatches.value || matchesEnd.value) return
+  loadingMatches.value = true
+  try {
+    const response = await $fetch<{ data: MatchSummary[] }>('/api/v1/players/me/matches', {
+      query: { limit: LIST_PAGE_SIZE, offset: allRecentMatches.value.length }
+    })
+    const batch = response.data ?? []
+    moreMatches.value = [...moreMatches.value, ...batch]
+    if (batch.length < LIST_PAGE_SIZE) matchesEnd.value = true
+  } catch {
+    // Keep the button: a failed page is worth another press, and replacing the
+    // matches already on screen with an error would cost more than it explains.
+  } finally {
+    loadingMatches.value = false
+  }
+}
+
+const moreEvents = ref<UpcomingEventEntry[]>([])
+const eventsEnd = ref(false)
+const loadingEvents = ref(false)
+
+const allUpcomingEvents = computed(() => [
+  ...(upcomingEvents.value?.data ?? []),
+  ...moreEvents.value
+])
+
+watch(
+  upcomingEvents,
+  (value) => {
+    moreEvents.value = []
+    // This endpoint says so outright, so there is no need to infer it from a
+    // short page.
+    eventsEnd.value = value?.has_more === false
+  },
+  { immediate: true }
+)
+
+async function loadMoreEvents() {
+  if (loadingEvents.value || eventsEnd.value) return
+  loadingEvents.value = true
+  try {
+    const response = await $fetch<{ data: UpcomingEventEntry[]; has_more?: boolean }>(
+      '/api/v1/players/me/upcoming-events',
+      { query: { limit: LIST_PAGE_SIZE, offset: allUpcomingEvents.value.length } }
+    )
+    moreEvents.value = [...moreEvents.value, ...(response.data ?? [])]
+    if (response.has_more === false) eventsEnd.value = true
+  } catch {
+    // As above.
+  } finally {
+    loadingEvents.value = false
+  }
+}
 const { data: pendingActions } = pendingActionsQuery
 
 // Only active memberships in My Clubs; pending ones are shown in Pending Actions.
@@ -258,7 +350,19 @@ const { data: historyData } = await useFetch<{ data: RatingTransactionDto[] }>(
   }
 )
 
-const ratingHistoryChronological = computed(() => [...(historyData.value?.data ?? [])].reverse())
+/**
+ * Oldest first, by when the match was played.
+ *
+ * The endpoint returns newest-first by `created_at`, which is when the rating
+ * engine wrote the row. Those two orders agree for a match rated live and
+ * disagree completely after a backfill, so the sort is on `occurred_at` rather
+ * than a plain reverse.
+ */
+const ratingHistoryChronological = computed(() =>
+  [...(historyData.value?.data ?? [])].sort(
+    (a, b) => new Date(a.occurred_at).getTime() - new Date(b.occurred_at).getTime()
+  )
+)
 
 /**
  * Rating Progress chart (docs/33 §5.2 / §5.8).
@@ -280,7 +384,10 @@ const chartRange = ref<string>('3m')
 
 const chartPoints = computed(() => {
   const all = ratingHistoryChronological.value.map((t) => ({
-    date: t.created_at,
+    // When the match was played, not when the engine wrote the row — otherwise
+    // a backfilled season lands inside one afternoon and every range from 7D to
+    // ALL draws the identical line.
+    date: t.occurred_at,
     value: t.new_rating
   }))
 
@@ -580,14 +687,14 @@ function formatEventDate(dateStr: string): string {
         <div class="mb-4 flex items-center justify-between">
           <span class="text-sm font-medium text-fg-secondary">My Recent Matches</span>
         </div>
-        <div v-if="!recentMatches?.data.length" class="py-4 text-center text-sm text-fg-muted">
+        <div v-if="!allRecentMatches.length" class="py-4 text-center text-sm text-fg-muted">
           No matches yet —
           <NuxtLink to="/events" class="text-primary hover:underline">find an event</NuxtLink> to
           get started.
         </div>
         <div v-else class="space-y-2">
           <NuxtLink
-            v-for="match in recentMatches.data"
+            v-for="match in allRecentMatches"
             :key="match.id"
             :to="`/matches/${match.id}`"
             class="flex items-center gap-3 rounded-lg bg-surface-2/50 p-3 hover:bg-surface-2"
@@ -612,6 +719,16 @@ function formatEventDate(dateStr: string): string {
             </span>
             <span class="text-xs text-fg-muted">{{ formatRelativeTime(match.played_at) }}</span>
           </NuxtLink>
+
+          <button
+            v-if="!matchesEnd"
+            type="button"
+            class="w-full rounded-lg border border-border px-3 py-2 text-xs font-medium text-fg-secondary transition-colors hover:border-border-strong hover:text-fg disabled:opacity-60"
+            :disabled="loadingMatches"
+            @click="loadMoreMatches"
+          >
+            {{ loadingMatches ? 'Loading…' : 'Show more matches' }}
+          </button>
         </div>
       </div>
 
@@ -621,12 +738,12 @@ function formatEventDate(dateStr: string): string {
           <span class="text-sm font-medium text-fg-secondary">My Upcoming Events</span>
           <NuxtLink to="/events" class="text-xs text-primary hover:underline">Find more →</NuxtLink>
         </div>
-        <div v-if="!upcomingEvents?.data.length" class="py-4 text-center text-sm text-fg-muted">
+        <div v-if="!allUpcomingEvents.length" class="py-4 text-center text-sm text-fg-muted">
           You're not registered for any upcoming events.
         </div>
         <div v-else class="space-y-2">
           <NuxtLink
-            v-for="entry in upcomingEvents.data"
+            v-for="entry in allUpcomingEvents"
             :key="entry.event.id"
             :to="`/events/${entry.event.id}`"
             class="flex items-center gap-3 rounded-lg bg-surface-2/50 p-3 hover:bg-surface-2"
@@ -640,6 +757,16 @@ function formatEventDate(dateStr: string): string {
             </span>
             <span class="text-xs text-fg-muted">{{ formatEventDate(entry.event.start_date) }}</span>
           </NuxtLink>
+
+          <button
+            v-if="!eventsEnd"
+            type="button"
+            class="w-full rounded-lg border border-border px-3 py-2 text-xs font-medium text-fg-secondary transition-colors hover:border-border-strong hover:text-fg disabled:opacity-60"
+            :disabled="loadingEvents"
+            @click="loadMoreEvents"
+          >
+            {{ loadingEvents ? 'Loading…' : 'Show more events' }}
+          </button>
         </div>
       </div>
 

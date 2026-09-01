@@ -59,9 +59,30 @@ export interface CreateActivityInput {
   metadata?: Record<string, unknown> | null
 }
 
+/**
+ * Who is in the feed.
+ *
+ * `community` is the product behaviour (049-feed-community-scope): only the
+ * viewer's own people. `geo` is the older everyone's-public-activity listing,
+ * still what a signed-out visitor gets, since they have no community to scope
+ * to.
+ */
+export type FeedScope = 'community' | 'geo'
+
 export interface FeedQuery {
   limit: number
   offset: number
   types?: ActivityType[]
   since?: string
+  scope?: FeedScope
+}
+
+/** A page of the feed, plus what the page means when it is empty. */
+export interface FeedResult {
+  activities: ActivityDto[]
+  /**
+   * Players in the viewer's community, self included — so 1 means "no one yet".
+   * Null for a signed-out viewer, who is not being scoped in the first place.
+   */
+  community_size: number | null
 }

@@ -68,13 +68,48 @@ watch(
   }
 )
 
-// The Partners tab carries the same count the sidebar badge shows, so the
-// number a player saw in the nav is still there once they arrive.
+// The Partners and TeamUp tabs carry the same counts the sidebar badge sums,
+// so the number a player saw in the nav resolves to a tab once they arrive.
 const { incomingCount } = usePartnerRequestCount()
+const { incomingCount: teamUpCount } = useTeamUpRequestCount()
 
-const { data: playHistoryData, pending: historyPending } = await useFetch<{
+/** The waiting-for-an-answer count for a tab, or 0 where a tab has none. */
+function pendingCountFor(tab: CommunityTab): number {
+  if (tab === 'partners') return incomingCount.value
+  if (tab === 'team') return teamUpCount.value
+  return 0
+}
+
+/**
+ * Deferred, and only for the tabs that need it.
+ *
+ * This was a top-level `await useFetch`, which suspends the whole route until
+ * it resolves — so arriving at Community cost a full play-history query before
+ * anything rendered, even though the default tab is Partners and never reads
+ * it. `immediate: false` plus a watch means the Partners tab paints straight
+ * away and the history is fetched the first time someone actually opens
+ * Teammates or Opponents.
+ */
+const {
+  data: playHistoryData,
+  pending: historyPending,
+  execute: loadPlayHistory
+} = useLazyFetch<{
   data: { partners: PlayHistoryEntry[]; opponents: OpponentEntry[] }
-}>('/api/v1/players/me/play-history')
+}>('/api/v1/players/me/play-history', { immediate: false })
+
+const historyLoaded = ref(false)
+
+watch(
+  activeTab,
+  (tab) => {
+    if (historyLoaded.value) return
+    if (tab !== 'teammates' && tab !== 'opponents') return
+    historyLoaded.value = true
+    loadPlayHistory()
+  },
+  { immediate: true }
+)
 
 /** The endpoint still calls them `partners`; on this page they are Teammates. */
 const teammates = computed(() => playHistoryData.value?.data?.partners ?? [])
@@ -112,15 +147,15 @@ function formatRelativeTime(dateStr: string): string {
         >
           {{ tab.label }}
           <span
-            v-if="tab.id === 'partners' && incomingCount"
+            v-if="pendingCountFor(tab.id)"
             class="ml-1.5 rounded-pill px-1.5 py-0.5 text-caption font-semibold tabular-nums"
             :class="
               activeTab === tab.id
                 ? 'bg-on-primary/20 text-on-primary'
                 : 'bg-primary text-on-primary'
             "
-            :aria-label="`${incomingCount} waiting`"
-            >{{ incomingCount }}</span
+            :aria-label="`${pendingCountFor(tab.id)} waiting`"
+            >{{ pendingCountFor(tab.id) }}</span
           >
         </button>
       </div>

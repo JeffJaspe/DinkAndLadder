@@ -1,8 +1,9 @@
-import { serverSupabaseServiceRole, serverSupabaseUser } from '#supabase/server'
+import { serverSupabaseServiceRole } from '#supabase/server'
 import { createPlatformConfigRepository } from '~/server/domains/platform/repositories/platform-config.repository'
 import { createPlatformAdminService } from '~/server/domains/platform/services/platform-admin.service'
 import { apiError } from '~/server/utils/api-error'
 import type { FeeType } from '~/utils/convenience-fee'
+import { getOptionalUser } from '~/server/utils/optional-user'
 
 interface RuleBody {
   id?: string
@@ -30,7 +31,7 @@ interface RuleBody {
  * shape platform_config uses.
  */
 export default defineEventHandler(async (event) => {
-  const claims = await serverSupabaseUser(event)
+  const claims = await getOptionalUser(event)
   if (!claims) {
     throw apiError(401, 'AUTH_REQUIRED', 'Sign in to change platform settings.')
   }

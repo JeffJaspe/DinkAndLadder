@@ -1,4 +1,4 @@
-import { serverSupabaseClient, serverSupabaseUser } from '#supabase/server'
+import { serverSupabaseClient } from '#supabase/server'
 import { createAnnouncementRepository } from '~/server/domains/announcement/repositories/announcement.repository'
 import {
   createAnnouncementService,
@@ -6,9 +6,10 @@ import {
 } from '~/server/domains/announcement/services/announcement.service'
 import { createClubMembershipRepository } from '~/server/domains/club/repositories/club-membership.repository'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
+import { getOptionalUser } from '~/server/utils/optional-user'
 
 export default defineEventHandler(async (event) => {
-  const user = await serverSupabaseUser(event)
+  const user = await getOptionalUser(event)
   if (!user) {
     throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
   }

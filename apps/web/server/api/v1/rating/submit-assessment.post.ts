@@ -1,8 +1,4 @@
-import {
-  serverSupabaseClient,
-  serverSupabaseServiceRole,
-  serverSupabaseUser
-} from '#supabase/server'
+import { serverSupabaseClient, serverSupabaseServiceRole } from '#supabase/server'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
 import { createPlayerProfileService } from '~/server/domains/player/services/player-profile.service'
 import { PlayerProfileValidationError } from '~/server/domains/player/dto/player-profile.dto'
@@ -14,6 +10,7 @@ import {
   getTierForRating
 } from '~/server/domains/rating/data/question-bank'
 import { apiError } from '~/server/utils/api-error'
+import { getOptionalUser } from '~/server/utils/optional-user'
 
 interface AssessmentAnswer {
   questionId: string
@@ -27,7 +24,7 @@ interface SubmitAssessmentInput {
 }
 
 export default defineEventHandler(async (event) => {
-  const claims = await serverSupabaseUser(event)
+  const claims = await getOptionalUser(event)
   if (!claims?.email) {
     throw apiError(401, 'AUTH_REQUIRED', 'Sign in to submit your assessment.')
   }

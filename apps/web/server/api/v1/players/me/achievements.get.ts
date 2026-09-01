@@ -1,15 +1,16 @@
-import { serverSupabaseClient, serverSupabaseUser } from '#supabase/server'
+import { serverSupabaseClient } from '#supabase/server'
 import { createAchievementRepository } from '~/server/domains/achievement/repositories/achievement.repository'
 import { createAchievementService } from '~/server/domains/achievement/services/achievement.service'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
 import { requireFeature, FEATURE_ACHIEVEMENTS } from '~/server/utils/require-feature'
+import { getOptionalUser } from '~/server/utils/optional-user'
 
 export default defineEventHandler(async (event) => {
   // Off means gone, not hidden: the client gate only stops this app
   // rendering it, never a stale bundle or a direct call.
   await requireFeature(event, FEATURE_ACHIEVEMENTS)
 
-  const user = await serverSupabaseUser(event)
+  const user = await getOptionalUser(event)
   if (!user) {
     throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
   }

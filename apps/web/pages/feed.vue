@@ -18,7 +18,7 @@ interface Activity {
   actor_display_name?: string
   metadata: Record<string, unknown> | null
   created_at: string
-  /** Present when a shout-out was posted against an event. */
+  /** The event this activity is about, when it points at one and it still exists. */
   event?: LinkedEvent | null
 }
 
@@ -31,9 +31,26 @@ interface Activity {
  */
 const PAGE_SIZE = 25
 
-const { data, status, error, refresh } = await useFetch<{ activities: Activity[] }>('/api/v1/feed', {
+interface FeedPage {
+  activities: Activity[]
+  /** Only sent on an empty first page. See the two empty states below. */
+  community_size?: number | null
+}
+
+const { data, status, error, refresh } = await useFetch<FeedPage>('/api/v1/feed', {
   query: { limit: PAGE_SIZE, offset: 0 }
 })
+
+/**
+ * Two ways to have an empty feed, and they need different words.
+ *
+ * The feed is scoped to the player's community (049-feed-community-scope), so
+ * an empty page means either "nobody you play with has done anything yet" or
+ * "you do not have anybody yet". `community_size` counts the player themselves,
+ * so 1 is the second case — telling someone with no partners to wait for their
+ * partners to post would be a dead end.
+ */
+const hasNoCommunity = computed(() => (data.value?.community_size ?? 2) <= 1)
 
 /** Pages 2..n. Kept separate from `data` so `refresh()` still means "reload the top". */
 const olderActivities = ref<Activity[]>([])
@@ -101,12 +118,29 @@ const { data: eventsData } = useLazyFetch<{ events: EventDto[] }>('/api/v1/event
   default: () => ({ events: [] as EventDto[] })
 })
 
+/**
+ * At most one per club, so three slots show three clubs.
+ *
+ * Sorting by date alone made this list three copies of the same evening: a club
+ * running a social, a ladder and a ranked night on one night filled every slot,
+ * and the reader learned about one club instead of three. The nearest date per
+ * club wins, and a club with nothing else coming up simply is not here.
+ */
 const upcomingEvents = computed(() => {
   const today = new Date().toISOString().slice(0, 10)
-  return (eventsData.value?.events ?? [])
+  const seenClubs = new Set<string>()
+  const picked: EventDto[] = []
+
+  for (const event of (eventsData.value?.events ?? [])
     .filter((e) => e.status === 'published' && e.start_date >= today)
-    .sort((a, b) => a.start_date.localeCompare(b.start_date))
-    .slice(0, 3)
+    .sort((a, b) => a.start_date.localeCompare(b.start_date))) {
+    if (seenClubs.has(event.club_id)) continue
+    seenClubs.add(event.club_id)
+    picked.push(event)
+    if (picked.length === 3) break
+  }
+
+  return picked
 })
 
 function formatEventDate(startDate: string | null): string {
@@ -149,6 +183,21 @@ function shoutoutMessage(activity: Activity): string | null {
   return message || null
 }
 
+function eventNameSuffix(meta: Record<string, string>): string {
+  return meta.event_name ? `: ${meta.event_name}` : ''
+}
+
+/**
+ * The event whose name belongs inside the sentence, as a link.
+ *
+ * Only for `club.event_created`, where the event *is* the sentence. A shout-out
+ * also resolves an event, but it keeps its own card below the message — its
+ * sentence is "posted a shout-out", which the event name does not belong in.
+ */
+function namedEvent(activity: Activity): LinkedEvent | null {
+  return activity.activity_type === 'club.event_created' ? (activity.event ?? null) : null
+}
+
 function formatActivityText(activity: Activity): string {
   const meta = (activity.metadata ?? {}) as Record<string, string>
   switch (activity.activity_type) {
@@ -167,7 +216,9 @@ function formatActivityText(activity: Activity): string {
     case 'club.joined':
       return `joined club ${meta.club_name ?? ''}`
     case 'club.event_created':
-      return `created an event${meta.event_name ? `: ${meta.event_name}` : ''}`
+      // The name is deliberately left off when the event resolved: the template
+      // renders it as a link instead, so it is not said twice.
+      return activity.event ? 'created an event: ' : `created an event${eventNameSuffix(meta)}`
     case 'club.announcement':
       return 'posted an announcement'
     case 'profile.updated':
@@ -204,8 +255,7 @@ function formatTime(dateStr: string): string {
         <div>
           <h1 class="text-2xl font-bold text-fg">Feed</h1>
           <p class="mt-1 text-sm text-fg-muted">
-            Everyone's activity, closest to you first — your barangay, then your city, then your
-            province.
+            Your community — partners, teammates, opponents and clubs — closest to you first.
           </p>
         </div>
         <button
@@ -256,12 +306,23 @@ function formatTime(dateStr: string): string {
         @retry="refresh()"
       />
 
+      <!-- No community yet: the feed cannot fill until there is someone in it,
+           so the way out is finding people, not waiting. -->
       <UiEmptyState
-        v-else-if="activities.length === 0"
-        title="Nothing here yet"
-        message="When players near you record matches, join clubs or post shout-outs, it shows up here."
+        v-else-if="activities.length === 0 && hasNoCommunity"
+        title="Your feed is waiting on your people"
+        message="This feed shows the players you team up with, play against and share a club with. Follow a player or join a club and their activity lands here."
         action-label="Find players"
         action-to="/players"
+      />
+
+      <!-- Community exists, but has been quiet. -->
+      <UiEmptyState
+        v-else-if="activities.length === 0"
+        title="Nothing from your community yet"
+        message="When the players you team up with record matches, join clubs or post shout-outs, it shows up here."
+        action-label="Find an event"
+        action-to="/events"
       />
 
       <!-- The feed itself: one column, newest first inside each proximity band. -->
@@ -291,6 +352,16 @@ function formatTime(dateStr: string): string {
                   </NuxtLink>
                   <span v-else class="font-medium text-fg">{{ activity.actor_display_name }}</span>
                   <span class="text-fg-secondary"> {{ formatActivityText(activity) }}</span>
+                  <!-- The event's name, as a link, when the activity is about
+                       one and it still exists. Split out of the sentence rather
+                       than wrapping the whole line: the actor's name in front of
+                       it is already a link somewhere else. -->
+                  <NuxtLink
+                    v-if="namedEvent(activity)"
+                    :to="`/events/${namedEvent(activity)!.id}`"
+                    class="font-medium text-primary hover:underline"
+                    >{{ namedEvent(activity)!.name }}</NuxtLink
+                  >
                 </p>
                 <time :datetime="activity.created_at" class="shrink-0 text-caption text-fg-muted">{{
                   formatTime(activity.created_at)
@@ -308,7 +379,7 @@ function formatTime(dateStr: string): string {
 
               <!-- The event a shout-out points at, if any. -->
               <NuxtLink
-                v-if="activity.event"
+                v-if="activity.event && !namedEvent(activity)"
                 :to="`/events/${activity.event.id}`"
                 class="mt-2 flex items-center gap-2 rounded-button bg-canvas p-2.5 transition-colors hover:bg-surface-2"
               >

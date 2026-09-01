@@ -326,7 +326,16 @@ function formatDateRange(start: string, end: string): string {
           :to="`/events/${event.id}`"
           class="group overflow-hidden rounded-card border border-border bg-surface transition-colors hover:border-border-strong shadow-card hover:shadow-card-hover"
         >
-          <UiCoverArt :name="event.name" variant="card" rounded="rounded-none">
+          <!-- The kind of event replaces the monogram in the middle of the
+               cover: nothing on the card said whether this was a tournament or
+               a drop-in session without reading the name and guessing, and two
+               initials over a gradient were never worth that space. -->
+          <UiCoverArt
+            :name="event.name"
+            :label="eventKindLabel(event.event_type)"
+            variant="card"
+            rounded="rounded-none"
+          >
             <!-- Only rendered when the server knew who was asking:
                  viewer_registered is undefined for a signed-out visitor, and a
                  missing badge must not read as "you are not signed up". -->
@@ -343,6 +352,7 @@ function formatDateRange(start: string, end: string): string {
             >
               {{ statusConfig[event.status].label }}
             </span>
+
           </UiCoverArt>
 
           <div class="p-4">

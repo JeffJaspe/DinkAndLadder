@@ -17,6 +17,8 @@ export default defineConfig({
   plugins: [vue()],
   resolve: {
     alias: {
+      // Built by @nuxtjs/supabase at build time; unresolvable under plain Vitest.
+      '#supabase/server': fileURLToPath(new URL('./tests/stubs/supabase-server.ts', import.meta.url)),
       '~': fileURLToPath(new URL('.', import.meta.url)),
       '@': fileURLToPath(new URL('.', import.meta.url))
     }

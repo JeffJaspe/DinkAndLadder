@@ -1,7 +1,7 @@
-import { serverSupabaseUser } from '#supabase/server'
 import { ThemeServiceError } from '~/server/domains/platform/services/theme.service'
 import { apiError } from '~/server/utils/api-error'
 import { createThemeServiceFor, invalidateThemeCache } from '~/server/utils/theme'
+import { getOptionalUser } from '~/server/utils/optional-user'
 
 interface Body {
   /** A palette key, or null to go back to the design system's own tokens. */
@@ -9,7 +9,7 @@ interface Body {
 }
 
 export default defineEventHandler(async (event) => {
-  const claims = await serverSupabaseUser(event)
+  const claims = await getOptionalUser(event)
   if (!claims) {
     throw apiError(401, 'AUTH_REQUIRED', 'Sign in to change platform settings.')
   }

@@ -1,8 +1,4 @@
-import {
-  serverSupabaseClient,
-  serverSupabaseServiceRole,
-  serverSupabaseUser
-} from '#supabase/server'
+import { serverSupabaseClient, serverSupabaseServiceRole } from '#supabase/server'
 import { createClubMembershipRepository } from '~/server/domains/club/repositories/club-membership.repository'
 import { createClubRepository } from '~/server/domains/club/repositories/club.repository'
 import { createClubService, ClubServiceError } from '~/server/domains/club/services/club.service'
@@ -10,13 +6,14 @@ import { createPlayerProfileRepository } from '~/server/domains/player/repositor
 import { createNotificationRepository } from '~/server/domains/notification/repositories/notification.repository'
 import { createNotificationService } from '~/server/domains/notification/services/notification.service'
 import { apiError } from '~/server/utils/api-error'
+import { getOptionalUser } from '~/server/utils/optional-user'
 
 /**
  * Self-service — the user-scoped client is enough. club_memberships_insert_own's WITH
  * CHECK is what actually enforces "requests always start pending", not this controller.
  */
 export default defineEventHandler(async (event) => {
-  const claims = await serverSupabaseUser(event)
+  const claims = await getOptionalUser(event)
   if (!claims) {
     throw apiError(401, 'AUTH_REQUIRED', 'Sign in to request to join a club.')
   }

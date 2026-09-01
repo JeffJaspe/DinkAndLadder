@@ -1,8 +1,4 @@
-import {
-  serverSupabaseClient,
-  serverSupabaseServiceRole,
-  serverSupabaseUser
-} from '#supabase/server'
+import { serverSupabaseClient, serverSupabaseServiceRole } from '#supabase/server'
 import { createBracketRepository } from '~/server/domains/event/repositories/bracket.repository'
 import { createEventRepository } from '~/server/domains/event/repositories/event.repository'
 import {
@@ -15,6 +11,7 @@ import {
   BracketServiceError
 } from '~/server/domains/event/services/bracket.service'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
+import { getOptionalUser } from '~/server/utils/optional-user'
 
 /**
  * Undo Generate: throw the draw away and go back to "not drawn yet".
@@ -28,7 +25,7 @@ import { createPlayerProfileRepository } from '~/server/domains/player/repositor
  * explains both.
  */
 export default defineEventHandler(async (event) => {
-  const user = await serverSupabaseUser(event)
+  const user = await getOptionalUser(event)
   if (!user) {
     throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
   }

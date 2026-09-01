@@ -53,5 +53,6 @@
     <include file="046-category-game-rules/046-category-game-rules.changelog.xml" relativeToChangelogFile="true"/>
     <include file="047-match-result-integrity/047-match-result-integrity.changelog.xml" relativeToChangelogFile="true"/>
     <include file="048-coaching-and-fees/048-coaching-and-fees.changelog.xml" relativeToChangelogFile="true"/>
+    <include file="049-feed-community-scope/049-feed-community-scope.changelog.xml" relativeToChangelogFile="true"/>
 
 </databaseChangeLog>

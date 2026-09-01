@@ -1,4 +1,4 @@
-import { serverSupabaseServiceRole, serverSupabaseUser } from '#supabase/server'
+import { serverSupabaseServiceRole } from '#supabase/server'
 import { createShoutoutRepository } from '~/server/domains/shoutout/repositories/shoutout.repository'
 import {
   createShoutoutService,
@@ -8,9 +8,10 @@ import { createPlayerProfileRepository } from '~/server/domains/player/repositor
 import { createActivityRepository } from '~/server/domains/activity/repositories/activity.repository'
 import { createActivityLogger } from '~/server/domains/activity/services/activity.service'
 import { apiError } from '~/server/utils/api-error'
+import { getOptionalUser } from '~/server/utils/optional-user'
 
 export default defineEventHandler(async (event) => {
-  const claims = await serverSupabaseUser(event)
+  const claims = await getOptionalUser(event)
   if (!claims) {
     throw apiError(401, 'AUTH_REQUIRED', 'Sign in to post a shout-out.')
   }

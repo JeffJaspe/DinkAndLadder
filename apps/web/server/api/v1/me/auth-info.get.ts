@@ -1,8 +1,9 @@
-import { serverSupabaseServiceRole, serverSupabaseUser } from '#supabase/server'
+import { serverSupabaseServiceRole } from '#supabase/server'
 import { apiError } from '~/server/utils/api-error'
+import { getOptionalUser } from '~/server/utils/optional-user'
 
 /**
- * serverSupabaseUser returns decoded JWT claims, not the auth.users row, and
+ * getOptionalUser returns decoded JWT claims, not the auth.users row, and
  * the access token carries no `created_at`. Reading it off the claims therefore
  * always yielded undefined, so "Member since" silently never rendered on the
  * profile editor.
@@ -12,7 +13,7 @@ import { apiError } from '~/server/utils/api-error'
  * id, never a supplied one.
  */
 export default defineEventHandler(async (event) => {
-  const claims = await serverSupabaseUser(event)
+  const claims = await getOptionalUser(event)
   if (!claims) {
     throw apiError(401, 'AUTH_REQUIRED', 'Sign in to view your account details.')
   }

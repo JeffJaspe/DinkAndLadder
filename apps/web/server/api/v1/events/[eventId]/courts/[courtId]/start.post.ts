@@ -1,8 +1,4 @@
-import {
-  serverSupabaseClient,
-  serverSupabaseServiceRole,
-  serverSupabaseUser
-} from '#supabase/server'
+import { serverSupabaseClient, serverSupabaseServiceRole } from '#supabase/server'
 import { createEventCourtRepository } from '~/server/domains/event/repositories/event-court.repository'
 import { createEventQueueRepository } from '~/server/domains/event/repositories/event-queue.repository'
 import { createEventRepository } from '~/server/domains/event/repositories/event.repository'
@@ -13,6 +9,7 @@ import {
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
 import { assertCanRunEvent, assertEventIsRunning } from '~/server/utils/event-organizer'
 import { apiError } from '~/server/utils/api-error'
+import { getOptionalUser } from '~/server/utils/optional-user'
 
 /**
  * Put two sides on a court and start the game.
@@ -24,7 +21,7 @@ import { apiError } from '~/server/utils/api-error'
  * caller is checked against the organiser/club-staff rule first.
  */
 export default defineEventHandler(async (event) => {
-  const claims = await serverSupabaseUser(event)
+  const claims = await getOptionalUser(event)
   if (!claims) {
     throw apiError(401, 'AUTH_REQUIRED', 'Sign in to run a court.')
   }

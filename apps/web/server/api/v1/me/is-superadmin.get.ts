@@ -1,9 +1,10 @@
-import { serverSupabaseServiceRole, serverSupabaseUser } from '#supabase/server'
+import { serverSupabaseServiceRole } from '#supabase/server'
 import { createPlatformConfigRepository } from '~/server/domains/platform/repositories/platform-config.repository'
 import { createPlatformAdminService } from '~/server/domains/platform/services/platform-admin.service'
+import { getOptionalUser } from '~/server/utils/optional-user'
 
 export default defineEventHandler(async (event) => {
-  const claims = await serverSupabaseUser(event)
+  const claims = await getOptionalUser(event)
   if (!claims) {
     return { is_superadmin: false }
   }

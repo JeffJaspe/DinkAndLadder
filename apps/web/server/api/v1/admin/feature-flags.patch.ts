@@ -1,10 +1,10 @@
-import { serverSupabaseUser } from '#supabase/server'
 import { FeatureFlagServiceError } from '~/server/domains/platform/services/feature-flag.service'
 import { apiError } from '~/server/utils/api-error'
 import {
   createFeatureFlagServiceFor,
   invalidateFeatureFlagCache
 } from '~/server/utils/feature-flags'
+import { getOptionalUser } from '~/server/utils/optional-user'
 
 interface Body {
   key?: string
@@ -17,7 +17,7 @@ interface Body {
  * revert flags the admin never touched.
  */
 export default defineEventHandler(async (event) => {
-  const claims = await serverSupabaseUser(event)
+  const claims = await getOptionalUser(event)
   if (!claims) {
     throw apiError(401, 'AUTH_REQUIRED', 'Sign in to change platform settings.')
   }

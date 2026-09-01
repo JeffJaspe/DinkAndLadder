@@ -60,15 +60,30 @@ export function createRatingRepository(client: SupabaseClient): RatingRepository
     },
 
     async getRatingHistory(playerId, ratingType) {
+      /**
+       * The match's `played_at` comes along for the ride, because this is the
+       * history a chart is drawn from and `created_at` is when the engine ran,
+       * not when the game was played — a distinction a backfill makes stark.
+       * A LEFT join: a transaction with no match (an admin adjustment) still
+       * belongs in the history, it simply has no play date.
+       */
       const { data, error } = await client
         .from('rating_transactions')
-        .select(RATING_TRANSACTION_SELECT)
+        .select(`${RATING_TRANSACTION_SELECT}, matches(played_at)`)
         .eq('player_id', playerId)
         .eq('rating_type', ratingType)
         .order('created_at', { ascending: false })
 
       if (error) throw error
-      return (data ?? []) as unknown as RatingTransactionRecord[]
+
+      interface HistoryRow extends RatingTransactionRecord {
+        matches?: { played_at: string | null } | null
+      }
+
+      return ((data ?? []) as unknown as HistoryRow[]).map(({ matches, ...record }) => ({
+        ...record,
+        played_at: matches?.played_at ?? null
+      }))
     },
 
     async findTransactionsByMatch(matchId) {

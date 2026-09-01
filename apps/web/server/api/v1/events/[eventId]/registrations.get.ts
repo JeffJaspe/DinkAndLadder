@@ -1,15 +1,12 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import {
-  serverSupabaseClient,
-  serverSupabaseServiceRole,
-  serverSupabaseUser
-} from '#supabase/server'
+import { serverSupabaseClient, serverSupabaseServiceRole } from '#supabase/server'
 import { apiError } from '~/server/utils/api-error'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
 import {
   singlesRatingOf,
   type PlayerProfileJoinRow
 } from '~/server/domains/player/dto/player-join-row.dto'
+import { getOptionalUser } from '~/server/utils/optional-user'
 
 /**
  * The event roster.
@@ -76,7 +73,7 @@ export default defineEventHandler(async (event) => {
     throw apiError(400, 'VALIDATION_ERROR', 'Event ID is required.')
   }
 
-  const claims = await serverSupabaseUser(event)
+  const claims = await getOptionalUser(event)
   const serviceClient = serverSupabaseServiceRole(event)
 
   const { data: eventData, error: eventError } = await serviceClient

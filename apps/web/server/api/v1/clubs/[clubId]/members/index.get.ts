@@ -1,13 +1,10 @@
-import {
-  serverSupabaseClient,
-  serverSupabaseServiceRole,
-  serverSupabaseUser
-} from '#supabase/server'
+import { serverSupabaseClient, serverSupabaseServiceRole } from '#supabase/server'
 import { createClubMembershipRepository } from '~/server/domains/club/repositories/club-membership.repository'
 import { createClubRepository } from '~/server/domains/club/repositories/club.repository'
 import { createClubService, ClubServiceError } from '~/server/domains/club/services/club.service'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
 import { apiError } from '~/server/utils/api-error'
+import { getOptionalUser } from '~/server/utils/optional-user'
 
 /**
  * Listing the full roster (everyone's rows, not just the caller's own) needs the
@@ -15,7 +12,7 @@ import { apiError } from '~/server/utils/api-error'
  * ClubService.listRoster checks the caller is an active member before returning anything.
  */
 export default defineEventHandler(async (event) => {
-  const claims = await serverSupabaseUser(event)
+  const claims = await getOptionalUser(event)
   if (!claims) {
     throw apiError(401, 'AUTH_REQUIRED', 'Sign in to view this club roster.')
   }

@@ -1,8 +1,8 @@
-import { serverSupabaseUser } from '#supabase/server'
 import { MAX_UPLOAD_BYTES } from '~/server/domains/platform/dto/branding.dto'
 import { SponsorServiceError } from '~/server/domains/platform/services/sponsor.service'
 import { createSponsorServiceFor, invalidateSponsorCache } from '~/server/utils/sponsors'
 import { apiError } from '~/server/utils/api-error'
+import { getOptionalUser } from '~/server/utils/optional-user'
 
 /**
  * Upload a sponsor's logo.
@@ -13,7 +13,7 @@ import { apiError } from '~/server/utils/api-error'
  * hole than this endpoint is a cost.
  */
 export default defineEventHandler(async (event) => {
-  const claims = await serverSupabaseUser(event)
+  const claims = await getOptionalUser(event)
   if (!claims) {
     throw apiError(401, 'AUTH_REQUIRED', 'Sign in to manage sponsors.')
   }

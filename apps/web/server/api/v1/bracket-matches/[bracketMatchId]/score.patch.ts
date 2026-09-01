@@ -1,8 +1,4 @@
-import {
-  serverSupabaseClient,
-  serverSupabaseServiceRole,
-  serverSupabaseUser
-} from '#supabase/server'
+import { serverSupabaseClient, serverSupabaseServiceRole } from '#supabase/server'
 import { createBracketRepository } from '~/server/domains/event/repositories/bracket.repository'
 import { createEventRepository } from '~/server/domains/event/repositories/event.repository'
 import {
@@ -17,6 +13,7 @@ import {
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
 import type { LiveBracketScore } from '~/server/domains/event/dto/bracket.dto'
 import { apiError } from '~/server/utils/api-error'
+import { getOptionalUser } from '~/server/utils/optional-user'
 
 /**
  * The running score of a draw match in progress.
@@ -26,7 +23,7 @@ import { apiError } from '~/server/utils/api-error'
  * result only when the organiser submits it.
  */
 export default defineEventHandler(async (event) => {
-  const claims = await serverSupabaseUser(event)
+  const claims = await getOptionalUser(event)
   if (!claims) {
     throw apiError(401, 'AUTH_REQUIRED', 'Sign in to enter a score.')
   }

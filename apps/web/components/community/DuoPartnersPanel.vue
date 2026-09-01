@@ -39,19 +39,27 @@ type Section = 'partners' | 'incoming' | 'outgoing'
 
 const section = ref<Section>('partners')
 
-const {
-  data: partnersData,
-  refresh: refreshPartners,
-  pending: partnersPending
-} = await useFetch<{ data: PartnerDto[] }>('/api/v1/players/me/partners')
+/**
+ * Three reads, fired together and awaited once.
+ *
+ * Each was its own top-level `await useFetch`, and setup suspends at every one
+ * of them — so opening Community cost the sum of three round trips before a
+ * pixel appeared, and this is the tab it opens on. `partnersPending` already
+ * drives a spinner, so the panel has somewhere to render in the meantime.
+ */
+const partnersQuery = useFetch<{ data: PartnerDto[] }>('/api/v1/players/me/partners')
+const incomingQuery = useFetch<{ data: PartnerRequestDto[] }>(
+  '/api/v1/players/me/partner-requests/incoming'
+)
+const outgoingQuery = useFetch<{ data: PartnerRequestDto[] }>(
+  '/api/v1/players/me/partner-requests/outgoing'
+)
 
-const { data: incomingData, refresh: refreshIncoming } = await useFetch<{
-  data: PartnerRequestDto[]
-}>('/api/v1/players/me/partner-requests/incoming')
+await Promise.all([partnersQuery, incomingQuery, outgoingQuery])
 
-const { data: outgoingData, refresh: refreshOutgoing } = await useFetch<{
-  data: PartnerRequestDto[]
-}>('/api/v1/players/me/partner-requests/outgoing')
+const { data: partnersData, refresh: refreshPartners, pending: partnersPending } = partnersQuery
+const { data: incomingData, refresh: refreshIncoming } = incomingQuery
+const { data: outgoingData, refresh: refreshOutgoing } = outgoingQuery
 
 const partners = computed(() => partnersData.value?.data ?? [])
 const incomingRequests = computed(() => incomingData.value?.data ?? [])

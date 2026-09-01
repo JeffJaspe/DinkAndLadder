@@ -1,8 +1,8 @@
-import { serverSupabaseUser } from '#supabase/server'
 import { isBrandingSlot, MAX_UPLOAD_BYTES } from '~/server/domains/platform/dto/branding.dto'
 import { BrandingServiceError } from '~/server/domains/platform/services/branding.service'
 import { apiError } from '~/server/utils/api-error'
 import { createBrandingServiceFor, invalidateBrandingCache } from '~/server/utils/branding'
+import { getOptionalUser } from '~/server/utils/optional-user'
 
 /**
  * Uploads one brand image into a named slot (`logo` or `favicon`).
@@ -13,7 +13,7 @@ import { createBrandingServiceFor, invalidateBrandingCache } from '~/server/util
  * this endpoint is a cost.
  */
 export default defineEventHandler(async (event) => {
-  const claims = await serverSupabaseUser(event)
+  const claims = await getOptionalUser(event)
   if (!claims) {
     throw apiError(401, 'AUTH_REQUIRED', 'Sign in to change platform settings.')
   }

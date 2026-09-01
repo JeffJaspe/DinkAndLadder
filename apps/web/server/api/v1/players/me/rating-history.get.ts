@@ -1,16 +1,17 @@
-import { serverSupabaseClient, serverSupabaseUser } from '#supabase/server'
+import { serverSupabaseClient } from '#supabase/server'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
 import { createRatingRepository } from '~/server/domains/rating/repositories/rating.repository'
 import { createRatingService } from '~/server/domains/rating/services/rating.service'
 import { toRatingTransactionDto } from '~/server/domains/rating/dto/rating.dto'
 import { apiError } from '~/server/utils/api-error'
+import { getOptionalUser } from '~/server/utils/optional-user'
 
 /**
  * User-scoped client only — rating_transactions_select_own RLS is the actual enforcement
  * (see 008-security.changelog.xml), this route just resolves the caller's own player id first.
  */
 export default defineEventHandler(async (event) => {
-  const claims = await serverSupabaseUser(event)
+  const claims = await getOptionalUser(event)
   if (!claims) {
     throw apiError(401, 'AUTH_REQUIRED', 'Sign in to view your rating history.')
   }

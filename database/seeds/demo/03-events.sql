@@ -95,18 +95,23 @@ JOIN club_memberships om
      ON om.club_id = c.club_id AND om.role = 'OWNER' AND om.status = 'active'
 CROSS JOIN LATERAL (
     SELECT
+        -- type_n shifts the date as well as the club (see v_demo_events):
+        -- without it the five event types sharing an i also shared a day and
+        -- a venue, so any "coming up" list was five copies of one evening.
+        -- 'active' is deliberately not shifted - those three have to be today
+        -- for the live queue/court demo to have anything running.
         CASE v.status
-            WHEN 'published' THEN CURRENT_DATE + (3 + v.i)
+            WHEN 'published' THEN CURRENT_DATE + (3 + v.i + v.type_n)
             WHEN 'active'    THEN CURRENT_DATE
             -- i is 13..17 for completed, so this spreads them 2..26 days
             -- back. Keeping some inside the last week matters: the
             -- /rankings Trend column sums rating_transactions from the
             -- last 7 days only (RANKING_TREND_DAYS).
-            WHEN 'completed' THEN CURRENT_DATE - (2 + (v.i - 13) * 6)
-            WHEN 'cancelled' THEN CURRENT_DATE + v.i
-            ELSE CURRENT_DATE + 90
+            WHEN 'completed' THEN CURRENT_DATE - (2 + (v.i - 13) * 6 + v.type_n)
+            WHEN 'cancelled' THEN CURRENT_DATE + v.i + v.type_n
+            ELSE CURRENT_DATE + 90 + v.type_n
         END AS start_date,
-        ('06:00'::time + ((v.i % 6) * interval '2 hours'))::time AS start_time
+        ('06:00'::time + (((v.i + v.type_n) % 6) * interval '2 hours'))::time AS start_time
 ) d
 ON CONFLICT DO NOTHING;
 

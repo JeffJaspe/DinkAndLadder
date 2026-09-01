@@ -184,10 +184,7 @@ function relative(iso: string): string {
         v-if="fromDate || toDate"
         type="button"
         class="pb-1.5 text-body-2 text-primary hover:underline"
-        @click="
-          fromDate = ''
-          toDate = ''
-        "
+        @click="fromDate = ''; toDate = ''"
       >
         Clear dates
       </button>

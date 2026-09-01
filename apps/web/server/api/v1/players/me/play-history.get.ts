@@ -1,6 +1,7 @@
-import { serverSupabaseServiceRole, serverSupabaseUser } from '#supabase/server'
+import { serverSupabaseServiceRole } from '#supabase/server'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
 import { apiError } from '~/server/utils/api-error'
+import { getOptionalUser } from '~/server/utils/optional-user'
 
 interface PlayHistoryEntry {
   player_id: string
@@ -15,7 +16,7 @@ interface OpponentEntry extends PlayHistoryEntry {
 }
 
 export default defineEventHandler(async (event) => {
-  const claims = await serverSupabaseUser(event)
+  const claims = await getOptionalUser(event)
   if (!claims) {
     throw apiError(401, 'AUTH_REQUIRED', 'Sign in to view play history.')
   }
@@ -93,38 +94,68 @@ export default defineEventHandler(async (event) => {
     myTeamByMatch.set(p.match_id, p.team_number)
   }
 
+  /**
+   * When each match was played, by match id.
+   *
+   * Everything downstream used `myParts.find(...)` to answer this — inside the
+   * per-participant loop and again per partner and per opponent — so a player
+   * with a few hundred matches paid a linear scan thousands of times over. Same
+   * data, one pass.
+   */
+  const playedAtByMatch = new Map<string, string>()
+  for (const p of myParts) {
+    if (p.matches?.played_at) playedAtByMatch.set(p.match_id, p.matches.played_at)
+  }
+
   // Get match results
   const { data: scores } = await client
     .from('match_scores')
     .select('match_id, set_number, team1_score, team2_score')
     .in('match_id', matchIds)
 
+  // Sets won per side, accumulated in one pass over the scores rather than by
+  // re-filtering the whole score list once per match.
+  const setsByMatch = new Map<string, { team1: number; team2: number }>()
+  for (const s of (scores ?? []) as unknown as MatchScoreRow[]) {
+    const tally = setsByMatch.get(s.match_id) ?? { team1: 0, team2: 0 }
+    if (s.team1_score > s.team2_score) tally.team1++
+    else if (s.team2_score > s.team1_score) tally.team2++
+    setsByMatch.set(s.match_id, tally)
+  }
+
   const matchResults = new Map<string, { winnedTeam: number | null }>()
   for (const matchId of matchIds) {
-    const matchScores = ((scores ?? []) as unknown as MatchScoreRow[]).filter(
-      (s) => s.match_id === matchId
-    )
-    let team1Sets = 0
-    let team2Sets = 0
-    for (const s of matchScores) {
-      if (s.team1_score > s.team2_score) team1Sets++
-      else if (s.team2_score > s.team1_score) team2Sets++
-    }
-    const winnedTeam = team1Sets > team2Sets ? 1 : team2Sets > team1Sets ? 2 : null
+    const tally = setsByMatch.get(matchId) ?? { team1: 0, team2: 0 }
+    const winnedTeam = tally.team1 > tally.team2 ? 1 : tally.team2 > tally.team1 ? 2 : null
     matchResults.set(matchId, { winnedTeam })
   }
 
-  // Group by player and relationship type
-  const partnersMap = new Map<string, { displayName: string; matches: string[] }>()
-  const opponentsMap = new Map<
-    string,
-    { displayName: string; matches: string[]; wins: number; losses: number }
-  >()
+  /**
+   * Group by player and relationship type.
+   *
+   * `lastPlayed` is accumulated as a running maximum. It used to be read back
+   * afterwards as "the first of my matches that this player also appears in",
+   * which is whatever order the participants query happened to return — so
+   * "Last played" could name a match from a year ago while the two had played
+   * yesterday.
+   */
+  interface Tally {
+    displayName: string
+    matchCount: number
+    lastPlayed: string
+  }
+  const partnersMap = new Map<string, Tally>()
+  const opponentsMap = new Map<string, Tally & { wins: number; losses: number }>()
+
+  function laterOf(a: string, b: string | undefined): string {
+    if (!b) return a
+    return !a || new Date(b).getTime() > new Date(a).getTime() ? b : a
+  }
 
   for (const p of (allParticipants ?? []) as unknown as OtherParticipantRow[]) {
     const myTeam = myTeamByMatch.get(p.match_id)
     const displayName = p.player_profiles?.display_name ?? 'Unknown'
-    const playedAt = myParts.find((m) => m.match_id === p.match_id)?.matches?.played_at
+    const playedAt = playedAtByMatch.get(p.match_id)
 
     if (dateFrom && playedAt && new Date(playedAt) < new Date(dateFrom)) continue
     if (dateTo && playedAt && new Date(playedAt) > new Date(dateTo)) continue
@@ -133,9 +164,14 @@ export default defineEventHandler(async (event) => {
       // Partner (same team)
       const existing = partnersMap.get(p.player_id)
       if (existing) {
-        existing.matches.push(p.match_id)
+        existing.matchCount++
+        existing.lastPlayed = laterOf(existing.lastPlayed, playedAt)
       } else {
-        partnersMap.set(p.player_id, { displayName, matches: [p.match_id] })
+        partnersMap.set(p.player_id, {
+          displayName,
+          matchCount: 1,
+          lastPlayed: playedAt ?? ''
+        })
       }
     } else {
       // Opponent (different team)
@@ -145,13 +181,15 @@ export default defineEventHandler(async (event) => {
 
       const existing = opponentsMap.get(p.player_id)
       if (existing) {
-        existing.matches.push(p.match_id)
+        existing.matchCount++
+        existing.lastPlayed = laterOf(existing.lastPlayed, playedAt)
         if (iWon) existing.wins++
         if (iLost) existing.losses++
       } else {
         opponentsMap.set(p.player_id, {
           displayName,
-          matches: [p.match_id],
+          matchCount: 1,
+          lastPlayed: playedAt ?? '',
           wins: iWon ? 1 : 0,
           losses: iLost ? 1 : 0
         })
@@ -161,29 +199,23 @@ export default defineEventHandler(async (event) => {
 
   // Convert to arrays sorted by match count
   const partners: PlayHistoryEntry[] = Array.from(partnersMap.entries())
-    .map(([playerId, data]) => {
-      const lastMatch = myParts.find((m) => data.matches.includes(m.match_id))
-      return {
-        player_id: playerId,
-        display_name: data.displayName,
-        match_count: data.matches.length,
-        last_played: lastMatch?.matches?.played_at ?? ''
-      }
-    })
+    .map(([playerId, data]) => ({
+      player_id: playerId,
+      display_name: data.displayName,
+      match_count: data.matchCount,
+      last_played: data.lastPlayed
+    }))
     .sort((a, b) => b.match_count - a.match_count)
 
   const opponents: OpponentEntry[] = Array.from(opponentsMap.entries())
-    .map(([playerId, data]) => {
-      const lastMatch = myParts.find((m) => data.matches.includes(m.match_id))
-      return {
-        player_id: playerId,
-        display_name: data.displayName,
-        match_count: data.matches.length,
-        wins: data.wins,
-        losses: data.losses,
-        last_played: lastMatch?.matches?.played_at ?? ''
-      }
-    })
+    .map(([playerId, data]) => ({
+      player_id: playerId,
+      display_name: data.displayName,
+      match_count: data.matchCount,
+      wins: data.wins,
+      losses: data.losses,
+      last_played: data.lastPlayed
+    }))
     .sort((a, b) => b.match_count - a.match_count)
 
   return { data: { partners, opponents } }

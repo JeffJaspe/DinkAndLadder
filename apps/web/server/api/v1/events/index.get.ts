@@ -1,4 +1,4 @@
-import { serverSupabaseClient, serverSupabaseUser } from '#supabase/server'
+import { serverSupabaseClient } from '#supabase/server'
 import { createEventRepository } from '~/server/domains/event/repositories/event.repository'
 import { createEventRegistrationRepository } from '~/server/domains/event/repositories/event-registration.repository'
 import {
@@ -10,6 +10,7 @@ import { createPlayerProfileRepository } from '~/server/domains/player/repositor
 import { apiError } from '~/server/utils/api-error'
 import { isFeatureEnabled } from '~/server/utils/feature-flags'
 import type { EventSearchQuery } from '~/server/domains/event/dto/event.dto'
+import { getOptionalUser } from '~/server/utils/optional-user'
 
 /**
  * Public listing, but a signed-in organiser also gets their own unpublished
@@ -22,18 +23,14 @@ export default defineEventHandler(async (event) => {
   const client = await serverSupabaseClient(event)
 
   // Identifying the caller is an enhancement here, not a requirement — it only
-  // decides whether their own drafts are included. serverSupabaseUser throws on
-  // a bad or clock-skewed token, so a failure must degrade to the public
-  // listing rather than take the whole events page down.
+  // decides whether their own drafts are included. getOptionalUser hands back
+  // null for a bad or clock-skewed token as readily as for no token, so a
+  // browser holding a dead cookie still gets the public listing.
   let ownPlayerId: string | undefined
-  try {
-    const claims = await serverSupabaseUser(event)
-    if (claims) {
-      const profile = await createPlayerProfileRepository(client).findByUserId(claims.sub)
-      ownPlayerId = profile?.id
-    }
-  } catch (err) {
-    console.warn('[GET /api/v1/events] could not identify caller, showing public events only:', err)
+  const claims = await getOptionalUser(event)
+  if (claims) {
+    const profile = await createPlayerProfileRepository(client).findByUserId(claims.sub)
+    ownPlayerId = profile?.id
   }
 
   // Gated server-side rather than in the template: with the flag off the field

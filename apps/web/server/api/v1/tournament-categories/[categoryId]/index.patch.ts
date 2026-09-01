@@ -1,8 +1,4 @@
-import {
-  serverSupabaseClient,
-  serverSupabaseServiceRole,
-  serverSupabaseUser
-} from '#supabase/server'
+import { serverSupabaseClient, serverSupabaseServiceRole } from '#supabase/server'
 import { createEventRepository } from '~/server/domains/event/repositories/event.repository'
 import {
   createTournamentRegistrationRepository,
@@ -14,6 +10,7 @@ import { EventServiceError } from '~/server/domains/event/services/event.service
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
 import { apiError } from '~/server/utils/api-error'
 import type { UpdateTournamentCategoryInput } from '~/server/domains/event/dto/tournament-category.dto'
+import { getOptionalUser } from '~/server/utils/optional-user'
 
 /**
  * Routed off the category id rather than nested under the tournament: a
@@ -24,7 +21,7 @@ import type { UpdateTournamentCategoryInput } from '~/server/domains/event/dto/t
  * shrink a category below the number of players already confirmed into it.
  */
 export default defineEventHandler(async (event) => {
-  const claims = await serverSupabaseUser(event)
+  const claims = await getOptionalUser(event)
   if (!claims) {
     throw apiError(401, 'AUTH_REQUIRED', 'Sign in to edit a category.')
   }

@@ -1,8 +1,4 @@
-import {
-  serverSupabaseClient,
-  serverSupabaseServiceRole,
-  serverSupabaseUser
-} from '#supabase/server'
+import { serverSupabaseClient, serverSupabaseServiceRole } from '#supabase/server'
 import { createEventRepository } from '~/server/domains/event/repositories/event.repository'
 import {
   createTournamentRepository,
@@ -11,6 +7,7 @@ import {
 import { createEventService } from '~/server/domains/event/services/event.service'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
 import { resolveFeeWaiver } from '~/server/domains/event/services/registration-fee'
+import { getOptionalUser } from '~/server/utils/optional-user'
 
 export default defineEventHandler(async (event) => {
   const eventId = getRouterParam(event, 'eventId')
@@ -32,7 +29,7 @@ export default defineEventHandler(async (event) => {
   // Whether THIS caller pays. Computed here rather than in the browser: a
   // price the client works out for itself is a suggestion, not a price. Null
   // caller (signed out) gets the ordinary quote.
-  const claims = await serverSupabaseUser(event).catch(() => null)
+  const claims = await getOptionalUser(event)
   let playerId: string | null = null
   if (claims) {
     const profile = await createPlayerProfileRepository(client).findByUserId(claims.sub)

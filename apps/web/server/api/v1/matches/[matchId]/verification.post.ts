@@ -1,8 +1,4 @@
-import {
-  serverSupabaseClient,
-  serverSupabaseServiceRole,
-  serverSupabaseUser
-} from '#supabase/server'
+import { serverSupabaseClient, serverSupabaseServiceRole } from '#supabase/server'
 import { createMatchRepository } from '~/server/domains/match/repositories/match.repository'
 import {
   createMatchService,
@@ -12,6 +8,7 @@ import { createPlayerProfileRepository } from '~/server/domains/player/repositor
 import { createNotificationRepository } from '~/server/domains/notification/repositories/notification.repository'
 import { createNotificationService } from '~/server/domains/notification/services/notification.service'
 import { apiError } from '~/server/utils/api-error'
+import { getOptionalUser } from '~/server/utils/optional-user'
 
 /**
  * Starts verification for a submitted match: creates a pending match_verifications row for
@@ -21,7 +18,7 @@ import { apiError } from '~/server/utils/api-error'
  * is actually a participant before the bypass is used.
  */
 export default defineEventHandler(async (event) => {
-  const claims = await serverSupabaseUser(event)
+  const claims = await getOptionalUser(event)
   if (!claims) {
     throw apiError(401, 'AUTH_REQUIRED', 'Sign in to start match verification.')
   }

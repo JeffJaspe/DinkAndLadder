@@ -54,6 +54,7 @@ function createFakeActivityRepository(overrides?: Partial<ActivityRepository>): 
     findPublicFeed: vi.fn().mockResolvedValue([]),
     findFollowingFeed: vi.fn().mockResolvedValue([]),
     findGeoFeed: vi.fn().mockResolvedValue([]),
+    countCommunity: vi.fn().mockResolvedValue(0),
     create: vi.fn(),
     ...overrides
   }

@@ -1,0 +1,343 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Scope the feed to the viewer's community.
+
+     039 made the feed everyone's public activity ordered by proximity, on the
+     reasoning that a new player with no follows would otherwise see almost
+     nothing. In practice the opposite complaint arrived first: a feed of
+     strangers is noise, and the people a player actually cares about are the
+     ones they play with.
+
+     "Community" here is the same set the /community page shows, plus the
+     obvious neighbours:
+
+       - the player themselves
+       - players they follow
+       - duo partners (partnerships)
+       - accepted team-ups, either direction
+       - anyone they have shared a verified match with, teammate or opponent
+       - fellow active members of their active clubs
+
+     Blocked players are removed from the result regardless of how they got in.
+
+     Club-authored activity (actor_club_id) is included for the player's own
+     active clubs, so a club announcement still reaches its members.
+
+     Geo scoring from 039 is kept as the ordering, not the filter: within the
+     community, the nearest activity still leads.
+
+     There is deliberately no fallback to the geo feed when the community is
+     empty. A brand-new player sees an empty feed with a "find players" call to
+     action, which is a truthful screen; silently widening back out to strangers
+     is the behaviour this changeset exists to remove. -->
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+    <changeSet id="049-community-indexes" author="claude">
+        <!-- The co-participant lookup is the expensive half of the community
+             set: match_participants by player, then by the matches that came
+             back. That second direction had no index of its own. -->
+        <sql>
+            CREATE INDEX IF NOT EXISTS idx_match_participants_match_player
+                ON match_participants (match_id, player_id);
+
+            CREATE INDEX IF NOT EXISTS idx_team_ups_accepted_owner
+                ON team_ups (owner_player_id) WHERE status = 'accepted';
+
+            CREATE INDEX IF NOT EXISTS idx_team_ups_accepted_member
+                ON team_ups (member_player_id) WHERE status = 'accepted';
+
+            CREATE INDEX IF NOT EXISTS idx_activities_actor_created
+                ON activities (actor_player_id, created_at DESC)
+                WHERE visibility = 'public';
+        </sql>
+        <rollback>
+            DROP INDEX IF EXISTS idx_activities_actor_created;
+            DROP INDEX IF EXISTS idx_team_ups_accepted_member;
+            DROP INDEX IF EXISTS idx_team_ups_accepted_owner;
+            DROP INDEX IF EXISTS idx_match_participants_match_player;
+        </rollback>
+    </changeSet>
+
+    <changeSet id="049-community-players-function" author="claude">
+        <!-- A function of its own rather than a CTE inside the feed, because
+             the same set answers "how big is my community", which the API needs
+             in order to tell an empty feed apart from an empty community. -->
+        <sql splitStatements="false">
+            CREATE OR REPLACE FUNCTION fn_community_player_ids(p_player_id uuid)
+            RETURNS TABLE (player_id uuid)
+            LANGUAGE sql
+            STABLE
+            SECURITY DEFINER
+            SET search_path = public
+            AS $$
+                WITH me AS (
+                    SELECT p_player_id AS id WHERE p_player_id IS NOT NULL
+                ),
+                my_clubs AS (
+                    SELECT cm.club_id
+                      FROM club_memberships cm
+                      JOIN me ON me.id = cm.player_id
+                     WHERE cm.status = 'active'
+                ),
+                my_matches AS (
+                    SELECT mp.match_id
+                      FROM match_participants mp
+                      JOIN me ON me.id = mp.player_id
+                ),
+                candidates AS (
+                    SELECT id FROM me
+                    UNION
+                    -- Following, one direction only: a follower has chosen to
+                    -- watch this player, which is not the same as this player
+                    -- choosing to hear from them.
+                    SELECT pr.to_player_id
+                      FROM player_relationships pr
+                      JOIN me ON me.id = pr.from_player_id
+                     WHERE pr.relationship_type = 'follow'
+                       AND pr.status = 'active'
+                    UNION
+                    SELECT CASE WHEN p.player1_id = me.id THEN p.player2_id ELSE p.player1_id END
+                      FROM partnerships p
+                      JOIN me ON me.id IN (p.player1_id, p.player2_id)
+                    UNION
+                    SELECT CASE WHEN t.owner_player_id = me.id
+                                THEN t.member_player_id ELSE t.owner_player_id END
+                      FROM team_ups t
+                      JOIN me ON me.id IN (t.owner_player_id, t.member_player_id)
+                     WHERE t.status = 'accepted'
+                    UNION
+                    -- Everyone who was on court, both sides of the net.
+                    -- Verified only: an unverified match is a claim, not yet a
+                    -- shared game.
+                    SELECT mp.player_id
+                      FROM match_participants mp
+                      JOIN my_matches mm ON mm.match_id = mp.match_id
+                      JOIN matches m ON m.id = mp.match_id
+                     WHERE m.status = 'verified'
+                    UNION
+                    SELECT cm.player_id
+                      FROM club_memberships cm
+                      JOIN my_clubs mc ON mc.club_id = cm.club_id
+                     WHERE cm.status = 'active'
+                )
+                SELECT c.id
+                  FROM candidates c
+                 WHERE c.id IS NOT NULL
+                   AND NOT EXISTS (
+                       SELECT 1
+                         FROM player_relationships b
+                        WHERE b.relationship_type = 'block'
+                          AND b.status = 'active'
+                          AND (
+                              (b.from_player_id = p_player_id AND b.to_player_id = c.id)
+                           OR (b.from_player_id = c.id AND b.to_player_id = p_player_id)
+                          )
+                   );
+            $$;
+
+            GRANT EXECUTE ON FUNCTION fn_community_player_ids(uuid) TO authenticated;
+        </sql>
+        <rollback>
+            DROP FUNCTION IF EXISTS fn_community_player_ids(uuid);
+        </rollback>
+    </changeSet>
+
+    <changeSet id="049-feed-function-scope" author="claude">
+        <!-- Dropped and recreated rather than CREATE OR REPLACE with a
+             defaulted parameter: an added default makes a second overload, and
+             the existing five-argument named call would then match both and
+             fail as ambiguous. -->
+        <sql splitStatements="false">
+            DROP FUNCTION IF EXISTS fn_feed_for_player(uuid, int, int, text[], timestamptz);
+
+            CREATE OR REPLACE FUNCTION fn_feed_for_player(
+                p_player_id uuid,
+                p_limit int DEFAULT 20,
+                p_offset int DEFAULT 0,
+                p_types text[] DEFAULT NULL,
+                p_since timestamptz DEFAULT NULL,
+                p_scope text DEFAULT 'community'
+            )
+            RETURNS TABLE (
+                id uuid,
+                actor_player_id uuid,
+                actor_club_id uuid,
+                activity_type varchar(50),
+                reference_type varchar(50),
+                reference_id uuid,
+                visibility varchar(20),
+                metadata jsonb,
+                created_at timestamptz,
+                geo_score int
+            )
+            LANGUAGE sql
+            STABLE
+            SECURITY DEFINER
+            SET search_path = public
+            AS $$
+                WITH community AS (
+                    SELECT c.player_id
+                      FROM fn_community_player_ids(p_player_id) c
+                     WHERE p_scope = 'community' AND p_player_id IS NOT NULL
+                ),
+                my_clubs AS (
+                    SELECT cm.club_id
+                      FROM club_memberships cm
+                     WHERE p_scope = 'community'
+                       AND p_player_id IS NOT NULL
+                       AND cm.player_id = p_player_id
+                       AND cm.status = 'active'
+                ),
+                scored AS (
+                    SELECT
+                        a.id,
+                        a.actor_player_id,
+                        a.actor_club_id,
+                        a.activity_type,
+                        a.reference_type,
+                        a.reference_id,
+                        a.visibility,
+                        a.metadata,
+                        a.created_at,
+                        COALESCE(
+                            CASE
+                                WHEN lower(btrim(COALESCE(pp.barangay, c.barangay)))
+                                     = lower(btrim(v.barangay))
+                                 AND lower(btrim(COALESCE(pp.city, c.city)))
+                                     = lower(btrim(v.city))
+                                THEN 3
+                                WHEN lower(btrim(COALESCE(pp.city, c.city)))
+                                     = lower(btrim(v.city))
+                                 AND lower(btrim(COALESCE(pp.province, c.province)))
+                                     = lower(btrim(v.province))
+                                THEN 2
+                                WHEN lower(btrim(COALESCE(pp.province, c.province)))
+                                     = lower(btrim(v.province))
+                                THEN 1
+                                ELSE 0
+                            END,
+                            0
+                        ) AS geo_score,
+                        CASE WHEN c.verification_status = 'verified' THEN 1 ELSE 0 END
+                            AS verified_score
+                      FROM activities a
+                      LEFT JOIN player_profiles pp ON pp.id = a.actor_player_id
+                      LEFT JOIN clubs c ON c.id = a.actor_club_id
+                      LEFT JOIN player_profiles v ON v.id = p_player_id
+                     WHERE a.visibility = 'public'
+                       AND (p_types IS NULL OR a.activity_type = ANY(p_types))
+                       AND (p_since IS NULL OR a.created_at &gt; p_since)
+                       -- The scope filter. 'geo' keeps 039's behaviour for any
+                       -- caller that still wants the whole public firehose;
+                       -- 'community' is the default and what the feed sends.
+                       AND (
+                           p_scope &lt;&gt; 'community'
+                        OR a.actor_player_id IN (SELECT player_id FROM community)
+                        OR a.actor_club_id IN (SELECT club_id FROM my_clubs)
+                       )
+                )
+                SELECT
+                    id, actor_player_id, actor_club_id, activity_type,
+                    reference_type, reference_id, visibility, metadata,
+                    created_at, geo_score
+                  FROM scored
+                 ORDER BY geo_score DESC, verified_score DESC, created_at DESC
+                 LIMIT p_limit
+                OFFSET p_offset;
+            $$;
+
+            GRANT EXECUTE ON FUNCTION
+                fn_feed_for_player(uuid, int, int, text[], timestamptz, text)
+                TO authenticated, anon;
+        </sql>
+        <rollback>
+            <!-- Back to 039's five-argument signature, unscoped. -->
+            <sql splitStatements="false">
+                DROP FUNCTION IF EXISTS
+                    fn_feed_for_player(uuid, int, int, text[], timestamptz, text);
+
+                CREATE OR REPLACE FUNCTION fn_feed_for_player(
+                    p_player_id uuid,
+                    p_limit int DEFAULT 20,
+                    p_offset int DEFAULT 0,
+                    p_types text[] DEFAULT NULL,
+                    p_since timestamptz DEFAULT NULL
+                )
+                RETURNS TABLE (
+                    id uuid,
+                    actor_player_id uuid,
+                    actor_club_id uuid,
+                    activity_type varchar(50),
+                    reference_type varchar(50),
+                    reference_id uuid,
+                    visibility varchar(20),
+                    metadata jsonb,
+                    created_at timestamptz,
+                    geo_score int
+                )
+                LANGUAGE sql
+                STABLE
+                SECURITY DEFINER
+                SET search_path = public
+                AS $$
+                    WITH scored AS (
+                        SELECT
+                            a.id,
+                            a.actor_player_id,
+                            a.actor_club_id,
+                            a.activity_type,
+                            a.reference_type,
+                            a.reference_id,
+                            a.visibility,
+                            a.metadata,
+                            a.created_at,
+                            COALESCE(
+                                CASE
+                                    WHEN lower(btrim(COALESCE(pp.barangay, c.barangay)))
+                                         = lower(btrim(v.barangay))
+                                     AND lower(btrim(COALESCE(pp.city, c.city)))
+                                         = lower(btrim(v.city))
+                                    THEN 3
+                                    WHEN lower(btrim(COALESCE(pp.city, c.city)))
+                                         = lower(btrim(v.city))
+                                     AND lower(btrim(COALESCE(pp.province, c.province)))
+                                         = lower(btrim(v.province))
+                                    THEN 2
+                                    WHEN lower(btrim(COALESCE(pp.province, c.province)))
+                                         = lower(btrim(v.province))
+                                    THEN 1
+                                    ELSE 0
+                                END,
+                                0
+                            ) AS geo_score,
+                            CASE WHEN c.verification_status = 'verified' THEN 1 ELSE 0 END
+                                AS verified_score
+                          FROM activities a
+                          LEFT JOIN player_profiles pp ON pp.id = a.actor_player_id
+                          LEFT JOIN clubs c ON c.id = a.actor_club_id
+                          LEFT JOIN player_profiles v ON v.id = p_player_id
+                         WHERE a.visibility = 'public'
+                           AND (p_types IS NULL OR a.activity_type = ANY(p_types))
+                           AND (p_since IS NULL OR a.created_at &gt; p_since)
+                    )
+                    SELECT
+                        id, actor_player_id, actor_club_id, activity_type,
+                        reference_type, reference_id, visibility, metadata,
+                        created_at, geo_score
+                      FROM scored
+                     ORDER BY geo_score DESC, verified_score DESC, created_at DESC
+                     LIMIT p_limit
+                    OFFSET p_offset;
+                $$;
+
+                GRANT EXECUTE ON FUNCTION
+                    fn_feed_for_player(uuid, int, int, text[], timestamptz)
+                    TO authenticated, anon;
+            </sql>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

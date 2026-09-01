@@ -1,4 +1,4 @@
-import { serverSupabaseServiceRole, serverSupabaseUser } from '#supabase/server'
+import { serverSupabaseServiceRole } from '#supabase/server'
 import { createPartnershipRepository } from '~/server/domains/partnership/repositories/partnership.repository'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
 import {
@@ -6,9 +6,10 @@ import {
   PartnershipServiceError
 } from '~/server/domains/partnership/services/partnership.service'
 import { apiError } from '~/server/utils/api-error'
+import { getOptionalUser } from '~/server/utils/optional-user'
 
 export default defineEventHandler(async (event) => {
-  const claims = await serverSupabaseUser(event)
+  const claims = await getOptionalUser(event)
   if (!claims) {
     throw apiError(401, 'AUTH_REQUIRED', 'Sign in to cancel a partner request.')
   }

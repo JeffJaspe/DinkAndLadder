@@ -1,8 +1,4 @@
-import {
-  serverSupabaseClient,
-  serverSupabaseServiceRole,
-  serverSupabaseUser
-} from '#supabase/server'
+import { serverSupabaseClient, serverSupabaseServiceRole } from '#supabase/server'
 import { createEventCourtRepository } from '~/server/domains/event/repositories/event-court.repository'
 import { createEventQueueRepository } from '~/server/domains/event/repositories/event-queue.repository'
 import { createEventRegistrationRepository } from '~/server/domains/event/repositories/event-registration.repository'
@@ -25,6 +21,7 @@ import type { SubmitMatchParticipantInput } from '~/server/domains/match/dto/mat
 import type { EventQueueRecord } from '~/server/domains/event/dto/event.dto'
 import { assertCanRunEvent, assertEventIsRunning } from '~/server/utils/event-organizer'
 import { apiError } from '~/server/utils/api-error'
+import { getOptionalUser } from '~/server/utils/optional-user'
 
 /**
  * Submit the final score on a court.
@@ -46,7 +43,7 @@ import { apiError } from '~/server/utils/api-error'
  * rather than swallowed, so the desk knows to record the match by hand.
  */
 export default defineEventHandler(async (event) => {
-  const claims = await serverSupabaseUser(event)
+  const claims = await getOptionalUser(event)
   if (!claims) {
     throw apiError(401, 'AUTH_REQUIRED', 'Sign in to submit a score.')
   }

@@ -12,6 +12,14 @@ export interface TeamUpRepository {
   listTeam(ownerPlayerId: string, status?: TeamUpStatus): Promise<TeamMemberDto[]>
   /** Rosters this player has been asked to join. */
   listIncoming(memberPlayerId: string): Promise<TeamMemberDto[]>
+  /**
+   * Just the number of pending invitations, for the badge.
+   *
+   * Separate from `listIncoming` for the same reason the duo request count is
+   * separate from its list: the sidebar asks on every page, and `listIncoming`
+   * embeds each sender's profile and ratings — work a number has no use for.
+   */
+  countIncoming(memberPlayerId: string): Promise<number>
   create(ownerPlayerId: string, memberPlayerId: string, message?: string): Promise<TeamUpRecord>
   updateStatus(id: string, status: TeamUpStatus): Promise<TeamUpRecord>
   remove(id: string): Promise<void>
@@ -102,6 +110,17 @@ export function createTeamUpRepository(client: SupabaseClient): TeamUpRepository
 
       if (error) throw error
       return ((data ?? []) as unknown as JoinedRow[]).map((row) => toMember(row, 'owner'))
+    },
+
+    async countIncoming(memberPlayerId) {
+      const { count, error } = await client
+        .from('team_ups')
+        .select('id', { count: 'exact', head: true })
+        .eq('member_player_id', memberPlayerId)
+        .eq('status', 'pending')
+
+      if (error) throw error
+      return count ?? 0
     },
 
     async create(ownerPlayerId, memberPlayerId, message) {

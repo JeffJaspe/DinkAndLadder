@@ -1,16 +1,17 @@
-import { serverSupabaseClient, serverSupabaseUser } from '#supabase/server'
+import { serverSupabaseClient } from '#supabase/server'
 import { createClubMembershipRepository } from '~/server/domains/club/repositories/club-membership.repository'
 import { createClubRepository } from '~/server/domains/club/repositories/club.repository'
 import { createClubService, ClubServiceError } from '~/server/domains/club/services/club.service'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
 import { apiError } from '~/server/utils/api-error'
+import { getOptionalUser } from '~/server/utils/optional-user'
 
 /**
  * Self-service — club_memberships_update_own_leave's WITH CHECK (status = 'left') is what
  * actually restricts this to a leave, not a self-promotion; the user-scoped client suffices.
  */
 export default defineEventHandler(async (event) => {
-  const claims = await serverSupabaseUser(event)
+  const claims = await getOptionalUser(event)
   if (!claims) {
     throw apiError(401, 'AUTH_REQUIRED', 'Sign in to leave a club.')
   }

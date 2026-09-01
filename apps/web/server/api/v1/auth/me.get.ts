@@ -1,14 +1,15 @@
-import { serverSupabaseClient, serverSupabaseUser } from '#supabase/server'
+import { serverSupabaseClient } from '#supabase/server'
 import { createUserRepository } from '~/server/domains/identity/repositories/user.repository'
 import { createAuthService } from '~/server/domains/identity/services/auth.service'
 import { apiError } from '~/server/utils/api-error'
+import { getOptionalUser } from '~/server/utils/optional-user'
 
 /**
  * Uses the user-scoped client (not service role) so this read is also covered
  * by the users_select_own RLS policy — defense in depth on top of the app-level check.
  */
 export default defineEventHandler(async (event) => {
-  const claims = await serverSupabaseUser(event)
+  const claims = await getOptionalUser(event)
   if (!claims) {
     throw apiError(401, 'AUTH_REQUIRED', 'Sign in to view your profile.')
   }

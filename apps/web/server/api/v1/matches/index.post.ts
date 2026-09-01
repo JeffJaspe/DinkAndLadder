@@ -1,8 +1,4 @@
-import {
-  serverSupabaseClient,
-  serverSupabaseServiceRole,
-  serverSupabaseUser
-} from '#supabase/server'
+import { serverSupabaseClient, serverSupabaseServiceRole } from '#supabase/server'
 import { createMatchRepository } from '~/server/domains/match/repositories/match.repository'
 import {
   createMatchService,
@@ -18,6 +14,7 @@ import type {
   SubmitMatchParticipantInput,
   SubmitMatchScoreInput
 } from '~/server/domains/match/dto/match.dto'
+import { getOptionalUser } from '~/server/utils/optional-user'
 
 function parseSubmitInput(body: unknown): SubmitMatchInput {
   if (typeof body !== 'object' || body === null) {
@@ -104,7 +101,7 @@ function parseSubmitInput(body: unknown): SubmitMatchInput {
  * be one of the listed participants — checked in MatchService.submitMatch.
  */
 export default defineEventHandler(async (event) => {
-  const claims = await serverSupabaseUser(event)
+  const claims = await getOptionalUser(event)
   if (!claims) {
     throw apiError(401, 'AUTH_REQUIRED', 'Sign in to submit a match.')
   }

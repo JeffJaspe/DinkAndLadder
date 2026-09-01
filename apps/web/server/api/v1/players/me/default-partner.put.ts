@@ -1,4 +1,4 @@
-import { serverSupabaseServiceRole, serverSupabaseUser } from '#supabase/server'
+import { serverSupabaseServiceRole } from '#supabase/server'
 import { createPartnershipRepository } from '~/server/domains/partnership/repositories/partnership.repository'
 import {
   createPartnershipService,
@@ -6,6 +6,7 @@ import {
 } from '~/server/domains/partnership/services/partnership.service'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
 import { apiError } from '~/server/utils/api-error'
+import { getOptionalUser } from '~/server/utils/optional-user'
 
 interface SetDefaultPartnerBody {
   /** A confirmed partner's player id, or null to clear the duo. */
@@ -21,7 +22,7 @@ interface SetDefaultPartnerBody {
  * never taken from the body: the row written is always the caller's own.
  */
 export default defineEventHandler(async (event) => {
-  const claims = await serverSupabaseUser(event)
+  const claims = await getOptionalUser(event)
   if (!claims) {
     throw apiError(401, 'AUTH_REQUIRED', 'Sign in to set your duo.')
   }

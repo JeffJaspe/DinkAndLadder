@@ -1,9 +1,10 @@
-import { serverSupabaseClient, serverSupabaseUser } from '#supabase/server'
+import { serverSupabaseClient } from '#supabase/server'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
 import { apiError } from '~/server/utils/api-error'
+import { getOptionalUser } from '~/server/utils/optional-user'
 
 export default defineEventHandler(async (event) => {
-  const claims = await serverSupabaseUser(event)
+  const claims = await getOptionalUser(event)
   if (!claims) {
     throw apiError(401, 'AUTH_REQUIRED', 'Sign in to view your upcoming events.')
   }
@@ -13,6 +14,10 @@ export default defineEventHandler(async (event) => {
   if (!playerProfile) {
     throw apiError(409, 'PLAYER_PROFILE_REQUIRED', 'Complete your player profile first.')
   }
+
+  const rawQuery = getQuery(event)
+  const limit = Math.min(parseInt(rawQuery.limit as string) || 5, 50)
+  const offset = Math.max(parseInt(rawQuery.offset as string) || 0, 0)
 
   const today = new Date().toISOString().slice(0, 10)
 
@@ -37,7 +42,6 @@ export default defineEventHandler(async (event) => {
     .neq('status', 'withdrawn')
     .gte('events.end_date', today)
     .in('events.status', ['published', 'active'])
-    .order('start_date', { referencedTable: 'events', ascending: true })
 
   if (error) {
     console.error('[GET /api/v1/players/me/upcoming-events] failed:', error)
@@ -49,12 +53,31 @@ export default defineEventHandler(async (event) => {
     events?: Record<string, unknown> | null
   }
 
-  const mapped = ((data ?? []) as unknown as RegistrationEventRow[])
+  /**
+   * Sorted and paged here rather than in the query.
+   *
+   * `.order(..., { referencedTable: 'events' })` orders rows *within* each
+   * embedded resource, not the registrations themselves — with one event per
+   * registration it does nothing at all, which is why this list arrived in no
+   * particular order. PostgREST cannot order a parent by an embedded column, so
+   * the sort happens on the way out. A player's own live registrations are a
+   * bounded set (the `end_date >= today` filter has already run), so paging in
+   * memory here is honest rather than a scan of the table.
+   */
+  const sorted = ((data ?? []) as unknown as RegistrationEventRow[])
     .filter((r) => r.events)
     .map((r) => ({
-      event: r.events,
+      event: r.events as Record<string, unknown>,
       registration_status: r.status
     }))
+    .sort((a, b) =>
+      String(a.event.start_date ?? '').localeCompare(String(b.event.start_date ?? ''))
+    )
 
-  return { data: mapped, request_id: crypto.randomUUID() }
+  return {
+    data: sorted.slice(offset, offset + limit),
+    total: sorted.length,
+    has_more: offset + limit < sorted.length,
+    request_id: crypto.randomUUID()
+  }
 })

@@ -1,8 +1,4 @@
-import {
-  serverSupabaseClient,
-  serverSupabaseServiceRole,
-  serverSupabaseUser
-} from '#supabase/server'
+import { serverSupabaseClient, serverSupabaseServiceRole } from '#supabase/server'
 import { createEventCourtRepository } from '~/server/domains/event/repositories/event-court.repository'
 import { createEventQueueRepository } from '~/server/domains/event/repositories/event-queue.repository'
 import { createEventRepository } from '~/server/domains/event/repositories/event.repository'
@@ -14,6 +10,7 @@ import { createPlayerProfileRepository } from '~/server/domains/player/repositor
 import type { LiveGameScore } from '~/server/domains/event/dto/event.dto'
 import { assertCanRunEvent, assertEventIsRunning } from '~/server/utils/event-organizer'
 import { apiError } from '~/server/utils/api-error'
+import { getOptionalUser } from '~/server/utils/optional-user'
 
 /**
  * Update the running score on a court.
@@ -23,7 +20,7 @@ import { apiError } from '~/server/utils/api-error'
  * only becomes a `matches` row when the organiser submits it.
  */
 export default defineEventHandler(async (event) => {
-  const claims = await serverSupabaseUser(event)
+  const claims = await getOptionalUser(event)
   if (!claims) {
     throw apiError(401, 'AUTH_REQUIRED', 'Sign in to enter a score.')
   }

@@ -1,12 +1,12 @@
-import { serverSupabaseUser } from '#supabase/server'
 import { isBrandingSlot } from '~/server/domains/platform/dto/branding.dto'
 import { BrandingServiceError } from '~/server/domains/platform/services/branding.service'
 import { apiError } from '~/server/utils/api-error'
 import { createBrandingServiceFor, invalidateBrandingCache } from '~/server/utils/branding'
+import { getOptionalUser } from '~/server/utils/optional-user'
 
 /** Clears a brand image, restoring the built-in mark. */
 export default defineEventHandler(async (event) => {
-  const claims = await serverSupabaseUser(event)
+  const claims = await getOptionalUser(event)
   if (!claims) {
     throw apiError(401, 'AUTH_REQUIRED', 'Sign in to change platform settings.')
   }

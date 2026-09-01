@@ -1,8 +1,4 @@
-import {
-  serverSupabaseClient,
-  serverSupabaseServiceRole,
-  serverSupabaseUser
-} from '#supabase/server'
+import { serverSupabaseClient, serverSupabaseServiceRole } from '#supabase/server'
 import { createBracketRepository } from '~/server/domains/event/repositories/bracket.repository'
 import { createEventRepository } from '~/server/domains/event/repositories/event.repository'
 import {
@@ -20,6 +16,7 @@ import { createRatingRepository } from '~/server/domains/rating/repositories/rat
 import { createRatingService } from '~/server/domains/rating/services/rating.service'
 import { apiError } from '~/server/utils/api-error'
 import type { RecordBracketResultInput } from '~/server/domains/event/dto/bracket.dto'
+import { getOptionalUser } from '~/server/utils/optional-user'
 
 /**
  * Records what happened in one slot of a draw.
@@ -34,7 +31,7 @@ import type { RecordBracketResultInput } from '~/server/domains/event/dto/bracke
  * check is the service's job and the inserts span two domains' tables.
  */
 export default defineEventHandler(async (event) => {
-  const claims = await serverSupabaseUser(event)
+  const claims = await getOptionalUser(event)
   if (!claims) {
     throw apiError(401, 'AUTH_REQUIRED', 'Sign in to record a result.')
   }

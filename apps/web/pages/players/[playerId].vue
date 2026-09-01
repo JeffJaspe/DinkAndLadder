@@ -210,9 +210,12 @@ async function submitReport() {
 // aggregate stats (fetched above). So real match data is only ever shown for your own
 // profile; viewing someone else's shows an honest "private" message instead of the old
 // fake match list every profile used to display.
+/** The first page. 10 at a time, appended by `loadMoreMatches` below. */
+const MATCH_PAGE_SIZE = 10
+
 const { data: myMatchesData, execute: fetchMyMatches } = useFetch<{ data: MatchSummary[] }>(
   '/api/v1/players/me/matches',
-  { query: { limit: 10 }, immediate: false, server: false }
+  { query: { limit: MATCH_PAGE_SIZE, offset: 0 }, immediate: false, server: false }
 )
 
 watch(
@@ -222,6 +225,46 @@ watch(
   },
   { immediate: true }
 )
+
+/**
+ * Pages 2..n, kept separate from the fetched first page.
+ *
+ * The tab showed the ten most recent matches and stopped there, with no way to
+ * reach the eleventh — on the one screen that is meant to be a player's match
+ * history.
+ */
+const olderMatches = ref<MatchSummary[]>([])
+const matchesEnd = ref(false)
+const loadingMoreMatches = ref(false)
+
+const allMyMatches = computed(() => [...(myMatchesData.value?.data ?? []), ...olderMatches.value])
+
+watch(
+  myMatchesData,
+  (value) => {
+    olderMatches.value = []
+    matchesEnd.value = (value?.data?.length ?? 0) < MATCH_PAGE_SIZE
+  },
+  { immediate: true }
+)
+
+async function loadMoreMatches() {
+  if (loadingMoreMatches.value || matchesEnd.value) return
+  loadingMoreMatches.value = true
+  try {
+    const response = await $fetch<{ data: MatchSummary[] }>('/api/v1/players/me/matches', {
+      query: { limit: MATCH_PAGE_SIZE, offset: allMyMatches.value.length }
+    })
+    const batch = response.data ?? []
+    olderMatches.value = [...olderMatches.value, ...batch]
+    if (batch.length < MATCH_PAGE_SIZE) matchesEnd.value = true
+  } catch {
+    // The button stays, so a failed page can simply be tried again rather than
+    // replacing the history already on screen with an error.
+  } finally {
+    loadingMoreMatches.value = false
+  }
+}
 
 interface PartnerDto {
   player_id: string
@@ -503,6 +546,9 @@ function formatActivityText(activity: ProfileActivity): string {
     case 'profile.updated':
       return 'updated their profile'
     case 'club.event_created':
+      // When the event resolved, the linked card below carries its name, so
+      // repeating it in the sentence would say it twice.
+      if (activity.event) return 'created an event'
       return `created an event${payload.event_name ? `: ${payload.event_name}` : ''}`
     case 'club.member_joined':
       return `joined ${payload.club_name ?? 'a club'}`
@@ -795,15 +841,12 @@ function formatActivityText(activity: ProfileActivity): string {
             <div v-if="!isOwnProfile" class="py-6 text-center text-sm text-fg-muted">
               Match history is only visible to the player themselves.
             </div>
-            <div
-              v-else-if="!myMatchesData?.data.length"
-              class="py-6 text-center text-sm text-fg-muted"
-            >
+            <div v-else-if="!allMyMatches.length" class="py-6 text-center text-sm text-fg-muted">
               No matches yet.
             </div>
             <div v-else class="space-y-3">
               <NuxtLink
-                v-for="match in myMatchesData.data"
+                v-for="match in allMyMatches"
                 :key="match.id"
                 :to="`/matches/${match.id}`"
                 class="flex items-center justify-between rounded-lg bg-canvas p-3 transition-all hover:bg-surface-2"
@@ -832,6 +875,16 @@ function formatActivityText(activity: ProfileActivity): string {
                   </p>
                 </div>
               </NuxtLink>
+
+              <button
+                v-if="!matchesEnd"
+                type="button"
+                class="w-full rounded-lg border border-border px-3 py-2 text-xs font-medium text-fg-secondary transition-colors hover:border-border-strong hover:text-fg disabled:opacity-60"
+                :disabled="loadingMoreMatches"
+                @click="loadMoreMatches"
+              >
+                {{ loadingMoreMatches ? 'Loading…' : 'Show more matches' }}
+              </button>
             </div>
           </div>
         </template>
@@ -904,9 +957,8 @@ function formatActivityText(activity: ProfileActivity): string {
                   <p class="text-sm text-fg capitalize">{{ formatActivityText(a) }}</p>
                   <p class="text-xs text-fg-muted">{{ formatRelativeTime(a.created_at) }}</p>
 
-                  <!-- The event a shout-out points at. The feed has always
-                       linked this; the profile could not, because its endpoint
-                       returned the id in metadata and nothing to render. -->
+                  <!-- The event this activity points at — a shout-out's, or the
+                       event a `club.event_created` row is announcing. -->
                   <NuxtLink
                     v-if="a.event"
                     :to="`/events/${a.event.id}`"

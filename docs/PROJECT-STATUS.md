@@ -5843,3 +5843,202 @@ to set it, so the capability existed and was unreachable. Closed:
   coaching event's type line fell back to printing the raw enum value.
 
 **Validation**: `typecheck` clean, `lint` 0 errors, 1088 unit tests pass.
+
+## A stale refresh token 500'd half the API (2026-09-01)
+
+Reported as "can't click the tournament event", with the dev server printing
+`Invalid Refresh Token: Refresh Token Not Found` on nearly every request.
+
+### The cause
+
+`serverSupabaseUser` from `@nuxtjs/supabase` does not distinguish "nobody is
+signed in" from "the token this browser sent is no longer usable". Its whole
+body is:
+
+```js
+const { data, error } = await client.auth.getClaims()
+if (error) throw createError({ statusMessage: error?.message })
+return data?.claims ?? null
+```
+
+`createError` with **no `statusCode`** — h3 serves that as a **500** carrying a
+raw Supabase string. So a browser holding a dead cookie did not become a
+signed-out browser; it became a browser for which ~50 endpoints returned server
+faults. Public pages that only wanted to know who the viewer is (to include
+their own drafts, or mark a card "Registered") went down with it.
+
+`GET /api/v1/events` and the bracket endpoint had already been patched around
+this individually — one with a `try`/`catch` and a `console.warn`, one with a
+`.catch(() => null)`. The same bug in `registrations.get.ts`, `feed/index.get.ts`
+and the club announcements listing had not been, and every auth-*required*
+endpoint was reporting 500 where it meant 401.
+
+### The fix
+
+`server/utils/optional-user.ts` — `getOptionalUser(event)`, which collapses a bad
+token to `null`, exactly as a missing one already was. Swept across all 145
+handlers under `server/api` that read the caller:
+
+- **Optional-auth endpoints** now degrade to the public view instead of failing.
+- **Auth-required endpoints** were already guarded with
+  `if (!claims) throw apiError(401, 'AUTH_REQUIRED', …)` immediately after the
+  call — that guard now actually fires, so they return a 401 with a message a
+  person can act on rather than a 500 with a Supabase internal string.
+
+The two hand-rolled workarounds were folded into the shared helper.
+
+### Also fixed
+
+`pages/matches/index.vue` — the "Clear dates" `@click` held two statements
+separated only by a newline. Vue template expressions need `;`, so the SFC
+failed to parse and took the whole dev server down with a `vite:vue`
+pre-transform error.
+
+### Tests
+
+`tests/unit/optional-user.spec.ts` — claims pass through, no session gives null,
+and an unusable refresh token gives null rather than throwing.
+
+This is the first spec to mock `#supabase/server`, an alias @nuxtjs/supabase
+builds at build time and which therefore does not resolve under plain Vitest
+(the config deliberately does not boot Nuxt). `tests/stubs/supabase-server.ts`
+gives the alias something real to point at so `vi.mock` can intercept it; its
+bodies throw, because a spec that reaches one has forgotten to mock and a silent
+null would masquerade as a signed-out caller.
+
+### Validation
+
+`typecheck` clean, `lint` 0 errors, 1091 unit tests pass (68 files → 69).
+
+### Note for whoever hits this again
+
+The stale cookie itself is not cleared by any of this — the module keeps
+presenting it and keeps getting refused. Signing out and back in, or clearing
+site cookies for the dev origin, is what stops the warnings. The change is about
+what the API does *while* a browser is in that state.
+
+---
+
+## Feed community scope, chart ranges, pagination and event labels — 2026-09-01
+
+Seven reported problems, four of which were real bugs rather than missing
+features.
+
+### 1. "created an event: X" was not a link
+
+`ActivityLogger.logClubEventCreated` records the event in the row's reference
+columns (`reference_type: 'event'`, `reference_id`), while a shout-out records
+it in `metadata.event_id`. `attachLinkedEvents` only read the second, so every
+`club.event_created` row resolved to no event and rendered as flat text.
+
+The resolver now reads both conventions (`eventIdFor`). The feed puts the event
+name inline as a link and drops it from the sentence; the profile keeps its
+existing linked card and drops the duplicate name.
+
+### 2. Feed is scoped to the player's community
+
+`fn_feed_for_player` returned everyone's public activity, ordered by proximity —
+a decision from 039 that traded an empty feed for a feed of strangers.
+**049-feed-community-scope** adds `fn_community_player_ids(uuid)` (self, follows,
+duo partners, accepted team-ups, anyone sharing a verified match, fellow active
+club members, minus blocks) and a `p_scope` argument to `fn_feed_for_player`.
+`community` is the default and the only scope the HTTP endpoint will send —
+scope is a product rule, not a client preference.
+
+There is deliberately **no** fallback to the geo feed for a player with no
+community: the page shows a "find players" empty state instead. The endpoint
+returns `community_size` on an empty first page only, so the page can tell "your
+people have been quiet" from "you have no people yet".
+
+Signed-out visitors still get the public listing — they have no community to
+scope to.
+
+### 3. "Coming up" showed the same evening three times
+
+Two causes. The demo seed derived both `club_n` and `start_date` from `i` alone,
+so all five event types with the same `i` landed at one club on one day; and the
+feed sorted by date and took the first three, which were always those siblings.
+
+- Seed: `v_demo_events` now carries `type_n`, which offsets club and date (03
+  applies it; `active` events are left on today for the live queue demo).
+- Feed: `upcomingEvents` takes at most one event per club.
+
+### 4. Community page was slow to open
+
+`community.vue` had a top-level `await useFetch` for play history, and
+`DuoPartnersPanel` had three sequential ones — so arriving cost four round trips
+before anything painted, on a page whose default tab reads none of them. Play
+history is now deferred until the Teammates/Opponents tab is opened; the panel's
+three reads fire concurrently.
+
+`play-history.get.ts` was also O(n²): `myParts.find(...)` inside the participant
+loop and again per partner and per opponent, plus a full re-filter of the score
+list per match. Now Map lookups in one pass. **Bug fixed on the way:**
+`last_played` reported whichever match the participants query happened to return
+first, not the most recent one; it is now a running maximum.
+
+### 5. 7D…1YR did nothing
+
+Not the segmented control — the data. The chart plotted `rating_transactions.
+created_at`, which is when the rating engine wrote the row. After a backfill
+that is one timestamp for an entire season, so every range drew the same line.
+
+`getRatingHistory` now joins `matches(played_at)`, the DTO exposes `occurred_at`
+(played date, falling back to `created_at` for adjustments with no match), and
+the dashboard sorts and windows on that.
+
+`UiLineChart` also spaced points evenly by array index while its own docblock
+claimed a real time axis. Points are now placed by timestamp, with even spacing
+kept as the fallback for a series that lands on one instant.
+
+### 6. Pagination
+
+- Dashboard **My Recent Matches** — the endpoint already took `offset`; the page
+  hardcoded `limit=5`. Now a first page plus Show more.
+- Dashboard **My Upcoming Events** — endpoint took no limit or offset at all,
+  and its `.order(..., { referencedTable: 'events' })` never ordered the parent
+  rows (PostgREST orders *within* an embedded resource). Now sorted and paged,
+  returning `total` / `has_more`.
+- Player profile **Matches tab** — fixed 10 with no way to the eleventh; now
+  paged the same way.
+
+### 7. Event type on the thumbnail
+
+`eventKindLabel` already existed and was documented as "the big label on a
+thumbnail", but only the detail page used it. `UiCoverArt` takes a `label` prop
+that replaces the monogram, and `/events` cards pass the event kind —
+TOURNAMENT, OPEN PLAY, COACHING — centred on the cover.
+
+### Files changed
+
+- `database/liquibase/049-feed-community-scope/` (new) + master changelog
+- `database/seeds/demo/00-config.sql`, `03-events.sql`
+- `server/domains/activity/`: dto, repository, service, `linked-event.ts`
+- `server/domains/rating/`: dto, repository
+- `server/api/v1/feed/index.get.ts`, `players/me/play-history.get.ts`,
+  `players/me/upcoming-events.get.ts`
+- `pages/feed.vue`, `dashboard.vue`, `community.vue`, `players/[playerId].vue`,
+  `events/index.vue`
+- `components/community/DuoPartnersPanel.vue`, `components/ui/CoverArt.vue`,
+  `components/ui/LineChart.vue`
+
+### Tests
+
+- `tests/unit/community-feed.spec.ts` (new, 11) — both event-id conventions, the
+  one-round-trip lookup, non-event references, deleted events; feed scope
+  defaults and the `community_size` rules.
+- `tests/unit/line-chart-time-axis.spec.ts` (new, 4) — points spaced by date,
+  the single-instant fallback, and `occurred_at` resolution.
+
+### Validation
+
+`typecheck` clean, `lint` 0 errors, 1106 unit tests pass (71 files).
+
+### Not yet applied
+
+**049 has not been run against any database.** The feed calls
+`fn_feed_for_player` with `p_scope`, which does not exist until the changeset is
+applied — dev needs `liquibase update` (see
+`database/liquibase/README.md`) before the feed will load. The demo seed changes
+likewise need a re-seed (`99-rollback.sql`, then 00–06) to take effect; existing
+event rows keep their dates because 03 inserts `ON CONFLICT DO NOTHING`.

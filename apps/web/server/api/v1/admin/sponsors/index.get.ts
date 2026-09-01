@@ -1,11 +1,11 @@
-import { serverSupabaseUser } from '#supabase/server'
 import { SponsorServiceError } from '~/server/domains/platform/services/sponsor.service'
 import { createSponsorServiceFor } from '~/server/utils/sponsors'
 import { apiError } from '~/server/utils/api-error'
+import { getOptionalUser } from '~/server/utils/optional-user'
 
 /** Every sponsor, enabled or not. SuperAdmin only. */
 export default defineEventHandler(async (event) => {
-  const claims = await serverSupabaseUser(event)
+  const claims = await getOptionalUser(event)
   if (!claims) {
     throw apiError(401, 'AUTH_REQUIRED', 'Sign in to manage sponsors.')
   }

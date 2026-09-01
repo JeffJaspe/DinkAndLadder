@@ -1,14 +1,11 @@
-import {
-  serverSupabaseClient,
-  serverSupabaseServiceRole,
-  serverSupabaseUser
-} from '#supabase/server'
+import { serverSupabaseClient, serverSupabaseServiceRole } from '#supabase/server'
 import { createClubMembershipRepository } from '~/server/domains/club/repositories/club-membership.repository'
 import { createClubRepository } from '~/server/domains/club/repositories/club.repository'
 import { createClubService, ClubServiceError } from '~/server/domains/club/services/club.service'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
 import { createRatingRepository } from '~/server/domains/rating/repositories/rating.repository'
 import { apiError } from '~/server/utils/api-error'
+import { getOptionalUser } from '~/server/utils/optional-user'
 
 /**
  * Reuses ClubService.listRoster purely as the "is this caller an active member" gate — same
@@ -16,7 +13,7 @@ import { apiError } from '~/server/utils/api-error'
  * client (player_ratings has no policy for "any active co-member of a shared club").
  */
 export default defineEventHandler(async (event) => {
-  const claims = await serverSupabaseUser(event)
+  const claims = await getOptionalUser(event)
   if (!claims) {
     throw apiError(401, 'AUTH_REQUIRED', 'Sign in to view club rankings.')
   }

@@ -88,6 +88,19 @@ interface NavItem {
  * visible, the way a friend request behaves everywhere else.
  */
 const { incomingCount: partnerRequestCount } = usePartnerRequestCount()
+const { incomingCount: teamUpRequestCount } = useTeamUpRequestCount()
+
+/**
+ * One badge for both kinds of ask.
+ *
+ * The nav item is Community, and both a duo request and a team-up invitation
+ * live behind it waiting on an answer — so the badge counts both. Only duo
+ * requests were counted before, which meant a team-up invitation arrived with
+ * no sign of it anywhere in the nav.
+ */
+const communityRequestCount = computed(
+  () => partnerRequestCount.value + teamUpRequestCount.value
+)
 
 // Achievements is a switchable surface (feature_flags, 'achievements.enabled').
 // A nav item pointing at a feature the SuperAdmin turned off is a dead link.
@@ -107,7 +120,7 @@ const playerNavItems = computed<NavItem[]>(() => [
   { name: 'Rankings', href: '/rankings', icon: 'rankings' },
   { name: 'Matches', href: '/matches', icon: 'matches' },
   { name: 'Events', href: '/events', icon: 'calendar' },
-  { name: 'Community', href: '/community', icon: 'chat', badge: partnerRequestCount.value },
+  { name: 'Community', href: '/community', icon: 'chat', badge: communityRequestCount.value },
   { name: 'My Clubs', href: '/my-clubs', icon: 'clubs' },
   { name: 'Discover Clubs', href: '/clubs', icon: 'clubs' },
   { name: 'Players', href: '/players', icon: 'user' },

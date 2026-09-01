@@ -1,8 +1,4 @@
-import {
-  serverSupabaseClient,
-  serverSupabaseServiceRole,
-  serverSupabaseUser
-} from '#supabase/server'
+import { serverSupabaseClient, serverSupabaseServiceRole } from '#supabase/server'
 import { createEventQueueRepository } from '~/server/domains/event/repositories/event-queue.repository'
 import { createEventRegistrationRepository } from '~/server/domains/event/repositories/event-registration.repository'
 import { createEventRepository } from '~/server/domains/event/repositories/event.repository'
@@ -12,6 +8,7 @@ import {
 } from '~/server/domains/event/services/event-queue.service'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
 import { apiError } from '~/server/utils/api-error'
+import { getOptionalUser } from '~/server/utils/optional-user'
 
 /**
  * Organizer-only: puts the two longest-waiting entries onto a court.
@@ -22,7 +19,7 @@ import { apiError } from '~/server/utils/api-error'
  * before the bypass is used.
  */
 export default defineEventHandler(async (event) => {
-  const claims = await serverSupabaseUser(event)
+  const claims = await getOptionalUser(event)
   if (!claims) {
     throw apiError(401, 'AUTH_REQUIRED', 'Sign in to manage the queue.')
   }

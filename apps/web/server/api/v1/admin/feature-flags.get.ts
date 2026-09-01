@@ -1,8 +1,9 @@
-import { serverSupabaseServiceRole, serverSupabaseUser } from '#supabase/server'
+import { serverSupabaseServiceRole } from '#supabase/server'
 import { createPlatformConfigRepository } from '~/server/domains/platform/repositories/platform-config.repository'
 import { createPlatformAdminService } from '~/server/domains/platform/services/platform-admin.service'
 import { apiError } from '~/server/utils/api-error'
 import { createFeatureFlagServiceFor } from '~/server/utils/feature-flags'
+import { getOptionalUser } from '~/server/utils/optional-user'
 
 /**
  * The SuperAdmin console's view of the catalog: every flag with its label,
@@ -11,7 +12,7 @@ import { createFeatureFlagServiceFor } from '~/server/utils/feature-flags'
  * are still being served for another few seconds.
  */
 export default defineEventHandler(async (event) => {
-  const claims = await serverSupabaseUser(event)
+  const claims = await getOptionalUser(event)
   if (!claims) {
     throw apiError(401, 'AUTH_REQUIRED', 'Sign in to view platform settings.')
   }

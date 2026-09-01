@@ -1,8 +1,4 @@
-import {
-  serverSupabaseClient,
-  serverSupabaseServiceRole,
-  serverSupabaseUser
-} from '#supabase/server'
+import { serverSupabaseClient, serverSupabaseServiceRole } from '#supabase/server'
 import { createMatchRepository } from '~/server/domains/match/repositories/match.repository'
 import {
   createMatchService,
@@ -15,6 +11,7 @@ import { createNotificationRepository } from '~/server/domains/notification/repo
 import { createNotificationService } from '~/server/domains/notification/services/notification.service'
 import { apiError } from '~/server/utils/api-error'
 import type { SubmitMatchScoreInput } from '~/server/domains/match/dto/match.dto'
+import { getOptionalUser } from '~/server/utils/optional-user'
 
 function parseCounterInput(body: unknown): SubmitMatchScoreInput[] {
   if (typeof body !== 'object' || body === null) {
@@ -52,7 +49,7 @@ function parseCounterInput(body: unknown): SubmitMatchScoreInput[] {
  * this doesn't attempt the full agree/counter negotiation loop yet.
  */
 export default defineEventHandler(async (event) => {
-  const claims = await serverSupabaseUser(event)
+  const claims = await getOptionalUser(event)
   if (!claims) {
     throw apiError(401, 'AUTH_REQUIRED', 'Sign in to propose a different score.')
   }

@@ -1,8 +1,4 @@
-import {
-  serverSupabaseClient,
-  serverSupabaseServiceRole,
-  serverSupabaseUser
-} from '#supabase/server'
+import { serverSupabaseClient, serverSupabaseServiceRole } from '#supabase/server'
 import { createEventRepository } from '~/server/domains/event/repositories/event.repository'
 import {
   createTournamentRegistrationRepository,
@@ -13,6 +9,7 @@ import { createTournamentCategoryService } from '~/server/domains/event/services
 import { EventServiceError } from '~/server/domains/event/services/event.service'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
 import { apiError } from '~/server/utils/api-error'
+import { getOptionalUser } from '~/server/utils/optional-user'
 
 /**
  * Bin a category that is not going to be played.
@@ -30,7 +27,7 @@ import { apiError } from '~/server/utils/api-error'
  * under RLS, the same reason the event delete endpoint uses it.
  */
 export default defineEventHandler(async (event) => {
-  const claims = await serverSupabaseUser(event)
+  const claims = await getOptionalUser(event)
   if (!claims) {
     throw apiError(401, 'AUTH_REQUIRED', 'Sign in to remove a category.')
   }

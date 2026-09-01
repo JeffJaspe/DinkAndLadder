@@ -1,8 +1,4 @@
-import {
-  serverSupabaseClient,
-  serverSupabaseServiceRole,
-  serverSupabaseUser
-} from '#supabase/server'
+import { serverSupabaseClient, serverSupabaseServiceRole } from '#supabase/server'
 import { createClubRepository } from '~/server/domains/club/repositories/club.repository'
 import { createClubMembershipRepository } from '~/server/domains/club/repositories/club-membership.repository'
 import { createClubService, ClubServiceError } from '~/server/domains/club/services/club.service'
@@ -10,6 +6,7 @@ import { createPlayerProfileRepository } from '~/server/domains/player/repositor
 import { apiError } from '~/server/utils/api-error'
 import type { UpdateClubInput } from '~/server/domains/club/repositories/club.repository'
 import { slugProblemMessage, validateSlug } from '~/server/domains/club/dto/club-slug'
+import { getOptionalUser } from '~/server/utils/optional-user'
 
 function parseUpdateInput(body: unknown): UpdateClubInput {
   if (typeof body !== 'object' || body === null) {
@@ -70,7 +67,7 @@ function parseUpdateInput(body: unknown): UpdateClubInput {
  * checked in ClubService.updateClub before this bypass is used, not skipped.
  */
 export default defineEventHandler(async (event) => {
-  const claims = await serverSupabaseUser(event)
+  const claims = await getOptionalUser(event)
   if (!claims) {
     throw apiError(401, 'AUTH_REQUIRED', 'Sign in to edit a club.')
   }

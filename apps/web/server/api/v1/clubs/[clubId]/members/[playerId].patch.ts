@@ -1,8 +1,4 @@
-import {
-  serverSupabaseClient,
-  serverSupabaseServiceRole,
-  serverSupabaseUser
-} from '#supabase/server'
+import { serverSupabaseClient, serverSupabaseServiceRole } from '#supabase/server'
 import { createClubMembershipRepository } from '~/server/domains/club/repositories/club-membership.repository'
 import { createClubRepository } from '~/server/domains/club/repositories/club.repository'
 import { createClubService, ClubServiceError } from '~/server/domains/club/services/club.service'
@@ -13,6 +9,7 @@ import { createNotificationRepository } from '~/server/domains/notification/repo
 import { createNotificationService } from '~/server/domains/notification/services/notification.service'
 import { apiError } from '~/server/utils/api-error'
 import type { UpdateMembershipInput } from '~/server/domains/club/dto/club-membership.dto'
+import { getOptionalUser } from '~/server/utils/optional-user'
 
 function parseUpdateInput(body: unknown): UpdateMembershipInput {
   if (typeof body !== 'object' || body === null) {
@@ -47,7 +44,7 @@ function parseUpdateInput(body: unknown): UpdateMembershipInput {
  * checked before any write happens.
  */
 export default defineEventHandler(async (event) => {
-  const claims = await serverSupabaseUser(event)
+  const claims = await getOptionalUser(event)
   if (!claims) {
     throw apiError(401, 'AUTH_REQUIRED', 'Sign in to manage club members.')
   }

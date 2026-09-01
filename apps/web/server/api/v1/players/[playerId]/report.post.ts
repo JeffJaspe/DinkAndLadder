@@ -1,8 +1,4 @@
-import {
-  serverSupabaseClient,
-  serverSupabaseServiceRole,
-  serverSupabaseUser
-} from '#supabase/server'
+import { serverSupabaseClient, serverSupabaseServiceRole } from '#supabase/server'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
 import { createNotificationRepository } from '~/server/domains/notification/repositories/notification.repository'
 import { createNotificationService } from '~/server/domains/notification/services/notification.service'
@@ -13,6 +9,7 @@ import {
 } from '~/server/domains/moderation/services/report.service'
 import { isReportReason } from '~/server/domains/moderation/dto/report.dto'
 import { apiError } from '~/server/utils/api-error'
+import { getOptionalUser } from '~/server/utils/optional-user'
 
 /**
  * File a report about another player. Goes to the SuperAdmin queue.
@@ -24,7 +21,7 @@ import { apiError } from '~/server/utils/api-error'
  * session, never from the body.
  */
 export default defineEventHandler(async (event) => {
-  const claims = await serverSupabaseUser(event)
+  const claims = await getOptionalUser(event)
   if (!claims) {
     throw apiError(401, 'AUTH_REQUIRED', 'Sign in to report a player.')
   }

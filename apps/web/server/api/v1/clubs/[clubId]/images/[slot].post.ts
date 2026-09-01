@@ -1,8 +1,4 @@
-import {
-  serverSupabaseClient,
-  serverSupabaseServiceRole,
-  serverSupabaseUser
-} from '#supabase/server'
+import { serverSupabaseClient, serverSupabaseServiceRole } from '#supabase/server'
 import { createClubRepository } from '~/server/domains/club/repositories/club.repository'
 import { createClubMembershipRepository } from '~/server/domains/club/repositories/club-membership.repository'
 import {
@@ -14,6 +10,7 @@ import { createBrandingAssetRepository } from '~/server/domains/platform/reposit
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
 import { MAX_UPLOAD_BYTES } from '~/server/domains/platform/dto/branding.dto'
 import { apiError } from '~/server/utils/api-error'
+import { getOptionalUser } from '~/server/utils/optional-user'
 
 /**
  * Upload a club's cover photo or logo.
@@ -24,7 +21,7 @@ import { apiError } from '~/server/utils/api-error'
  * save one hop would be a far bigger hole than this endpoint is a cost.
  */
 export default defineEventHandler(async (event) => {
-  const claims = await serverSupabaseUser(event)
+  const claims = await getOptionalUser(event)
   if (!claims) {
     throw apiError(401, 'AUTH_REQUIRED', 'Sign in to change club images.')
   }

@@ -1,7 +1,8 @@
-import { serverSupabaseClient, serverSupabaseUser } from '#supabase/server'
+import { serverSupabaseClient } from '#supabase/server'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
 import { apiError } from '~/server/utils/api-error'
 import type { MatchJoinRow } from '~/server/domains/match/dto/match-join-row.dto'
+import { getOptionalUser } from '~/server/utils/optional-user'
 
 /**
  * User-scoped client only — matches_select_participant RLS (008-security.changelog.xml)
@@ -9,7 +10,7 @@ import type { MatchJoinRow } from '~/server/domains/match/dto/match-join-row.dto
  * is just so the query only touches this player's own match_participants rows.
  */
 export default defineEventHandler(async (event) => {
-  const claims = await serverSupabaseUser(event)
+  const claims = await getOptionalUser(event)
   if (!claims) {
     throw apiError(401, 'AUTH_REQUIRED', 'Sign in to view your matches.')
   }

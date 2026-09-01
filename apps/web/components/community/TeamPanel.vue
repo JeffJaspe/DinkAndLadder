@@ -10,9 +10,16 @@ import type { TeamMemberDto } from '~/server/domains/partnership/dto/team-up.dto
  * collapsing them would mean either creating doubles partnerships nobody agreed
  * to, or letting anyone register anyone.
  *
- * Incoming requests sit at the top because they are the only thing on this
- * screen that needs an answer.
+ * Laid out as the Partners panel next door is: one segmented control over three
+ * sections with their counts. Incoming used to be a bare `v-if` section stacked
+ * above the roster, which meant an invitation was announced nowhere — not in the
+ * nav, not on the tab, and not in this panel unless you happened to be looking
+ * at it. Same relationship shape as a duo request, same treatment.
  */
+type Section = 'team' | 'incoming' | 'outgoing'
+
+const section = ref<Section>('team')
+
 const { data, pending, refresh } = await useFetch<{
   team: TeamMemberDto[]
   incoming: TeamMemberDto[]
@@ -26,6 +33,37 @@ const accepted = computed(() => (data.value?.team ?? []).filter((m) => m.status 
 const outgoing = computed(() => (data.value?.team ?? []).filter((m) => m.status === 'pending'))
 const incoming = computed(() => data.value?.incoming ?? [])
 
+const sectionItems = computed(() => [
+  { value: 'team', label: 'My Team', count: accepted.value.length },
+  { value: 'incoming', label: 'Incoming', count: incoming.value.length },
+  { value: 'outgoing', label: 'Outgoing', count: outgoing.value.length }
+])
+
+/**
+ * Land on Incoming when something is waiting.
+ *
+ * Only on arrival, and only while the reader has not chosen a section: an
+ * invitation is the one thing here that needs an answer, and opening on a
+ * roster that says nothing about it is how these went unnoticed.
+ */
+const sectionChosen = ref(false)
+
+watch(
+  incoming,
+  (value) => {
+    if (!sectionChosen.value && value.length) section.value = 'incoming'
+  },
+  { immediate: true }
+)
+
+function chooseSection(value: string) {
+  sectionChosen.value = true
+  section.value = value as Section
+}
+
+// Answering an invitation clears it from the nav badge too, without a reload.
+const { refreshTeamUpRequestCount } = useTeamUpRequestCount()
+
 const busyId = ref<string | null>(null)
 const errorMessage = ref('')
 const toast = useToast()
@@ -35,7 +73,7 @@ async function respond(id: string, accept: boolean) {
   errorMessage.value = ''
   try {
     await $fetch(`/api/v1/team-ups/${id}/respond`, { method: 'POST', body: { accept } })
-    await refresh()
+    await Promise.all([refresh(), refreshTeamUpRequestCount()])
     toast.success(accept ? 'You joined their team.' : 'Request declined.')
   } catch (err) {
     errorMessage.value = apiErrorMessage(err, 'Could not answer that request.')
@@ -71,13 +109,28 @@ function ratingOf(member: TeamMemberDto): number | null {
     </div>
 
     <template v-else>
+      <!-- Same control the Partners panel uses, for the same reason: a second
+           pill bar under the tabs reads as if the tabs had broken. -->
+      <div class="overflow-x-auto">
+        <UiSegmented
+          :model-value="section"
+          label="Team section"
+          :items="sectionItems"
+          @update:model-value="chooseSection"
+        />
+      </div>
+
       <!-- The only thing here that needs an answer. -->
-      <section v-if="incoming.length">
-        <h3 class="mb-2 text-sm font-medium text-fg">
-          Asked you to join their team
-          <span class="font-normal text-fg-muted">· {{ incoming.length }}</span>
-        </h3>
-        <ul class="space-y-2">
+      <section v-if="section === 'incoming'">
+        <h3 class="mb-2 text-sm font-medium text-fg">Asked you to join their team</h3>
+
+        <UiEmptyState
+          v-if="!incoming.length"
+          title="No invitations waiting"
+          message="When someone asks you to join their team, it appears here for you to accept or decline."
+        />
+
+        <ul v-else class="space-y-2">
           <li
             v-for="member in incoming"
             :key="member.id"
@@ -110,7 +163,7 @@ function ratingOf(member: TeamMemberDto): number | null {
         </ul>
       </section>
 
-      <section>
+      <section v-else-if="section === 'team'">
         <h3 class="mb-1 text-sm font-medium text-fg">Your team</h3>
         <p class="mb-3 text-sm text-fg-muted">
           You can register these players for an open play session alongside yourself.
@@ -148,12 +201,16 @@ function ratingOf(member: TeamMemberDto): number | null {
         />
       </section>
 
-      <section v-if="outgoing.length">
-        <h3 class="mb-2 text-sm font-medium text-fg">
-          Waiting on a reply
-          <span class="font-normal text-fg-muted">· {{ outgoing.length }}</span>
-        </h3>
-        <ul class="space-y-2">
+      <section v-else-if="section === 'outgoing'">
+        <h3 class="mb-2 text-sm font-medium text-fg">Waiting on a reply</h3>
+
+        <UiEmptyState
+          v-if="!outgoing.length"
+          title="Nothing pending"
+          message="Team Up requests you have sent that have not been answered yet show here."
+        />
+
+        <ul v-else class="space-y-2">
           <li
             v-for="member in outgoing"
             :key="member.id"

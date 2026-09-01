@@ -1,8 +1,4 @@
-import {
-  serverSupabaseClient,
-  serverSupabaseServiceRole,
-  serverSupabaseUser
-} from '#supabase/server'
+import { serverSupabaseClient, serverSupabaseServiceRole } from '#supabase/server'
 import { createEventRepository } from '~/server/domains/event/repositories/event.repository'
 import {
   createTournamentRepository,
@@ -17,6 +13,7 @@ import { createEventQueueRepository } from '~/server/domains/event/repositories/
 import { createEventCourtService } from '~/server/domains/event/services/event-court.service'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
 import { apiError } from '~/server/utils/api-error'
+import { getOptionalUser } from '~/server/utils/optional-user'
 
 /**
  * Start a session: published -> active, and open its courts.
@@ -31,7 +28,7 @@ import { apiError } from '~/server/utils/api-error'
  * mean reconciling them every time the organiser changed their mind.
  */
 export default defineEventHandler(async (event) => {
-  const user = await serverSupabaseUser(event)
+  const user = await getOptionalUser(event)
   if (!user) {
     throw apiError(401, 'AUTH_REQUIRED', 'Sign in to start an event.')
   }

@@ -25,8 +25,14 @@ const props = withDefaults(
     variant?: 'banner' | 'card'
     /** Shown over the art, e.g. a status pill. */
     rounded?: string
+    /**
+     * Words to show instead of the monogram, e.g. an event's kind
+     * ("TOURNAMENT"). Two initials over a gradient are a placeholder; when the
+     * caller has something true to say about the entity, it earns the space.
+     */
+    label?: string | null
   }>(),
-  { src: null, variant: 'card', rounded: 'rounded-card' }
+  { src: null, variant: 'card', rounded: 'rounded-card', label: null }
 )
 
 /**
@@ -79,6 +85,15 @@ const HEIGHT = { banner: 'h-40 sm:h-56', card: 'h-28' } as const
       loading="lazy"
       @error="failed = true"
     />
+    <!-- A real label, so unlike the monogram it is not decorative and is read
+         out. It is the only thing on the cover saying what this is. -->
+    <span
+      v-else-if="label"
+      class="px-3 text-center font-display font-bold uppercase leading-tight tracking-widest text-on-accent/90"
+      :class="variant === 'banner' ? 'text-2xl' : 'text-body-2'"
+      >{{ label }}</span
+    >
+
     <!-- Decorative: the name is always rendered as real text beside this. -->
     <span
       v-else

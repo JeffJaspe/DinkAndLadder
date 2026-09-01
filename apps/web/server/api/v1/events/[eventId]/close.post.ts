@@ -1,12 +1,9 @@
-import {
-  serverSupabaseClient,
-  serverSupabaseServiceRole,
-  serverSupabaseUser
-} from '#supabase/server'
+import { serverSupabaseClient, serverSupabaseServiceRole } from '#supabase/server'
 import { createEventRepository } from '~/server/domains/event/repositories/event.repository'
 import { toEventDto } from '~/server/domains/event/dto/event.dto'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
 import { apiError } from '~/server/utils/api-error'
+import { getOptionalUser } from '~/server/utils/optional-user'
 
 /**
  * Stop a session taking players, without ending the event.
@@ -25,7 +22,7 @@ import { apiError } from '~/server/utils/api-error'
  * than erroring, since the caller's intent is already satisfied.
  */
 export default defineEventHandler(async (event) => {
-  const user = await serverSupabaseUser(event)
+  const user = await getOptionalUser(event)
   if (!user) {
     throw apiError(401, 'AUTH_REQUIRED', 'Sign in to close a session.')
   }

@@ -1,8 +1,4 @@
-import {
-  serverSupabaseClient,
-  serverSupabaseServiceRole,
-  serverSupabaseUser
-} from '#supabase/server'
+import { serverSupabaseClient, serverSupabaseServiceRole } from '#supabase/server'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
 import { createTeamUpRepository } from '~/server/domains/partnership/repositories/team-up.repository'
 import {
@@ -12,6 +8,7 @@ import {
 import { createNotificationRepository } from '~/server/domains/notification/repositories/notification.repository'
 import { createNotificationService } from '~/server/domains/notification/services/notification.service'
 import { apiError } from '~/server/utils/api-error'
+import { getOptionalUser } from '~/server/utils/optional-user'
 
 /**
  * Ask a player to join your team — the roster of people you may register for an
@@ -22,7 +19,7 @@ import { apiError } from '~/server/utils/api-error'
  * reasonably be both, and neither implies the other.
  */
 export default defineEventHandler(async (event) => {
-  const claims = await serverSupabaseUser(event)
+  const claims = await getOptionalUser(event)
   if (!claims) throw apiError(401, 'AUTH_REQUIRED', 'Sign in to build a team.')
 
   const memberPlayerId = getRouterParam(event, 'playerId')

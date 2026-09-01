@@ -1,7 +1,8 @@
-import { serverSupabaseServiceRole, serverSupabaseUser } from '#supabase/server'
+import { serverSupabaseServiceRole } from '#supabase/server'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
 import { createShoutoutRepository } from '~/server/domains/shoutout/repositories/shoutout.repository'
 import { apiError } from '~/server/utils/api-error'
+import { getOptionalUser } from '~/server/utils/optional-user'
 
 /**
  * Events this player may attach to a shout-out: ones they created, and ones
@@ -15,7 +16,7 @@ import { apiError } from '~/server/utils/api-error'
  * something that already happened is never what was meant.
  */
 export default defineEventHandler(async (event) => {
-  const claims = await serverSupabaseUser(event)
+  const claims = await getOptionalUser(event)
   if (!claims) {
     throw apiError(401, 'AUTH_REQUIRED', 'Sign in to see your events.')
   }

@@ -1,8 +1,4 @@
-import {
-  serverSupabaseClient,
-  serverSupabaseServiceRole,
-  serverSupabaseUser
-} from '#supabase/server'
+import { serverSupabaseClient, serverSupabaseServiceRole } from '#supabase/server'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
 import { createTeamUpRepository } from '~/server/domains/partnership/repositories/team-up.repository'
 import {
@@ -12,6 +8,7 @@ import {
 import { createNotificationRepository } from '~/server/domains/notification/repositories/notification.repository'
 import { createNotificationService } from '~/server/domains/notification/services/notification.service'
 import { apiError } from '~/server/utils/api-error'
+import { getOptionalUser } from '~/server/utils/optional-user'
 
 /**
  * Accept or decline being added to a roster.
@@ -21,7 +18,7 @@ import { apiError } from '~/server/utils/api-error'
  * rather than trusting the id in the URL.
  */
 export default defineEventHandler(async (event) => {
-  const claims = await serverSupabaseUser(event)
+  const claims = await getOptionalUser(event)
   if (!claims) throw apiError(401, 'AUTH_REQUIRED', 'Sign in to answer.')
 
   const teamUpId = getRouterParam(event, 'teamUpId')

@@ -1,7 +1,7 @@
-import { serverSupabaseUser } from '#supabase/server'
 import { BrandingServiceError } from '~/server/domains/platform/services/branding.service'
 import { apiError } from '~/server/utils/api-error'
 import { createBrandingServiceFor, invalidateBrandingCache } from '~/server/utils/branding'
+import { getOptionalUser } from '~/server/utils/optional-user'
 
 interface Body {
   app_name?: string
@@ -9,7 +9,7 @@ interface Body {
 
 /** Renames the platform. An empty string restores the built-in name. */
 export default defineEventHandler(async (event) => {
-  const claims = await serverSupabaseUser(event)
+  const claims = await getOptionalUser(event)
   if (!claims) {
     throw apiError(401, 'AUTH_REQUIRED', 'Sign in to change platform settings.')
   }

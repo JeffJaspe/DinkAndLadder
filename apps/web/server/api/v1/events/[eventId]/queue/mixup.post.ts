@@ -1,13 +1,10 @@
-import {
-  serverSupabaseClient,
-  serverSupabaseServiceRole,
-  serverSupabaseUser
-} from '#supabase/server'
+import { serverSupabaseClient, serverSupabaseServiceRole } from '#supabase/server'
 import { createEventQueueRepository } from '~/server/domains/event/repositories/event-queue.repository'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
 import { generateMixupSchedule, mixupShortfall } from '~/server/domains/event/services/mixup-scheduler'
 import { assertCanRunEvent } from '~/server/utils/event-organizer'
 import { apiError } from '~/server/utils/api-error'
+import { getOptionalUser } from '~/server/utils/optional-user'
 
 const MAX_ROUNDS = 20
 
@@ -24,7 +21,7 @@ const MAX_ROUNDS = 20
  * the same schedule and the preview an organiser approves is the one they get.
  */
 export default defineEventHandler(async (event) => {
-  const claims = await serverSupabaseUser(event)
+  const claims = await getOptionalUser(event)
   if (!claims) {
     throw apiError(401, 'AUTH_REQUIRED', 'Sign in to manage the queue.')
   }

@@ -1,4 +1,4 @@
-import { serverSupabaseServiceRole, serverSupabaseUser } from '#supabase/server'
+import { serverSupabaseServiceRole } from '#supabase/server'
 import { createMatchRepository } from '~/server/domains/match/repositories/match.repository'
 import { createPlatformConfigRepository } from '~/server/domains/platform/repositories/platform-config.repository'
 import { createPlatformAdminService } from '~/server/domains/platform/services/platform-admin.service'
@@ -6,6 +6,7 @@ import { createRatingRepository } from '~/server/domains/rating/repositories/rat
 import { createRatingBackfillService } from '~/server/domains/rating/services/rating-backfill.service'
 import { createRatingService } from '~/server/domains/rating/services/rating.service'
 import { apiError } from '~/server/utils/api-error'
+import { getOptionalUser } from '~/server/utils/optional-user'
 
 const MAX_LIMIT = 500
 
@@ -53,7 +54,7 @@ export default defineEventHandler(async (event) => {
     )
   }
 
-  const claims = await serverSupabaseUser(event)
+  const claims = await getOptionalUser(event)
   if (!claims) {
     throw apiError(401, 'AUTH_REQUIRED', 'Sign in to run the rating backfill.')
   }

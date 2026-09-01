@@ -1,7 +1,8 @@
-import { serverSupabaseServiceRole, serverSupabaseUser } from '#supabase/server'
+import { serverSupabaseServiceRole } from '#supabase/server'
 import { createUserRepository } from '~/server/domains/identity/repositories/user.repository'
 import { createAuthService } from '~/server/domains/identity/services/auth.service'
 import { apiError } from '~/server/utils/api-error'
+import { getOptionalUser } from '~/server/utils/optional-user'
 
 /**
  * Called by the client right after Supabase Auth confirms a session, so the
@@ -10,7 +11,7 @@ import { apiError } from '~/server/utils/api-error'
  * bypass RLS, but only from this trusted server context, never the client.
  */
 export default defineEventHandler(async (event) => {
-  const claims = await serverSupabaseUser(event)
+  const claims = await getOptionalUser(event)
   if (!claims?.email) {
     throw apiError(401, 'AUTH_REQUIRED', 'Sign in before establishing a session.')
   }

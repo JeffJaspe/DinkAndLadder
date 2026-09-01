@@ -5,7 +5,8 @@ import type {
   ActivityDto,
   ActivityRecord,
   CreateActivityInput,
-  FeedQuery
+  FeedQuery,
+  FeedResult
 } from '../dto/activity.dto'
 import { toActivityDto } from '../dto/activity.dto'
 
@@ -24,14 +25,17 @@ export interface ActivityService {
   getPlayerActivities(playerId: string, limit: number, offset: number): Promise<ActivityDto[]>
   getPublicFeed(query: FeedQuery): Promise<ActivityDto[]>
   /**
-   * The main feed: everyone's public activity, nearest first.
+   * The main feed: the viewer's community, nearest first.
    *
-   * Replaces the follow-graph feed as the default. A ladder is a local thing -
-   * the useful question is "who is playing near me", not "who do I already
-   * follow", and a follow-only feed is empty for exactly the new players who
-   * most need to find a game.
+   * Scope and ordering are two different rules here. `community` decides who is
+   * in the feed at all - follows, duo partners, team-ups, anyone they have
+   * played a verified match with, and their clubs (049-feed-community-scope) -
+   * and the geo score from 039 then orders what is left, because a ladder is a
+   * local thing and the nearest of your people is the most useful of them.
+   *
+   * A signed-out viewer has no community and falls back to the public listing.
    */
-  getGeoFeed(viewerPlayerId: string | null, query: FeedQuery): Promise<ActivityDto[]>
+  getGeoFeed(viewerPlayerId: string | null, query: FeedQuery): Promise<FeedResult>
   getPersonalizedFeed(
     playerId: string,
     clubIds: string[],
@@ -131,17 +135,30 @@ export function createActivityService(
     },
 
     async getGeoFeed(viewerPlayerId, query) {
-      // No reprioritize() call: fn_feed_for_player already applies both the geo
-      // score and the verified-club tiebreak, and it does so before pagination
-      // rather than after. Re-sorting the page here would only undo that.
+      // No reprioritize() call: fn_feed_for_player already applies the scope
+      // filter, the geo score and the verified-club tiebreak, and it does so
+      // before pagination rather than after. Re-sorting the page here would
+      // only undo that.
+      const scope = query.scope ?? 'community'
       const records = await activities.findGeoFeed(
         viewerPlayerId,
         query.limit,
         query.offset,
         query.types,
-        query.since
+        query.since,
+        scope
       )
-      return records.map(toActivityDto)
+
+      // Only worth asking on an empty first page: that is the one screen where
+      // "you have no community yet" and "your community has been quiet" need
+      // different words. Any later page is empty because the feed ran out.
+      const shouldCount =
+        viewerPlayerId !== null && scope === 'community' && records.length === 0 && query.offset === 0
+
+      return {
+        activities: records.map(toActivityDto),
+        community_size: shouldCount ? await activities.countCommunity(viewerPlayerId) : null
+      }
     }
   }
 }

@@ -141,12 +141,19 @@ FROM generate_series(1, 12) AS c;
 -- Status spread per type (20 each) so every filter chip on /events
 -- returns rows: 9 published, 3 active, 5 completed, 2 cancelled, 1 draft.
 -- ---------------------------------------------------------------------
+--
+-- type_n (0..4) exists to break the clone: club_n and the start date in 03
+-- were both derived from i alone, so all five event types with the same i
+-- landed at the same club on the same day, and any "next few events" list
+-- showed five near-identical rows. Offsetting by type_n spreads them across
+-- clubs and days while leaving the i-driven status bands untouched.
 CREATE OR REPLACE VIEW public.v_demo_events AS
 SELECT
     t.event_type,
+    t.type_n,
     i,
     public.fn_demo_id('event:' || t.event_type || ':' || i) AS event_id,
-    1 + ((i - 1) % 12) AS club_n,
+    1 + ((i - 1 + t.type_n * 5) % 12) AS club_n,
     CASE
         WHEN i <= 9  THEN 'published'
         WHEN i <= 12 THEN 'active'
@@ -164,8 +171,9 @@ SELECT
         ELSE 2
     END AS fill_mode
 FROM (VALUES
-    ('open_casual'), ('open_ranked'), ('club_casual'), ('club_ranked'), ('tournament')
-) AS t(event_type)
+    ('open_casual', 0), ('open_ranked', 1), ('club_casual', 2),
+    ('club_ranked', 3), ('tournament', 4)
+) AS t(event_type, type_n)
 CROSS JOIN generate_series(1, 20) AS i;
 
 SELECT 'demo config installed'                       AS step,

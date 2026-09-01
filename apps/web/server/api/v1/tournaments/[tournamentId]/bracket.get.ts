@@ -1,4 +1,4 @@
-import { serverSupabaseClient, serverSupabaseUser } from '#supabase/server'
+import { serverSupabaseClient } from '#supabase/server'
 import { createBracketRepository } from '~/server/domains/event/repositories/bracket.repository'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
 import { createTournamentCategoryRepository } from '~/server/domains/event/repositories/tournament-category.repository'
@@ -12,6 +12,7 @@ import {
   BracketServiceError
 } from '~/server/domains/event/services/bracket.service'
 import { createMatchRepository } from '~/server/domains/match/repositories/match.repository'
+import { getOptionalUser } from '~/server/utils/optional-user'
 
 export default defineEventHandler(async (event) => {
   const tournamentId = getRouterParam(event, 'tournamentId')
@@ -51,7 +52,7 @@ export default defineEventHandler(async (event) => {
    * simply gets no viewer and therefore only locked draws, which is the same
    * answer any non-organiser gets.
    */
-  const claims = await serverSupabaseUser(event).catch(() => null)
+  const claims = await getOptionalUser(event)
   const viewerPlayerId = claims
     ? ((await createPlayerProfileRepository(client).findByUserId(claims.sub))?.id ?? null)
     : null

@@ -1,8 +1,9 @@
-import { serverSupabaseClient, serverSupabaseUser } from '#supabase/server'
+import { serverSupabaseClient } from '#supabase/server'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
 import { createTeamUpRepository } from '~/server/domains/partnership/repositories/team-up.repository'
 import { createTeamUpService } from '~/server/domains/partnership/services/team-up.service'
 import { apiError } from '~/server/utils/api-error'
+import { getOptionalUser } from '~/server/utils/optional-user'
 
 /**
  * Your roster, and the rosters you have been asked to join.
@@ -15,7 +16,7 @@ import { apiError } from '~/server/utils/api-error'
  * one concerns, so RLS does the filtering rather than the query.
  */
 export default defineEventHandler(async (event) => {
-  const claims = await serverSupabaseUser(event)
+  const claims = await getOptionalUser(event)
   if (!claims) throw apiError(401, 'AUTH_REQUIRED', 'Sign in to see your team.')
 
   const client = await serverSupabaseClient(event)

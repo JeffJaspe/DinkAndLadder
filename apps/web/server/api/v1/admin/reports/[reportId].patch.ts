@@ -1,4 +1,4 @@
-import { serverSupabaseServiceRole, serverSupabaseUser } from '#supabase/server'
+import { serverSupabaseServiceRole } from '#supabase/server'
 import { createPlatformConfigRepository } from '~/server/domains/platform/repositories/platform-config.repository'
 import { createPlatformAdminService } from '~/server/domains/platform/services/platform-admin.service'
 import { createReportRepository } from '~/server/domains/moderation/repositories/report.repository'
@@ -11,6 +11,7 @@ import { createNotificationRepository } from '~/server/domains/notification/repo
 import { createNotificationService } from '~/server/domains/notification/services/notification.service'
 import type { ReportResolution } from '~/server/domains/moderation/dto/report.dto'
 import { apiError } from '~/server/utils/api-error'
+import { getOptionalUser } from '~/server/utils/optional-user'
 
 const RESOLUTIONS: ReportResolution[] = ['dismissed', 'reviewed', 'actioned']
 
@@ -22,7 +23,7 @@ const RESOLUTIONS: ReportResolution[] = ['dismissed', 'reviewed', 'actioned']
  * report row, which names the reporter. See ReportService.resolveReport.
  */
 export default defineEventHandler(async (event) => {
-  const claims = await serverSupabaseUser(event)
+  const claims = await getOptionalUser(event)
   if (!claims) {
     throw apiError(401, 'AUTH_REQUIRED', 'Sign in to review reports.')
   }

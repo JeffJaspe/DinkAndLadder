@@ -25,6 +25,17 @@ export interface RatingTransactionRecord {
   confidence_after: number
   calculation_version: number
   created_at: string
+  /**
+   * When the match behind this change was played, when it is known.
+   *
+   * Not the same thing as `created_at`, which is when the rating engine wrote
+   * the row. A match rated at submission time makes them near-identical, but a
+   * backfill (`POST /api/v1/admin/rating/backfill`) replays months of history
+   * in one run and stamps every row with that run's timestamp — so a rating
+   * chart drawn on `created_at` collapses a whole season into one afternoon,
+   * and every time range shows the same flat picture.
+   */
+  played_at?: string | null
 }
 
 export interface PlayerRatingDto {
@@ -47,6 +58,12 @@ export interface RatingTransactionDto {
   rating_delta: number
   calculation_version: number
   created_at: string
+  /**
+   * When this rating change happened, for charting: the match's `played_at`,
+   * falling back to `created_at` when the transaction has no match behind it.
+   * See RatingTransactionRecord.played_at for why the two differ.
+   */
+  occurred_at: string
 }
 
 export function toPlayerRatingDto(record: PlayerRatingRecord): PlayerRatingDto {
@@ -71,7 +88,8 @@ export function toRatingTransactionDto(record: RatingTransactionRecord): RatingT
     new_rating: record.new_rating,
     rating_delta: record.rating_delta,
     calculation_version: record.calculation_version,
-    created_at: record.created_at
+    created_at: record.created_at,
+    occurred_at: record.played_at ?? record.created_at
   }
 }
 

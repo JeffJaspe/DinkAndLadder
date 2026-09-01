@@ -22,6 +22,8 @@ export class TeamUpServiceError extends Error {
 export interface TeamUpService {
   getTeam(ownerPlayerId: string): Promise<TeamMemberDto[]>
   getIncoming(memberPlayerId: string): Promise<TeamMemberDto[]>
+  /** The badge's number: invitations waiting on this player's answer. */
+  countIncoming(memberPlayerId: string): Promise<number>
   invite(ownerPlayerId: string, memberPlayerId: string, message?: string): Promise<TeamUpRequestDto>
   respond(memberPlayerId: string, teamUpId: string, accept: boolean): Promise<TeamUpRequestDto>
   /** Either side may end it: the owner drops them, the member leaves. */
@@ -38,6 +40,10 @@ export function createTeamUpService(teamUps: TeamUpRepository): TeamUpService {
 
     async getIncoming(memberPlayerId) {
       return teamUps.listIncoming(memberPlayerId)
+    },
+
+    async countIncoming(memberPlayerId) {
+      return teamUps.countIncoming(memberPlayerId)
     },
 
     async invite(ownerPlayerId, memberPlayerId, message) {

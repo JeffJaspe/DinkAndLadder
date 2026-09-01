@@ -1,8 +1,4 @@
-import {
-  serverSupabaseClient,
-  serverSupabaseServiceRole,
-  serverSupabaseUser
-} from '#supabase/server'
+import { serverSupabaseClient, serverSupabaseServiceRole } from '#supabase/server'
 import { createMatchRepository } from '~/server/domains/match/repositories/match.repository'
 import {
   createMatchService,
@@ -21,6 +17,7 @@ import { createActivityRepository } from '~/server/domains/activity/repositories
 import { createActivityLogger } from '~/server/domains/activity/services/activity.service'
 import { apiError } from '~/server/utils/api-error'
 import type { RecordVerificationDecisionInput } from '~/server/domains/match/dto/match.dto'
+import { getOptionalUser } from '~/server/utils/optional-user'
 
 function parseDecisionInput(body: unknown): RecordVerificationDecisionInput {
   if (typeof body !== 'object' || body === null) {
@@ -61,7 +58,7 @@ function parseDecisionInput(body: unknown): RecordVerificationDecisionInput {
  * row in the first place — see initiateVerification).
  */
 export default defineEventHandler(async (event) => {
-  const claims = await serverSupabaseUser(event)
+  const claims = await getOptionalUser(event)
   if (!claims) {
     throw apiError(401, 'AUTH_REQUIRED', 'Sign in to record a verification decision.')
   }

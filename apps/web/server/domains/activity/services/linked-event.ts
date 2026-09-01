@@ -11,15 +11,37 @@ export interface LinkedEvent {
 
 export interface ActivityWithLinkedEvent {
   metadata?: Record<string, unknown> | null
+  reference_type?: string | null
+  reference_id?: string | null
   event?: LinkedEvent | null
 }
 
 /**
- * Resolve the events shout-outs point at, in one round trip for the whole page.
+ * Where an activity's event id actually lives.
  *
- * The id rides in the activity metadata (see ActivityLogger.logShoutout), so
- * this is a lookup rather than a join — and an event that has since been
- * deleted simply resolves to nothing, leaving the message to stand on its own.
+ * Two conventions, both real. A shout-out carries the id in its metadata
+ * (ActivityLogger.logShoutout) because the activity's own reference points at
+ * the player. `club.event_created` instead uses the row's reference columns —
+ * `reference_type: 'event'`, `reference_id: <event id>` — and puts only the
+ * name in metadata. Reading only the first convention is why "created an
+ * event: X" was never a link.
+ */
+function eventIdFor(activity: ActivityWithLinkedEvent): string | null {
+  const fromMetadata = (activity.metadata as Record<string, unknown> | null)?.event_id
+  if (typeof fromMetadata === 'string') return fromMetadata
+  if (activity.reference_type === 'event' && typeof activity.reference_id === 'string') {
+    return activity.reference_id
+  }
+  return null
+}
+
+/**
+ * Resolve the events activities point at, in one round trip for the whole page.
+ *
+ * The id rides either in the metadata or in the reference columns (see
+ * `eventIdFor`), so this is a lookup rather than a join — and an event that has
+ * since been deleted simply resolves to nothing, leaving the activity to stand
+ * on its own.
  *
  * This lived as a private function inside the feed endpoint, which is why the
  * link only ever worked there: a shout-out shown on a player's profile came
@@ -32,11 +54,7 @@ export async function attachLinkedEvents<T extends ActivityWithLinkedEvent>(
   activities: T[]
 ): Promise<T[]> {
   const eventIds = [
-    ...new Set(
-      activities
-        .map((a) => (a.metadata as Record<string, unknown> | null)?.event_id)
-        .filter((id): id is string => typeof id === 'string')
-    )
+    ...new Set(activities.map(eventIdFor).filter((id): id is string => id !== null))
   ]
   if (eventIds.length === 0) return activities
 
@@ -48,7 +66,7 @@ export async function attachLinkedEvents<T extends ActivityWithLinkedEvent>(
   const byId = new Map(((data ?? []) as LinkedEvent[]).map((e) => [e.id, e]))
 
   return activities.map((a) => {
-    const id = (a.metadata as Record<string, unknown> | null)?.event_id
-    return typeof id === 'string' ? { ...a, event: byId.get(id) ?? null } : a
+    const id = eventIdFor(a)
+    return id === null ? a : { ...a, event: byId.get(id) ?? null }
   })
 }

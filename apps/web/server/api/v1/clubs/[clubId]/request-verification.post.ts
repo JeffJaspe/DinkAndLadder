@@ -1,4 +1,4 @@
-import { serverSupabaseServiceRole, serverSupabaseUser } from '#supabase/server'
+import { serverSupabaseServiceRole } from '#supabase/server'
 import { createClubMembershipRepository } from '~/server/domains/club/repositories/club-membership.repository'
 import { createClubRepository } from '~/server/domains/club/repositories/club.repository'
 import {
@@ -9,6 +9,7 @@ import { createPlatformConfigRepository } from '~/server/domains/platform/reposi
 import { createPlatformAdminService } from '~/server/domains/platform/services/platform-admin.service'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
 import { apiError } from '~/server/utils/api-error'
+import { getOptionalUser } from '~/server/utils/optional-user'
 
 /**
  * Service-role throughout, same reasoning as PATCH /api/v1/clubs/{clubId}: clubs has no
@@ -16,7 +17,7 @@ import { apiError } from '~/server/utils/api-error'
  * skipped by this bypass.
  */
 export default defineEventHandler(async (event) => {
-  const claims = await serverSupabaseUser(event)
+  const claims = await getOptionalUser(event)
   if (!claims) {
     throw apiError(401, 'AUTH_REQUIRED', 'Sign in to request club verification.')
   }

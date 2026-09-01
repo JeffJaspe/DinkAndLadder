@@ -58,16 +58,42 @@ const bounds = computed(() => {
   return { min: min - pad, max: max + pad }
 })
 
+/**
+ * The time axis, as milliseconds.
+ *
+ * Points are placed by date, not by their position in the array. Spacing them
+ * evenly made the x-axis a lie: two matches a year apart drew the same line as
+ * two on the same evening, and a quiet month looked like a busy one. A series
+ * that all lands on one instant has no span to spread over, so it falls back to
+ * even spacing rather than dividing by zero.
+ */
+const timeSpan = computed(() => {
+  const times = sorted.value.map((p) => new Date(p.date).getTime()).filter(Number.isFinite)
+  if (times.length === 0) return null
+  const start = times[0]!
+  const end = times[times.length - 1]!
+  return end > start ? { start, span: end - start } : null
+})
+
 const geometry = computed(() => {
   const h = props.height
   const plotW = VIEW_W - PAD.left - PAD.right
   const plotH = h - PAD.top - PAD.bottom
   const { min, max } = bounds.value
   const span = max - min || 1
+  const time = timeSpan.value
 
   const coords = sorted.value.map((p, i) => {
-    const x =
-      PAD.left + (sorted.value.length === 1 ? plotW / 2 : (i / (sorted.value.length - 1)) * plotW)
+    let fraction: number
+    if (sorted.value.length === 1) {
+      fraction = 0.5
+    } else if (time) {
+      const t = new Date(p.date).getTime()
+      fraction = Number.isFinite(t) ? (t - time.start) / time.span : i / (sorted.value.length - 1)
+    } else {
+      fraction = i / (sorted.value.length - 1)
+    }
+    const x = PAD.left + fraction * plotW
     const y = PAD.top + plotH - ((p.value - min) / span) * plotH
     return { x, y, ...p }
   })

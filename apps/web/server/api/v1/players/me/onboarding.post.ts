@@ -1,8 +1,9 @@
-import { serverSupabaseClient, serverSupabaseUser } from '#supabase/server'
+import { serverSupabaseClient } from '#supabase/server'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
 import { createPlayerProfileService } from '~/server/domains/player/services/player-profile.service'
 import { PlayerProfileValidationError } from '~/server/domains/player/dto/player-profile.dto'
 import { apiError } from '~/server/utils/api-error'
+import { getOptionalUser } from '~/server/utils/optional-user'
 
 interface OnboardingInput {
   account_type: 'player' | 'club'
@@ -17,7 +18,7 @@ interface OnboardingInput {
  * change; see F-31 in the backlog.
  */
 export default defineEventHandler(async (event) => {
-  const claims = await serverSupabaseUser(event)
+  const claims = await getOptionalUser(event)
   if (!claims) {
     throw apiError(401, 'AUTH_REQUIRED', 'Sign in to complete onboarding.')
   }

@@ -1,9 +1,10 @@
-import { serverSupabaseClient, serverSupabaseUser } from '#supabase/server'
+import { serverSupabaseClient } from '#supabase/server'
 import { readBody } from 'h3'
 import { setPassword } from '~/server/domains/identity/services/auth.service'
 import { mapAuthError } from '~/server/domains/identity/services/auth-error-mapper'
 import { apiError } from '~/server/utils/api-error'
 import type { SetPasswordRequestDto } from '~/server/domains/identity/dto/auth.dto'
+import { getOptionalUser } from '~/server/utils/optional-user'
 
 /**
  * Sets (or replaces) the password on the signed-in user's account. The point is
@@ -16,7 +17,7 @@ import type { SetPasswordRequestDto } from '~/server/domains/identity/dto/auth.d
  * authorization, and this must never be able to change anyone else's password.
  */
 export default defineEventHandler(async (event) => {
-  const claims = await serverSupabaseUser(event)
+  const claims = await getOptionalUser(event)
   if (!claims) {
     throw apiError(401, 'AUTH_REQUIRED', 'Sign in before changing your password.')
   }
