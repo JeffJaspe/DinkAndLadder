@@ -58,24 +58,18 @@ export default defineEventHandler(async (event) => {
         (m) => ['OWNER', 'ADMIN'].includes(m.role) && m.status === 'active'
       )
 
-      // Send notification to each admin
-      const adminNotifications = await Promise.all(
-        admins.map(async (admin) => {
-          const adminProfile = await playerRepo.findById(admin.player_id)
-          if (!adminProfile) return null
-          return {
-            user_id: adminProfile.user_id,
-            type: 'club.membership_request' as const,
-            title: 'New Membership Request',
-            body: `${playerProfile.display_name} has requested to join ${club.name}.`,
-            reference_type: 'club_membership' as const,
-            reference_id: membership.id
-          }
-        })
-      )
+      // One profile query for the admin list, not one per admin.
+      const adminProfiles = await playerRepo.findByIds(admins.map((a) => a.player_id))
 
       await notificationService.notifyMany(
-        adminNotifications.filter((n): n is NonNullable<typeof n> => n !== null)
+        adminProfiles.map((adminProfile) => ({
+          user_id: adminProfile.user_id,
+          type: 'club.membership_request' as const,
+          title: 'New Membership Request',
+          body: `${playerProfile.display_name} has requested to join ${club.name}.`,
+          reference_type: 'club_membership' as const,
+          reference_id: membership.id
+        }))
       )
     }
 

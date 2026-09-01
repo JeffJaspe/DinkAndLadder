@@ -89,22 +89,20 @@ export default defineEventHandler(async (event) => {
     })
 
     const otherParticipants = match.participants.filter((p) => p.player_id !== playerProfile.id)
-    const notifications = await Promise.all(
-      otherParticipants.map(async (p) => {
-        const profile = await playerRepo.findById(p.player_id)
-        if (!profile) return null
-        return {
-          user_id: profile.user_id,
-          type: 'match.disputed' as const,
-          title: 'Different Score Proposed',
-          body: 'Your opponent proposed a different score for a match. The match has been marked disputed for review.',
-          reference_type: 'match' as const,
-          reference_id: matchId
-        }
-      })
-    )
+    // One profile query for everyone being told, rather than one per person.
+    // `notifyMany` already writes them in a single insert; the reads that fed
+    // it were the part still going out one at a time.
+    const profiles = await playerRepo.findByIds(otherParticipants.map((p) => p.player_id))
+
     await notificationService.notifyMany(
-      notifications.filter((n): n is NonNullable<typeof n> => n !== null)
+      profiles.map((profile) => ({
+        user_id: profile.user_id,
+        type: 'match.disputed' as const,
+        title: 'Different Score Proposed',
+        body: 'Your opponent proposed a different score for a match. The match has been marked disputed for review.',
+        reference_type: 'match' as const,
+        reference_id: matchId
+      }))
     )
 
     return { data: match, message: 'Different score proposed', request_id: crypto.randomUUID() }

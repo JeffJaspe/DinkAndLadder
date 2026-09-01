@@ -6127,3 +6127,66 @@ gained `findByIds`.
 050 needs `liquibase update` on dev — same path as 049 (push to `main` touching
 `database/liquibase/**`). Until it runs, the feed uses 049's wider set: correct
 in shape, just including follows and club co-members.
+
+---
+
+## N+1 sweep — 2026-09-01
+
+Audit for the pattern behind the slow Partners tab: a list fetched, then one
+query per row to enrich it. Seven found, all fixed. The batch primitives already
+existed in every case — `findByIds`, `getRatingsForPlayers`, `findByTournamentId`,
+`notifyMany` — so none of these needed a new query, only a batched one.
+
+Two flavours, worth separating because they cost differently:
+
+- **Serial** — `await` inside a `for`, so latency is `n × RTT`. These are the
+  ones a user feels.
+- **Concurrent but still N** — `Promise.all(list.map(async …))`, so latency is
+  one RTT but the database still does `n` queries. Cheap now, bad under load.
+
+| Where | Was | Now |
+|---|---|---|
+| `bracket.service.ts` `attachRatings` | serial `findById` per category | one `findByTournamentId` |
+| `announcements/[id]/publish.post.ts` | serial profile + notify per member | one `findByIds`, notifications together |
+| `events/[id]/register.post.ts` | serial registration lookup per player | one `findByEventAndPlayers` |
+| `matches/[id]/counter.post.ts` | concurrent `findById` per participant | one `findByIds` |
+| `matches/[id]/verification/decision.post.ts` | same | one `findByIds` |
+| `matches/[id]/verification.post.ts` | same per verifier | one `findByIds` |
+| `clubs/[id]/membership-requests.post.ts` | same per admin | one `findByIds` |
+
+### The two that mattered
+
+**Publishing a club announcement** was the worst: a `for` loop doing a profile
+read and then a notification write, each awaited before the next member was
+looked at. Two serial round trips per member, so a 200-member club meant 400 of
+them in sequence — while the organiser's request hung, and after the
+announcement row had already been written, so none of that wait bought the
+caller anything.
+
+**The bracket** is the one worth remembering. `attachRatings`'s own docblock read
+"this stays two queries for a whole bracket however many categories it holds",
+and the code underneath it looped the distinct category ids awaiting `findById`
+for each. The correct single-query version already existed in `EventService`
+about 500 lines away. A comment cannot fail, which is why the regression test
+asserts the query count does not change between a four-category and an
+eight-category tournament rather than asserting a fixed number.
+
+### Deliberately not changed
+
+- `ActivityService.reprioritize` fans out `clubs.findById` per club. It is only
+  reachable from `getPublicFeed` / `getPersonalizedFeed`, and no API route calls
+  either since the feed moved to `getGeoFeed` — dead code. Worth deleting, but
+  that is a removal decision, not a perf fix.
+- The ~58 `await refresh()` calls after mutations in pages. Most re-read state
+  the client genuinely cannot derive; only the duo star was a case of re-fetching
+  a list to learn one boolean it already knew.
+
+### Tests
+
+- `tests/unit/bracket-category-batching.spec.ts` (new, 2)
+- `tests/unit/partnership-batching.spec.ts` (5, from the previous pass)
+- `event-queue.service.spec.ts`'s registration fake gained `findByEventAndPlayers`
+
+### Validation
+
+`typecheck` clean, `lint` 0 errors, 1113 unit tests pass (73 files).

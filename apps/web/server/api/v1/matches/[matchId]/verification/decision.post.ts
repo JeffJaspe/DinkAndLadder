@@ -170,23 +170,18 @@ export default defineEventHandler(async (event) => {
             ? `A ${match.match_type} match you participated in was rejected.`
             : `A ${match.match_type} match you participated in has been disputed.`
 
-      const participantNotifications = await Promise.all(
-        match.participants.map(async (p) => {
-          const profile = await playerRepo.findById(p.player_id)
-          if (!profile) return null
-          return {
-            user_id: profile.user_id,
-            type: notificationType,
-            title,
-            body,
-            reference_type: 'match' as const,
-            reference_id: matchId
-          }
-        })
-      )
+      // One profile query for every participant, not one apiece.
+      const profiles = await playerRepo.findByIds(match.participants.map((p) => p.player_id))
 
       await notificationService.notifyMany(
-        participantNotifications.filter((n): n is NonNullable<typeof n> => n !== null)
+        profiles.map((profile) => ({
+          user_id: profile.user_id,
+          type: notificationType,
+          title,
+          body,
+          reference_type: 'match' as const,
+          reference_id: matchId
+        }))
       )
     }
 

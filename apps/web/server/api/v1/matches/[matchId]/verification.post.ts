@@ -47,25 +47,20 @@ export default defineEventHandler(async (event) => {
   try {
     const match = await service.initiateVerification(playerProfile.id, matchId)
 
-    const verifierNotifications = await Promise.all(
-      match.verifications
-        .filter((v) => v.status === 'pending')
-        .map(async (v) => {
-          const profile = await servicePlayerRepo.findById(v.verifier_player_id)
-          if (!profile) return null
-          return {
-            user_id: profile.user_id,
-            type: 'match.verification_requested' as const,
-            title: 'Verification Requested',
-            body: `Please verify a ${match.match_type} match you participated in.`,
-            reference_type: 'match' as const,
-            reference_id: matchId
-          }
-        })
+    // One profile query for every pending verifier, not one apiece.
+    const verifierProfiles = await servicePlayerRepo.findByIds(
+      match.verifications.filter((v) => v.status === 'pending').map((v) => v.verifier_player_id)
     )
 
     await notificationService.notifyMany(
-      verifierNotifications.filter((n): n is NonNullable<typeof n> => n !== null)
+      verifierProfiles.map((profile) => ({
+        user_id: profile.user_id,
+        type: 'match.verification_requested' as const,
+        title: 'Verification Requested',
+        body: `Please verify a ${match.match_type} match you participated in.`,
+        reference_type: 'match' as const,
+        reference_id: matchId
+      }))
     )
 
     return { data: match, message: 'Verification started', request_id: crypto.randomUUID() }

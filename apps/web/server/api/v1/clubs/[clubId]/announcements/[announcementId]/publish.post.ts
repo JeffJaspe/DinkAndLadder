@@ -55,10 +55,24 @@ export default defineEventHandler(async (event) => {
           createNotificationRepository(serviceClient)
         )
 
-        for (const member of activeMembers) {
-          const memberProfile = await servicePlayerRepo.findById(member.player_id)
-          if (memberProfile) {
-            await notificationService
+        /**
+         * One profile query for the whole roster, then the notifications
+         * together.
+         *
+         * This was a `for` loop doing `findById` and then `notify`, each
+         * awaited before the next member was even looked at — two serial round
+         * trips per member. Publishing to a 200-member club meant 400 of them
+         * in sequence while the organiser's request hung, and the announcement
+         * itself had already been written by then, so all that time bought
+         * nothing the caller was waiting for.
+         */
+        const memberProfiles = await servicePlayerRepo.findByIds(
+          activeMembers.map((m) => m.player_id)
+        )
+
+        await Promise.all(
+          memberProfiles.map((memberProfile) =>
+            notificationService
               .notify({
                 user_id: memberProfile.user_id,
                 type: 'club.announcement',
@@ -67,9 +81,11 @@ export default defineEventHandler(async (event) => {
                 reference_type: 'club_announcement',
                 reference_id: announcement.id
               })
+              // Per notification, as before: one member's failed delivery must
+              // not cost the rest of the club theirs.
               .catch(() => {})
-          }
-        }
+          )
+        )
       }
     }
 

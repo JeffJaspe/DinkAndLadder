@@ -101,6 +101,9 @@ function createFakeRegistrationRepository(
 ): EventRegistrationRepository {
   return {
     findByEventAndPlayer: vi.fn().mockResolvedValue(makeRegistration()),
+    findByEventAndPlayers: vi
+      .fn()
+      .mockResolvedValue(new Map<string, ReturnType<typeof makeRegistration>>()),
     findByEvent: vi.fn().mockResolvedValue([]),
     findByPlayer: vi.fn().mockResolvedValue([]),
     countByEvent: vi.fn().mockResolvedValue(0),

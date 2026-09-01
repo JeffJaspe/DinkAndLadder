@@ -3,6 +3,18 @@ import type { EventRegistrationRecord, EventRegistrationStatus } from '../dto/ev
 
 export interface EventRegistrationRepository {
   findByEventAndPlayer(eventId: string, playerId: string): Promise<EventRegistrationRecord | null>
+  /**
+   * The same question for several players at once, keyed by player id.
+   *
+   * Registering a team asks it per player — the duo, a team-up roster — and the
+   * register handler was walking that list with one `findByEventAndPlayer` per
+   * name, awaited in turn. Four players meant four serial round trips before
+   * the request had even reached its first write.
+   */
+  findByEventAndPlayers(
+    eventId: string,
+    playerIds: string[]
+  ): Promise<Map<string, EventRegistrationRecord>>
   findByEvent(
     eventId: string,
     status?: EventRegistrationStatus[]
@@ -78,6 +90,25 @@ export function createEventRegistrationRepository(
         throw new Error(`Failed to find registration: ${error.message}`)
       }
       return data as EventRegistrationRecord | null
+    },
+
+    async findByEventAndPlayers(eventId, playerIds) {
+      const unique = [...new Set(playerIds)]
+      if (unique.length === 0) return new Map()
+
+      const { data, error } = await client
+        .from('event_registrations')
+        .select('*')
+        .eq('event_id', eventId)
+        .in('player_id', unique)
+
+      if (error) {
+        throw new Error(`Failed to find registrations: ${error.message}`)
+      }
+
+      return new Map(
+        ((data ?? []) as EventRegistrationRecord[]).map((row) => [row.player_id, row])
+      )
     },
 
     async findByEvent(eventId, status) {

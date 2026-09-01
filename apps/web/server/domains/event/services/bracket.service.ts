@@ -318,6 +318,7 @@ export function createBracketService(
     // into names on the cards.
     const entrants = await attachRatings(
       await registrations.findByTournamentIdWithPlayers(tournamentId),
+      tournamentId,
       tournament.match_type
     )
     const participants = indexParticipants(entrants)
@@ -343,6 +344,13 @@ export function createBracketService(
    *
    * One read of the categories covers a list spanning several draws, so this
    * stays two queries for a whole bracket however many categories it holds.
+   *
+   * That is what the paragraph above always claimed, and it was not what the
+   * code did: it looped the distinct category ids and awaited `findById` for
+   * each, one after another, so a tournament with eight draws paid eight serial
+   * round trips every time a bracket loaded. `findByTournamentId` returns the
+   * same rows in one query and is what the equivalent code in EventService
+   * already used.
    */
   async function attachRatings<
     T extends {
@@ -352,13 +360,14 @@ export function createBracketService(
     }
   >(
     rows: T[],
+    tournamentId: string,
     tournamentMatchType: TournamentMatchType
   ): Promise<Array<T & { rating: number | null }>> {
     const byCategory = new Map<string, { match_type: TournamentMatchType | null }>()
-    if (categories) {
-      for (const categoryId of new Set(rows.map((row) => row.category_id).filter(Boolean))) {
-        const category = await categories.findById(categoryId as string)
-        if (category) byCategory.set(category.id, category)
+    // Only worth asking at all when some row actually belongs to a category.
+    if (categories && rows.some((row) => row.category_id)) {
+      for (const category of await categories.findByTournamentId(tournamentId)) {
+        byCategory.set(category.id, category)
       }
     }
 
@@ -464,6 +473,7 @@ export function createBracketService(
       // people nobody had approved.
       const allRegs = await attachRatings(
         await registrations.findByTournamentIdWithPlayers(tournamentId),
+        tournamentId,
         tournament.match_type
       )
       const inCategory = allRegs.filter((r) =>

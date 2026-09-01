@@ -111,8 +111,11 @@ export default defineEventHandler(async (event) => {
   // Rows to revive rather than insert, keyed by player. See below.
   const withdrawnRows = new Map<string, string>()
 
+  // One query for the whole party rather than one per player in turn.
+  const existingByPlayer = await registrationRepo.findByEventAndPlayers(eventId, everyone)
+
   for (const playerId of everyone) {
-    const existing = await registrationRepo.findByEventAndPlayer(eventId, playerId)
+    const existing = existingByPlayer.get(playerId) ?? null
     if (existing && existing.status === 'withdrawn') {
       withdrawnRows.set(playerId, existing.id)
     }
