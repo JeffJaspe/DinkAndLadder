@@ -167,6 +167,11 @@ const bottomNavItems = computed<NavItem[]>(() => {
     items.push({ name: 'Platform Theme', href: '/admin/theme', icon: 'star' })
     items.push({ name: 'Platform Branding', href: '/admin/branding', icon: 'edit' })
     items.push({ name: 'Sponsors', href: '/admin/sponsors', icon: 'star' })
+    // Development only — the backfill endpoint refuses to run anywhere else,
+    // so on production this would be a button that can only return 403.
+    if (import.meta.dev) {
+      items.push({ name: 'Ratings', href: '/admin/ratings', icon: 'rankings' })
+    }
   }
   return items
 })

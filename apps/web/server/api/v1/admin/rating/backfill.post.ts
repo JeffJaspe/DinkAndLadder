@@ -28,7 +28,31 @@ const MAX_LIMIT = 500
  *   offset  — where to resume, default 0
  *   dry_run — count what would be rated without writing anything
  */
+/**
+ * Whether this deployment may run the backfill at all.
+ *
+ * SuperAdmin is not a sufficient guard here. This endpoint rewrites ratings
+ * and rating history in bulk, and there is no "unrate" — so on production the
+ * only safe number of ways to trigger it is zero, however trusted the caller.
+ *
+ * Local development is allowed outright. Anywhere else has to opt in with an
+ * explicit environment variable, so enabling it on the dev deployment is a
+ * deliberate act and production stays off by never setting it.
+ */
+function backfillAllowedHere(): boolean {
+  if (import.meta.dev) return true
+  return process.env.NUXT_ALLOW_RATING_BACKFILL === 'true'
+}
+
 export default defineEventHandler(async (event) => {
+  if (!backfillAllowedHere()) {
+    throw apiError(
+      403,
+      'NOT_AVAILABLE_HERE',
+      'The rating backfill is disabled on this environment. It runs against development only.'
+    )
+  }
+
   const claims = await serverSupabaseUser(event)
   if (!claims) {
     throw apiError(401, 'AUTH_REQUIRED', 'Sign in to run the rating backfill.')
