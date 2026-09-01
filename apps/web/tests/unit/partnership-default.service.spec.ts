@@ -99,6 +99,9 @@ describe('PartnershipService — default duo', () => {
     players = {
       async findById(id: string) {
         return makeProfile(id)
+      },
+      async findByIds(ids: string[]) {
+        return ids.map(makeProfile)
       }
     } as unknown as PlayerProfileRepository
   })

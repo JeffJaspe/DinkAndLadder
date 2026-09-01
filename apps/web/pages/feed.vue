@@ -255,7 +255,7 @@ function formatTime(dateStr: string): string {
         <div>
           <h1 class="text-2xl font-bold text-fg">Feed</h1>
           <p class="mt-1 text-sm text-fg-muted">
-            Your community — partners, teammates, opponents and clubs — closest to you first.
+            Your community — partners, team-ups, opponents and your clubs — closest to you first.
           </p>
         </div>
         <button
@@ -311,7 +311,7 @@ function formatTime(dateStr: string): string {
       <UiEmptyState
         v-else-if="activities.length === 0 && hasNoCommunity"
         title="Your feed is waiting on your people"
-        message="This feed shows the players you team up with, play against and share a club with. Follow a player or join a club and their activity lands here."
+        message="This feed shows your duo partners, your team-ups, everyone you have played a match against, and your own clubs. Add a partner, team up with someone, or play a match and their activity lands here."
         action-label="Find players"
         action-to="/players"
       />

@@ -52,10 +52,11 @@ export interface ActivityRepository {
    * The feed, ordered by how close the actor is to the viewer (barangay, then
    * city, then province) and newest first inside each band.
    *
-   * `scope` decides who is in it. `community` (049-feed-community-scope, and
-   * the default) restricts it to the viewer's own people - follows, duo
-   * partners, team-ups, anyone they have played a verified match with, and
-   * their clubs' members - which is what the feed sends. `geo` is 039's
+   * `scope` decides who is in it. `community` (049-feed-community-scope,
+   * narrowed by 050, and the default) restricts it to the viewer's own people -
+   * duo partners, team-ups, and anyone they have played a verified match with -
+   * plus activity authored by their own clubs. That is exactly what the
+   * /community page lists. It is what the feed sends. `geo` is 039's
    * everyone's-public-activity behaviour, kept for callers that want the whole
    * listing; a signed-out viewer only ever gets that one, with every geo score
    * at 0, i.e. plain newest-first.

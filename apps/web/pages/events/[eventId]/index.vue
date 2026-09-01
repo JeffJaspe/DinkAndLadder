@@ -36,37 +36,6 @@ const { isClubMode } = useAccountMode()
  */
 const activeTab = ref<'info' | 'matches' | 'courts' | 'players' | 'rankings' | 'queue'>('players')
 
-/**
- * Courts only appear once the session is running.
- *
- * Before that the tab would be an empty board — courts are materialised when
- * the event starts (see /events/:id/start), because queue_courts is editable
- * while the event is a draft and creating rows earlier would mean reconciling
- * them every time the organiser changed their mind.
- */
-const visibleTabs = computed(() => {
-  const tabs: Array<'info' | 'matches' | 'courts' | 'players' | 'rankings' | 'queue'> = [
-    'info',
-    'matches'
-  ]
-  if (courts.value.length > 0) tabs.push('courts')
-  tabs.push('players', 'rankings')
-
-  // The queue is a live control surface. On a finished or cancelled event it
-  // can only offer actions that cannot do anything, so it is withheld rather
-  // than shown empty — the roster stays reachable under Players.
-  const over = event.value?.status === 'completed' || event.value?.status === 'cancelled'
-  if (!over) tabs.push('queue')
-
-  return tabs
-})
-
-// A tab can disappear underneath the reader — finishing an event while sitting
-// on Queue, for instance — so fall back rather than render nothing.
-watch(visibleTabs, (tabs) => {
-  if (!tabs.includes(activeTab.value)) activeTab.value = 'info'
-})
-
 interface EventRankingEntry {
   rank: number
   player_id: string
@@ -259,6 +228,44 @@ const {
   refresh: refreshCourts,
   lastUpdated: courtsUpdatedAt
 } = useLiveScores(eventId)
+
+/**
+ * Courts only appear once the session is running.
+ *
+ * Before that the tab would be an empty board — courts are materialised when
+ * the event starts (see /events/:id/start), because queue_courts is editable
+ * while the event is a draft and creating rows earlier would mean reconciling
+ * them every time the organiser changed their mind.
+ *
+ * Declared here, below `courts` and `event`, and not up beside `activeTab`
+ * where it reads more naturally. A computed body is lazy, so referencing a
+ * `const` declared further down is normally harmless — but the `watch` below
+ * evaluates this getter once during setup to seed its old value, which hit the
+ * temporal dead zone and threw `Cannot access 'courts' before initialization`,
+ * taking the whole event page down on open.
+ */
+const visibleTabs = computed(() => {
+  const tabs: Array<'info' | 'matches' | 'courts' | 'players' | 'rankings' | 'queue'> = [
+    'info',
+    'matches'
+  ]
+  if (courts.value.length > 0) tabs.push('courts')
+  tabs.push('players', 'rankings')
+
+  // The queue is a live control surface. On a finished or cancelled event it
+  // can only offer actions that cannot do anything, so it is withheld rather
+  // than shown empty — the roster stays reachable under Players.
+  const over = event.value?.status === 'completed' || event.value?.status === 'cancelled'
+  if (!over) tabs.push('queue')
+
+  return tabs
+})
+
+// A tab can disappear underneath the reader — finishing an event while sitting
+// on Queue, for instance — so fall back rather than render nothing.
+watch(visibleTabs, (tabs) => {
+  if (!tabs.includes(activeTab.value)) activeTab.value = 'info'
+})
 
 const courtBusyId = ref('')
 

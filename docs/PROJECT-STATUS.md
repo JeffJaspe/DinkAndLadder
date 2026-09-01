@@ -6042,3 +6042,88 @@ applied — dev needs `liquibase update` (see
 `database/liquibase/README.md`) before the feed will load. The demo seed changes
 likewise need a re-seed (`99-rollback.sql`, then 00–06) to take effect; existing
 event rows keep their dates because 03 inserts `ON CONFLICT DO NOTHING`.
+
+---
+
+## Community scope narrowed, partnership N+1 removed — 2026-09-01 (follow-up)
+
+### 1. Feed community is exactly what /community lists
+
+049 built the set from six sources; two were inferred rather than asked for, and
+both widened the feed back towards the strangers the change existed to remove:
+
+- **Follows** — a one-way subscription, and there is no Follows tab. Removed.
+- **Fellow club members** — sharing a club with 200 people put 200 people's
+  personal activity in the feed. Removed.
+
+**050-community-scope-narrowing** redefines `fn_community_player_ids` as: the
+player, duo partners, accepted team-ups, and anyone they have shared a verified
+match with (teammates and opponents are the same branch). Club activity stays in
+the feed but only where the *club* is the actor (`actor_club_id`), which
+`fn_feed_for_player` already handles separately — so a club announcement reaches
+its members while a fellow member's rating change does not.
+
+A new changeset rather than an edit to 049, which is already applied.
+
+### 2. The Partners tab took 4–5s to render a list of names
+
+`PartnershipService` enriched one player at a time inside a sequential loop:
+`findById` plus two `getRating` calls each, awaited one after another. Cost was
+`2 + 3n` **serial** round trips — five partners is 17 of them, and against a
+pooled Supabase instance in ap-northeast-1 that is several seconds for text that
+was already in the database.
+
+Both batch primitives already existed and were simply unused. `loadPlayerDetails`
+now fetches profiles and both rating types in three concurrent queries,
+regardless of partner count:
+
+| | before | after |
+|---|---|---|
+| Partners tab | 2 + 3n serial | 2 concurrent, then 3 concurrent |
+| Incoming / outgoing requests | 1 + 2n serial | 1, then 3 concurrent |
+
+Same change applies to `sendRequest` and `acceptRequest`, which took the same
+per-player path.
+
+### 3. Setting a duo took 5–8s
+
+A `PUT`, then a full re-fetch of the partner list to learn one boolean the client
+already knew — two serial waves, the second being the N+1 above. The star now
+applies locally and saves in the background; a rejected save puts the old state
+back and re-reads. Which partner is the duo is entirely derivable on the client:
+exactly one `is_default`, and it sorts first.
+
+### 4. Event page crashed on open (unrelated, pre-existing)
+
+`pages/events/[eventId]/index.vue` declared `visibleTabs` near the top reading
+`courts.value` and `event.value`, both declared ~200 lines below. A lazy computed
+would have been fine, but the `watch(visibleTabs, …)` immediately after it
+evaluates the getter during setup to seed its old value — hitting the temporal
+dead zone and throwing `Cannot access 'courts' before initialization`, which took
+the whole page down. This is what made events look unclickable from the feed.
+Block moved below `useLiveScores`, with a note on why it cannot move back.
+
+### Files changed
+
+- `database/liquibase/050-community-scope-narrowing/` (new) + master changelog
+- `server/domains/partnership/services/partnership.service.ts`
+- `server/domains/activity/{repositories,services}` — scope docs only
+- `components/community/DuoPartnersPanel.vue`, `pages/feed.vue`,
+  `pages/events/[eventId]/index.vue`
+
+### Tests
+
+`tests/unit/partnership-batching.spec.ts` (new, 5) — profiles fetched once not
+per partner, ratings twice not 2n, the empty-list short circuit, duo ordering
+preserved, and request senders batched too. The existing partnership spec's fake
+gained `findByIds`.
+
+### Validation
+
+`typecheck` clean, `lint` 0 errors, 1111 unit tests pass (72 files).
+
+### Not yet applied
+
+050 needs `liquibase update` on dev — same path as 049 (push to `main` touching
+`database/liquibase/**`). Until it runs, the feed uses 049's wider set: correct
+in shape, just including follows and club co-members.

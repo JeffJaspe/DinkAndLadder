@@ -77,17 +77,40 @@ const toast = useToast()
  */
 const settingDefault = ref<string | null>(null)
 
+/**
+ * Applied locally first, then saved.
+ *
+ * The star was doing a PUT and then re-fetching the whole partner list to learn
+ * one boolean it already knew — two serial round trips before the UI moved, so
+ * pressing it sat there for seconds. Which partner is the duo is entirely
+ * derivable on the client: exactly one `is_default`, and the duo sorts first.
+ *
+ * The server stays the authority. A failed save puts the old state back and
+ * re-reads, so a rejected change cannot linger on screen looking saved.
+ */
 async function setDuo(partnerId: string | null) {
+  const previous = partners.value.map((p) => ({ id: p.player_id, isDefault: p.is_default }))
+
+  const applyLocally = (defaultId: string | null) => {
+    if (!partnersData.value?.data) return
+    partnersData.value.data = [...partnersData.value.data]
+      .map((p) => ({ ...p, is_default: p.player_id === defaultId }))
+      .sort((a, b) => Number(b.is_default) - Number(a.is_default))
+  }
+
   settingDefault.value = partnerId ?? 'clear'
+  applyLocally(partnerId)
+
   try {
     await $fetch('/api/v1/players/me/default-partner', {
       method: 'PUT',
       body: { partner_id: partnerId }
     })
-    await refreshPartners()
     toast.success(partnerId ? 'Duo updated.' : 'Duo cleared.')
   } catch (err) {
+    applyLocally(previous.find((p) => p.isDefault)?.id ?? null)
     toast.error(apiErrorMessage(err, 'Could not update your duo.'))
+    await refreshPartners()
   } finally {
     settingDefault.value = null
   }

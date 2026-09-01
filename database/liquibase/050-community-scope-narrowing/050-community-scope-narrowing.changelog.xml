@@ -1,0 +1,163 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Narrow the feed's community to the relationships the product actually names.
+
+     049 built the community set from six sources. Two of them were inferred
+     rather than asked for, and both widen the feed back towards the strangers
+     the change existed to remove:
+
+       - **Follows.** Following is a one-way subscription, and the /community
+         page has no Follows tab. It is not one of the relationships a player
+         thinks of as "my people".
+       - **Fellow club members.** Sharing a club with 200 people made 200
+         people's personal activity part of the feed, which is most of a public
+         listing wearing a smaller hat.
+
+     What remains is exactly what /community shows, plus the clubs themselves:
+
+       - the player
+       - duo partners (partnerships)
+       - accepted team-ups, either direction
+       - anyone they have played a verified match with - teammate or opponent
+
+     Club activity is still in the feed, but only activity *authored by a club*
+     the player belongs to (`actor_club_id`), which fn_feed_for_player already
+     handles separately from this set. A club's announcement reaches its
+     members; a fellow member's rating change does not.
+
+     Blocked players are still removed however they got in.
+
+     Only the two UNION branches change. The function is otherwise 049's, and
+     fn_feed_for_player is untouched. -->
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+    <changeSet id="050-community-players-narrowed" author="claude">
+        <sql splitStatements="false">
+            CREATE OR REPLACE FUNCTION fn_community_player_ids(p_player_id uuid)
+            RETURNS TABLE (player_id uuid)
+            LANGUAGE sql
+            STABLE
+            SECURITY DEFINER
+            SET search_path = public
+            AS $$
+                WITH me AS (
+                    SELECT p_player_id AS id WHERE p_player_id IS NOT NULL
+                ),
+                my_matches AS (
+                    SELECT mp.match_id
+                      FROM match_participants mp
+                      JOIN me ON me.id = mp.player_id
+                ),
+                candidates AS (
+                    SELECT id FROM me
+                    UNION
+                    SELECT CASE WHEN p.player1_id = me.id THEN p.player2_id ELSE p.player1_id END
+                      FROM partnerships p
+                      JOIN me ON me.id IN (p.player1_id, p.player2_id)
+                    UNION
+                    SELECT CASE WHEN t.owner_player_id = me.id
+                                THEN t.member_player_id ELSE t.owner_player_id END
+                      FROM team_ups t
+                      JOIN me ON me.id IN (t.owner_player_id, t.member_player_id)
+                     WHERE t.status = 'accepted'
+                    UNION
+                    -- Everyone who was on court, both sides of the net: this one
+                    -- branch is both "teammates" and "opponents". Verified only,
+                    -- since an unverified match is a claim, not yet a game.
+                    SELECT mp.player_id
+                      FROM match_participants mp
+                      JOIN my_matches mm ON mm.match_id = mp.match_id
+                      JOIN matches m ON m.id = mp.match_id
+                     WHERE m.status = 'verified'
+                )
+                SELECT c.id
+                  FROM candidates c
+                 WHERE c.id IS NOT NULL
+                   AND NOT EXISTS (
+                       SELECT 1
+                         FROM player_relationships b
+                        WHERE b.relationship_type = 'block'
+                          AND b.status = 'active'
+                          AND (
+                              (b.from_player_id = p_player_id AND b.to_player_id = c.id)
+                           OR (b.from_player_id = c.id AND b.to_player_id = p_player_id)
+                          )
+                   );
+            $$;
+        </sql>
+        <rollback>
+            <!-- Back to 049's wider set: follows and fellow club members included. -->
+            <sql splitStatements="false">
+                CREATE OR REPLACE FUNCTION fn_community_player_ids(p_player_id uuid)
+                RETURNS TABLE (player_id uuid)
+                LANGUAGE sql
+                STABLE
+                SECURITY DEFINER
+                SET search_path = public
+                AS $$
+                    WITH me AS (
+                        SELECT p_player_id AS id WHERE p_player_id IS NOT NULL
+                    ),
+                    my_clubs AS (
+                        SELECT cm.club_id
+                          FROM club_memberships cm
+                          JOIN me ON me.id = cm.player_id
+                         WHERE cm.status = 'active'
+                    ),
+                    my_matches AS (
+                        SELECT mp.match_id
+                          FROM match_participants mp
+                          JOIN me ON me.id = mp.player_id
+                    ),
+                    candidates AS (
+                        SELECT id FROM me
+                        UNION
+                        SELECT pr.to_player_id
+                          FROM player_relationships pr
+                          JOIN me ON me.id = pr.from_player_id
+                         WHERE pr.relationship_type = 'follow'
+                           AND pr.status = 'active'
+                        UNION
+                        SELECT CASE WHEN p.player1_id = me.id THEN p.player2_id ELSE p.player1_id END
+                          FROM partnerships p
+                          JOIN me ON me.id IN (p.player1_id, p.player2_id)
+                        UNION
+                        SELECT CASE WHEN t.owner_player_id = me.id
+                                    THEN t.member_player_id ELSE t.owner_player_id END
+                          FROM team_ups t
+                          JOIN me ON me.id IN (t.owner_player_id, t.member_player_id)
+                         WHERE t.status = 'accepted'
+                        UNION
+                        SELECT mp.player_id
+                          FROM match_participants mp
+                          JOIN my_matches mm ON mm.match_id = mp.match_id
+                          JOIN matches m ON m.id = mp.match_id
+                         WHERE m.status = 'verified'
+                        UNION
+                        SELECT cm.player_id
+                          FROM club_memberships cm
+                          JOIN my_clubs mc ON mc.club_id = cm.club_id
+                         WHERE cm.status = 'active'
+                    )
+                    SELECT c.id
+                      FROM candidates c
+                     WHERE c.id IS NOT NULL
+                       AND NOT EXISTS (
+                           SELECT 1
+                             FROM player_relationships b
+                            WHERE b.relationship_type = 'block'
+                              AND b.status = 'active'
+                              AND (
+                                  (b.from_player_id = p_player_id AND b.to_player_id = c.id)
+                               OR (b.from_player_id = c.id AND b.to_player_id = p_player_id)
+                              )
+                       );
+                $$;
+            </sql>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

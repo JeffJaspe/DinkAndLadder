@@ -1,5 +1,6 @@
 import type { PartnershipRepository } from '../repositories/partnership.repository'
 import type { PlayerProfileRepository } from '../../player/repositories/player-profile.repository'
+import type { PlayerProfileRecord } from '../../player/dto/player-profile.dto'
 import type { RatingRepository } from '../../rating/repositories/rating.repository'
 import type { PartnerDto, PartnerRequestDto } from '../dto/partnership.dto'
 import { toPartnerRequestDto } from '../dto/partnership.dto'
@@ -44,51 +45,76 @@ export function createPartnershipService(
   players: PlayerProfileRepository,
   ratings?: RatingRepository
 ): PartnershipService {
-  async function enrichPartner(
+  /**
+   * Everyone's profile and ratings for a whole list, in three queries.
+   *
+   * This replaces a per-player `findById` + two `getRating` calls issued inside
+   * a sequential `for` loop, which made the Partners tab cost `2 + 3n` round
+   * trips one after another. Against a pooled Supabase instance a continent
+   * away that is ~150ms each, so five partners took four to five seconds to
+   * render a list of names — and every action that refreshed the list paid it
+   * again.
+   *
+   * `findByIds` and `getRatingsForPlayers` both already existed; nothing here
+   * needed a new query, only a batched one.
+   */
+  async function loadPlayerDetails(playerIds: string[]) {
+    const unique = [...new Set(playerIds)]
+    if (unique.length === 0) {
+      return {
+        profiles: new Map<string, PlayerProfileRecord>(),
+        singles: new Map<string, number | null>(),
+        doubles: new Map<string, number | null>()
+      }
+    }
+
+    const [profileRows, singlesRows, doublesRows] = await Promise.all([
+      players.findByIds(unique),
+      ratings ? ratings.getRatingsForPlayers(unique, 'singles') : Promise.resolve([]),
+      ratings ? ratings.getRatingsForPlayers(unique, 'doubles') : Promise.resolve([])
+    ])
+
+    return {
+      profiles: new Map(profileRows.map((p) => [p.id, p])),
+      singles: new Map(singlesRows.map((r) => [r.player_id, r.rating_value])),
+      doubles: new Map(doublesRows.map((r) => [r.player_id, r.rating_value]))
+    }
+  }
+
+  type PlayerDetails = Awaited<ReturnType<typeof loadPlayerDetails>>
+
+  function buildPartner(
     partnerId: string,
     partneredSince: string,
-    isDefault = false
-  ): Promise<PartnerDto | null> {
-    const profile = await players.findById(partnerId)
+    isDefault: boolean,
+    details: PlayerDetails
+  ): PartnerDto | null {
+    const profile = details.profiles.get(partnerId)
     if (!profile) return null
-
-    let singlesRating: number | null = null
-    let doublesRating: number | null = null
-
-    if (ratings) {
-      const singles = await ratings.getRating(partnerId, 'singles')
-      const doubles = await ratings.getRating(partnerId, 'doubles')
-      singlesRating = singles?.rating_value ?? null
-      doublesRating = doubles?.rating_value ?? null
-    }
 
     return {
       player_id: partnerId,
       display_name: profile.display_name,
       province: profile.province,
       city: profile.city,
-      singles_rating: singlesRating,
-      doubles_rating: doublesRating,
+      singles_rating: details.singles.get(partnerId) ?? null,
+      doubles_rating: details.doubles.get(partnerId) ?? null,
       partnered_since: partneredSince,
       is_default: isDefault
     }
   }
 
-  async function enrichRequest(
+  function buildRequest(
     request: PartnerRequestDto,
-    otherPlayerId: string
-  ): Promise<PartnerRequestDto> {
-    const profile = await players.findById(otherPlayerId)
+    otherPlayerId: string,
+    details: PlayerDetails
+  ): PartnerRequestDto {
+    const profile = details.profiles.get(otherPlayerId)
     if (profile) {
-      let rating: number | null = null
-      if (ratings) {
-        const doublesRating = await ratings.getRating(otherPlayerId, 'doubles')
-        rating = doublesRating?.rating_value ?? null
-      }
       request.player = {
         id: profile.id,
         display_name: profile.display_name,
-        rating
+        rating: details.doubles.get(otherPlayerId) ?? null
       }
     }
     return request
@@ -96,19 +122,29 @@ export function createPartnershipService(
 
   return {
     async getPartners(playerId) {
-      const records = await partnerships.findPartners(playerId)
-      const defaultRow = await partnerships.findDefaultPartner(playerId)
-      const partners: PartnerDto[] = []
+      // Independent of each other, so they go together rather than one after
+      // the other.
+      const [records, defaultRow] = await Promise.all([
+        partnerships.findPartners(playerId),
+        partnerships.findDefaultPartner(playerId)
+      ])
 
-      for (const record of records) {
-        const partnerId = record.player1_id === playerId ? record.player2_id : record.player1_id
-        const partner = await enrichPartner(
+      const partnerIds = records.map((record) =>
+        record.player1_id === playerId ? record.player2_id : record.player1_id
+      )
+      const details = await loadPlayerDetails(partnerIds)
+
+      const partners: PartnerDto[] = []
+      records.forEach((record, index) => {
+        const partnerId = partnerIds[index]!
+        const partner = buildPartner(
           partnerId,
           record.created_at,
-          partnerId === defaultRow?.partner_id
+          partnerId === defaultRow?.partner_id,
+          details
         )
         if (partner) partners.push(partner)
-      }
+      })
 
       // The duo leads the list — it is the one every doubles picker pre-selects,
       // so it is also the one the reader is looking for first.
@@ -220,7 +256,11 @@ export function createPartnershipService(
       }
 
       const record = await partnerships.createRequest(fromPlayerId, toPlayerId, message)
-      return enrichRequest(toPartnerRequestDto(record), toPlayerId)
+      return buildRequest(
+        toPartnerRequestDto(record),
+        toPlayerId,
+        await loadPlayerDetails([toPlayerId])
+      )
     },
 
     async acceptRequest(playerId, requestId) {
@@ -252,7 +292,12 @@ export function createPartnershipService(
       const partnership = await partnerships.createPartnership(request.from_player_id, playerId)
 
       // Return the new partner
-      const partner = await enrichPartner(request.from_player_id, partnership.created_at)
+      const partner = buildPartner(
+        request.from_player_id,
+        partnership.created_at,
+        false,
+        await loadPlayerDetails([request.from_player_id])
+      )
       if (!partner) {
         throw new PartnershipServiceError(500, 'INTERNAL_ERROR', 'Could not load partner profile.')
       }
@@ -311,22 +356,18 @@ export function createPartnershipService(
 
     async getIncomingRequests(playerId) {
       const records = await partnerships.findPendingRequestsTo(playerId)
-      const requests: PartnerRequestDto[] = []
-      for (const record of records) {
-        const dto = await enrichRequest(toPartnerRequestDto(record), record.from_player_id)
-        requests.push(dto)
-      }
-      return requests
+      const details = await loadPlayerDetails(records.map((r) => r.from_player_id))
+      return records.map((record) =>
+        buildRequest(toPartnerRequestDto(record), record.from_player_id, details)
+      )
     },
 
     async getOutgoingRequests(playerId) {
       const records = await partnerships.findPendingRequestsFrom(playerId)
-      const requests: PartnerRequestDto[] = []
-      for (const record of records) {
-        const dto = await enrichRequest(toPartnerRequestDto(record), record.to_player_id)
-        requests.push(dto)
-      }
-      return requests
+      const details = await loadPlayerDetails(records.map((r) => r.to_player_id))
+      return records.map((record) =>
+        buildRequest(toPartnerRequestDto(record), record.to_player_id, details)
+      )
     },
 
     async checkScheduleConflict(_partnerId, _eventId) {

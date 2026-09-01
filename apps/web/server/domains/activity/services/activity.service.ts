@@ -28,10 +28,10 @@ export interface ActivityService {
    * The main feed: the viewer's community, nearest first.
    *
    * Scope and ordering are two different rules here. `community` decides who is
-   * in the feed at all - follows, duo partners, team-ups, anyone they have
-   * played a verified match with, and their clubs (049-feed-community-scope) -
-   * and the geo score from 039 then orders what is left, because a ladder is a
-   * local thing and the nearest of your people is the most useful of them.
+   * in the feed at all - duo partners, team-ups, anyone they have played a
+   * verified match with, and their own clubs' own posts (049, narrowed by 050)
+   * - and the geo score from 039 then orders what is left, because a ladder is
+   * a local thing and the nearest of your people is the most useful of them.
    *
    * A signed-out viewer has no community and falls back to the public listing.
    */
