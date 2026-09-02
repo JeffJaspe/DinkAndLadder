@@ -50,12 +50,42 @@ const user = useSupabaseUser()
  * rather than the club.
  *
  * What a club actually wants from a player's profile is to bring them in, so
- * that is what it is offered instead. There is no invite endpoint yet, so this
- * links to the club's own page where joining is handled; a real invitation
- * (sent, accepted, expiring) is its own feature.
+ * that is what it is offered instead — and it now actually invites them
+ * (051-club-invitations). It used to be a link to the club's own page, because
+ * no invite endpoint existed; the button looked like an action and was a
+ * redirect, which is what "invite is not working" turned out to mean.
  */
 const { isClubMode, activeClubId } = useAccountMode()
 const playerId = computed(() => route.params.playerId as string)
+
+const inviting = ref(false)
+const invited = ref(false)
+
+async function inviteToClub() {
+  if (!activeClubId.value) {
+    // No club selected to act as. Sending them to pick one beats a request that
+    // cannot name a club.
+    await navigateTo('/my-clubs')
+    return
+  }
+
+  inviting.value = true
+  try {
+    await $fetch(`/api/v1/clubs/${activeClubId.value}/invites`, {
+      method: 'POST',
+      body: { player_id: playerId.value }
+    })
+    invited.value = true
+    useToast().success('Invitation sent.')
+  } catch (err) {
+    // The server distinguishes "already a member", "already invited" and "they
+    // asked first", and each of those is worth reading — so the message is
+    // shown rather than flattened into a generic failure.
+    useToast().error(apiErrorMessage(err, 'Could not send that invitation.'))
+  } finally {
+    inviting.value = false
+  }
+}
 
 /**
  * Achievements are a switchable platform surface (feature_flags,
@@ -657,13 +687,15 @@ function formatActivityText(activity: ProfileActivity): string {
               </p>
             </div>
             <!-- Acting as a club: one club-shaped action, not the player ones. -->
-            <NuxtLink
+            <button
               v-if="user && !isOwnProfile && isClubMode"
-              :to="activeClubId ? `/clubs/${activeClubId}` : '/my-clubs'"
-              class="rounded-lg border border-primary px-5 py-2 text-sm font-medium text-primary transition-colors hover:bg-primary-soft"
+              type="button"
+              :disabled="inviting || invited"
+              class="rounded-lg border border-primary px-5 py-2 text-sm font-medium text-primary transition-colors hover:bg-primary-soft disabled:opacity-60"
+              @click="inviteToClub"
             >
-              Invite to club
-            </NuxtLink>
+              {{ inviting ? 'Inviting…' : invited ? 'Invitation sent' : 'Invite to club' }}
+            </button>
 
             <!-- Partner button (replaces Follow) -->
             <template v-else-if="user && !isOwnProfile">

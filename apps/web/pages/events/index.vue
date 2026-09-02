@@ -84,14 +84,56 @@ watch(isClubMode, (clubMode) => {
   if (!clubMode && statusFilter.value === 'draft') statusFilter.value = 'all'
 })
 
+/**
+ * A keyword, matched server-side against name, venue and town.
+ *
+ * Debounced because it re-queries as you type, and 250ms is about the gap
+ * between words — long enough that a whole word is usually one request, short
+ * enough that the list feels like it is following along.
+ */
+const searchTerm = ref('')
+const debouncedSearch = ref('')
+let searchTimer: ReturnType<typeof setTimeout> | null = null
+
+watch(searchTerm, (value) => {
+  if (searchTimer) clearTimeout(searchTimer)
+  searchTimer = setTimeout(() => {
+    debouncedSearch.value = value.trim()
+  }, 250)
+})
+
+onBeforeUnmount(() => {
+  if (searchTimer) clearTimeout(searchTimer)
+})
+
+/**
+ * Acting as a club, this page is the club's own events and nothing else.
+ *
+ * It was the whole public listing in both modes, so a club looking at "Events"
+ * saw every other club's sessions and had to find its own among them. Location
+ * filters go with it: every event here belongs to one club in one town, so
+ * filtering by province is a control that can only ever remove rows.
+ */
+const clubScopeId = computed(() => (isClubMode.value ? activeClubId.value || undefined : undefined))
+
 const { data, pending, error } = await useFetch<EventsResponse>('/api/v1/events', {
   query: computed(() => ({
-    province: provinceName.value || undefined,
-    city: cityName.value || undefined,
+    club_id: clubScopeId.value,
+    province: isClubMode.value ? undefined : provinceName.value || undefined,
+    city: isClubMode.value ? undefined : cityName.value || undefined,
+    q: debouncedSearch.value || undefined,
     status: selectedStatus.value,
     event_types: selectedEventTypes.value?.join(',')
   })),
-  watch: [provinceName, cityName, selectedStatus, selectedEventTypes],
+  watch: [
+    clubScopeId,
+    provinceName,
+    cityName,
+    debouncedSearch,
+    selectedStatus,
+    selectedEventTypes,
+    isClubMode
+  ],
   default: () => ({ events: [] as EventDto[] })
 })
 
@@ -103,9 +145,43 @@ const visibleEvents = computed(() => {
   return isClubMode.value ? events : events.filter((e) => e.status !== 'draft')
 })
 
-const hasLocationFilter = computed(() => !!provinceName.value || !!cityName.value)
+const hasLocationFilter = computed(
+  () => !isClubMode.value && (!!provinceName.value || !!cityName.value)
+)
 
-function clearLocationFilter() {
+/**
+ * Whether anything is narrowing the list.
+ *
+ * The empty state used to blame location only, so a search that found nothing
+ * read as "No events yet" — which is a different and much more discouraging
+ * claim than "nothing matched what you typed".
+ */
+const hasAnyFilter = computed(
+  () =>
+    hasLocationFilter.value ||
+    !!debouncedSearch.value ||
+    statusFilter.value !== 'all' ||
+    kindFilter.value !== 'all'
+)
+
+const emptyTitle = computed(() => {
+  if (debouncedSearch.value) return 'Nothing matched that search'
+  if (hasLocationFilter.value) return 'No events in this area'
+  if (hasAnyFilter.value) return 'No events with those filters'
+  return isClubMode.value ? 'This club has no events yet' : 'No events yet'
+})
+
+const emptyHint = computed(() => {
+  if (debouncedSearch.value) return 'Try a shorter keyword, or clear the search.'
+  if (hasLocationFilter.value) return 'Try a different province or city, or clear the filter.'
+  return 'Try a different status or type, or clear the filters.'
+})
+
+function clearFilters() {
+  searchTerm.value = ''
+  debouncedSearch.value = ''
+  statusFilter.value = 'all'
+  kindFilter.value = 'all'
   selectProvince('')
 }
 
@@ -213,15 +289,37 @@ function formatDateRange(start: string, end: string): string {
         </NuxtLink>
       </div>
 
-      <!-- Filters: status, then location -->
+      <!-- Filters: search, status, type, then location.
+           Search leads: it is the one control that answers "where is the event
+           I already have in mind", which is most of what brings someone here.
+           Location is player-mode only — in club mode every event on this page
+           belongs to one club in one town, so a province picker could only ever
+           remove rows. -->
       <div class="mb-6 flex flex-wrap items-end gap-3">
+        <div class="min-w-[14rem] flex-1">
+          <label for="filter-search" class="mb-1.5 block text-xs text-fg-secondary">Search</label>
+          <div class="relative">
+            <UiIcon
+              name="search"
+              size="h-4 w-4"
+              class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-fg-muted"
+            />
+            <input
+              id="filter-search"
+              v-model="searchTerm"
+              type="search"
+              placeholder="Name, venue or town"
+              class="w-full rounded-lg border border-border-strong bg-surface py-2 pl-9 pr-3 text-sm text-fg placeholder:text-fg-muted focus:border-primary focus:outline-none"
+            />
+          </div>
+        </div>
         <div class="min-w-[10rem]">
           <UiSelect v-model="statusFilter" label="Status" :options="statusOptions" />
         </div>
         <div class="min-w-[10rem]">
           <UiSelect v-model="kindFilter" label="Type" :options="EVENT_KIND_FILTERS" />
         </div>
-        <div class="min-w-[12rem] flex-1">
+        <div v-if="!isClubMode" class="min-w-[12rem] flex-1">
           <label for="filter-province" class="mb-1.5 block text-xs text-fg-secondary"
             >Province</label
           >
@@ -236,7 +334,7 @@ function formatDateRange(start: string, end: string): string {
             <option v-for="p in provinces" :key="p.code" :value="p.code">{{ p.name }}</option>
           </select>
         </div>
-        <div class="min-w-[12rem] flex-1">
+        <div v-if="!isClubMode" class="min-w-[12rem] flex-1">
           <label for="filter-city" class="mb-1.5 block text-xs text-fg-secondary">City</label>
           <select
             id="filter-city"
@@ -258,10 +356,10 @@ function formatDateRange(start: string, end: string): string {
           </select>
         </div>
         <button
-          v-if="hasLocationFilter"
+          v-if="hasAnyFilter"
           type="button"
           class="rounded-lg px-3 py-2 text-sm text-fg-muted hover:text-fg"
-          @click="clearLocationFilter"
+          @click="clearFilters"
         >
           Clear
         </button>
@@ -284,13 +382,11 @@ function formatDateRange(start: string, end: string): string {
       >
         <p class="text-4xl">🎪</p>
         <h3 class="mt-4 text-lg font-semibold text-fg">
-          {{ hasLocationFilter ? 'No events in this area' : 'No events yet' }}
+          {{ emptyTitle }}
         </h3>
         <!-- An active filter is the likeliest reason for an empty list, so say
              so before suggesting the user create something. -->
-        <p v-if="hasLocationFilter" class="mt-2 text-sm text-fg-muted">
-          Try a different province or city, or clear the filter.
-        </p>
+        <p v-if="hasAnyFilter" class="mt-2 text-sm text-fg-muted">{{ emptyHint }}</p>
         <p v-else-if="canCreateEvent" class="mt-2 text-sm text-fg-muted">
           Be the first to create a tournament or competition
         </p>

@@ -1,7 +1,15 @@
 import type { ClubDto } from './club.dto'
 
 export type ClubRole = 'OWNER' | 'ADMIN' | 'MODERATOR' | 'MEMBER'
-export type ClubMembershipStatus = 'pending' | 'active' | 'rejected' | 'left'
+/**
+ * Where a player stands with a club.
+ *
+ * `pending` and `invited` are the same relationship travelling in opposite
+ * directions — the player asked, or the club did (051-club-invitations). Both
+ * occupy the one live slot a player may hold per club, so a club cannot invite
+ * someone whose request is already waiting.
+ */
+export type ClubMembershipStatus = 'pending' | 'invited' | 'active' | 'rejected' | 'left'
 
 export interface ClubMembershipRecord {
   id: string
@@ -12,6 +20,9 @@ export interface ClubMembershipRecord {
   joined_at: string | null
   left_at: string | null
   created_at: string
+  /** Who sent the invitation. Null on a join request, which has no inviter. */
+  invited_by_player_id: string | null
+  invited_at: string | null
 }
 
 export interface ClubMembershipDto {
@@ -23,6 +34,8 @@ export interface ClubMembershipDto {
   joined_at: string | null
   left_at: string | null
   created_at: string
+  invited_by_player_id: string | null
+  invited_at: string | null
 }
 
 export interface RosterMemberDto extends ClubMembershipDto {
@@ -47,6 +60,8 @@ export function toClubMembershipDto(row: ClubMembershipRecord): ClubMembershipDt
     status: row.status,
     joined_at: row.joined_at,
     left_at: row.left_at,
-    created_at: row.created_at
+    created_at: row.created_at,
+    invited_by_player_id: row.invited_by_player_id ?? null,
+    invited_at: row.invited_at ?? null
   }
 }

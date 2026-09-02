@@ -74,6 +74,21 @@ export function createTournamentCategoryRepository(
     },
 
     async create(input) {
+      /**
+       * The game rules are spread in only when stated, never defaulted here.
+       *
+       * `games_default` and friends carry column defaults (one game, to 11, win
+       * by two) that reproduce how every category was played before they could
+       * be chosen. Writing an explicit null instead would overwrite those with
+       * nothing, so a caller that says nothing about the rules must send no key
+       * at all.
+       */
+      const gameRules: Record<string, unknown> = {}
+      if (input.games_default != null) gameRules.games_default = input.games_default
+      if (input.round_game_rules != null) gameRules.round_game_rules = input.round_game_rules
+      if (input.target_points != null) gameRules.target_points = input.target_points
+      if (input.win_by_two != null) gameRules.win_by_two = input.win_by_two
+
       const { data, error } = await client
         .from('tournament_categories')
         .insert({
@@ -86,7 +101,8 @@ export function createTournamentCategoryRepository(
           max_participants: input.max_participants ?? null,
           display_order: input.display_order ?? 0,
           match_type: input.match_type ?? null,
-          format: input.format ?? null
+          format: input.format ?? null,
+          ...gameRules
         })
         .select(CATEGORY_COLUMNS)
         .single()

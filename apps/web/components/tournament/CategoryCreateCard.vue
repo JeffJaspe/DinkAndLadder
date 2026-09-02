@@ -31,9 +31,17 @@ const props = defineProps<{
   error: string
 }>()
 
+/** What the category is played to, sent with either creation path. */
+interface GameRulesPayload {
+  games_default: number
+  round_game_rules: Record<string, number> | null
+  target_points: number
+  win_by_two: boolean
+}
+
 const emit = defineEmits<{
   'add-template': [
-    input: {
+    input: GameRulesPayload & {
       template_id: string
       max_participants: number | null
       match_type: TournamentMatchType
@@ -41,7 +49,7 @@ const emit = defineEmits<{
     }
   ]
   'add-custom': [
-    input: {
+    input: GameRulesPayload & {
       name: string
       min_rating: number | null
       max_rating: number | null
@@ -65,6 +73,104 @@ const custom = reactive({
   name: '',
   min_rating: '' as number | string,
   max_rating: '' as number | string
+})
+
+/**
+ * How the games are played, chosen when the category is created.
+ *
+ * Every category was silently one game to 11 because nothing ever set these —
+ * the columns existed (046-category-game-rules) and no screen wrote to them, so
+ * a best-of-three could not be run at all.
+ *
+ * Odd counts only: an even best-of cannot be decided. Same rule the server
+ * enforces and the check constraint behind it.
+ */
+const GAME_COUNTS = [1, 3, 5] as const
+const TARGET_POINTS = [11, 15, 21] as const
+
+const gamesDefault = ref<number>(1)
+const targetPoints = ref<number>(11)
+const winByTwo = ref(true)
+
+/**
+ * Per-round overrides, keyed by round number.
+ *
+ * The common case is a longer final, and it is the reason `round_game_rules`
+ * exists — so rather than a free-form editor this lists the rounds the chosen
+ * draw size actually produces and lets each one differ. Only the rounds that
+ * differ from the default are sent, which is exactly what the column stores.
+ */
+const roundOverrides = reactive<Record<number, number | ''>>({})
+
+/** Rounds implied by the draw size: 16 entrants is four rounds. */
+const roundCount = computed(() => {
+  const entrants = Number(size.value)
+  if (!Number.isFinite(entrants) || entrants < 2) return 0
+  return Math.ceil(Math.log2(entrants))
+})
+
+const roundNumbers = computed(() => Array.from({ length: roundCount.value }, (_, i) => i + 1))
+
+/** The last round is the final, whatever the draw size makes that. */
+function roundName(round: number): string {
+  const fromEnd = roundCount.value - round
+  if (fromEnd === 0) return 'Final'
+  if (fromEnd === 1) return 'Semi-finals'
+  if (fromEnd === 2) return 'Quarter-finals'
+  return `Round ${round}`
+}
+
+// A smaller draw has fewer rounds; an override left on a round that no longer
+// exists would be sent for a round nobody plays.
+watch(roundCount, (count) => {
+  for (const round of Object.keys(roundOverrides)) {
+    // Reset rather than delete: `roundGameRules` already skips empty values, and
+    // a dynamic delete on a reactive object is both a lint error and a way to
+    // lose reactivity on the key if it comes back.
+    if (Number(round) > count) roundOverrides[Number(round)] = ''
+  }
+})
+
+/** Only the rounds that actually differ from the default. */
+const roundGameRules = computed(() => {
+  const rules: Record<string, number> = {}
+  for (const round of roundNumbers.value) {
+    const value = roundOverrides[round]
+    if (value !== '' && value !== undefined && value !== gamesDefault.value) {
+      rules[String(round)] = Number(value)
+    }
+  }
+  return Object.keys(rules).length ? rules : null
+})
+
+function gameRulesPayload() {
+  return {
+    games_default: gamesDefault.value,
+    round_game_rules: roundGameRules.value,
+    target_points: targetPoints.value,
+    win_by_two: winByTwo.value
+  }
+}
+
+function gamesLabel(count: number): string {
+  return count === 1 ? '1 game' : `Best of ${count}`
+}
+
+// UiSegmented is a string control; these are numbers everywhere else, and
+// storing them as strings would push the conversion into the payload builder
+// where it is easier to forget.
+const gamesDefaultModel = computed({
+  get: () => String(gamesDefault.value),
+  set: (value: string) => {
+    gamesDefault.value = Number(value)
+  }
+})
+
+const targetPointsModel = computed({
+  get: () => String(targetPoints.value),
+  set: (value: string) => {
+    targetPoints.value = Number(value)
+  }
 })
 
 /**
@@ -103,7 +209,8 @@ function submitTemplate() {
     template_id: templateId.value,
     max_participants: toNumberOrNull(size.value),
     match_type: matchType.value,
-    format: format.value
+    format: format.value,
+    ...gameRulesPayload()
   })
 }
 
@@ -115,7 +222,8 @@ function submitCustom() {
     max_rating: toNumberOrNull(custom.max_rating),
     max_participants: toNumberOrNull(size.value),
     match_type: matchType.value,
-    format: format.value
+    format: format.value,
+    ...gameRulesPayload()
   })
 }
 
@@ -248,6 +356,62 @@ watch(
           <option v-for="n in SIZE_SUGGESTIONS" :key="n" :value="n" />
         </datalist>
       </div>
+
+      <!-- How the games are played. These columns existed and nothing ever set
+           them, so every category was silently one game to 11 and a best-of-3
+           could not be run at all. -->
+      <fieldset class="rounded-lg border border-border p-3">
+        <legend class="px-1 text-xs font-medium text-fg-secondary">Games</legend>
+
+        <div class="flex flex-wrap items-end gap-4">
+          <label class="flex flex-col gap-1.5">
+            <span class="text-xs text-fg-secondary">Games per match</span>
+            <UiSegmented
+              v-model="gamesDefaultModel"
+              size="sm"
+              label="Games per match"
+              :items="GAME_COUNTS.map((n) => ({ value: String(n), label: gamesLabel(n) }))"
+            />
+          </label>
+
+          <label class="flex flex-col gap-1.5">
+            <span class="text-xs text-fg-secondary">A game goes to</span>
+            <UiSegmented
+              v-model="targetPointsModel"
+              size="sm"
+              label="Points to win a game"
+              :items="TARGET_POINTS.map((n) => ({ value: String(n), label: String(n) }))"
+            />
+          </label>
+
+          <label class="flex items-center gap-2 pb-1 text-sm text-fg">
+            <input v-model="winByTwo" type="checkbox" class="accent-primary" />
+            Must win by two
+          </label>
+        </div>
+
+        <!-- Per-round overrides. A longer final is the reason this exists, so
+             the rounds the chosen draw size actually produces are listed rather
+             than asking for a round number in the abstract. -->
+        <div v-if="roundNumbers.length > 1" class="mt-4">
+          <p class="mb-2 text-xs text-fg-secondary">
+            Different for a particular round? Anything left on “Same” follows
+            {{ gamesLabel(gamesDefault).toLowerCase() }}.
+          </p>
+          <div class="flex flex-wrap gap-3">
+            <label v-for="round in roundNumbers" :key="round" class="flex flex-col gap-1">
+              <span class="text-caption text-fg-muted">{{ roundName(round) }}</span>
+              <select
+                v-model="roundOverrides[round]"
+                class="rounded-lg border border-border-strong bg-canvas px-2 py-1.5 text-sm text-fg focus:border-primary focus:outline-none"
+              >
+                <option value="">Same</option>
+                <option v-for="n in GAME_COUNTS" :key="n" :value="n">{{ gamesLabel(n) }}</option>
+              </select>
+            </label>
+          </div>
+        </div>
+      </fieldset>
 
       <div v-if="mode === 'template'" class="space-y-3">
         <p v-if="!available.length" class="text-sm text-fg-muted">

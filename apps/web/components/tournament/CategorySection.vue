@@ -735,9 +735,15 @@ async function startMatch(bracketMatchId: string) {
 }
 
 /**
- * Called on every point, so it deliberately does NOT refresh the whole
- * bracket: a draw refetch per tap would make the scoreboard lag behind the
- * person pressing the button. The 30-second poll picks up other viewers.
+ * Called on every point, so it deliberately does NOT refresh the whole bracket:
+ * a draw refetch per tap makes the scoreboard lag behind the person pressing
+ * the button. The poll picks it up for everyone else.
+ *
+ * That is what this comment always said, and the line under it did the
+ * opposite — `await refreshBracket()` on every point, so each tap cost the
+ * write plus a full re-read of the draw before the number moved. The row shows
+ * the tap immediately now; only a failure needs to re-read, to put the score
+ * back to whatever the server actually holds.
  */
 async function updateLiveScore(bracketMatchId: string, scores: LiveBracketScore[]) {
   try {
@@ -745,9 +751,9 @@ async function updateLiveScore(bracketMatchId: string, scores: LiveBracketScore[
       method: 'PATCH',
       body: { scores }
     })
-    await refreshBracket()
   } catch (err) {
     recordError.value = apiErrorMessage(err, 'Could not update the score.')
+    await refreshBracket()
   }
 }
 

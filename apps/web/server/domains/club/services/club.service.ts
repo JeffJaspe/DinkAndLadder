@@ -44,6 +44,25 @@ export interface ClubService {
   getClub(clubId: string): Promise<ClubDto | null>
   updateClub(actingPlayerId: string, clubId: string, patch: UpdateClubInput): Promise<ClubDto>
   requestToJoin(clubId: string, playerId: string): Promise<ClubMembershipDto>
+  /**
+   * The club asking a player, rather than the other way round (051).
+   *
+   * Requires the same standing as approving a request — an ordinary member
+   * cannot conjure new members — and refuses when any live row already exists,
+   * because the unique index allows exactly one and the person deserves a
+   * clearer answer than a constraint violation.
+   */
+  invitePlayer(
+    actingPlayerId: string,
+    clubId: string,
+    targetPlayerId: string
+  ): Promise<ClubMembershipDto>
+  /** The invited player's answer. Only they can give it. */
+  respondToInvite(
+    clubId: string,
+    playerId: string,
+    accept: boolean
+  ): Promise<ClubMembershipDto>
   leaveClub(clubId: string, playerId: string): Promise<ClubMembershipDto>
   listMine(playerId: string): Promise<MyClubMembershipDto[]>
   listRoster(actingPlayerId: string, clubId: string): Promise<RosterMemberDto[]>
@@ -60,11 +79,16 @@ export interface ClubService {
  *  - OWNER: approve/reject requests, promote/demote MEMBER/MODERATOR/ADMIN, remove anyone but itself.
  *  - ADMIN: approve/reject requests, promote/demote between MEMBER and MODERATOR only, remove
  *           MEMBER/MODERATOR. Cannot touch OWNER or other ADMIN rows, cannot grant ADMIN.
- *  - MODERATOR: approve/reject PENDING join requests, and nothing else here — no role changes,
- *    no removals, no acting on a membership that is not pending. Also publishes announcements
+ *  - MODERATOR: approve/reject PENDING join requests, send invitations, and withdraw an
+ *    invitation that has not been answered — and nothing else here: no role changes, no
+ *    removals, no acting on an active membership. Also publishes announcements
  *    (see announcement.service.ts, which already admitted the role). Granted 2026-08-23 on the
  *    product's instruction; before that the role was recognised but carried no permissions.
  *  - MEMBER: no admin capabilities; can only leave (see leaveClub, not updateMember).
+ *
+ * One thing NOBODY on this list may do: accept an invitation on the invited player's behalf.
+ * An `invited` row moves to `active` only through respondToInvite, called by that player.
+ * Membership without consent is the one outcome the invited status exists to prevent.
  * Admin-side removal reuses status 'left' rather than a separate 'removed' value — same terminal
  * state either way; splitting voluntary-leave from kicked is a product decision for later.
  */
@@ -111,6 +135,16 @@ export function createClubService(
     async requestToJoin(clubId, playerId) {
       const existing = await memberships.findByClubAndPlayer(clubId, playerId)
       if (existing) {
+        // An outstanding invitation is the one case worth naming: the answer is
+        // "accept it", not "you already asked", and the two are easy to confuse
+        // now that both occupy the same live slot (051).
+        if (existing.status === 'invited') {
+          throw new ClubServiceError(
+            409,
+            'INVITED',
+            'This club has already invited you. Accept the invitation instead.'
+          )
+        }
         throw new ClubServiceError(
           409,
           'CONFLICT',
@@ -124,6 +158,73 @@ export function createClubService(
         status: 'pending'
       })
       return toClubMembershipDto(membership)
+    },
+
+    async invitePlayer(actingPlayerId, clubId, targetPlayerId) {
+      const acting = await getActiveMembership(clubId, actingPlayerId)
+      // Same standing as approving a request: inviting is admitting somebody,
+      // just with the order of the two steps reversed.
+      if (!acting || !APPROVAL_ROLES.includes(acting.role)) {
+        throw new ClubServiceError(
+          403,
+          'FORBIDDEN',
+          'Only the club owner, an admin or a moderator can invite players.'
+        )
+      }
+
+      if (targetPlayerId === actingPlayerId) {
+        throw new ClubServiceError(400, 'INVALID_REQUEST', 'You are already in this club.')
+      }
+
+      /**
+       * One live row per player per club, so every existing state gets its own
+       * answer rather than a unique-index violation.
+       */
+      const existing = await memberships.findByClubAndPlayer(clubId, targetPlayerId)
+      if (existing) {
+        if (existing.status === 'active') {
+          throw new ClubServiceError(409, 'CONFLICT', 'They are already a member of this club.')
+        }
+        if (existing.status === 'invited') {
+          throw new ClubServiceError(409, 'CONFLICT', 'They have already been invited.')
+        }
+        // They asked first. Admitting them is the honest resolution — sending an
+        // invitation on top would leave both sides waiting for the other.
+        throw new ClubServiceError(
+          409,
+          'REQUEST_PENDING',
+          'They have already asked to join. Approve their request instead.'
+        )
+      }
+
+      const membership = await memberships.create({
+        club_id: clubId,
+        player_id: targetPlayerId,
+        role: 'MEMBER',
+        status: 'invited',
+        invited_by_player_id: actingPlayerId,
+        invited_at: new Date().toISOString()
+      })
+      return toClubMembershipDto(membership)
+    },
+
+    async respondToInvite(clubId, playerId, accept) {
+      const membership = await memberships.findByClubAndPlayer(clubId, playerId)
+      if (!membership || membership.status !== 'invited') {
+        throw new ClubServiceError(
+          404,
+          'NOT_FOUND',
+          'You have no outstanding invitation from this club.'
+        )
+      }
+
+      const updated = await memberships.updateById(membership.id, {
+        status: accept ? 'active' : 'rejected',
+        // Membership dates from the acceptance, not from the invitation: the
+        // roster's "member since" must not predate their saying yes.
+        joined_at: accept ? new Date().toISOString() : null
+      })
+      return toClubMembershipDto(updated)
     },
 
     async leaveClub(clubId, playerId) {
@@ -169,7 +270,7 @@ export function createClubService(
         throw new ClubServiceError(
           404,
           'NOT_FOUND',
-          'That player has no pending or active membership in this club.'
+          'That player has no live membership, request or invitation in this club.'
         )
       }
 
@@ -195,13 +296,43 @@ export function createClubService(
         !input.role &&
         (input.status === 'active' || input.status === 'rejected')
 
-      const permitted = isJoinRequestReview ? APPROVAL_ROLES : ADMIN_ROLES
+      /**
+       * Withdrawing an invitation the club sent (051).
+       *
+       * Recognised as narrowly as a join-request review, and for the same
+       * reason: it is the same class of action, so whoever may send an
+       * invitation may take it back. Without this a MODERATOR could invite
+       * somebody and then be unable to undo it, since an `invited` row is not
+       * `pending` and fell through to the admin-only branch.
+       */
+      const isInviteWithdrawal =
+        target.status === 'invited' && !input.role && input.status === 'rejected'
+
+      /**
+       * A club cannot accept its own invitation.
+       *
+       * `updateMember` will set any status an admin asks for, which on an
+       * `invited` row would have let the club move somebody to `active` without
+       * them ever answering — a membership nobody consented to, and the exact
+       * thing the invited status exists to prevent. Only the invited player can
+       * accept, through `respondToInvite`.
+       */
+      if (target.status === 'invited' && input.status && input.status !== 'rejected') {
+        throw new ClubServiceError(
+          403,
+          'FORBIDDEN',
+          'Only the invited player can accept an invitation. You can withdraw it instead.'
+        )
+      }
+
+      const narrowAction = isJoinRequestReview || isInviteWithdrawal
+      const permitted = narrowAction ? APPROVAL_ROLES : ADMIN_ROLES
       if (!acting || !permitted.includes(acting.role)) {
         throw new ClubServiceError(
           403,
           'FORBIDDEN',
-          isJoinRequestReview
-            ? 'Only the club owner, an admin or a moderator can review join requests.'
+          narrowAction
+            ? 'Only the club owner, an admin or a moderator can answer join requests and invitations.'
             : 'Only the club owner or an admin can manage members.'
         )
       }

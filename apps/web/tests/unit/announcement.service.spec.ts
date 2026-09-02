@@ -50,6 +50,8 @@ function createMockMembership(overrides: Partial<ClubMembershipRecord> = {}): Cl
     status: 'active' as ClubMembershipStatus,
     joined_at: '2024-01-01T00:00:00Z',
     left_at: null,
+    invited_by_player_id: null,
+    invited_at: null,
     created_at: '2024-01-01T00:00:00Z',
     ...overrides
   }

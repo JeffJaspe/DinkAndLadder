@@ -289,6 +289,15 @@ export interface EventSearchQuery {
   club_id?: string
   province?: string
   city?: string
+  /**
+   * Free-text search across the fields a person would recognise an event by:
+   * its name, its venue and its town.
+   *
+   * Deliberately not the description — a keyword that matches a paragraph
+   * nobody reads produces results the searcher cannot see the reason for, which
+   * reads as a broken search rather than a broad one.
+   */
+  q?: string
   status?: EventStatus
   visibility?: EventVisibility
   event_type?: EventType

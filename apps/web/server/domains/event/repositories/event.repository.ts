@@ -1,3 +1,4 @@
+import { escapeLikePattern } from '../../shared/escape-like'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type {
   CreateEventInput,
@@ -255,6 +256,21 @@ export function createEventRepository(client: SupabaseClient): EventRepository {
 
       if (query.club_id) {
         builder = builder.eq('club_id', query.club_id)
+      }
+      /**
+       * One term, three columns, OR'd together.
+       *
+       * `escapeLikePattern` because a searcher typing `%` means a percent sign,
+       * not "match anything" — the same reason club and player search escape
+       * theirs. The commas and dots PostgREST uses as its own separators cannot
+       * appear unescaped either, so the term is bracketed in `"` inside the
+       * filter expression.
+       */
+      if (query.q?.trim()) {
+        const term = escapeLikePattern(query.q.trim()).replace(/"/g, '')
+        builder = builder.or(
+          `name.ilike."%${term}%",venue.ilike."%${term}%",city.ilike."%${term}%"`
+        )
       }
       if (query.province) {
         builder = builder.eq('province', query.province)

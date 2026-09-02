@@ -2,6 +2,8 @@ export type NotificationType =
   | 'club.membership_approved'
   | 'club.membership_rejected'
   | 'club.membership_request'
+  /** The club asked a player to join (051-club-invitations). */
+  | 'club.invited'
   | 'club.role_changed'
   | 'match.verification_requested'
   | 'match.verified'

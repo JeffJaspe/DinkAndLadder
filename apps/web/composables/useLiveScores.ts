@@ -3,7 +3,7 @@ import type { EventCourtDto } from '~/server/domains/event/dto/event.dto'
 /**
  * The court board for an event, kept roughly current.
  *
- * Polling every 30 seconds plus a manual refresh, rather than Supabase
+ * Polling every few seconds plus a manual refresh, rather than Supabase
  * Realtime. A live pickleball score does not need to be accurate to the second,
  * and polling adds no new infrastructure and no new RLS surface. The cost of
  * polling is that you pay for every check whether or not anything changed, so
@@ -18,7 +18,22 @@ import type { EventCourtDto } from '~/server/domains/event/dto/event.dto'
  * for Realtime later is a single-file change rather than a hunt through the
  * matches tab, the court cards and the tournament view.
  */
-const POLL_INTERVAL_MS = 30_000
+/**
+ * How often a watcher re-reads while a court is in play.
+ *
+ * Was 30 seconds, which is a reasonable number for "roughly current" and the
+ * wrong one for something labelled LIVE: a spectator watching the rally saw the
+ * point land up to half a minute later, and a player checking their own score
+ * had no way to tell a stale board from a paused one. Five seconds tracks the
+ * game closely enough that the number moves while the point is still being
+ * talked about.
+ *
+ * Affordable because of the two guards below, which is why they matter more at
+ * this interval than they did at thirty: nothing polls unless a court is
+ * actually playing, and nothing polls while the tab is hidden. A finished
+ * session and a phone in a pocket both cost nothing.
+ */
+const POLL_INTERVAL_MS = 5_000
 
 export function useLiveScores(eventId: Ref<string> | string) {
   const id = computed(() => (typeof eventId === 'string' ? eventId : eventId.value))

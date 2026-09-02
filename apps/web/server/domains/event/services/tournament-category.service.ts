@@ -5,6 +5,7 @@ import type {
 } from '../repositories/tournament.repository'
 import type { TournamentCategoryRepository } from '../repositories/tournament-category.repository'
 import type {
+  CategoryGameRulesInput,
   CreateTournamentCategoryInput,
   TournamentCategoryDto,
   UpdateTournamentCategoryInput
@@ -17,7 +18,7 @@ import type { TournamentFormat, TournamentMatchType } from '../dto/tournament.dt
 import { isTournamentFormat, TOURNAMENT_FORMAT_VALUES } from '~/utils/tournament-formats'
 import { EventServiceError } from './event.service'
 
-export interface CreateCategoryFromTemplateInput {
+export interface CreateCategoryFromTemplateInput extends CategoryGameRulesInput {
   template_id: string
   max_participants?: number | null
   display_order?: number
@@ -27,7 +28,7 @@ export interface CreateCategoryFromTemplateInput {
   format?: TournamentFormat | null
 }
 
-export interface CreateCustomCategoryInput {
+export interface CreateCustomCategoryInput extends CategoryGameRulesInput {
   name: string
   min_rating?: number | null
   max_rating?: number | null
@@ -35,6 +36,23 @@ export interface CreateCustomCategoryInput {
   display_order?: number
   match_type?: TournamentMatchType | null
   format?: TournamentFormat | null
+}
+
+/**
+ * The game rules an input actually stated, with anything it left out dropped.
+ *
+ * `undefined` and `null` are not the same thing here: omitting `games_default`
+ * has to keep the column default (one game), while passing null would overwrite
+ * it. Spreading only what was stated is what keeps a caller that says nothing
+ * about the rules behaving exactly as it did before they were configurable.
+ */
+function gameRulesOf(input: CategoryGameRulesInput): CategoryGameRulesInput {
+  const rules: CategoryGameRulesInput = {}
+  if (input.games_default != null) rules.games_default = input.games_default
+  if (input.round_game_rules != null) rules.round_game_rules = input.round_game_rules
+  if (input.target_points != null) rules.target_points = input.target_points
+  if (input.win_by_two != null) rules.win_by_two = input.win_by_two
+  return rules
 }
 
 export interface TournamentCategoryService {
@@ -276,7 +294,8 @@ export function createTournamentCategoryService(
         max_participants: input.max_participants,
         display_order: input.display_order,
         match_type: input.match_type,
-        format: input.format
+        format: input.format,
+        ...gameRulesOf(input)
       })
     },
 
@@ -290,7 +309,8 @@ export function createTournamentCategoryService(
         max_participants: input.max_participants,
         display_order: input.display_order,
         match_type: input.match_type,
-        format: input.format
+        format: input.format,
+        ...gameRulesOf(input)
       })
     },
 

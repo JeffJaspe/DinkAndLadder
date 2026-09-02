@@ -334,6 +334,32 @@ async function handleJoin() {
   }
 }
 
+/**
+ * Answer an invitation from this club (051).
+ *
+ * Reuses `joining` for the busy state: the two are mutually exclusive — you are
+ * either being asked or asking — so a second flag would only be a way for them
+ * to disagree.
+ */
+async function answerInvite(accept: boolean) {
+  joinError.value = ''
+  joinMessage.value = ''
+  joining.value = true
+  try {
+    await $fetch(`/api/v1/clubs/${resolvedClubId.value}/invites/respond`, {
+      method: 'POST',
+      body: { accept }
+    })
+    joinMessage.value = accept ? 'You joined the club.' : 'Invitation declined.'
+    await Promise.all([checkPendingRequest(), loadRoster()])
+  } catch (err) {
+    const fetchError = err as { data?: { message?: string } }
+    joinError.value = fetchError.data?.message ?? 'Could not answer that invitation.'
+  } finally {
+    joining.value = false
+  }
+}
+
 async function handleLeave() {
   await $fetch(`/api/v1/clubs/${resolvedClubId.value}/leave`, { method: 'POST' })
   await loadRoster()
@@ -884,9 +910,36 @@ const activeMembers = computed(() => roster.value?.filter((m) => m.status === 'a
 
           <p v-if="joinError" class="mt-4 text-sm text-red-400">{{ joinError }}</p>
 
-          <!-- Show join button only if no pending request and not just submitted -->
+          <!-- Already invited: answering is the action, not asking again.
+               Without this the page offered "Request to Join" to somebody the
+               club had already invited, and the request came back as a
+               conflict. -->
+          <div v-if="membershipStatus === 'invited' && !joinMessage" class="mt-4">
+            <p class="text-sm text-fg-secondary">This club has invited you to join.</p>
+            <div class="mt-2 flex flex-wrap gap-2">
+              <button
+                type="button"
+                :disabled="joining"
+                class="rounded-lg bg-primary px-6 py-2.5 font-medium text-on-primary hover:bg-primary-hover disabled:opacity-50"
+                @click="answerInvite(true)"
+              >
+                Accept invitation
+              </button>
+              <button
+                type="button"
+                :disabled="joining"
+                class="rounded-lg border border-border-strong px-4 py-2.5 text-sm text-fg-secondary hover:border-danger hover:text-danger disabled:opacity-50"
+                @click="answerInvite(false)"
+              >
+                Decline
+              </button>
+            </div>
+          </div>
+
+          <!-- Show join button only if no pending request or invitation, and
+               not just submitted -->
           <button
-            v-if="!hasPendingRequest && !joinMessage"
+            v-else-if="!hasPendingRequest && !joinMessage"
             :disabled="joining"
             class="mt-4 rounded-lg bg-primary px-6 py-2.5 font-medium text-on-primary hover:bg-primary-hover disabled:opacity-50"
             @click="handleJoin"

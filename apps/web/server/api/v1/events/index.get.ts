@@ -42,6 +42,9 @@ export default defineEventHandler(async (event) => {
     club_id: query.club_id as string | undefined,
     province: query.province as string | undefined,
     city: query.city as string | undefined,
+    // Trimmed and capped: a search term is typed, so it is the one field here
+    // a person can make arbitrarily long by holding a key down.
+    q: typeof query.q === 'string' ? query.q.trim().slice(0, 100) : undefined,
     status: query.status as EventSearchQuery['status'] | undefined,
     // Comma-separated, because a repeated query param arrives as a string on a
     // single value and an array on several — one shape is easier to trust.

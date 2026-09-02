@@ -6,7 +6,9 @@ import type {
 } from '../dto/club-membership.dto'
 import type { ClubRecord } from '../dto/club.dto'
 
-const MEMBERSHIP_COLUMNS = 'id, club_id, player_id, role, status, joined_at, left_at, created_at'
+const MEMBERSHIP_COLUMNS =
+  'id, club_id, player_id, role, status, joined_at, left_at, created_at, ' +
+  'invited_by_player_id, invited_at'
 
 export interface CreateMembershipInput {
   club_id: string
@@ -14,6 +16,9 @@ export interface CreateMembershipInput {
   role: ClubRole
   status: ClubMembershipStatus
   joined_at?: string | null
+  /** Set when the club initiated it — see the `invited` status (051). */
+  invited_by_player_id?: string | null
+  invited_at?: string | null
 }
 
 export interface UpdateMembershipRecordInput {
@@ -21,6 +26,8 @@ export interface UpdateMembershipRecordInput {
   status?: ClubMembershipStatus
   joined_at?: string | null
   left_at?: string | null
+  invited_by_player_id?: string | null
+  invited_at?: string | null
 }
 
 export interface RosterRow extends ClubMembershipRecord {
@@ -40,7 +47,7 @@ interface OwnMembershipQueryRow extends ClubMembershipRecord {
 }
 
 export interface ClubMembershipRepository {
-  /** The current live (pending or active) row for this club/player pair, if any. */
+  /** The current live (pending, invited or active) row for this club/player pair, if any. */
   findByClubAndPlayer(clubId: string, playerId: string): Promise<ClubMembershipRecord | null>
   findById(membershipId: string): Promise<ClubMembershipRecord | null>
   create(input: CreateMembershipInput): Promise<ClubMembershipRecord>
@@ -49,7 +56,7 @@ export interface ClubMembershipRepository {
     patch: UpdateMembershipRecordInput
   ): Promise<ClubMembershipRecord>
   listByClub(clubId: string): Promise<RosterRow[]>
-  /** Every live (pending or active) membership for this player, with its club joined in. */
+  /** Every live (pending, invited or active) membership for this player, with its club joined in. */
   listOwnWithClub(playerId: string): Promise<OwnMembershipWithClub[]>
 }
 
@@ -61,7 +68,7 @@ export function createClubMembershipRepository(client: SupabaseClient): ClubMemb
         .select(MEMBERSHIP_COLUMNS)
         .eq('club_id', clubId)
         .eq('player_id', playerId)
-        .in('status', ['pending', 'active'])
+        .in('status', ['pending', 'invited', 'active'])
         .maybeSingle()
 
       if (error) throw error
@@ -121,7 +128,7 @@ export function createClubMembershipRepository(client: SupabaseClient): ClubMemb
         .from('club_memberships')
         .select(`${MEMBERSHIP_COLUMNS}, clubs(*)`)
         .eq('player_id', playerId)
-        .in('status', ['pending', 'active'])
+        .in('status', ['pending', 'invited', 'active'])
         .order('created_at', { ascending: true })
 
       if (error) throw error

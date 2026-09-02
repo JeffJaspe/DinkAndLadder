@@ -110,6 +110,24 @@ export default defineEventHandler(async (event) => {
           reference_type: 'club_membership',
           reference_id: membership.id
         })
+      } else if (input.status === 'rejected' && oldMembership.status === 'invited') {
+        /**
+         * Withdrawing an invitation, not declining a request (051).
+         *
+         * Both land on `rejected`, so without this branch the player would be
+         * told "your request to join was declined" about a request they never
+         * made. It is still audited — the club did something to somebody's
+         * standing — but not announced: "we have changed our mind about
+         * inviting you" is a message nobody is better off receiving, and the
+         * invitation simply disappears from their list.
+         */
+        await auditService.logClubMembershipAction(
+          claims.sub,
+          playerProfile.id,
+          membership.id,
+          'reject',
+          { target_player_id: targetPlayerId, club_id: clubId, withdrawn_invitation: true }
+        )
       } else if (input.status === 'rejected') {
         await auditService.logClubMembershipAction(
           claims.sub,

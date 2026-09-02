@@ -6190,3 +6190,376 @@ eight-category tournament rather than asserting a fixed number.
 ### Validation
 
 `typecheck` clean, `lint` 0 errors, 1113 unit tests pass (73 files).
+
+---
+
+## Scoresheet mockup applied to the tournament surfaces — 2026-09-01
+
+Reported as "still the same on scoring". Correct: the mockup landed on match
+submission and the match view, and two surfaces never got it.
+
+### 1. The tournament match row kept its own form
+
+`CategoryMatchRow` still hand-rolled three rows labelled **Set 1/2/3** with a
+winner the organiser picked by hand — long after `MatchScoreSheet` existed.
+Three things wrong with it, beyond looking different:
+
+- The row count was hard-coded to best-of-three, ignoring the category's own
+  rules. A one-game session showed two boxes that could not be played; a
+  best-of-five could not record games four and five at all.
+- "Set" contradicts the vocabulary decision recorded for the rest of the
+  codebase — the sport, the paper sheet and `bracket_matches.live_score` all say
+  **game**.
+- The winner was decided by counting rows where one number beat the other. That
+  is not the rule: 11-10 is not a finished game, and being ahead is not winning.
+
+Both the entry form and the read-back table (a *third* divergent rendering of
+one result) now use `MatchScoreSheet`. Result type — played out / retired / DQ /
+walkover — is offered as the mockup has it, and the explicit-winner radio
+appears **only** when the score cannot name a winner, so a played-out match
+cannot be contradicted by hand.
+
+### 2. The confirmation step did not exist anywhere
+
+The bigger miss, and the one behind "still the same". The mockup's live panel
+stops on the point that finishes a game and asks *"Game 2 complete — is this the
+final score?"*, with **No, go back** restoring the score to before that tap.
+Both surfaces instead closed the game silently and opened the next one: the app
+read "A finished game opens the next one."
+
+That is fine when the tap was right and unrecoverable when it was not — and the
+scorer is standing at a court, watching a rally, tapping a phone.
+
+`composables/useGameConfirm.ts` holds the closing point instead of posting it,
+and `components/match/GameConfirmDialog.vue` asks. Both `CategoryMatchRow` and
+`CourtCard` use them, so open play and tournament scoring behave identically.
+
+Two details worth keeping:
+
+- **Nothing is posted while the question is open.** Declining therefore has
+  nothing to undo — it drops the pending array and the display falls back to
+  what the server still holds. An implementation that posted first would need a
+  compensating write, which can fail.
+- **Advancing moved to the confirm**, not the qualifying score. The game that
+  opens is one the scorer has confirmed reaching.
+
+Removing a point never asks: that IS the correction.
+
+### 3. A TDZ trap, twice
+
+Handing `rules` to a composable reads it during setup, where a lazy computed did
+not. `rules` moved above the scoring block in both components — the same class
+of bug as the event page's `visibleTabs` crash earlier today, and the second
+time this pattern has bitten. Worth watching for whenever a `const` moves from
+template-only use into setup-time use.
+
+### Files
+
+- `composables/useGameConfirm.ts`, `components/match/GameConfirmDialog.vue` (new)
+- `components/tournament/CategoryMatchRow.vue`, `components/event/CourtCard.vue`
+
+### Tests
+
+`tests/unit/game-confirm.spec.ts` (new, 10) — the closing point is held not
+posted, confirm records and opens the next game, confirm does not open a game
+the match no longer needs (SC-4), declining leaves no trace, removing a point
+never asks, and the margin rule decides when the question appears at all
+(11-10 passes through, 11-10 with win-by-two off does not).
+
+### Validation
+
+`typecheck` clean, `lint` 0 errors, 1123 unit tests pass (74 files).
+
+### Not applied by this change
+
+The mockup's toolbar — games per match, points to win, win-by-two — is event
+creation's job and already lives in `046-category-game-rules`; the sheet reads
+those rules rather than offering them at the table, which is what the mockup's
+own caption says should happen.
+
+---
+
+## Live scoring latency, the per-category board, and the header link — 2026-09-01
+
+### 1. Every point cost two serial round trips
+
+A `+`/`−` tap ran `PATCH …/score` and then `await refresh…()`, and the card only
+re-rendered once that **second** request returned — because the score on screen
+was read straight from the server's copy. Two round trips to a database on
+another continent before the number moved, which at a venue is seconds per tap.
+
+`useGameConfirm` now holds an optimistic array: the tap renders immediately and
+the write goes out behind it. `serverGames` stays the authority — when a fresh
+board arrives, whatever it says wins, so a rejected write reverts on its own
+rather than needing a compensating undo that could itself fail.
+
+The refetch-per-point is gone from all three callers; only a failure re-reads.
+
+`CategorySection.updateLiveScore` is worth noting: its docblock already said
+"deliberately does NOT refresh the whole bracket: a draw refetch per tap would
+make the scoreboard lag behind the person pressing the button" — and the line
+directly under it was `await refreshBracket()`. Second time today a comment
+described the intended behaviour while the code did the opposite.
+
+### 2. Live scores now reach players in seconds, not half a minute
+
+`useLiveScores` polled every 30s. That is a fine number for "roughly current"
+and the wrong one for something labelled LIVE — a spectator saw the point up to
+half a minute after it was played. Now 5s.
+
+Affordable only because of the two guards that were already there, which matter
+much more at this interval: nothing polls unless a court is actually `playing`,
+and nothing polls while the tab is hidden. A finished session and a phone in a
+pocket still cost nothing. Copy that promised "every 30 seconds" updated.
+
+### 3. The per-category board opened to nothing
+
+`/events/{id}/matches` fetched its categories and bracket through reactive URL
+getters that return `''` before the tournament resolves. A getter returning an
+empty string **still issues a request** — one that resolves to the page itself
+and returns HTML where a bracket was expected — so the page rendered neither a
+draw nor an error. Both fetches are now `immediate: false`, fired by a watcher
+once the tournament id exists, and there is an explicit error state: a screen
+left open on a wall must never be silently blank.
+
+It also only ever listed matches. It now shows what the ask described — the draw
+as a draw (`TournamentBracketTree`), the live courts above it, and the order of
+play below — at full width, with score controls in reach so the desk can run the
+category from this screen. Live scoring is wired here too (`@score`, `@start`),
+which it was not before.
+
+### 4. The event-wide "Open matches in a new tab" is gone
+
+Removed from the tournament tab header. A tournament runs one draw at a time and
+the screen at the desk shows the one being played; opening every category at
+once is the picture nobody wanted. The Open button stays on each category card,
+which is where it was already pointing at `?category=`.
+
+### Files
+
+- `composables/useGameConfirm.ts`, `composables/useLiveScores.ts`
+- `components/event/CourtCard.vue`, `components/tournament/CategoryMatchRow.vue`,
+  `components/tournament/CategorySection.vue`
+- `pages/events/[eventId]/matches.vue` (rewritten), `pages/events/[eventId]/index.vue`
+
+### Tests
+
+`tests/unit/game-confirm.spec.ts` — 13 now. Three new ones for the optimistic
+path: the score shows before the server answers, a second tap builds on the
+first rather than on the stale server array, and a fresh board takes authority
+back (which is also how a rejected write reverts).
+
+### Validation
+
+`typecheck` clean, `lint` 0 errors, 1126 unit tests pass (74 files).
+
+---
+
+## Always-visible score sheet, and the blank per-category board — 2026-09-01
+
+### 1. The score sheet no longer hides behind a button
+
+`CategoryMatchRow` gated the sheet behind **Record result**, which was wrong on
+two counts: the sheet is where the score of the match being played is read, and
+a button called "Record result" implies the match is over. An organiser scoring
+a live game could not see what they were accumulating without pressing it.
+
+Button removed, sheet always on screen for anyone who can record. Cancel went
+with it — there is no form to back out of, and the sheet holds nothing that was
+not either typed or already on the live board.
+
+### 2. Live scoring now writes into the sheet
+
+The stepper and the sheet were two disconnected surfaces: points went into the
+stepper above while the sheet below stayed empty, so an organiser who had just
+scored a whole game read their own numbers off the top of the card and typed
+them in again.
+
+Confirming a game now writes it straight into the sheet, which is what makes the
+confirmation worth answering — it is the moment a running tally becomes a
+recorded fact. Only games the live board has reached are copied; the rest of the
+grid stays blank and typeable, so a match scored partly on paper still works.
+
+### 3. The per-category board was blank for a one-word reason
+
+`GET /events/{id}/tournaments` returns **`{ tournaments: [...] }`**. The page
+read `.data[0]`. `tournament` was therefore permanently null, so the categories,
+the bracket and everything downstream were never fetched — and because nothing
+was fetched, nothing errored either. The page rendered its own frame around
+nothing.
+
+Found by curling the endpoint rather than by reading the page again. Two
+sessions of reasoning about layouts, middleware and empty-URL fetches did not
+find it; one request did. **When a page renders nothing, check the shape of what
+it fetched before theorising about why it did not render.**
+
+The endpoint's neighbours use `data`; this one names its collection. The event
+page had it right, this page did not. Registrations are the same shape
+(`{ registrations: [...] }`), which the new players panel accounts for.
+
+The page also gained the players list, beside the draw — "who is in this
+category" is asked at a desk as often as "what is the score", and answering it
+meant going back to the event page. Read-only: approving an entry is not a wall
+screen's job.
+
+### 4. A third temporal-dead-zone crash, caught by running it
+
+`watch(tournament, …, { immediate: true })` calling a `refresh` declared below
+it 500'd the whole page with `Cannot access 'refreshRegistrations' before
+initialization`. Same shape as the event page's `visibleTabs` crash and the two
+in the scoring components.
+
+The rule, now stated three times in three files: **a `const` used at setup time
+must be declared above the thing that uses it, however lazy the call site
+looks.** `immediate: true` and passing a ref to a composable both count as
+setup-time use.
+
+Worth noting the process point: this was found in seconds by requesting the page
+after the edit. The earlier TDZ bugs were found by a user hitting them.
+
+### Validation
+
+`typecheck` clean, `lint` 0 errors, 1126 unit tests pass (74 files). The event
+page and the per-category board both verified rendering 200 against the running
+dev server; the other touched routes 302 to login as expected for an
+unauthenticated request.
+
+---
+
+## Six-item batch: scoring rules, event search, club invitations — 2026-09-02
+
+### 1. "How did it end?" was enabled before the match existed
+
+The select offered "Retired" on a match nobody had started. It now unlocks once
+the match is live (or has a score), and stays unlocked afterwards — a retirement
+is decided at the moment play stops, which is exactly when it is needed.
+
+Two related fixes: anything other than "Played out" can now be saved **without**
+a full score, because those three endings are decided by the organiser naming a
+winner (SC-3) and requiring a finished score made an abandoned match impossible
+to record. And each ending now explains itself in the row — DQ and walkover are
+not interchangeable and should not have to be told apart from memory.
+
+### 2. Games per round, chosen at creation
+
+`games_default`, `round_game_rules`, `target_points` and `win_by_two` have
+existed since 046 and **nothing ever wrote to them**, so every category was
+silently one game to 11 and a best-of-three could not be run at all. Plumbed
+through DTO → service → repository → endpoint, with validation (odd counts only;
+an even best-of cannot be decided) so a bad value gets a message rather than a
+check-constraint 500.
+
+The create card offers games per match, points per game, win-by-two, and
+per-round overrides listed against the rounds the chosen draw size actually
+produces — a longer final being the case `round_game_rules` exists for. Only
+rounds that differ from the default are sent, which is what the column stores.
+
+### 3. Live scores in the Scores panel, one card per round
+
+The panel listed finished matches only — `liveGame` was hardcoded null with a
+note that live play "is on a court, which the Courts tab owns". True, and
+exactly the problem: a spectator asking "what is the score" had to know which
+tab to open first.
+
+`BoxScore` now groups by round into separate cards, banding a card live when any
+match on it is in play. The event page feeds it live courts first, then finished
+matches grouped by round — rounds come from the bracket, since the event's match
+list is flat and carries none.
+
+### 4. Events in club mode
+
+Was the whole public listing in both modes, so a club opening "Events" saw every
+other club's sessions. Now scoped to the club's own. Location filters go with it
+(every event there is one club in one town, so a province picker could only
+remove rows) and a keyword search replaces them — server-side across name, venue
+and city, debounced, escaped with the same `escapeLikePattern` club and player
+search already use. The empty state distinguishes "nothing matched that search"
+from "no events yet", which are very different claims.
+
+### 5. Club invitations — the feature the button implied
+
+"Invite to club" was a **link to the club's own page**. The code said so:
+"There is no invite endpoint yet ... a real invitation (sent, accepted,
+expiring) is its own feature." A club could only ever wait to be asked. That is
+what "invite is not working properly" meant.
+
+**051-club-invitations** adds `invited` to `club_memberships.status` plus
+`invited_by_player_id` / `invited_at`. Modelled as a status rather than a table
+of its own because an invitation and a join request are the same relationship
+travelling in opposite directions and share every rule that matters — one live
+row per player per club, one roster, one "already a member" check. Two tables
+would have meant two answers to whether somebody is in a club.
+
+The unique live-membership index now covers `invited`, so a club cannot invite
+somebody whose request is already waiting; that case returns `REQUEST_PENDING`
+telling them to approve it instead, rather than a constraint violation. An RLS
+policy lets the invited player make exactly the accept/decline transition on
+their own row.
+
+`POST /clubs/{id}/invites` and `/invites/respond`, both notifying. Only the
+acceptance is announced back — telling an owner they were turned down invites
+them to ask why, the same reasoning the team-up decline follows.
+
+### 6. Members nav in club view
+
+New `/club/{id}/members` with Members / Incoming / Invited, opening on Incoming
+when a request is waiting. None of this had a screen: requests were a strip on
+the public club page and invitations did not exist. Invited players see and
+answer theirs from `/my-clubs`, in a block above the clubs they are already in.
+
+### Tests
+
+`tests/unit/club-invitations.spec.ts` (new, 9) — the invited row and its
+stamping, permission, every already-has-a-row case including the pending-request
+one, accept/decline, and that only the invited player may answer.
+
+**A fake that would have hidden the bug:** the first version defaulted
+`joined_at` in the shared fixture, so an invitation looked like a membership
+before acceptance and the test passed. The real insert writes only the columns
+it is given. Fixed in the fake, with a note saying why.
+
+### Validation
+
+`typecheck` clean, `lint` 0 errors, 1135 unit tests pass (75 files). Event page
+verified 200 against the running dev server; `?q=` verified returning matches.
+
+### Not yet applied
+
+051 needs `liquibase update` — same path as 049/050. Until it runs, every invite
+endpoint fails on the missing status value, and the Members page's Invited tab
+is empty rather than wrong.
+
+### Self-review of the invitation work — four defects found and fixed
+
+Reviewing the batch immediately after writing it, rather than waiting for it to
+be reported. All four are in code added the same day.
+
+**1. A club could accept its own invitation.** `updateMember` sets whatever
+status an admin asks for, so `PATCH /members/{id} {status:'active'}` on an
+`invited` row would have made somebody a member without them ever answering —
+a membership nobody consented to, and precisely what the invited status exists
+to prevent. An `invited` row now moves to `active` only through
+`respondToInvite`, called by that player.
+
+**2. A moderator could invite but not withdraw.** An `invited` row is not
+`pending`, so withdrawing fell through to the admin-only branch while sending
+was allowed at APPROVAL_ROLES. Whoever may send an invitation may take it back.
+
+**3. Withdrawing an invitation told the player they had been rejected.** Both
+actions land on `rejected`, so the existing branch fired and sent "Your request
+to join X was declined" to somebody who never asked. Withdrawal is now its own
+branch: audited, not announced. "We have changed our mind about inviting you"
+is a message nobody is better off receiving.
+
+**4. An invited player was still offered "Request to Join".** The public club
+page keyed on `pending` only, so an invitation left the join button showing and
+the request came back as a conflict. The page now offers Accept/Decline, and
+`requestToJoin` returns a distinct `INVITED` code saying to accept instead.
+
+Three of the four are the same underlying mistake: adding a status to a
+lifecycle without walking every branch that already switched on the old ones.
+Worth remembering the next time a status value is added anywhere.
+
+`typecheck` clean, `lint` 0 errors, 1138 tests pass (75 files) — 3 more covering
+the two service-level fixes. Event and club pages verified 200 against the
+running dev server.

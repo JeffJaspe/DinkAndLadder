@@ -1,11 +1,5 @@
 <script setup lang="ts">
-import {
-  DEFAULT_GAME_RULES,
-  isGameComplete,
-  seriesWinner,
-  type GameRules,
-  type GameScore
-} from '~/utils/game-rules'
+import { DEFAULT_GAME_RULES, type GameRules } from '~/utils/game-rules'
 import type {
   CourtSideDto,
   EventCourtDto,
@@ -35,66 +29,62 @@ const emit = defineEmits<{
 
 const isLive = computed(() => props.court.status === 'playing')
 
-/** The game in progress — the last one entered, or a fresh 0-0. */
-const currentGame = computed<LiveGameScore>(() => {
-  const games = props.court.live_score ?? []
-  return games[games.length - 1] ?? { game_number: 1, team1_score: 0, team2_score: 0 }
-})
-
 function sideLabel(side: CourtSideDto | null): string {
   if (!side || side.players.length === 0) return 'TBC'
   return side.players.map((p) => p.display_name).join(' & ')
 }
 
 /**
+ * Open play is one game to 11. There is no category here to say otherwise — a
+ * court belongs to an event, not a draw — so the defaults apply.
+ *
+ * Declared above the scoring block, which hands it to a composable and so reads
+ * it during setup rather than lazily.
+ */
+const rules = computed<GameRules>(() => ({
+  ...DEFAULT_GAME_RULES,
+  bestOf: Math.max(1, (props.court.live_score ?? []).length)
+}))
+
+/**
  * A point is added by replacing the last game in the list, not by mutating it.
  * The parent owns the array and sends the whole thing to the API, so handing
  * back a mutated reference would make the optimistic update indistinguishable
  * from the server's answer.
+ *
+ * Advancing is a consequence of finishing a game, not a separate action — there
+ * used to be a "Next game" button here, which meant two divergent ways to move
+ * on. But it is no longer silent either: the point that closes a game stops and
+ * asks (see `useGameConfirm`), because a scorer at a court mis-taps and used to
+ * lose the game to it. Taking a point back never asks; that IS the correction.
  */
-function adjust(team: 1 | 2, delta: number) {
-  const games = [...(props.court.live_score ?? [])]
-  const index = Math.max(0, games.length - 1)
-  const game = games[index] ?? { game_number: 1, team1_score: 0, team2_score: 0 }
+const serverGames = computed(() => props.court.live_score ?? [])
 
-  const next = {
-    ...game,
-    team1_score: team === 1 ? Math.max(0, game.team1_score + delta) : game.team1_score,
-    team2_score: team === 2 ? Math.max(0, game.team2_score + delta) : game.team2_score
-  }
-
-  games[index] = next
-
-  /**
-   * Advancing is a consequence of finishing a game, not a separate action.
-   *
-   * There used to be a "Next game" button beside this, which meant two
-   * divergent ways to move on: press it early and you opened a game nobody had
-   * finished; forget it and the next rally went onto the previous game's score.
-   * A game that meets the rules opens the next one by itself.
-   *
-   * Only on a point being ADDED — taking one back to correct a mistake must
-   * never spawn a game.
-   */
-  if (delta > 0 && isGameComplete(toGameScore(next), rules.value)) {
-    const played = games.map(toGameScore)
-    if (!seriesWinner(played, rules.value)) {
-      games.push({ game_number: games.length + 1, team1_score: 0, team2_score: 0 })
-    }
-  }
-
-  emit('score', games)
-}
-
-/** The live-score row shape, in the shape the shared rules read. */
-function toGameScore(game: { team1_score: number; team2_score: number }): GameScore {
-  return { team1_score: game.team1_score, team2_score: game.team2_score }
-}
+const {
+  displayGames,
+  pending: pendingGames,
+  pendingIndex,
+  addPoint: adjust,
+  confirm: confirmGame,
+  cancel: cancelGame
+} = useGameConfirm(rules, serverGames, (games) => emit('score', games))
 
 /**
- * Open play is one game to 11. There is no category here to say otherwise —
- * a court belongs to an event, not a draw — so the defaults apply.
+ * The game in progress — the last one entered, or a fresh 0-0.
+ *
+ * Reads `displayGames`, so the board shows the tap that has just been made
+ * rather than waiting for the server to agree, and shows the score being asked
+ * about while a confirmation is open.
  */
+const currentGame = computed<LiveGameScore>(
+  () =>
+    displayGames.value[displayGames.value.length - 1] ?? {
+      game_number: 1,
+      team1_score: 0,
+      team2_score: 0
+    }
+)
+
 /**
  * Whether the game is in its two-clear-points tail, and what to say about it.
  *
@@ -112,11 +102,6 @@ const deuceNote = computed(() => {
   const leader = a > b ? sideLabel(props.court.team1) : sideLabel(props.court.team2)
   return `Game point — ${leader} needs one more clear point.`
 })
-
-const rules = computed<GameRules>(() => ({
-  ...DEFAULT_GAME_RULES,
-  bestOf: Math.max(1, (props.court.live_score ?? []).length)
-}))
 </script>
 
 <template>
@@ -153,12 +138,12 @@ const rules = computed<GameRules>(() => ({
       </div>
 
       <p
-        v-if="(court.live_score?.length ?? 0) > 1"
+        v-if="displayGames.length > 1"
         class="mt-1 text-center text-caption text-fg-muted"
       >
         Game {{ currentGame.game_number }} ·
         {{
-          (court.live_score ?? [])
+          displayGames
             .slice(0, -1)
             .map((g) => `${g.team1_score}-${g.team2_score}`)
             .join(', ')
@@ -174,7 +159,7 @@ const rules = computed<GameRules>(() => ({
         -->
         <div class="flex flex-wrap items-center justify-between gap-2">
           <p class="text-caption text-fg-muted">
-            Points go to the live scoreboard as you tap.
+            Points go to the live scoreboard as you tap. You confirm the final score of each game.
           </p>
           <span
             class="rounded-badge bg-warning-soft px-2 py-0.5 font-mono text-caption font-bold text-warning"
@@ -263,5 +248,19 @@ const rules = computed<GameRules>(() => ({
         </li>
       </ol>
     </div>
+    <!-- Only reachable for an organiser, since only they can add a point. -->
+    <MatchGameConfirmDialog
+      :model-value="pendingGames !== null"
+      :game-index="pendingIndex"
+      :teams="[
+        court.team1?.players.map((p) => p.display_name) ?? ['TBC'],
+        court.team2?.players.map((p) => p.display_name) ?? ['TBC']
+      ]"
+      :team1-score="currentGame.team1_score"
+      :team2-score="currentGame.team2_score"
+      @confirm="confirmGame"
+      @cancel="cancelGame"
+      @update:model-value="!$event && cancelGame()"
+    />
   </article>
 </template>

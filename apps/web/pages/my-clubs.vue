@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { MyClubMembershipDto } from '~/server/domains/club/dto/club-membership.dto'
+import { apiErrorMessage } from '~/utils/api-error-message'
 
 useHead({ title: 'My clubs' })
 
@@ -13,7 +14,39 @@ interface PageResponse {
   items: MyClubMembershipDto[]
 }
 
-const { data, pending, error } = await useFetch<PageResponse>('/api/v1/clubs/mine')
+const { data, pending, error, refresh } = await useFetch<PageResponse>('/api/v1/clubs/mine')
+
+/**
+ * Clubs that have asked this player to join (051-club-invitations).
+ *
+ * Given its own block above the list rather than a row inside it: an invitation
+ * is the only thing on this page that needs an answer, and it would otherwise
+ * sit among clubs the player is already in, looking like one of them.
+ */
+const invitations = computed(() =>
+  (data.value?.items ?? []).filter((m) => m.status === 'invited')
+)
+
+const joined = computed(() => (data.value?.items ?? []).filter((m) => m.status !== 'invited'))
+
+const answeringId = ref<string | null>(null)
+const inviteError = ref('')
+
+async function answerInvite(clubId: string, accept: boolean) {
+  answeringId.value = clubId
+  inviteError.value = ''
+  try {
+    await $fetch(`/api/v1/clubs/${clubId}/invites/respond`, {
+      method: 'POST',
+      body: { accept }
+    })
+    await refresh()
+  } catch (err) {
+    inviteError.value = apiErrorMessage(err, 'Could not answer that invitation.')
+  } finally {
+    answeringId.value = null
+  }
+}
 
 const roleColors: Record<string, string> = {
   OWNER: 'bg-warning-fill text-on-accent',
@@ -49,6 +82,47 @@ const roleColors: Record<string, string> = {
         </NuxtLink>
       </div>
 
+      <!-- An invitation is the one thing on this page that needs an answer, so
+           it sits above the clubs the player is already in rather than among
+           them, where it would read as another membership. -->
+      <section v-if="invitations.length" class="mb-6 space-y-2">
+        <h2 class="text-caption font-semibold uppercase tracking-wide text-fg-muted">
+          Invitations
+        </h2>
+        <p v-if="inviteError" role="alert" class="text-sm text-danger">{{ inviteError }}</p>
+        <div
+          v-for="membership in invitations"
+          :key="membership.id"
+          class="flex flex-wrap items-center gap-3 rounded-xl border border-primary/30 bg-primary-soft p-4"
+        >
+          <NuxtLink
+            :to="`/clubs/${membership.club.id}`"
+            class="min-w-0 flex-1 text-sm font-medium text-fg hover:underline"
+          >
+            {{ membership.club.name }}
+            <span class="block text-caption font-normal text-fg-secondary">
+              invited you to join
+            </span>
+          </NuxtLink>
+          <button
+            type="button"
+            :disabled="answeringId === membership.club.id"
+            class="rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-on-primary hover:bg-primary-hover disabled:opacity-50"
+            @click="answerInvite(membership.club.id, true)"
+          >
+            Accept
+          </button>
+          <button
+            type="button"
+            :disabled="answeringId === membership.club.id"
+            class="rounded-lg border border-border-strong px-3 py-1.5 text-sm text-fg-secondary hover:border-danger hover:text-danger disabled:opacity-50"
+            @click="answerInvite(membership.club.id, false)"
+          >
+            Decline
+          </button>
+        </div>
+      </section>
+
       <!-- Loading -->
       <div v-if="pending" class="space-y-3">
         <div v-for="i in 3" :key="i" class="h-24 animate-pulse rounded-xl bg-surface" />
@@ -61,7 +135,7 @@ const roleColors: Record<string, string> = {
 
       <!-- Empty -->
       <div
-        v-else-if="!data?.items.length"
+        v-else-if="!joined.length && !invitations.length"
         class="rounded-xl bg-surface p-12 text-center shadow-card"
       >
         <p class="text-4xl">🏸</p>
@@ -80,7 +154,7 @@ const roleColors: Record<string, string> = {
       <!-- Clubs List -->
       <div v-else class="space-y-3">
         <NuxtLink
-          v-for="membership in data.items"
+          v-for="membership in joined"
           :key="membership.id"
           :to="`/clubs/${membership.club.id}`"
           class="flex items-center gap-4 rounded-xl bg-surface p-4 transition-all hover:bg-surface-2 shadow-card hover:shadow-card-hover"

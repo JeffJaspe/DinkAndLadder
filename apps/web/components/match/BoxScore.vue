@@ -26,6 +26,15 @@ export interface BoxScoreMatch {
   games: GameScore[]
   /** Category, round, court — whatever places this match. */
   context?: string | null
+  /**
+   * Which card this match belongs on, e.g. "Round 2" or "On court".
+   *
+   * A tournament is read a round at a time — "who is still in after the
+   * quarters" is one question, not eight — so matches sharing a group are drawn
+   * as one card with a heading. Matches with no group fall together into a
+   * single untitled card, which is what a plain open-play event gets.
+   */
+  group?: string | null
   /** Which game is being played right now, 1-based. Null when not live. */
   liveGame?: number | null
   complete?: boolean
@@ -79,6 +88,28 @@ function winnerOf(match: BoxScoreMatch): 1 | 2 | null {
   return seriesWinner(match.games, rulesFor(match))
 }
 
+/**
+ * The matches split into cards, in the order they were handed over.
+ *
+ * Insertion order rather than a sort: the caller knows whether the live round
+ * belongs above the finished ones, and re-sorting here would fight it.
+ */
+const groups = computed(() => {
+  const byLabel = new Map<string, BoxScoreMatch[]>()
+  for (const match of props.matches) {
+    const label = match.group ?? ''
+    const bucket = byLabel.get(label)
+    if (bucket) bucket.push(match)
+    else byLabel.set(label, [match])
+  }
+  return [...byLabel.entries()].map(([label, matches]) => ({ label, matches }))
+})
+
+/** A card is live when any match on it is being played right now. */
+function groupIsLive(matches: BoxScoreMatch[]): boolean {
+  return matches.some((match) => match.liveGame != null)
+}
+
 function stateOf(match: BoxScoreMatch) {
   if (match.liveGame != null) {
     return { label: `Live · G${match.liveGame}`, tone: 'bg-warning-fill text-fg' }
@@ -94,8 +125,38 @@ function stateOf(match: BoxScoreMatch) {
 </script>
 
 <template>
-  <div v-if="matches.length" class="overflow-x-auto rounded-card border border-border bg-surface">
-    <table class="w-full min-w-[36rem] border-collapse text-sm">
+  <div v-if="matches.length" class="space-y-4">
+    <!-- One card per round, because a round is the unit a tournament is read
+         in. A card with a match in play is banded live, so the round being
+         played is findable without scanning every row's state. -->
+    <div
+      v-for="bucket in groups"
+      :key="bucket.label || 'all'"
+      class="overflow-hidden rounded-card border bg-surface"
+      :class="groupIsLive(bucket.matches) ? 'border-warning/40' : 'border-border'"
+    >
+      <div
+        v-if="bucket.label"
+        class="flex items-center gap-2 border-b px-4 py-2"
+        :class="groupIsLive(bucket.matches) ? 'border-warning/40 bg-warning-soft' : 'border-border bg-surface-2'"
+      >
+        <span
+          class="text-caption font-semibold uppercase tracking-wider"
+          :class="groupIsLive(bucket.matches) ? 'text-warning' : 'text-fg-muted'"
+        >
+          {{ bucket.label }}
+        </span>
+        <span
+          v-if="groupIsLive(bucket.matches)"
+          class="inline-flex items-center gap-1.5 rounded-pill bg-danger/15 px-2 py-0.5 text-caption font-semibold uppercase tracking-wide text-danger"
+        >
+          <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-danger" aria-hidden="true" />
+          Live
+        </span>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="w-full min-w-[36rem] border-collapse text-sm">
       <thead>
         <tr>
           <th
@@ -118,7 +179,7 @@ function stateOf(match: BoxScoreMatch) {
         </tr>
       </thead>
       <tbody>
-        <template v-for="match in matches" :key="match.id">
+        <template v-for="match in bucket.matches" :key="match.id">
           <tr v-for="side in ([1, 2] as const)" :key="`${match.id}-${side}`">
             <td
               class="px-4 align-top"
@@ -173,6 +234,8 @@ function stateOf(match: BoxScoreMatch) {
           </tr>
         </template>
       </tbody>
-    </table>
+        </table>
+      </div>
+    </div>
   </div>
 </template>

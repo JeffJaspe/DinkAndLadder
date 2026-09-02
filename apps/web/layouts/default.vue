@@ -142,6 +142,14 @@ const clubNavItems = computed<NavItem[]>(() => [
   // Community is deliberately absent in club mode. It is a player-to-player
   // surface — duos, team-ups, who you have played with — and a club is not a
   // party to any of those relationships, so every action on it was inapplicable.
+  {
+    // Who is in, who is waiting, and who has been invited. None of this had a
+    // screen: requests were a strip on the public club page and invitations did
+    // not exist at all.
+    name: 'Members',
+    href: activeClubId.value ? `/club/${activeClubId.value}/members` : '/my-clubs',
+    icon: 'user'
+  },
   { name: 'Players', href: '/players', icon: 'user' },
   {
     // What a visitor sees. There was no route to it at all, so an owner could

@@ -13,6 +13,8 @@ import type { PartnerDto } from '~/server/domains/partnership/dto/partnership.dt
 import type { BoxScoreMatch } from '~/components/match/BoxScore.vue'
 import type { PlayerProfileDto } from '~/server/domains/player/dto/player-profile.dto'
 import { apiErrorMessage } from '~/utils/api-error-message'
+import { roundLabel } from '~/utils/bracket-rounds'
+import type { BracketDto } from '~/server/domains/event/dto/bracket.dto'
 import type { PlatformFeeRule } from '~/utils/convenience-fee'
 import type { FeeWaiver } from '~/server/domains/event/services/registration-fee'
 import type { MixupSchedule } from '~/server/domains/event/services/mixup-scheduler'
@@ -97,51 +99,6 @@ const {
  * Recorded matches only: a match that has not been scored has nothing to show,
  * and the running courts are already on the Courts tab with their own controls.
  */
-const boxScoreMatches = computed<BoxScoreMatch[]>(() =>
-  (matchesData.value?.data ?? [])
-    .filter((match) => match.scores.length > 0)
-    .slice(0, 12)
-    .map((match) => {
-      const side = (team: 1 | 2) =>
-        match.participants
-          .filter((p) => p.team_number === team)
-          .map((p) => p.display_name ?? 'Unknown player')
-
-      return {
-        id: match.id,
-        teams: [side(1), side(2)] as [string[], string[]],
-        games: match.scores.map((s) => ({
-          team1_score: s.team1_score,
-          team2_score: s.team2_score
-        })),
-        context: [match.match_type === 'singles' ? 'Singles' : 'Doubles', match.venue]
-          .filter(Boolean)
-          .join(' · '),
-        // The event's own match list holds finished results; anything still
-        // being played is on a court, which the Courts tab owns.
-        liveGame: null,
-        complete: match.status === 'verified'
-      }
-    })
-)
-
-const { data: rankingsData, pending: rankingsPending } = await useFetch<{
-  data: EventRankingEntry[]
-}>(`/api/v1/events/${eventId}/rankings`)
-
-const {
-  data: queueData,
-  pending: queuePending,
-  refresh: refreshQueue
-} = await useFetch<{ data: EventQueueDto[] }>(`/api/v1/events/${eventId}/queue`)
-
-const myRegistration = computed(() => {
-  if (!myProfile.value || !registrationsData.value?.data) return null
-  return registrationsData.value.data.find(
-    (r) => r.player_id === myProfile.value!.id && r.status !== 'withdrawn'
-  )
-})
-
 const isRegistered = computed(() => !!myRegistration.value)
 
 /** Ownership only. Almost nothing should branch on this directly — see below. */
@@ -219,7 +176,7 @@ async function completeEvent() {
 }
 
 /**
- * The live court board. 30-second polling plus a manual refresh, and only while
+ * The live court board. Short-interval polling plus a manual refresh, and only while
  * a court is actually playing and the tab is visible - see useLiveScores.
  */
 const {
@@ -228,6 +185,138 @@ const {
   refresh: refreshCourts,
   lastUpdated: courtsUpdatedAt
 } = useLiveScores(eventId)
+
+/**
+ * The draw, purely to know which round each finished match belongs to.
+ *
+ * The event's match list is flat — it records that a match was played, not
+ * where it sat in a bracket — so grouping the Scores panel by round needs the
+ * bracket. Client-only and lazy: it is presentation for a panel that already
+ * renders without it, and a non-tournament event never fetches it at all.
+ */
+const { data: eventBracket, refresh: refreshEventBracket } = useLazyFetch<BracketDto>(
+  () => `/api/v1/tournaments/${primaryTournament.value?.id}/bracket`,
+  { immediate: false, server: false }
+)
+
+watch(
+  primaryTournament,
+  (value) => {
+    if (value) refreshEventBracket()
+  },
+  { immediate: true }
+)
+
+/**
+ * What is being played right now, from the court board.
+ *
+ * The Scores panel only ever listed finished matches — `liveGame` was hardcoded
+ * to null with a note saying live play "is on a court, which the Courts tab
+ * owns". That is true and it is exactly the problem: a spectator asking "what
+ * is the score" had to know which tab to open first. A live match now leads the
+ * panel, on its own card, banded live.
+ */
+const liveBoxScoreMatches = computed<BoxScoreMatch[]>(() =>
+  courts.value
+    .filter((court) => court.status === 'playing')
+    .map((court) => {
+      const games = court.live_score ?? []
+      const names = (side: typeof court.team1) =>
+        side?.players.map((p) => p.display_name) ?? ['TBC']
+
+      return {
+        id: `court-${court.id}`,
+        teams: [names(court.team1), names(court.team2)] as [string[], string[]],
+        games: games.map((g) => ({ team1_score: g.team1_score, team2_score: g.team2_score })),
+        context: court.court_name || `Court ${court.court_number}`,
+        group: 'On court',
+        // 1-based, and only while there is a game to be on.
+        liveGame: games.length || 1,
+        complete: false
+      }
+    })
+)
+
+/**
+ * Finished matches, one card per round where the round is known.
+ *
+ * The event's own match list carries no round — it is a flat list of played
+ * matches — so a tournament's rounds come from the bracket, which is fetched
+ * alongside. Anything the bracket does not place (open play, a match recorded
+ * outside a draw) falls into one untitled card, which is the whole panel for a
+ * non-tournament event.
+ */
+const roundByMatchId = computed(() => {
+  const byMatch = new Map<string, number>()
+  for (const round of eventBracket.value?.rounds ?? []) {
+    for (const match of round.matches) {
+      if (match.match_id) byMatch.set(match.match_id, round.round)
+    }
+  }
+  return byMatch
+})
+
+const finishedBoxScoreMatches = computed<BoxScoreMatch[]>(() =>
+  (matchesData.value?.data ?? [])
+    .filter((match) => match.scores.length > 0)
+    .slice(0, 12)
+    .map((match) => {
+      const side = (team: 1 | 2) =>
+        match.participants
+          .filter((p) => p.team_number === team)
+          .map((p) => p.display_name ?? 'Unknown player')
+
+      const round = roundByMatchId.value.get(match.id)
+
+      return {
+        id: match.id,
+        teams: [side(1), side(2)] as [string[], string[]],
+        games: match.scores.map((s) => ({
+          team1_score: s.team1_score,
+          team2_score: s.team2_score
+        })),
+        context: [match.match_type === 'singles' ? 'Singles' : 'Doubles', match.venue]
+          .filter(Boolean)
+          .join(' · '),
+        group: round ? roundLabel(round) : null,
+        liveGame: null,
+        complete: match.status === 'verified'
+      }
+    })
+)
+
+/**
+ * Live first, then rounds newest-last.
+ *
+ * BoxScore groups by insertion order, so the order here is the order on screen:
+ * what is happening now, then the rounds behind it in the order they were
+ * played.
+ */
+const boxScoreMatches = computed<BoxScoreMatch[]>(() => {
+  const finished = [...finishedBoxScoreMatches.value].sort((a, b) => {
+    const roundOf = (m: BoxScoreMatch) =>
+      roundByMatchId.value.get(m.id) ?? Number.MAX_SAFE_INTEGER
+    return roundOf(b) - roundOf(a)
+  })
+  return [...liveBoxScoreMatches.value, ...finished]
+})
+
+const { data: rankingsData, pending: rankingsPending } = await useFetch<{
+  data: EventRankingEntry[]
+}>(`/api/v1/events/${eventId}/rankings`)
+
+const {
+  data: queueData,
+  pending: queuePending,
+  refresh: refreshQueue
+} = await useFetch<{ data: EventQueueDto[] }>(`/api/v1/events/${eventId}/queue`)
+
+const myRegistration = computed(() => {
+  if (!myProfile.value || !registrationsData.value?.data) return null
+  return registrationsData.value.data.find(
+    (r) => r.player_id === myProfile.value!.id && r.status !== 'withdrawn'
+  )
+})
 
 /**
  * Courts only appear once the session is running.
@@ -368,15 +457,27 @@ async function confirmStartCourt() {
   }
 }
 
+/**
+ * One request per point, and no re-read behind it.
+ *
+ * This used to PATCH and then `await refreshCourts()`, and the card only
+ * re-rendered once that second request returned — two serial round trips before
+ * the number on screen moved, which at a venue is seconds per tap. The card now
+ * shows the tap immediately (see `useGameConfirm`), so the write is all that is
+ * left to do and it does not need to be waited on.
+ *
+ * A failure re-reads, which is what puts the optimistic score back to whatever
+ * the server actually holds.
+ */
 async function updateCourtScore(courtId: string, scores: unknown) {
   try {
     await $fetch(`/api/v1/events/${eventId}/courts/${courtId}/score`, {
       method: 'PATCH',
       body: { scores }
     })
-    await refreshCourts()
   } catch (err) {
     useToast().error(apiErrorMessage(err, 'Could not update the score.'))
+    await refreshCourts()
   }
 }
 
@@ -1187,21 +1288,11 @@ const sessionState = computed(() => {
         </section>
 
         <template v-if="isTournament">
-          <!-- The board on its own page, for the screen at the desk. Running a
-               draw from inside an expanded card works on a laptop and is
-               hopeless on a TV nobody can scroll. target=_blank because the
-               point is to leave it open on a second screen. -->
-          <div class="mb-4 flex justify-end">
-            <a
-              :href="`/events/${eventId}/matches`"
-              target="_blank"
-              rel="noopener"
-              class="inline-flex items-center gap-1.5 rounded-button border border-border-strong px-3 py-1.5 text-caption text-fg-secondary transition-colors hover:border-primary hover:text-fg"
-            >
-              <UiIcon name="share" size="h-4 w-4" />
-              Open matches in a new tab
-            </a>
-          </div>
+          <!-- No event-wide "open matches" link here on purpose. A tournament
+               runs one draw at a time and the screen at the desk shows the one
+               being played; opening every category at once is the picture
+               nobody wanted. The Open button lives on each category card
+               instead — see CategoryCard. -->
           <TournamentCategorySection
             v-if="primaryTournament"
             :event="event"
@@ -1634,9 +1725,9 @@ const sessionState = computed(() => {
                 <h2 class="font-semibold text-fg">Courts</h2>
                 <p class="text-caption text-fg-muted">
                   <span v-if="courtsUpdatedAt">
-                    Updated {{ courtsUpdatedAt.toLocaleTimeString() }} · refreshes every 30 seconds
+                    Updated {{ courtsUpdatedAt.toLocaleTimeString() }} · refreshes every few seconds
                   </span>
-                  <span v-else>Live scores refresh every 30 seconds.</span>
+                  <span v-else>Live scores refresh automatically.</span>
                 </p>
               </div>
               <UiButton variant="ghost" size="sm" @click="refreshCourts">Refresh</UiButton>

@@ -14,7 +14,16 @@ export interface AuditService {
     actorPlayerId: string,
     membershipId: string,
     action: 'approve' | 'reject' | 'remove',
-    payload: { target_player_id: string; club_id: string }
+    payload: {
+      target_player_id: string
+      club_id: string
+      /**
+       * A `reject` that withdrew an invitation rather than declining a request
+       * (051). Same terminal status, opposite direction — worth recording,
+       * because the audit trail is the only place the difference survives.
+       */
+      withdrawn_invitation?: boolean
+    }
   ): Promise<void>
   logMatchVerificationDecision(
     actorUserId: string,

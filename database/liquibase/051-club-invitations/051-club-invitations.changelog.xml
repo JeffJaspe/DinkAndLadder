@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Club invitations: the club asking a player, rather than a player asking the club.
+
+     "Invite to club" existed as a button and nothing else. It linked to the
+     club's own page, and the code said so outright: "There is no invite endpoint
+     yet ... a real invitation (sent, accepted, expiring) is its own feature."
+     A club could therefore only ever wait to be asked.
+
+     Modelled as a new `club_memberships.status` rather than a table of its own,
+     because an invitation and a join request are the same relationship
+     travelling in opposite directions, and they share every rule that matters:
+     one live row per player per club, the same roster, the same "already a
+     member" checks. A separate table would have meant two sources of truth for
+     whether somebody is in a club, and the reconciliation between them is
+     exactly the kind of thing that goes wrong quietly.
+
+       pending  - the player asked the club          (existing)
+       invited  - the club asked the player          (new)
+       active   - they are in                        (existing)
+       rejected - either side said no                (existing)
+       left     - they were in and are not now       (existing)
+
+     `invited_by_player_id` records who sent it, so a roster can say "invited by
+     Ana" rather than presenting an invitation nobody will admit to. Nullable:
+     every existing row predates invitations, and a join request has no inviter
+     by definition. -->
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+    <changeSet id="051-membership-invited-status" author="claude">
+        <sql>
+            ALTER TABLE club_memberships DROP CONSTRAINT ck_club_memberships_status;
+            ALTER TABLE club_memberships
+                ADD CONSTRAINT ck_club_memberships_status
+                CHECK (status IN ('pending', 'invited', 'active', 'rejected', 'left'));
+        </sql>
+        <rollback>
+            <!-- Any invitation still outstanding is withdrawn rather than left
+                 holding a status the constraint no longer allows. -->
+            UPDATE club_memberships SET status = 'rejected' WHERE status = 'invited';
+            ALTER TABLE club_memberships DROP CONSTRAINT ck_club_memberships_status;
+            ALTER TABLE club_memberships
+                ADD CONSTRAINT ck_club_memberships_status
+                CHECK (status IN ('pending', 'active', 'rejected', 'left'));
+        </rollback>
+    </changeSet>
+
+    <changeSet id="051-membership-invited-by" author="claude">
+        <addColumn tableName="club_memberships">
+            <column name="invited_by_player_id" type="uuid">
+                <constraints
+                    nullable="true"
+                    foreignKeyName="fk_club_memberships_invited_by"
+                    references="player_profiles(id)"/>
+            </column>
+            <column name="invited_at" type="timestamptz"/>
+        </addColumn>
+        <rollback>
+            <dropColumn tableName="club_memberships" columnName="invited_at"/>
+            <dropColumn tableName="club_memberships" columnName="invited_by_player_id"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="051-membership-live-includes-invited" author="claude">
+        <!-- An outstanding invitation has to occupy the same slot a request
+             does. Without this a club could invite somebody who had already
+             asked to join, leaving two live rows for one relationship and no
+             answer to which one accepting resolves. -->
+        <sql>
+            DROP INDEX IF EXISTS uq_club_memberships_live_membership;
+            CREATE UNIQUE INDEX uq_club_memberships_live_membership
+                ON club_memberships (club_id, player_id)
+                WHERE status IN ('pending', 'invited', 'active');
+        </sql>
+        <rollback>
+            DROP INDEX IF EXISTS uq_club_memberships_live_membership;
+            CREATE UNIQUE INDEX uq_club_memberships_live_membership
+                ON club_memberships (club_id, player_id)
+                WHERE status IN ('pending', 'active');
+        </rollback>
+    </changeSet>
+
+    <changeSet id="051-membership-invited-rls" author="claude">
+        <!-- The invited player must be able to see and answer their own
+             invitation before they are a member of anything.
+             `club_memberships_select_own` already covers reading their own rows;
+             this adds the update that accepting or declining performs, and
+             restricts it to exactly that transition. -->
+        <sql splitStatements="false">
+            DROP POLICY IF EXISTS club_memberships_answer_own_invite ON club_memberships;
+            CREATE POLICY club_memberships_answer_own_invite ON club_memberships
+                FOR UPDATE
+                USING (
+                    status = 'invited'
+                    AND player_id IN (
+                        SELECT id FROM player_profiles WHERE user_id = auth.uid()
+                    )
+                )
+                WITH CHECK (
+                    status IN ('active', 'rejected')
+                    AND player_id IN (
+                        SELECT id FROM player_profiles WHERE user_id = auth.uid()
+                    )
+                );
+        </sql>
+        <rollback>
+            DROP POLICY IF EXISTS club_memberships_answer_own_invite ON club_memberships;
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

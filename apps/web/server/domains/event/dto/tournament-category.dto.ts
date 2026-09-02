@@ -140,7 +140,27 @@ export function resolveFormat(
   return category?.format ?? tournamentFormat
 }
 
-export interface CreateTournamentCategoryInput {
+/**
+ * How the games in a category are played.
+ *
+ * Split out because all three create/update paths accept the same set, and
+ * because these travel together: "best of 5" means nothing without knowing what
+ * a game runs to. Every field is optional, and omitting them keeps the column
+ * defaults — one game, to 11, win by two — which is what every category played
+ * to before this could be chosen.
+ *
+ * `round_game_rules` holds only the rounds that DIFFER from `games_default`
+ * (see `rulesForRound`), so a tournament whose final is best-of-five and whose
+ * earlier rounds are single games stores exactly one entry.
+ */
+export interface CategoryGameRulesInput {
+  games_default?: number | null
+  round_game_rules?: Record<string, number> | null
+  target_points?: number | null
+  win_by_two?: boolean | null
+}
+
+export interface CreateTournamentCategoryInput extends CategoryGameRulesInput {
   tournament_id: string
   template_id?: string | null
   name: string

@@ -43,6 +43,8 @@ function makeMembership(overrides: Partial<ClubMembershipRecord> = {}): ClubMemb
     status: 'active',
     joined_at: new Date().toISOString(),
     left_at: null,
+    invited_by_player_id: null,
+    invited_at: null,
     created_at: new Date().toISOString(),
     ...overrides
   }

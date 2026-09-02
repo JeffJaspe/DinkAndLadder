@@ -106,6 +106,8 @@ function createFakes() {
         status: input.status,
         joined_at: input.joined_at ?? null,
         left_at: null,
+        invited_by_player_id: null,
+        invited_at: null,
         created_at: now
       }
       memberships.set(row.id, row)
