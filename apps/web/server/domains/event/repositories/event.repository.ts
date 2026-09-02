@@ -26,6 +26,17 @@ export interface EventRepository {
   updateStatus(eventId: string, status: EventStatus): Promise<EventRecord>
   search(query: EventSearchQuery): Promise<EventRecord[]>
   /**
+   * Open-play sessions still running on or before a given date, which nobody
+   * has closed.
+   *
+   * Deliberately coarse — it filters on `end_date` only, because the hour of
+   * the deadline depends on `end_time` and that is business logic, not a query
+   * (see EventService.autoCloseStaleOpenPlay, which applies the grace period to
+   * each row it gets back). Bounded so one sweep cannot pull an unbounded
+   * result set out of the table.
+   */
+  findOpenPlayAwaitingClose(onOrBeforeDate: string, limit: number): Promise<EventRecord[]>
+  /**
    * Counts the rows that would block a delete. The FK constraints on events are
    * RESTRICT (no `deleteCascade` exists anywhere in the changelogs), so the
    * service has to know what is attached before it starts removing anything.
@@ -229,6 +240,21 @@ export function createEventRepository(client: SupabaseClient): EventRepository {
       if (error) throw error
     },
 
+    async findOpenPlayAwaitingClose(onOrBeforeDate, limit) {
+      const { data, error } = await client
+        .from('events')
+        .select(EVENT_COLUMNS)
+        .eq('status', 'active')
+        .is('closed_at', null)
+        .in('event_type', ['open_casual', 'open_ranked', 'club_casual', 'club_ranked'])
+        .lte('end_date', onOrBeforeDate)
+        .order('end_date', { ascending: true })
+        .limit(limit)
+
+      if (error) throw error
+      return (data ?? []) as unknown as EventRecord[]
+    },
+
     async search(query) {
       let builder = client.from('events').select(EVENT_COLUMNS)
 
@@ -280,6 +306,12 @@ export function createEventRepository(client: SupabaseClient): EventRepository {
       }
       if (query.status) {
         builder = builder.eq('status', query.status)
+      } else if (!query.include_cancelled) {
+        // Nobody can turn up to a cancelled session, so it does not belong in
+        // a browse list beside the ones that are happening. Only skipped for an
+        // unfiltered listing: `status: 'cancelled'` above is somebody asking
+        // for them on purpose, and is answered.
+        builder = builder.neq('status', 'cancelled')
       }
       if (query.event_type) {
         builder = builder.eq('event_type', query.event_type)

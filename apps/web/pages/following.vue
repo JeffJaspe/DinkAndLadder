@@ -39,6 +39,8 @@ async function unfollow(playerId: string) {
 <template>
   <div class="min-h-screen bg-canvas p-4 lg:p-6">
     <div class="page-shell">
+      <UiPageHeader to="/community" />
+
       <!-- Header -->
       <div class="mb-6">
         <h1 class="text-2xl font-bold text-fg">Social</h1>

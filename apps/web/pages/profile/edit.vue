@@ -167,6 +167,8 @@ async function handleSave() {
 <template>
   <div class="min-h-screen bg-canvas p-4 lg:p-6">
     <div class="mx-auto max-w-2xl">
+      <UiPageHeader to="/settings" />
+
       <!-- Header -->
       <div class="mb-6">
         <h1 class="text-2xl font-bold text-fg">Edit Profile</h1>

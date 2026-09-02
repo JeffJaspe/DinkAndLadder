@@ -216,7 +216,7 @@ function ratingOf(member: TeamMemberDto): number | null {
             :key="member.id"
             class="flex flex-wrap items-center gap-3 rounded-xl bg-surface p-4 shadow-card"
           >
-            <span class="min-w-0 flex-1 text-sm text-fg-secondary">{{ member.display_name }}</span>
+            <span class="min-w-0 flex-1 text-sm text-fg-secondary"><UiPlayerLink :player-id="member.player_id" :name="member.display_name" /></span>
             <span class="rounded-pill bg-warning-soft px-2.5 py-1 text-xs text-warning">
               Pending
             </span>

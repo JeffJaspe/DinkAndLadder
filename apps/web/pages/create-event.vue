@@ -417,6 +417,8 @@ async function submit() {
 <template>
   <div class="min-h-screen bg-canvas p-4 lg:p-6">
     <div class="mx-auto max-w-2xl">
+      <UiPageHeader to="/events" />
+
       <!-- Header -->
       <div class="mb-6">
         <h1 class="text-2xl font-bold text-fg">{{ isEditing ? 'Edit Event' : 'Create Event' }}</h1>

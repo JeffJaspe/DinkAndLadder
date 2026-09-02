@@ -201,3 +201,73 @@ export function bracketGridRows(matchCounts: readonly number[]): BracketGrid {
 
   return { rows, spans, connected }
 }
+
+/**
+ * Knockout rounds named the way people talk about them: Final, Semifinals,
+ * Quarterfinals, Round of 16.
+ *
+ * `roundLabel` can only ever say "Round 3", because a round number on its own
+ * does not know how many rounds come after it — and "Round 3" is exactly the
+ * label a spectator has to count backwards from to work out they are looking at
+ * the final. Naming needs the whole draw, so this takes it and returns a label
+ * per round number.
+ *
+ * A stage name is only used where the shape allows it: the round `n` places
+ * from the end may hold at most `2^n` matches. Fewer is normal — a draw with
+ * byes plays six quarterfinals, not eight — but MORE means these rounds are not
+ * a halving ladder at all, so that round keeps its number rather than being
+ * given a name that would be a guess.
+ */
+const STAGE_NAMES = ['Final', 'Semifinal', 'Quarterfinal'] as const
+
+export function stageLabels(
+  rounds: readonly { round: number; matches: readonly unknown[] }[]
+): Map<number, string> {
+  const labels = new Map<number, string>()
+
+  // A winners bracket that feeds a grand final does not crown anybody, so its
+  // last round is the Winners Final, not the Final.
+  const hasGrandFinal = rounds.some((round) => phaseOf(round.round) === 'grand_final')
+
+  const byPhase = new Map<BracketPhase, { round: number; count: number }[]>()
+  for (const round of rounds) {
+    const phase = phaseOf(round.round)
+    const bucket = byPhase.get(phase) ?? []
+    bucket.push({ round: round.round, count: round.matches.length })
+    byPhase.set(phase, bucket)
+  }
+
+  for (const [phase, bucket] of byPhase) {
+    // Pools are named by letter and the grand final names itself; neither is a
+    // ladder counted back from a decider.
+    if (phase === 'pools' || phase === 'grand_final') {
+      for (const entry of bucket) labels.set(entry.round, roundLabel(entry.round))
+      continue
+    }
+
+    // Playoffs get no prefix on purpose: in a pool-play draw they ARE the
+    // knockout, so their last round is the Final.
+    const prefix =
+      phase === 'losers' ? 'Losers ' : phase === 'winners' && hasGrandFinal ? 'Winners ' : ''
+
+    const ordered = [...bucket].sort((a, b) => a.round - b.round)
+    ordered.forEach((entry, index) => {
+      const fromEnd = ordered.length - 1 - index
+      const expected = 2 ** fromEnd
+      const name = STAGE_NAMES[fromEnd]
+
+      if (entry.count <= expected && name) {
+        // "Semifinals" when both are on the card, "Semifinal" when one is.
+        labels.set(entry.round, `${prefix}${name}${entry.count > 1 ? 's' : ''}`)
+        return
+      }
+      if (entry.count <= expected && fromEnd >= 3) {
+        labels.set(entry.round, `${prefix}Round of ${expected * 2}`)
+        return
+      }
+      labels.set(entry.round, `${prefix}Round ${index + 1}`)
+    })
+  }
+
+  return labels
+}

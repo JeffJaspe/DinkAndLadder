@@ -66,6 +66,9 @@ describe('ClubVerificationService', () => {
       async findById(clubId) {
         return clubs.get(clubId) ?? null
       },
+      async findByIds(clubIds) {
+        return clubIds.map((id) => clubs.get(id)).filter((c): c is ClubRecord => !!c)
+      },
       async findBySlug() {
         return null
       },

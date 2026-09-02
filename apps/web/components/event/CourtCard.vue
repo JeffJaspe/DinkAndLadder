@@ -35,6 +35,17 @@ function sideLabel(side: CourtSideDto | null): string {
 }
 
 /**
+ * The same side, one entry per player, so each name can be its own link.
+ *
+ * `sideLabel` stays for the places a side has to be a plain string — the game
+ * point sentence — where a link inside prose would be noise.
+ */
+function sidePlayers(side: CourtSideDto | null) {
+  if (!side || side.players.length === 0) return [{ id: null, name: 'TBC' }]
+  return side.players.map((p) => ({ id: p.id, name: p.display_name }))
+}
+
+/**
  * Open play is one game to 11. There is no category here to say otherwise — a
  * court belongs to an event, not a draw — so the defaults apply.
  *
@@ -129,12 +140,22 @@ const deuceNote = computed(() => {
     <!-- In play -->
     <div v-if="isLive" class="mt-3">
       <div class="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
-        <p class="min-w-0 truncate text-body-2 text-fg">{{ sideLabel(court.team1) }}</p>
+        <p class="min-w-0 truncate text-body-2 text-fg">
+          <template v-for="(player, i) in sidePlayers(court.team1)" :key="player.id ?? i"
+            ><span v-if="i > 0"> &amp; </span
+            ><UiPlayerLink :player-id="player.id" :name="player.name"
+          /></template>
+        </p>
         <p class="text-center text-heading-3 font-bold tabular-nums text-fg">
           {{ currentGame.team1_score }}<span class="mx-1 text-fg-muted">-</span
           >{{ currentGame.team2_score }}
         </p>
-        <p class="min-w-0 truncate text-right text-body-2 text-fg">{{ sideLabel(court.team2) }}</p>
+        <p class="min-w-0 truncate text-right text-body-2 text-fg">
+          <template v-for="(player, i) in sidePlayers(court.team2)" :key="player.id ?? i"
+            ><span v-if="i > 0"> &amp; </span
+            ><UiPlayerLink :player-id="player.id" :name="player.name"
+          /></template>
+        </p>
       </div>
 
       <p

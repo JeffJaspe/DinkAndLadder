@@ -64,6 +64,21 @@
   --dnl-info: 37 99 235; /* #2563EB */
   --dnl-info-soft: 227 237 254;
 
+  /* Coaching's hue.
+     A lesson is neither open play nor a competition, and the event cards had
+     already spent 'info' on open play, so coaching needs a blue of its own.
+     Sky, darkened until it clears AA: #0284C7 is 4.02:1 on white, #0369A1 is
+     5.36:1 as text and carries white at the same ratio as a badge fill. */
+  --dnl-coach: 3 105 161; /* #0369A1 */
+
+  /* Ranked play's hue.
+     Open play splits in two on the cards — a casual session and a ranked one
+     are different commitments, and 'info' now marks only the casual half — so
+     the ranked half needs a hue of its own. Violet, darkened until it clears
+     AA: #7C3AED is 4.28:1 on white, #6D28D9 is 6.16:1 as text and carries
+     white at the same ratio as a ribbon fill. */
+  --dnl-ranked: 109 40 217; /* #6D28D9 */
+
   /* Rating tiers — Gold 1900+, Silver 1700-1899, Bronze 1400-1699, Iron <1400 */
   --dnl-rating-gold: 183 121 31; /* #B7791F */
   --dnl-rating-silver: 120 113 108; /* #78716C — #C0C0C0 is ~1.6:1 on white */
@@ -83,6 +98,14 @@
      default, see docs/30 §2.3), so what sits on it follows the overlay, not
      the visitor's light/dark choice. */
   --dnl-on-scrim: 255 255 255;
+
+  /* Ink laid over the event-card artwork. Identical in both themes, for the
+     same reason as on-scrim above: the card art is a fixed light illustration,
+     not a themed surface, so text on it answers to the artwork rather than to
+     the visitor light/dark choice. Flipping these to near-white in dark mode
+     would put white text on a pale card. */
+  --dnl-on-art: 23 35 58; /* #17233A */
+  --dnl-on-art-muted: 74 85 104; /* #4A5568 */
 
   /* Decorative gradients (stat/hero cards). Light expresses depth with a
      near-flat gradient plus a shadow rather than a dark-to-darker ramp. */
@@ -175,6 +198,15 @@
   --dnl-info: 96 165 250; /* #60A5FA — #3B82F6 is 3.86:1 on a dark card and fails AA */
   --dnl-info-soft: 59 130 246;
 
+  /* Vivid on a near-black canvas, and dark-labelled like every other fill in
+     this theme — see the on-primary note above. */
+  --dnl-coach: 125 211 252; /* #7DD3FC */
+
+  /* Ranked play — see the light block. #6D28D9 is 2.1:1 on a near-black card,
+     so dark takes the light end of the violet ramp and labels it dark, like
+     every other fill in this theme. */
+  --dnl-ranked: 196 181 253; /* #C4B5FD */
+
   /* Rating tiers */
   --dnl-rating-gold: 245 166 35; /* #F5A623 */
   --dnl-rating-silver: 192 192 192; /* #C0C0C0 */
@@ -188,6 +220,14 @@
   /* Same value as light on purpose: the scrim is the operator's colour, not
      the theme's. See the light block. */
   --dnl-on-scrim: 255 255 255;
+
+  /* Ink laid over the event-card artwork. Identical in both themes, for the
+     same reason as on-scrim above: the card art is a fixed light illustration,
+     not a themed surface, so text on it answers to the artwork rather than to
+     the visitor light/dark choice. Flipping these to near-white in dark mode
+     would put white text on a pale card. */
+  --dnl-on-art: 23 35 58; /* #17233A */
+  --dnl-on-art-muted: 74 85 104; /* #4A5568 */
 
   /* Decorative gradients */
   --dnl-grad-from: 26 42 36; /* #1a2a24 */

@@ -11,12 +11,7 @@ export type EventVisibility = 'public' | 'registered_only' | 'private'
  * the safe direction for that to fail in.
  */
 export type EventType =
-  | 'open_casual'
-  | 'open_ranked'
-  | 'club_casual'
-  | 'club_ranked'
-  | 'tournament'
-  | 'coaching'
+  'open_casual' | 'open_ranked' | 'club_casual' | 'club_ranked' | 'tournament' | 'coaching'
 
 /**
  * Who bears the fee.
@@ -62,6 +57,37 @@ export function effectiveMinPlayersToStart(event: {
   // An override may raise the floor, never drop it below what a court needs —
   // a session that cannot fill one court has nothing to start.
   return Math.max(event.min_players_to_start ?? floor, floor)
+}
+
+/**
+ * How long after a session ends before an unclosed one is closed for you.
+ *
+ * Twelve hours, so a session that runs late — or one whose organiser goes home
+ * and closes it in the morning — is never taken out from under them, while a
+ * session nobody came back to does not sit "open" for days taking registrations
+ * for an evening that has already happened.
+ */
+export const OPEN_PLAY_CLOSE_GRACE_HOURS = 12
+
+/**
+ * The moment an unclosed open-play session becomes stale.
+ *
+ * ASSUMPTION, stated rather than buried: `end_date`/`end_time` carry no time
+ * zone (see the EventTime note below), and are read here as UTC. For a session
+ * in UTC+8 that makes the sweep fire up to eight hours later than a local
+ * reading would — which is the safe direction: it can only ever close a session
+ * later than intended, never while somebody is still playing. A `time_zone`
+ * column on events would remove the guess; nothing here blocks adding one.
+ */
+export function staleOpenPlayDeadline(
+  event: Pick<EventRecord, 'end_date' | 'end_time'>,
+  graceHours: number = OPEN_PLAY_CLOSE_GRACE_HOURS
+): Date {
+  // No end time is not "ends at midnight UTC": it is "we do not know when it
+  // finished", so the grace runs from the end of that day.
+  const time = /^\d{2}:\d{2}/.test(event.end_time ?? '') ? event.end_time!.slice(0, 5) : '23:59'
+  const ended = new Date(`${event.end_date}T${time}:00Z`)
+  return new Date(ended.getTime() + graceHours * 60 * 60 * 1000)
 }
 
 /**
@@ -117,6 +143,20 @@ export interface EventRecord {
 export interface EventDto {
   id: string
   club_id: string
+  /**
+   * The hosting club's name, when the caller asked for a list that resolves it.
+   *
+   * Undefined means "not looked up", not "no club" — every event has a club, so
+   * a card must leave the line out rather than render a blank host. Only the
+   * search endpoint populates it; a single-event read already loads the club.
+   */
+  club_name?: string
+  /**
+   * Whether that club is platform-verified. Populated alongside `club_name` and
+   * undefined for the same reason — the check mark is only ever shown on a host
+   * the server actually resolved.
+   */
+  club_verified?: boolean
   name: string
   description: string | null
   venue: string | null
@@ -320,6 +360,16 @@ export interface EventSearchQuery {
    * questions, and a caller may want one without the other.
    */
   viewer_player_id?: string
+  /**
+   * Whether a cancelled event may appear in an unfiltered listing.
+   *
+   * Off by default: a cancelled session is not something anybody can turn up
+   * to, so it was taking up room in the browse list ahead of events that are
+   * actually happening. Asking for `status: 'cancelled'` still returns them —
+   * that is a deliberate question, and the record must stay reachable — this
+   * only decides what "All statuses" means.
+   */
+  include_cancelled?: boolean
   limit: number
   offset: number
 }

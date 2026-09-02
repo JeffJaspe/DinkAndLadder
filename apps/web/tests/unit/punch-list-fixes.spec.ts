@@ -181,8 +181,11 @@ describe('EV-3 — no way to say the organiser is covering the fee', () => {
 describe('EV-4/EV-5 — nothing said what kind of event it was', () => {
   it('names the headline kind', () => {
     expect(eventKindLabel('tournament')).toBe('TOURNAMENT')
-    expect(eventKindLabel('open_ranked')).toBe('OPEN PLAY')
+    expect(eventKindLabel('open_casual')).toBe('OPEN PLAY')
     expect(eventKindLabel('club_casual')).toBe('OPEN PLAY')
+    // Ranked play is named apart: it is the distinction the card exists to make.
+    expect(eventKindLabel('open_ranked')).toBe('RANKED PLAY')
+    expect(eventKindLabel('club_ranked')).toBe('RANKED PLAY')
   })
 
   /** Someone browsing wants "tournaments", not "club_ranked". */

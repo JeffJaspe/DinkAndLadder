@@ -15,6 +15,7 @@ import type {
 import { resolveFormat, resolveMatchType } from '~/server/domains/event/dto/tournament-category.dto'
 import type { PartnerDto } from '~/server/domains/partnership/dto/partnership.dto'
 import { isDrawDecided } from '~/utils/bracket-schedule'
+import { championOf } from '~/utils/bracket-rounds'
 import { formatLabel } from '~/utils/tournament-formats'
 import { ratingRangeLabel } from '~/utils/rating-bands'
 
@@ -152,9 +153,16 @@ const registerBlockedReason = computed<string | null>(() => {
   return null
 })
 
+/**
+ * A decided draw reads as Completed, same as a closed one.
+ *
+ * "Draw decided" was organiser vocabulary for "every match is played but I have
+ * not pressed Complete yet" — a distinction nobody outside the desk can act on,
+ * sitting on a card that a player reads to find out whether the category is
+ * over. It is.
+ */
 const statusLabel = computed(() => {
-  if (isComplete.value) return 'Complete'
-  if (drawDecided.value) return 'Draw decided'
+  if (isComplete.value || drawDecided.value) return 'Completed'
   if (props.bracket?.rounds.length) return 'In progress'
   if (props.isFull) return 'Full'
   return 'Open'
@@ -170,10 +178,29 @@ const statusLabel = computed(() => {
  * tokens that already clear contrast in both themes.
  */
 const statusTone = computed(() => {
-  if (isComplete.value) return 'bg-primary/15 text-primary'
+  if (isComplete.value || drawDecided.value) return 'bg-primary/15 text-primary'
   if (props.bracket?.rounds.length) return 'bg-warning-soft text-warning'
   if (props.isFull) return 'bg-accent-soft text-on-accent'
   return 'bg-surface-2 text-fg-secondary'
+})
+
+/**
+ * Who won this category, on the card that is about it.
+ *
+ * The champion used to be announced by the event-wide Scores panel, in a gold
+ * header of its own that repeated the category name and nothing else about it —
+ * so the two things a reader wants together ("Beginner, singles, 2.5–2.9" and
+ * "won by Luna Cruz") sat in different blocks of the page, and the panel had to
+ * be scrolled past to reach the category itself. The result belongs on the
+ * category, beside its own details; the scores that produced it are under
+ * Matches, grouped by round.
+ */
+const champion = computed(() => {
+  const winner = championOf(props.bracket)
+  if (!winner) return null
+  return winner.partner_display_name
+    ? `${winner.display_name} / ${winner.partner_display_name}`
+    : winner.display_name
 })
 
 const bandLabel = computed(() =>
@@ -334,6 +361,31 @@ function confirmTrash() {
           <span class="text-xs text-fg-muted">· {{ formatLabel(format) }}</span>
         </div>
         <p class="mt-0.5 text-sm text-fg-muted">{{ vacancyLabel }}</p>
+
+        <!-- The result, once there is one. A trophy on a gold disc reads as a
+             result from across a room, which is the distance a venue screen is
+             read from — and the details above it stay exactly where they were,
+             because "who won the 2.5–2.9 singles" is one question. -->
+        <div
+          v-if="champion"
+          class="mt-2 flex items-center gap-2.5 rounded-card bg-gradient-to-r from-warning-soft to-transparent py-1.5 pl-1.5 pr-3"
+        >
+          <span
+            class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-warning-fill to-warning ring-4 ring-warning-fill/20"
+          >
+            <UiIcon name="trophy" size="h-4 w-4" :stroke-width="2" class="text-on-accent" />
+          </span>
+          <span class="min-w-0">
+            <span
+              class="block text-caption font-bold uppercase tracking-wide text-warning sm:inline sm:pr-2"
+            >
+              Champion
+            </span>
+            <span class="break-words font-display text-body-1 font-semibold leading-tight text-fg">
+              {{ champion }}
+            </span>
+          </span>
+        </div>
       </div>
 
       <span class="rounded-pill px-2.5 py-1 text-xs font-medium" :class="statusTone">

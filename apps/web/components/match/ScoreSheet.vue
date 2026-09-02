@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { playerLines, type PlayerLine } from '~/utils/player-line'
 import {
   gameWinner,
   isGameLive,
@@ -25,8 +26,14 @@ import {
  */
 const props = withDefaults(
   defineProps<{
-    /** Players per side, one name per line. Index 0 is team 1. */
-    teams: [string[], string[]]
+    /**
+     * Players per side, one name per line. Index 0 is team 1.
+     *
+     * Pass ids alongside the names and each becomes a link to that profile;
+     * pass bare strings where a link would be wrong — the submit form, where a
+     * tap on a name would navigate out of a half-filled entry.
+     */
+    teams: [PlayerLine[], PlayerLine[]]
     /** Sub-label under each side — category, seeding, whatever the caller has. */
     subtitles?: [string, string] | null
     games: GameScore[]
@@ -115,8 +122,12 @@ function setScore(index: number, side: 1 | 2, raw: string) {
             class="border border-r-0 border-border bg-canvas px-3 py-2.5 align-middle"
             :class="side === 1 ? 'rounded-tl-card border-b-0' : 'rounded-bl-card'"
           >
-            <div v-for="name in teams[side - 1]" :key="name" class="text-sm font-medium text-fg">
-              {{ name }}
+            <div
+              v-for="player in playerLines(teams[side - 1])"
+              :key="player.name"
+              class="text-sm font-medium text-fg"
+            >
+              <UiPlayerLink :player-id="player.playerId" :name="player.name" />
             </div>
             <div v-if="subtitles" class="mt-0.5 text-caption text-fg-muted">
               {{ subtitles[side - 1] }}

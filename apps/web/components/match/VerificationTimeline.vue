@@ -197,7 +197,9 @@ function relative(iso: string) {
             :key="change.player_id"
             class="flex items-center justify-between gap-3 rounded-button bg-surface-2 px-2.5 py-1.5"
           >
-            <span class="truncate text-caption text-fg">{{ change.display_name }}</span>
+            <span class="truncate text-caption text-fg">
+              <UiPlayerLink :player-id="change.player_id" :name="change.display_name" />
+            </span>
             <span class="flex items-baseline gap-2 whitespace-nowrap">
               <UiTrendIndicator :value="change.rating_delta" size="sm" />
               <span class="text-caption tabular-nums text-fg-muted"

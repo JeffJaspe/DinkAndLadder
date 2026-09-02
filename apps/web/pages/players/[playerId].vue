@@ -7,6 +7,7 @@ import type {
 } from '~/server/domains/analytics/dto/analytics.dto'
 import type { ActivityDto } from '~/server/domains/activity/dto/activity.dto'
 import type { LinkedEvent } from '~/server/domains/activity/services/linked-event'
+import type { RosterMemberDto } from '~/server/domains/club/dto/club-membership.dto'
 
 interface Achievement {
   id: string
@@ -86,6 +87,39 @@ async function inviteToClub() {
     inviting.value = false
   }
 }
+
+/**
+ * Where this player already stands with the club being acted as.
+ *
+ * Without it the profile offered "Invite to club" to everybody — including the
+ * club's own members — and the button only failed once pressed, on the server's
+ * "already a member". The roster is the same list the members page reads, and
+ * the club account is an admin of it, so no new endpoint is needed; it is
+ * client-only because it changes nothing about what a search engine sees.
+ *
+ * A failure here (the account is not a member of the selected club, say) leaves
+ * the relationship unknown, which falls back to offering the invitation — the
+ * server still refuses the ones it should.
+ */
+const clubRosterQuery = useFetch<{ items: RosterMemberDto[] }>(
+  () => `/api/v1/clubs/${activeClubId.value}/members`,
+  {
+    server: false,
+    immediate: Boolean(isClubMode.value && activeClubId.value),
+    watch: [activeClubId, isClubMode],
+    default: () => ({ items: [] as RosterMemberDto[] })
+  }
+)
+
+/** 'active' | 'invited' | 'pending' — or null when there is no live row. */
+const clubRelationship = computed(() => {
+  if (!isClubMode.value || !activeClubId.value) return null
+  const row = clubRosterQuery.data.value?.items?.find((m) => m.player_id === playerId.value)
+  if (!row) return null
+  return row.status === 'active' || row.status === 'invited' || row.status === 'pending'
+    ? row.status
+    : null
+})
 
 /**
  * Achievements are a switchable platform surface (feature_flags,
@@ -633,21 +667,10 @@ function formatActivityText(activity: ProfileActivity): string {
 
     <!-- Profile -->
     <div v-else-if="profile" class="page-shell space-y-6">
-      <!-- Back Button -->
-      <NuxtLink
-        to="/players"
-        class="inline-flex items-center gap-2 text-sm text-fg-muted hover:text-fg"
-      >
-        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            d="M15 19l-7-7 7-7"
-          />
-        </svg>
-        Back
-      </NuxtLink>
+      <!-- Back to wherever you opened this profile from — a draw, a score
+           sheet, a feed entry — not to the player directory, which is where a
+           hardcoded `to="/players"` sent everybody. -->
+      <UiPageHeader to="/players" back-label="Back" />
 
       <!-- Header Card -->
       <div class="rounded-xl bg-surface p-6 shadow-card">
@@ -686,16 +709,39 @@ function formatActivityText(activity: ProfileActivity): string {
                 {{ displayRating > 0 ? displayRating.toFixed(2) : '—' }}
               </p>
             </div>
-            <!-- Acting as a club: one club-shaped action, not the player ones. -->
-            <button
-              v-if="user && !isOwnProfile && isClubMode"
-              type="button"
-              :disabled="inviting || invited"
-              class="rounded-lg border border-primary px-5 py-2 text-sm font-medium text-primary transition-colors hover:bg-primary-soft disabled:opacity-60"
-              @click="inviteToClub"
-            >
-              {{ inviting ? 'Inviting…' : invited ? 'Invitation sent' : 'Invite to club' }}
-            </button>
+            <!-- Acting as a club: one club-shaped action, not the player ones.
+                 An invitation is only offered when there is nothing live
+                 between them and the club already. -->
+            <template v-if="user && !isOwnProfile && isClubMode">
+              <span
+                v-if="clubRelationship === 'active'"
+                class="rounded-pill bg-success-soft px-3 py-1.5 text-sm font-medium text-success"
+              >
+                Club member
+              </span>
+              <NuxtLink
+                v-else-if="clubRelationship === 'pending'"
+                :to="`/club/${activeClubId}/members`"
+                class="rounded-lg border border-primary px-5 py-2 text-sm font-medium text-primary transition-colors hover:bg-primary-soft"
+              >
+                Review join request
+              </NuxtLink>
+              <span
+                v-else-if="clubRelationship === 'invited' || invited"
+                class="rounded-pill bg-warning-soft px-3 py-1.5 text-sm font-medium text-warning"
+              >
+                Invitation sent
+              </span>
+              <button
+                v-else
+                type="button"
+                :disabled="inviting"
+                class="rounded-lg border border-primary px-5 py-2 text-sm font-medium text-primary transition-colors hover:bg-primary-soft disabled:opacity-60"
+                @click="inviteToClub"
+              >
+                {{ inviting ? 'Inviting…' : 'Invite to club' }}
+              </button>
+            </template>
 
             <!-- Partner button (replaces Follow) -->
             <template v-else-if="user && !isOwnProfile">

@@ -1,12 +1,16 @@
 <script setup lang="ts">
 import type { EventDto } from '~/server/domains/event/dto/event.dto'
 import type { EventKindFilter } from '~/utils/event-type'
+import type { MyClubMembershipDto } from '~/server/domains/club/dto/club-membership.dto'
 
 useHead({ title: 'Events' })
 
 interface EventsResponse {
   events: EventDto[]
 }
+
+const route = useRoute()
+const router = useRouter()
 
 // Events are created by clubs, not by players — the create affordance only
 // appears in club mode. Switching account mode is how a player gets there.
@@ -32,8 +36,23 @@ const {
   selectCity
 } = useLocationPicker()
 
-onMounted(() => {
-  loadProvinces()
+/**
+ * Restore a location filter that came in on the URL.
+ *
+ * Sequenced rather than fired together: the city list does not exist until its
+ * province has been chosen, so selecting a city before its province loads would
+ * silently drop it. Both selects hold PSGC codes; the request sends the names
+ * these resolve to, which is why the codes are what the URL carries.
+ */
+onMounted(async () => {
+  await loadProvinces()
+
+  const province = route.query.province
+  if (typeof province !== 'string' || !province) return
+  await selectProvince(province)
+
+  const city = route.query.city
+  if (typeof city === 'string' && city) await selectCity(city)
 })
 
 /**
@@ -58,12 +77,42 @@ const STATUS_FILTERS: { value: string; label: string; status?: EventDto['status'
   { value: 'draft', label: 'Draft', status: 'draft' }
 ]
 
-const statusFilter = ref('all')
+/**
+ * The filters live in the URL.
+ *
+ * That is what makes them survive opening an event and coming back: the browser
+ * restores `/events?status=active&type=tournament`, and this page reads its
+ * state from there rather than from memory that a route change throws away.
+ * It also means a filtered list can be linked to and reloaded.
+ *
+ * The same mechanism gives the other half of the behaviour for free — the nav
+ * link points at a bare `/events`, so arriving that way is an unfiltered list
+ * even when the previous visit was filtered. `router.replace` (never `push`)
+ * keeps every one of those edits out of the history stack, so Back leaves the
+ * page instead of walking backwards through the filters that got you here.
+ */
+/** A query param, only when it is one of the values this page understands. */
+function queryValue(key: string, allowed: string[]): string | null {
+  const raw = route.query[key]
+  return typeof raw === 'string' && allowed.includes(raw) ? raw : null
+}
+
+const statusFilter = ref(
+  queryValue(
+    'status',
+    STATUS_FILTERS.map((f) => f.value)
+  ) ?? 'all'
+)
 
 // Broad kind filter — Open Play vs Tournament. Sent to the server for the same
 // reason status is: filtering in the browser would only ever filter the page
 // that happened to load.
-const kindFilter = ref<EventKindFilter>('all')
+const kindFilter = ref<EventKindFilter>(
+  (queryValue(
+    'type',
+    EVENT_KIND_FILTERS.map((f) => f.value)
+  ) as EventKindFilter | null) ?? 'all'
+)
 const selectedEventTypes = computed(() => eventTypesForFilter(kindFilter.value))
 
 const selectedStatus = computed(
@@ -91,8 +140,9 @@ watch(isClubMode, (clubMode) => {
  * between words — long enough that a whole word is usually one request, short
  * enough that the list feels like it is following along.
  */
-const searchTerm = ref('')
-const debouncedSearch = ref('')
+const initialSearch = typeof route.query.q === 'string' ? route.query.q.slice(0, 100) : ''
+const searchTerm = ref(initialSearch)
+const debouncedSearch = ref(initialSearch)
 let searchTimer: ReturnType<typeof setTimeout> | null = null
 
 watch(searchTerm, (value) => {
@@ -113,8 +163,48 @@ onBeforeUnmount(() => {
  * saw every other club's sessions and had to find its own among them. Location
  * filters go with it: every event here belongs to one club in one town, so
  * filtering by province is a control that can only ever remove rows.
+ *
+ * The scope has to survive a club mode with no club chosen. `active_club_id` is
+ * a cookie, so it can be absent while `account_mode` still says club — cleared
+ * site data, a session cookie that expired on its own, a mode set before the id
+ * existed — and the old `activeClubId || undefined` turned that into an
+ * unscoped query, which is the whole public listing: a club looking at Events
+ * saw five other clubs' sessions. The clubs the account actually administers
+ * are the fallback, and the choice is written back so the rest of the app
+ * (Create Event, the club dashboard link) agrees with this page.
  */
-const clubScopeId = computed(() => (isClubMode.value ? activeClubId.value || undefined : undefined))
+const { data: myClubsData } = await useFetch<{ items: MyClubMembershipDto[] }>(
+  '/api/v1/clubs/mine',
+  {
+    ignoreResponseError: true,
+    default: () => ({ items: [] as MyClubMembershipDto[] })
+  }
+)
+
+const adminClubIds = computed(() =>
+  (myClubsData.value?.items ?? [])
+    .filter((m) => m.status === 'active' && (m.role === 'OWNER' || m.role === 'ADMIN'))
+    .map((m) => m.club.id)
+)
+
+const { switchToClub } = useAccountMode()
+
+const resolvedClubId = computed(() => {
+  if (!isClubMode.value) return undefined
+  if (activeClubId.value) return activeClubId.value
+  return adminClubIds.value[0]
+})
+
+watch(
+  resolvedClubId,
+  (id) => {
+    if (id && !activeClubId.value) switchToClub(id)
+  },
+  { immediate: true }
+)
+const clubScopeId = computed(() =>
+  isClubMode.value ? resolvedClubId.value || undefined : undefined
+)
 
 const { data, pending, error } = await useFetch<EventsResponse>('/api/v1/events', {
   query: computed(() => ({
@@ -142,7 +232,11 @@ const { data, pending, error } = await useFetch<EventsResponse>('/api/v1/events'
 // player mode they should not be on screen at all.
 const visibleEvents = computed(() => {
   const events = data.value?.events ?? []
-  return isClubMode.value ? events : events.filter((e) => e.status !== 'draft')
+  if (!isClubMode.value) return events.filter((e) => e.status !== 'draft')
+  // Club mode is the club's own events or nothing: with no club resolved there
+  // is no "own" to show, and a public listing is the wrong answer to it.
+  if (!resolvedClubId.value) return []
+  return events.filter((e) => e.club_id === resolvedClubId.value)
 })
 
 const hasLocationFilter = computed(
@@ -164,7 +258,11 @@ const hasAnyFilter = computed(
     kindFilter.value !== 'all'
 )
 
+/** Club mode with no club behind it: the fix is to pick one, not to filter. */
+const clubModeWithoutClub = computed(() => isClubMode.value && !resolvedClubId.value)
+
 const emptyTitle = computed(() => {
+  if (clubModeWithoutClub.value) return 'Pick which club you are running'
   if (debouncedSearch.value) return 'Nothing matched that search'
   if (hasLocationFilter.value) return 'No events in this area'
   if (hasAnyFilter.value) return 'No events with those filters'
@@ -172,6 +270,8 @@ const emptyTitle = computed(() => {
 })
 
 const emptyHint = computed(() => {
+  if (clubModeWithoutClub.value)
+    return 'Choose a club in the account switcher, or switch to your player account to browse public events.'
   if (debouncedSearch.value) return 'Try a shorter keyword, or clear the search.'
   if (hasLocationFilter.value) return 'Try a different province or city, or clear the filter.'
   return 'Try a different status or type, or clear the filters.'
@@ -186,17 +286,66 @@ function clearFilters() {
 }
 
 /**
+ * Filter state out to the URL, and back again.
+ *
+ * Written with `replace` so the address bar tracks the list without every
+ * keystroke becoming a history entry to walk back through. Only non-default
+ * values are written, which is what keeps the nav link's bare `/events` and a
+ * fully-cleared list at the same address.
+ */
+watch(
+  [debouncedSearch, statusFilter, kindFilter, selectedProvince, selectedCity],
+  ([q, status, kind, province, city]) => {
+    const query: Record<string, string> = {}
+    if (q) query.q = q
+    if (status !== 'all') query.status = status
+    if (kind !== 'all') query.type = kind
+    if (province) query.province = province
+    if (city) query.city = city
+
+    const current = route.query
+    const same =
+      Object.keys(query).length === Object.keys(current).length &&
+      Object.entries(query).every(([key, value]) => current[key] === value)
+    if (!same) router.replace({ query })
+  }
+)
+
+/**
+ * Arriving at the bare `/events` clears the filters.
+ *
+ * Vue Router keeps this component mounted when only the query changes, so
+ * pressing the nav link while already on a filtered list changes the URL and
+ * nothing else. This is what makes the two rules hold together: Back restores
+ * what you had, the nav link starts fresh.
+ */
+watch(
+  () => route.query,
+  (query) => {
+    if (Object.keys(query).length === 0 && hasAnyFilter.value) clearFilters()
+  }
+)
+
+/**
  * Keyed on the real EventStatus union, so TypeScript fails the build if a status
  * is added and not styled. The previous map had an `in_progress` key that no
  * event can ever have, and no `active` key at all — so every in-progress event
  * rendered with an unstyled pill.
+ *
+ * The pill carries a solid surface fill and a coloured dot rather than a
+ * translucent wash of its own colour. Two reasons: the wash sat on a header
+ * that is now tinted per event type, so a green-on-green "In progress" faded
+ * into the card behind it; and `published` and `active` were both green, which
+ * made "you can still sign up" and "it is happening now" — the two states a
+ * browser most needs to tell apart — look like the same badge. Each status now
+ * owns a hue: green open, blue running, grey finished, red cancelled.
  */
-const statusConfig: Record<EventDto['status'], { bg: string; text: string; label: string }> = {
-  draft: { bg: 'bg-surface-2', text: 'text-fg-muted', label: 'Draft' },
-  published: { bg: 'bg-primary/20', text: 'text-primary', label: 'Registration open' },
-  active: { bg: 'bg-success/20', text: 'text-success', label: 'In progress' },
-  completed: { bg: 'bg-accent/25', text: 'text-on-accent', label: 'Completed' },
-  cancelled: { bg: 'bg-danger/15', text: 'text-danger', label: 'Cancelled' }
+const statusConfig: Record<EventDto['status'], { dot: string; text: string; label: string }> = {
+  draft: { dot: 'bg-fg-muted', text: 'text-fg-muted', label: 'Draft' },
+  published: { dot: 'bg-primary', text: 'text-primary', label: 'Registration open' },
+  active: { dot: 'bg-info', text: 'text-info', label: 'In progress' },
+  completed: { dot: 'bg-rating-silver', text: 'text-rating-silver', label: 'Completed' },
+  cancelled: { dot: 'bg-danger', text: 'text-danger', label: 'Cancelled' }
 }
 
 /**
@@ -377,7 +526,7 @@ function formatDateRange(start: string, end: string): string {
 
       <!-- Empty -->
       <div
-        v-else-if="!data?.events.length"
+        v-else-if="!visibleEvents.length"
         class="rounded-xl bg-surface p-12 text-center shadow-card"
       >
         <p class="text-4xl">🎪</p>
@@ -386,7 +535,9 @@ function formatDateRange(start: string, end: string): string {
         </h3>
         <!-- An active filter is the likeliest reason for an empty list, so say
              so before suggesting the user create something. -->
-        <p v-if="hasAnyFilter" class="mt-2 text-sm text-fg-muted">{{ emptyHint }}</p>
+        <p v-if="clubModeWithoutClub || hasAnyFilter" class="mt-2 text-sm text-fg-muted">
+          {{ emptyHint }}
+        </p>
         <p v-else-if="canCreateEvent" class="mt-2 text-sm text-fg-muted">
           Be the first to create a tournament or competition
         </p>
@@ -402,71 +553,106 @@ function formatDateRange(start: string, end: string): string {
         </NuxtLink>
       </div>
 
-      <!-- Nothing matches the status filter, but events do exist -->
-      <UiEmptyState
-        v-else-if="!visibleEvents.length"
-        compact
-        icon="filter"
-        title="No events with that status"
-        message="Try a different status, or clear the filter."
-        action-label="Show all"
-        @action="statusFilter = 'all'"
-      />
+      <!-- Cards in three bands: the artwork panel saying what kind of event
+           this is and whose it is, the practical detail under it, and capacity
+           along the foot.
 
-      <!-- Image-led cards, per the mobile mockup. The cover is generated from
-           the event name — see UiCoverArt for why there is no photo. -->
+           The artwork comes from `event_type` rather than a hash of the name
+           (which is what UiCoverArt does, and why it is no longer used here):
+           a tournament should look like a tournament on every card, and the
+           five sessions one club runs should be tellable apart at a glance
+           rather than looking like five unrelated products. -->
       <div v-else class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         <NuxtLink
           v-for="event in visibleEvents"
           :key="event.id"
           :to="`/events/${event.id}`"
-          class="group overflow-hidden rounded-card border border-border bg-surface transition-colors hover:border-border-strong shadow-card hover:shadow-card-hover"
+          class="group flex flex-col overflow-hidden rounded-card border border-border bg-surface shadow-card transition-shadow hover:shadow-card-hover"
         >
-          <!-- The kind of event replaces the monogram in the middle of the
-               cover: nothing on the card said whether this was a tournament or
-               a drop-in session without reading the name and guessing, and two
-               initials over a gradient were never worth that space. -->
-          <UiCoverArt
-            :name="event.name"
-            :label="eventKindLabel(event.event_type)"
-            variant="card"
-            rounded="rounded-none"
-          >
-            <!-- Only rendered when the server knew who was asking:
-                 viewer_registered is undefined for a signed-out visitor, and a
-                 missing badge must not read as "you are not signed up". -->
-            <span
-              v-if="event.viewer_registered"
-              class="absolute left-2 top-2 inline-flex items-center gap-1 rounded-badge bg-surface/95 px-2 py-0.5 text-caption font-medium text-success"
-            >
-              <UiIcon name="check" size="h-3.5 w-3.5" :stroke-width="2.5" />
-              Registered
-            </span>
-            <span
-              class="absolute right-2 top-2 rounded-badge px-2 py-0.5 text-caption font-medium"
-              :class="[statusConfig[event.status].bg, statusConfig[event.status].text]"
-            >
-              {{ statusConfig[event.status].label }}
-            </span>
+          <!-- The artwork panel: the illustration for this kind of event, the
+               ribbon naming it, the host club in the band the drawing leaves
+               clear, and status in the halftone corner.
 
-          </UiCoverArt>
+               The event's own name sits below the artwork rather than on it.
+               It is the longest and most important string on the card, and the
+               one thing that must never fight the illustration for room. -->
+          <EventTypeArtwork :event-type="event.event_type">
+            <template #status>
+              <span
+                class="inline-flex items-center gap-1.5 rounded-badge bg-surface px-2 py-0.5 text-caption font-semibold shadow-card ring-1 ring-inset ring-border"
+                :class="statusConfig[event.status].text"
+              >
+                <span
+                  class="h-1.5 w-1.5 shrink-0 rounded-full"
+                  :class="statusConfig[event.status].dot"
+                />
+                {{ statusConfig[event.status].label }}
+              </span>
+              <!-- Only rendered when the server knew who was asking:
+                   viewer_registered is undefined for a signed-out visitor, and
+                   a missing badge must not read as "you are not signed up". -->
+              <span
+                v-if="event.viewer_registered"
+                class="inline-flex items-center gap-1 rounded-badge bg-surface px-2 py-0.5 text-caption font-semibold text-success shadow-card ring-1 ring-inset ring-border"
+              >
+                <UiIcon name="check" size="h-3.5 w-3.5" :stroke-width="2.5" />
+                Registered
+              </span>
+            </template>
 
-          <div class="p-4">
-            <h2 class="truncate font-medium text-fg">{{ event.name }}</h2>
-            <p class="mt-1 flex items-center gap-1.5 text-body-2 text-fg-secondary">
+            <!-- Who is hosting. Every event belongs to a club, but the card
+                 only ever showed the venue and the town, so "whose session is
+                 this" was unanswerable without opening it. Omitted rather than
+                 blanked when the club could not be resolved. -->
+            <div v-if="event.club_name" class="flex h-full items-center gap-2.5">
+              <UiAvatar :name="event.club_name" size="sm" class="shrink-0 ring-2 ring-on-scrim" />
+              <span class="min-w-0 border-l-2 border-on-art/30 pl-2.5">
+                <span class="flex items-center gap-1">
+                  <span class="truncate text-body-2 font-bold text-on-art">
+                    {{ event.club_name }}
+                  </span>
+                  <!-- Same claim as the club page's VerifiedBadge, reduced to
+                       its mark: the word would not fit beside a club name and
+                       the tick is what people actually read. -->
+                  <span
+                    v-if="event.club_verified"
+                    class="flex shrink-0 items-center"
+                    title="This club is verified by DinkAndLadder"
+                  >
+                    <UiIcon
+                      name="verified"
+                      size="h-4 w-4"
+                      class="text-info"
+                      :stroke-width="2"
+                      label="Verified club"
+                    />
+                  </span>
+                </span>
+                <span class="block text-caption text-on-art-muted">Host club</span>
+              </span>
+            </div>
+          </EventTypeArtwork>
+
+          <div class="flex flex-1 flex-col p-4">
+            <h2
+              class="mb-2 line-clamp-2 font-display text-heading-3 font-bold leading-tight text-fg"
+            >
+              {{ event.name }}
+            </h2>
+            <p class="flex items-center gap-1.5 text-body-2 text-fg-secondary">
               <UiIcon name="calendar" size="h-4 w-4" class="shrink-0 text-fg-muted" />
               {{ formatDateRange(event.start_date, event.end_date) }}
             </p>
             <p
               v-if="formatEventTimeRange(event.start_time, event.end_time)"
-              class="mt-1 flex items-center gap-1.5 text-caption text-fg-muted"
+              class="mt-1.5 flex items-center gap-1.5 text-caption text-fg-muted"
             >
               <UiIcon name="clock" size="h-4 w-4" class="shrink-0" />
               {{ formatEventTimeRange(event.start_time, event.end_time) }}
             </p>
             <p
               v-if="event.venue || event.city"
-              class="mt-1 flex items-center gap-1.5 text-caption text-fg-muted"
+              class="mt-1.5 flex items-center gap-1.5 text-caption text-fg-muted"
             >
               <UiIcon name="location" size="h-4 w-4" class="shrink-0" />
               <span class="truncate">{{
@@ -474,25 +660,41 @@ function formatDateRange(start: string, end: string): string {
               }}</span>
             </p>
 
-            <!-- Capacity. Only rendered when the event declares a limit and the
-                 count was actually fetched — an uncapped event has no slots to
-                 be remaining, and showing "0 left" for one would be a lie. -->
-            <div v-if="slotsFor(event)" class="mt-3">
-              <div class="flex items-baseline justify-between gap-2">
-                <span class="text-caption font-medium" :class="slotsFor(event)!.tone">
-                  {{ slotsFor(event)!.label }}
+            <!-- Capacity, on its own band under a rule so it reads as the
+                 card's footing rather than a fourth detail line. Only rendered
+                 when the event declares a limit and the count was actually
+                 fetched — an uncapped event has no slots to be remaining, and
+                 showing "0 left" for one would be a lie. -->
+            <div
+              v-if="slotsFor(event)"
+              class="mt-4 flex items-center gap-3 border-t border-border pt-3"
+            >
+              <UiIcon name="players" size="h-4 w-4" class="shrink-0 text-fg-muted" />
+              <span class="shrink-0">
+                <span class="block text-caption font-semibold" :class="slotsFor(event)!.tone">
+                  {{
+                    slotsFor(event)!.remaining
+                      ? `${slotsFor(event)!.remaining} of ${slotsFor(event)!.total}`
+                      : 'Full'
+                  }}
                 </span>
-                <span class="text-caption tabular-nums text-fg-muted">
-                  {{ slotsFor(event)!.taken }}/{{ slotsFor(event)!.total }}
+                <span v-if="slotsFor(event)!.remaining" class="block text-[11px] text-fg-muted">
+                  slots left
                 </span>
-              </div>
-              <div class="mt-1 h-1.5 overflow-hidden rounded-pill bg-surface-2">
-                <div
-                  class="h-full rounded-pill transition-[width]"
+              </span>
+              <span class="h-1.5 flex-1 overflow-hidden rounded-pill bg-surface-2">
+                <span
+                  class="block h-full rounded-pill transition-[width]"
                   :class="slotsFor(event)!.barTone"
                   :style="{ width: `${slotsFor(event)!.percent}%` }"
                 />
-              </div>
+              </span>
+              <span class="shrink-0 text-right">
+                <span class="block text-caption font-semibold tabular-nums text-fg">
+                  {{ slotsFor(event)!.taken }}/{{ slotsFor(event)!.total }}
+                </span>
+                <span class="block text-[11px] text-fg-muted">registered</span>
+              </span>
             </div>
           </div>
         </NuxtLink>

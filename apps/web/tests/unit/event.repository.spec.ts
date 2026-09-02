@@ -34,7 +34,9 @@ describe('EventRepository.search — draft visibility', () => {
 
     await createEventRepository(client).search({ ...baseQuery })
 
-    expect(calls.find((c) => c.method === 'neq')?.args).toEqual(['status', 'draft'])
+    expect(
+      calls.some((c) => c.method === 'neq' && c.args[0] === 'status' && c.args[1] === 'draft')
+    ).toBe(true)
     expect(calls.some((c) => c.method === 'or')).toBe(false)
   })
 
@@ -50,8 +52,11 @@ describe('EventRepository.search — draft visibility', () => {
     expect(or, 'expected an OR filter widening the query to own drafts').toBeDefined()
     expect(or?.args[0]).toBe(`status.neq.draft,created_by_player_id.eq.${PLAYER_ID}`)
 
-    // The blanket exclusion must be gone, or the OR can never match a draft.
-    expect(calls.some((c) => c.method === 'neq' && c.args[0] === 'status')).toBe(false)
+    // The blanket DRAFT exclusion must be gone, or the OR can never match a
+    // draft. The cancelled exclusion is a separate rule and stays.
+    expect(
+      calls.some((c) => c.method === 'neq' && c.args[0] === 'status' && c.args[1] === 'draft')
+    ).toBe(false)
   })
 
   it('still restricts to the requested visibility when including drafts', async () => {
@@ -76,5 +81,43 @@ describe('EventRepository.search — draft visibility', () => {
         include_drafts_for_player_id: 'x,created_by_player_id.neq.null'
       })
     ).rejects.toThrow(/UUID/)
+  })
+})
+
+/**
+ * A cancelled session is not something anybody can turn up to, so it does not
+ * belong in a browse list beside the ones that are happening — but it must stay
+ * reachable for somebody who asks for it by name.
+ */
+describe('EventRepository.search — cancelled events', () => {
+  it('leaves cancelled events out of an unfiltered listing', async () => {
+    const { client, calls } = createRecordingClient()
+
+    await createEventRepository(client).search({ ...baseQuery })
+
+    expect(
+      calls.some((c) => c.method === 'neq' && c.args[0] === 'status' && c.args[1] === 'cancelled')
+    ).toBe(true)
+  })
+
+  it('returns them when they are what was asked for', async () => {
+    const { client, calls } = createRecordingClient()
+
+    await createEventRepository(client).search({ ...baseQuery, status: 'cancelled' })
+
+    expect(calls.some((c) => c.method === 'eq' && c.args[0] === 'status')).toBe(true)
+    expect(
+      calls.some((c) => c.method === 'neq' && c.args[0] === 'status' && c.args[1] === 'cancelled')
+    ).toBe(false)
+  })
+
+  it('includes them when the caller opts in', async () => {
+    const { client, calls } = createRecordingClient()
+
+    await createEventRepository(client).search({ ...baseQuery, include_cancelled: true })
+
+    expect(
+      calls.some((c) => c.method === 'neq' && c.args[0] === 'status' && c.args[1] === 'cancelled')
+    ).toBe(false)
   })
 })

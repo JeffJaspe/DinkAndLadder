@@ -1467,6 +1467,8 @@ function poolTable(matches: readonly BracketMatchRecord[]): PoolRecord[] {
 function indexParticipants(
   entrants: ReadonlyArray<{
     id: string
+    player_id?: string | null
+    partner_player_id?: string | null
     display_name: string
     rating: number | null
     partner_display_name: string | null
@@ -1479,7 +1481,10 @@ function indexParticipants(
         registration_id: entrant.id,
         display_name: entrant.display_name,
         rating: entrant.rating,
-        partner_display_name: entrant.partner_display_name
+        partner_display_name: entrant.partner_display_name,
+        // Carried through so a name on the draw can link to its profile.
+        player_id: entrant.player_id ?? null,
+        partner_player_id: entrant.partner_player_id ?? null
       }
     ])
   )

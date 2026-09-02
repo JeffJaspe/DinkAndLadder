@@ -63,6 +63,8 @@ async function handleSubmit() {
 <template>
   <div class="page-shell px-4 py-6 lg:px-6">
     <div class="mx-auto max-w-2xl">
+      <UiPageHeader to="/settings" />
+
       <h1 class="mb-2 font-display text-heading-1 text-fg">Sign-in methods</h1>
       <p class="mb-6 text-body-2 text-fg-muted">
         These all open the same account. Adding one never creates a second.

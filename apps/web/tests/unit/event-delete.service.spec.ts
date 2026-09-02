@@ -61,6 +61,7 @@ function setup(options?: {
     update: vi.fn(),
     updateStatus: vi.fn(),
     search: vi.fn().mockResolvedValue([]),
+    findOpenPlayAwaitingClose: vi.fn().mockResolvedValue([]),
     countByClubForLimits: vi
       .fn()
       .mockResolvedValue({ drafts: 0, liveTournaments: 0, liveOpenPlay: 0 }),

@@ -104,13 +104,21 @@ const showRatings = computed(() => !orderedScores.value.length)
             class="block truncate text-sm"
             :class="entry.isWinner ? 'font-semibold text-fg' : 'font-medium text-fg'"
           >
-            {{ entry.participant?.display_name ?? 'TBD' }}
+            <UiPlayerLink
+              :player-id="entry.participant?.player_id"
+              :name="entry.participant?.display_name"
+              fallback="TBD"
+            />
           </span>
           <span
             v-if="entry.participant?.partner_display_name"
             class="block truncate text-xs text-fg-muted"
           >
-            with {{ entry.participant.partner_display_name }}
+            with
+            <UiPlayerLink
+              :player-id="entry.participant.partner_player_id"
+              :name="entry.participant.partner_display_name"
+            />
           </span>
         </span>
 

@@ -14,7 +14,9 @@ function participant(name: string): BracketParticipantDto {
     registration_id: `reg-${name}`,
     display_name: name,
     rating: null,
-    partner_display_name: null
+    partner_display_name: null,
+    player_id: null,
+    partner_player_id: null
   }
 }
 

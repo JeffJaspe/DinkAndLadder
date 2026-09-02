@@ -35,20 +35,26 @@ const emit = defineEmits<{
           :key="reg.id"
           class="flex items-center justify-between gap-3 rounded-lg bg-canvas p-3"
         >
-          <NuxtLink
-            :to="`/players/${reg.player_id}`"
-            class="flex min-w-0 items-center gap-3 hover:text-primary"
-          >
-            <UiAvatar :name="reg.display_name" size="sm" />
+          <!-- Two links, not one row-wide one: the partner's name sat inside a
+               link to their PARTNER's profile, so tapping the name you read
+               opened somebody else. -->
+          <span class="flex min-w-0 items-center gap-3">
+            <NuxtLink :to="`/players/${reg.player_id}`" class="shrink-0">
+              <UiAvatar :name="reg.display_name" size="sm" />
+            </NuxtLink>
             <span class="min-w-0">
               <span class="block truncate text-sm font-medium text-fg">
-                {{ reg.display_name }}
+                <UiPlayerLink :player-id="reg.player_id" :name="reg.display_name" />
               </span>
               <span v-if="reg.partner_display_name" class="block truncate text-xs text-fg-muted">
-                with {{ reg.partner_display_name }}
+                with
+                <UiPlayerLink
+                  :player-id="reg.partner_player_id"
+                  :name="reg.partner_display_name"
+                />
               </span>
             </span>
-          </NuxtLink>
+          </span>
           <UiRatingBadge v-if="reg.rating != null" :rating="reg.rating" size="sm" />
           <span v-else class="text-xs text-fg-muted">Unrated</span>
         </li>
@@ -75,9 +81,13 @@ const emit = defineEmits<{
           class="flex flex-wrap items-center gap-2 rounded-lg bg-canvas p-3"
         >
           <span class="min-w-0 flex-1 truncate text-sm text-fg">
-            {{ reg.display_name
-            }}<template v-if="reg.partner_display_name">
-              &amp; {{ reg.partner_display_name }}</template
+            <UiPlayerLink :player-id="reg.player_id" :name="reg.display_name" /><template
+              v-if="reg.partner_display_name"
+            >
+              &amp;
+              <UiPlayerLink
+                :player-id="reg.partner_player_id"
+                :name="reg.partner_display_name" /></template
             >
           </span>
           <UiRatingBadge v-if="reg.rating != null" :rating="reg.rating" size="sm" />

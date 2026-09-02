@@ -112,7 +112,7 @@ export function createClubMembershipRepository(client: SupabaseClient): ClubMemb
     async listByClub(clubId) {
       const { data, error } = await client
         .from('club_memberships')
-        .select(`${MEMBERSHIP_COLUMNS}, player_profiles(display_name)`)
+        .select(`${MEMBERSHIP_COLUMNS}, player_profiles!fk_club_memberships_player(display_name)`)
         .eq('club_id', clubId)
         .order('created_at', { ascending: true })
 

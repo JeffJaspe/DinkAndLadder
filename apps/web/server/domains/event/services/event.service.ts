@@ -11,7 +11,12 @@ import type {
   EventSearchQuery,
   UpdateEventInput
 } from '../dto/event.dto'
-import { SLOT_OCCUPYING_STATUSES, toEventDto } from '../dto/event.dto'
+import {
+  OPEN_PLAY_CLOSE_GRACE_HOURS,
+  SLOT_OCCUPYING_STATUSES,
+  staleOpenPlayDeadline,
+  toEventDto
+} from '../dto/event.dto'
 import type { EventRegistrationRepository } from '../repositories/event-registration.repository'
 import type { TournamentCategoryRepository } from '../repositories/tournament-category.repository'
 import type { PartnershipRepository } from '../../partnership/repositories/partnership.repository'
@@ -84,6 +89,26 @@ export interface EventService {
   deleteDraftEvent(playerId: string, eventId: string): Promise<void>
   cancelEvent(playerId: string, eventId: string): Promise<EventDto>
   searchEvents(query: EventSearchQuery): Promise<EventDto[]>
+  /**
+   * Close open-play sessions whose organiser never did.
+   *
+   * A session left open keeps taking registrations for an evening that has
+   * already happened, and keeps claiming a live court on every board that reads
+   * the event list. Nobody was sweeping them, because closing was only ever a
+   * button.
+   *
+   * Returns what it closed so the caller can announce it — the club is told
+   * that its session was closed for it, which is the half of this that stops it
+   * looking like data loss.
+   *
+   * Idempotent and safe to run on any schedule: it only ever touches rows that
+   * are still active, still unclosed, and already past their grace period.
+   */
+  autoCloseStaleOpenPlay(input?: {
+    now?: Date
+    graceHours?: number
+    limit?: number
+  }): Promise<EventDto[]>
 
   createTournament(playerId: string, input: CreateTournamentInput): Promise<TournamentDto>
   getTournaments(eventId: string): Promise<TournamentDto[]>
@@ -634,7 +659,30 @@ export function createEventService(
 
     async searchEvents(query) {
       const records = await events.search(query)
-      const dtos = records.map(toEventDto)
+      let dtos = records.map(toEventDto)
+
+      /**
+       * Who is hosting, resolved once for the whole page.
+       *
+       * A card carried the venue and the town but never the club, so a player
+       * browsing open events could not tell whose session it was. One `in`
+       * query for the distinct clubs rather than one per card; a club the
+       * caller cannot read under RLS simply stays unnamed.
+       */
+      if (clubs && dtos.length) {
+        const hosts = await clubs.findByIds(dtos.map((e) => e.club_id).filter(Boolean))
+        const byId = new Map(hosts.map((c) => [c.id, c]))
+        dtos = dtos.map((e) => {
+          const host = byId.get(e.club_id)
+          return host
+            ? {
+                ...e,
+                club_name: host.name,
+                club_verified: host.verification_status === 'verified'
+              }
+            : e
+        })
+      }
 
       if (!eventRegistrations || !dtos.length) {
         return dtos
@@ -668,6 +716,38 @@ export function createEventService(
         ...(counts ? { registered_count: counts.get(e.id) ?? 0 } : {}),
         ...(mine ? { viewer_registered: mine.has(e.id) } : {})
       }))
+    },
+
+    async autoCloseStaleOpenPlay(input) {
+      const now = input?.now ?? new Date()
+      const graceHours = input?.graceHours ?? OPEN_PLAY_CLOSE_GRACE_HOURS
+      const limit = input?.limit ?? 100
+
+      /**
+       * A session cannot be stale before its own end date plus the grace
+       * period, so the query only has to reach back as far as that date. The
+       * exact deadline depends on `end_time` and is applied below, per row.
+       */
+      const cutoffDate = new Date(now.getTime() - graceHours * 60 * 60 * 1000)
+        .toISOString()
+        .slice(0, 10)
+
+      const candidates = await events.findOpenPlayAwaitingClose(cutoffDate, limit)
+      const closed: EventDto[] = []
+
+      for (const candidate of candidates) {
+        if (staleOpenPlayDeadline(candidate, graceHours) > now) continue
+        // One at a time rather than a bulk update: a row that fails (a race
+        // with the organiser pressing Close, say) must not stop the rest.
+        try {
+          const updated = await events.update(candidate.id, { closed_at: now.toISOString() })
+          closed.push(toEventDto(updated))
+        } catch (err) {
+          console.error(`[events] could not auto-close ${candidate.id}:`, err)
+        }
+      }
+
+      return closed
     },
 
     async createTournament(playerId, input) {

@@ -37,6 +37,9 @@ function makeClubRecord(overrides?: Partial<ClubRecord>): ClubRecord {
 function createFakeClubRepository(byId: Record<string, ClubRecord>): ClubRepository {
   return {
     findById: vi.fn(async (id: string) => byId[id] ?? null),
+    findByIds: vi.fn(
+      async (ids: string[]) => ids.map((id) => byId[id]).filter(Boolean) as ClubRecord[]
+    ),
     findBySlug: vi.fn().mockResolvedValue(null),
     create: vi.fn(),
     update: vi.fn(),

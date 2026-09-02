@@ -64,6 +64,8 @@ export default {
         'on-accent': token('on-accent'),
         // Labels over the landing hero's scrim — see tokens.css.
         'on-scrim': token('on-scrim'),
+        'on-art': token('on-art'),
+        'on-art-muted': token('on-art-muted'),
 
         // Status
         success: {
@@ -83,6 +85,12 @@ export default {
           DEFAULT: token('info'),
           soft: token('info-soft')
         },
+
+        // Coaching's hue — see the tokens.css note on why it is not 'info'.
+        coach: token('coach'),
+
+        // Ranked open play's hue — 'info' now marks the casual half only.
+        ranked: token('ranked'),
 
         // Rating tiers — thresholds live in `utils/rating-tiers.ts`
         rating: {

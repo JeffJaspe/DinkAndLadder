@@ -26,6 +26,12 @@ export type NotificationType =
    * ReportService.resolveReport, which is the only thing allowed to send this.
    */
   | 'moderation.warning'
+  /**
+   * An open-play session was closed by the platform because nobody closed it
+   * within the grace period. Sent to the club, not to its players — it is a
+   * housekeeping fact about the club's own session.
+   */
+  | 'event.auto_closed'
 
 export type NotificationReferenceType =
   | 'club_membership'
@@ -42,6 +48,8 @@ export type NotificationReferenceType =
    * it would name the reporter.
    */
   | 'player_report'
+  /** An events row. Deep-links to the event page. */
+  | 'event'
 
 export interface NotificationRecord {
   id: string

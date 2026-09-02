@@ -175,6 +175,8 @@ function getNotificationLink(notification: Notification): string | null {
     // stays in notifications" was.
     case 'team_up':
       return '/community?tab=team'
+    case 'event':
+      return `/events/${id}`
     case 'player_rating':
       return '/dashboard'
     case 'player_report':

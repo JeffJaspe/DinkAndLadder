@@ -92,7 +92,28 @@ describe('CategoryMatches', () => {
     })
 
     expect(idsInOrder(wrapper)).toEqual(['ready', 'bye'])
-    expect(wrapper.text()).toContain('Played')
+    // Played rows are headed by their round, not by one flat "Played".
+    expect(wrapper.text()).toContain('Round 1')
+  })
+
+  /**
+   * The results moved here from the event-wide Scores panel, which headed them
+   * FINAL / SEMIFINALS — the way a draw is actually asked about. Grouping them
+   * under one "Played" would have lost that on the way across.
+   */
+  it('heads played matches by round name, the final first', () => {
+    const wrapper = mountMatches({
+      bracket: bracket([
+        match({ id: 'sf1', round: 1, position: 1, match_id: 'm-1', status: 'completed' }),
+        match({ id: 'sf2', round: 1, position: 2, match_id: 'm-2', status: 'completed' }),
+        match({ id: 'final', round: 2, position: 1, match_id: 'm-3', status: 'completed' })
+      ])
+    })
+
+    const headings = wrapper.findAll('h4').map((h) => h.text())
+    expect(headings[0]).toContain('Final')
+    expect(headings[1]).toContain('Semifinals')
+    expect(idsInOrder(wrapper)).toEqual(['final', 'sf1', 'sf2'])
   })
 
   it('orders within a bucket by round, then position', () => {

@@ -169,11 +169,6 @@ const decidingPhase = computed<BracketPhase | null>(() => {
   return null
 })
 
-function partnerLine(reg: TournamentRegistrationWithPlayerDto): string {
-  return reg.partner_display_name
-    ? `${reg.display_name} / ${reg.partner_display_name}`
-    : reg.display_name
-}
 </script>
 
 <template>
@@ -397,7 +392,16 @@ function partnerLine(reg: TournamentRegistrationWithPlayerDto): string {
             <span class="w-6 shrink-0 text-right text-xs tabular-nums text-fg-muted">
               {{ index + 1 }}
             </span>
-            <span class="min-w-0 flex-1 truncate text-fg">{{ partnerLine(reg) }}</span>
+            <span class="min-w-0 flex-1 truncate text-fg">
+              <UiPlayerLink :player-id="reg.player_id" :name="reg.display_name" /><template
+                v-if="reg.partner_display_name"
+              >
+                /
+                <UiPlayerLink
+                  :player-id="reg.partner_player_id"
+                  :name="reg.partner_display_name" /></template
+              >
+            </span>
             <UiRatingBadge
               v-if="reg.rating != null"
               :rating="reg.rating"

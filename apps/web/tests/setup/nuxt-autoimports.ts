@@ -14,6 +14,7 @@
 
 import * as vue from 'vue'
 import { beforeEach, vi } from 'vitest'
+import { config } from '@vue/test-utils'
 
 // Vue reactivity + lifecycle used inside `<script setup>`.
 for (const name of [
@@ -63,3 +64,27 @@ beforeEach(() => {
   cookies.clear()
   states.clear()
 })
+
+/**
+ * `UiPlayerLink` is auto-imported in the app and reached for by almost every
+ * component that renders a name, so an unregistered one silently rendered
+ * NOTHING under Vitest — a spec asserting a player's name is on the card
+ * started failing for a reason that had nothing to do with the card.
+ *
+ * A stand-in rather than the real component: the real one renders `<NuxtLink>`,
+ * which needs a router. This keeps the name in the output, which is what those
+ * specs are actually asserting.
+ */
+config.global.components = {
+  ...config.global.components,
+  UiPlayerLink: {
+    name: 'UiPlayerLink',
+    props: {
+      playerId: { type: String, default: null },
+      name: { type: String, default: null },
+      fallback: { type: String, default: 'Unknown player' }
+    },
+    template:
+      '<a class="player-link" :data-player-id="playerId"><slot>{{ name || fallback }}</slot></a>'
+  }
+}

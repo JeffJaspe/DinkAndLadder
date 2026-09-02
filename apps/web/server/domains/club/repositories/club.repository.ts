@@ -44,6 +44,14 @@ export interface UpdateClubVerificationInput {
 
 export interface ClubRepository {
   findById(clubId: string): Promise<ClubRecord | null>
+  /**
+   * Several clubs in one round trip, for lists that show who is hosting.
+   *
+   * A per-row findById would be one query per card. Ids the caller cannot see
+   * under RLS are simply absent from the result, so callers must treat a
+   * missing id as unknown rather than assuming the list came back complete.
+   */
+  findByIds(clubIds: string[]): Promise<ClubRecord[]>
   findBySlug(slug: string): Promise<ClubRecord | null>
   create(input: CreateClubInput, createdByUserId: string): Promise<ClubRecord>
   update(clubId: string, patch: UpdateClubInput): Promise<ClubRecord>
@@ -64,6 +72,17 @@ export function createClubRepository(client: SupabaseClient): ClubRepository {
 
       if (error) throw error
       return data as unknown as ClubRecord | null
+    },
+
+    async findByIds(clubIds) {
+      if (!clubIds.length) return []
+      const { data, error } = await client
+        .from('clubs')
+        .select(CLUB_COLUMNS)
+        .in('id', Array.from(new Set(clubIds)))
+
+      if (error) throw error
+      return (data ?? []) as unknown as ClubRecord[]
     },
 
     async findBySlug(slug) {

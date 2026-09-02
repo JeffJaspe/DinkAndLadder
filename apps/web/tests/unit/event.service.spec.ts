@@ -23,6 +23,7 @@ function createFakeEventRepository(overrides?: Partial<EventRepository>): EventR
     update: vi.fn(),
     updateStatus: vi.fn(),
     search: vi.fn().mockResolvedValue([]),
+    findOpenPlayAwaitingClose: vi.fn().mockResolvedValue([]),
     // Added to EventRepository alongside cascade delete; the fakes were never
     // updated, which broke `vue-tsc` for every spec that builds one.
     countBlockingChildren: vi

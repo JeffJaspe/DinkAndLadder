@@ -42,7 +42,9 @@ function entrant(name: string, partner: string | null = null) {
     registration_id: `reg-${name}`,
     display_name: name,
     rating: null,
-    partner_display_name: partner
+    partner_display_name: partner,
+    player_id: null,
+    partner_player_id: null
   }
 }
 

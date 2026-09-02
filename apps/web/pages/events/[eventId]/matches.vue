@@ -275,13 +275,7 @@ useHead({
   <div class="min-h-screen bg-canvas p-4 lg:p-8">
     <header class="mb-6 flex flex-wrap items-start justify-between gap-4">
       <div class="min-w-0">
-        <NuxtLink
-          :to="`/events/${eventId}`"
-          class="inline-flex items-center gap-1.5 text-body-2 text-fg-muted hover:text-fg"
-        >
-          <UiIcon name="arrow-left" size="h-4 w-4" />
-          Back to the event
-        </NuxtLink>
+        <UiPageHeader :to="`/events/${eventId}`" back-label="Back to the event" />
         <h1 class="mt-1 truncate text-2xl font-bold text-fg lg:text-3xl">
           {{ activeCategory?.name ?? event?.name ?? 'Matches' }}
         </h1>

@@ -303,6 +303,11 @@ onMounted(() => {
     }
   }
 })
+/**
+ * Back returns to the page you came from; the route below is only the
+ * fallback for a deep link, where there is nothing of ours behind us.
+ */
+const { goBack } = useAppBack('/events')
 </script>
 
 <template>
@@ -374,9 +379,13 @@ onMounted(() => {
       <!-- Event Error -->
       <div v-else-if="eventError" class="rounded-xl bg-red-500/10 p-8 text-center">
         <p class="text-red-400">Could not load event.</p>
-        <NuxtLink to="/events" class="mt-4 inline-block text-sm text-primary hover:underline">
-          Back to events
-        </NuxtLink>
+        <button
+          type="button"
+          class="mt-4 inline-block text-sm text-primary hover:underline"
+          @click="goBack"
+        >
+          Back
+        </button>
       </div>
 
       <template v-else-if="eventData">

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { PlayerLine } from '~/utils/player-line'
 import type { MatchDto } from '~/server/domains/match/dto/match.dto'
 import type { PlayerProfileDto } from '~/server/domains/player/dto/player-profile.dto'
 import { DEFAULT_GAME_RULES, type GameRules, type GameScore } from '~/utils/game-rules'
@@ -201,9 +202,10 @@ const scoreSheetRules = computed<GameRules>(() => ({
   bestOf: Math.max(1, scoreSheetGames.value.length)
 }))
 
-const scoreSheetTeams = computed<[string[], string[]]>(() => [
-  getTeamPlayers(1).map((p) => nameForPlayer(p.player_id)),
-  getTeamPlayers(2).map((p) => nameForPlayer(p.player_id))
+/** Names carry their ids, so the sheet can link each one to its profile. */
+const scoreSheetTeams = computed<[PlayerLine[], PlayerLine[]]>(() => [
+  getTeamPlayers(1).map((p) => ({ name: nameForPlayer(p.player_id), playerId: p.player_id })),
+  getTeamPlayers(2).map((p) => ({ name: nameForPlayer(p.player_id), playerId: p.player_id }))
 ])
 
 const RESULT_TYPE_LABELS: Record<string, string> = {
@@ -213,6 +215,11 @@ const RESULT_TYPE_LABELS: Record<string, string> = {
 }
 
 const resultTypeLabel = computed(() => RESULT_TYPE_LABELS[match.value?.result_type ?? ''] ?? '')
+/**
+ * Back returns to the page you came from; the route below is only the
+ * fallback for a deep link, where there is nothing of ours behind us.
+ */
+const { goBack } = useAppBack('/matches')
 </script>
 
 <template>
@@ -235,9 +242,13 @@ const resultTypeLabel = computed(() => RESULT_TYPE_LABELS[match.value?.result_ty
               : 'Could not load this match.'
           }}
         </p>
-        <NuxtLink to="/dashboard" class="mt-4 inline-block text-sm text-primary hover:underline">
-          Back to dashboard
-        </NuxtLink>
+        <button
+          type="button"
+          class="mt-4 inline-block text-sm text-primary hover:underline"
+          @click="goBack"
+        >
+          Back
+        </button>
       </div>
 
       <!-- Match Details -->
@@ -485,9 +496,9 @@ const resultTypeLabel = computed(() => RESULT_TYPE_LABELS[match.value?.result_ty
 
         <!-- Back Link -->
         <div class="text-center">
-          <NuxtLink to="/dashboard" class="text-sm text-primary hover:underline">
-            Back to dashboard
-          </NuxtLink>
+          <button type="button" class="text-sm text-primary hover:underline" @click="goBack">
+            Back
+          </button>
         </div>
       </div>
     </div>

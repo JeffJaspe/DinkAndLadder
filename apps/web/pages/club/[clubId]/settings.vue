@@ -172,6 +172,11 @@ async function clearImage(slot: 'cover' | 'logo') {
     uploadingSlot.value = ''
   }
 }
+/**
+ * Back returns to the page you came from; the route below is only the
+ * fallback for a deep link, where there is nothing of ours behind us.
+ */
+const { goBack } = useAppBack(`/clubs/${clubId}`)
 </script>
 
 <template>
@@ -197,9 +202,9 @@ async function clearImage(slot: 'cover' | 'logo') {
 
       <div v-else-if="!canEdit" class="rounded-card bg-danger/10 p-6 text-center">
         <p class="text-danger">Only the club owner or an admin can change these settings.</p>
-        <NuxtLink :to="`/clubs/${clubId}`" class="mt-3 inline-block text-body-2 text-primary">
-          Back to the club profile
-        </NuxtLink>
+        <button type="button" class="mt-3 inline-block text-body-2 text-primary" @click="goBack">
+          Back
+        </button>
       </div>
 
       <div v-else-if="club" class="space-y-6">

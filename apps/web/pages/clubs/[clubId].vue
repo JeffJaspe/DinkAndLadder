@@ -483,6 +483,11 @@ const draftAnnouncements = computed(() => announcements.value.filter((a) => a.st
 // Split roster into pending requests and active members for admin view
 const pendingRequests = computed(() => roster.value?.filter((m) => m.status === 'pending') ?? [])
 const activeMembers = computed(() => roster.value?.filter((m) => m.status === 'active') ?? [])
+/**
+ * Back returns to the page you came from; the route below is only the
+ * fallback for a deep link, where there is nothing of ours behind us.
+ */
+const { goBack } = useAppBack('/my-clubs')
 </script>
 
 <template>
@@ -1092,9 +1097,9 @@ const activeMembers = computed(() => roster.value?.filter((m) => m.status === 'a
 
         <!-- Back Link -->
         <div class="text-center">
-          <NuxtLink to="/my-clubs" class="text-sm text-primary hover:underline">
-            Back to My Clubs
-          </NuxtLink>
+          <button type="button" class="text-sm text-primary hover:underline" @click="goBack">
+            Back
+          </button>
         </div>
       </template>
     </div>

@@ -28,6 +28,9 @@ function createFakes() {
     async findById(clubId) {
       return clubs.get(clubId) ?? null
     },
+    async findByIds(clubIds) {
+      return clubIds.map((id) => clubs.get(id)).filter((c): c is ClubRecord => !!c)
+    },
     async findBySlug(slug) {
       return [...clubs.values()].find((c) => c.slug === slug) ?? null
     },

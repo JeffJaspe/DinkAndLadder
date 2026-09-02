@@ -1,8 +1,9 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "git": {
-    "deploymentEnabled": {
-      "main": false
+  "crons": [
+    {
+      "path": "/api/v1/tasks/close-stale-open-play",
+      "schedule": "0 * * * *"
     }
-  }
+  ]
 }

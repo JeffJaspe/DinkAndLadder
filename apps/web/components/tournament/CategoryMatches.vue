@@ -4,6 +4,7 @@ import type {
   LiveBracketScore,
   RecordBracketResultInput
 } from '~/server/domains/event/dto/bracket.dto'
+import { stageLabels } from '~/utils/bracket-rounds'
 
 /**
  * Every match in the category as one flat list, ordered by what needs doing.
@@ -61,12 +62,6 @@ const rows = computed<Row[]>(() => {
   )
 })
 
-const groups = computed(() =>
-  (['ready', 'waiting', 'done'] as Bucket[])
-    .map((bucket) => ({ bucket, rows: rows.value.filter((r) => r.bucket === bucket) }))
-    .filter((group) => group.rows.length)
-)
-
 const HEADINGS: Record<Bucket, string> = {
   ready: 'Ready to play',
   waiting: 'Waiting on an earlier match',
@@ -85,6 +80,57 @@ const BUCKET_TONES: Record<Bucket, string> = {
   waiting: 'bg-border-strong',
   done: 'bg-primary'
 }
+
+/**
+ * Round names, not round numbers.
+ *
+ * The Scores panel headed its results FINAL, SEMIFINALS, QUARTERFINALS — the
+ * way anybody actually asks about a draw — while this tab piled every result
+ * under one "Played". Now that the scores are read here, they are grouped the
+ * same way in both places, off the same `stageLabels`.
+ */
+const stages = computed(() => stageLabels(props.bracket?.rounds ?? []))
+
+interface Group {
+  key: string
+  bucket: Bucket
+  heading: string
+  rows: Row[]
+}
+
+const groups = computed<Group[]>(() => {
+  const list: Group[] = []
+
+  // What is still to play stays ungrouped: an organiser scanning for the next
+  // match is asking "what can go on a court now", not which round it is.
+  for (const bucket of ['ready', 'waiting'] as const) {
+    const bucketRows = rows.value.filter((r) => r.bucket === bucket)
+    if (bucketRows.length) {
+      list.push({ key: bucket, bucket, heading: HEADINGS[bucket], rows: bucketRows })
+    }
+  }
+
+  // Played: a section per round, the final first — the last result is the
+  // answer to the question a reader opened this for.
+  const byRound = new Map<number, Row[]>()
+  for (const row of rows.value) {
+    if (row.bucket !== 'done') continue
+    const bucketRows = byRound.get(row.round) ?? []
+    bucketRows.push(row)
+    byRound.set(row.round, bucketRows)
+  }
+
+  for (const [round, roundRows] of [...byRound.entries()].sort((a, b) => b[0] - a[0])) {
+    list.push({
+      key: `done-${round}`,
+      bucket: 'done',
+      heading: stages.value.get(round) ?? `Round ${round}`,
+      rows: roundRows
+    })
+  }
+
+  return list
+})
 
 const locked = computed(() => props.bracket?.locked ?? false)
 </script>
@@ -107,10 +153,12 @@ const locked = computed(() => props.bracket?.locked ?? false)
       No matches yet. They appear here as soon as the draw is generated.
     </div>
 
-    <section v-for="group in groups" :key="group.bucket">
+    <section v-for="group in groups" :key="group.key">
       <h4 class="mb-2 flex items-center gap-2 text-sm font-medium text-fg-secondary">
         <span class="h-2 w-2 shrink-0 rounded-pill" :class="BUCKET_TONES[group.bucket]" />
-        {{ HEADINGS[group.bucket] }}
+        <span :class="group.bucket === 'done' ? 'uppercase tracking-wider text-fg-muted' : ''">
+          {{ group.heading }}
+        </span>
         <span class="font-normal text-fg-muted">· {{ group.rows.length }}</span>
       </h4>
       <div class="space-y-2">

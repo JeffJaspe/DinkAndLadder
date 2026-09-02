@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import type { RosterMemberDto } from '~/server/domains/club/dto/club-membership.dto'
+import type { ClubRole, RosterMemberDto } from '~/server/domains/club/dto/club-membership.dto'
+import type { PlayerProfileDto } from '~/server/domains/player/dto/player-profile.dto'
 import type { ClubDto } from '~/server/domains/club/dto/club.dto'
 import { apiErrorMessage } from '~/utils/api-error-message'
 
@@ -137,6 +138,93 @@ async function withdrawInvite(playerId: string) {
   }
 }
 
+/**
+ * What the reader is allowed to do to a member, mirroring ClubService.updateMember.
+ *
+ * The list was read-only: a club could answer requests and withdraw invitations
+ * but had no way at all to promote, demote or remove anybody, even though the
+ * PATCH endpoint has accepted `role` and `status: 'left'` all along. The rules
+ * below are the same ones the service enforces, restated here only so the page
+ * does not offer a button that is going to come back 403 — the server remains
+ * the boundary.
+ *
+ * - An owner may change any non-owner's role and remove them.
+ * - An admin may act on members and moderators only, and cannot grant admin.
+ * - Moderators and members may do neither.
+ * - Nobody may act on the owner, or on their own row (leaving is its own action).
+ */
+const { data: myProfile } = await useFetch<PlayerProfileDto | null>('/api/v1/players/me')
+
+const myRole = computed<ClubRole | null>(() => {
+  const me = roster.value.find((m) => m.player_id === myProfile.value?.id && m.status === 'active')
+  return me?.role ?? null
+})
+
+function canManage(member: RosterMemberDto): boolean {
+  if (member.player_id === myProfile.value?.id) return false
+  if (member.role === 'OWNER') return false
+  if (myRole.value === 'OWNER') return true
+  if (myRole.value === 'ADMIN') return member.role !== 'ADMIN'
+  return false
+}
+
+/** Admin is the owner's to grant, so it is only offered to an owner. */
+function assignableRoles(): ClubRole[] {
+  return myRole.value === 'OWNER' ? ['ADMIN', 'MODERATOR', 'MEMBER'] : ['MODERATOR', 'MEMBER']
+}
+
+const ROLE_LABEL: Record<ClubRole, string> = {
+  OWNER: 'Owner',
+  ADMIN: 'Admin',
+  MODERATOR: 'Moderator',
+  MEMBER: 'Member'
+}
+
+async function changeRole(member: RosterMemberDto, role: string) {
+  if (!role || role === member.role) return
+  busyId.value = member.player_id
+  actionError.value = ''
+  try {
+    await $fetch(`/api/v1/clubs/${clubId}/members/${member.player_id}`, {
+      method: 'PATCH',
+      body: { role }
+    })
+    await refresh()
+  } catch (err) {
+    actionError.value = apiErrorMessage(err, 'Could not change that role.')
+    // The select is bound to the roster row, so a refresh puts it back to what
+    // the server actually holds rather than leaving the failed choice showing.
+    await refresh()
+  } finally {
+    busyId.value = null
+  }
+}
+
+/**
+ * Removal is `left`, not a deletion — the same terminal state as walking out,
+ * which is what the service already uses for admin-side removal.
+ */
+const removing = ref<RosterMemberDto | null>(null)
+
+async function confirmRemove() {
+  const member = removing.value
+  if (!member) return
+  busyId.value = member.player_id
+  actionError.value = ''
+  try {
+    await $fetch(`/api/v1/clubs/${clubId}/members/${member.player_id}`, {
+      method: 'PATCH',
+      body: { status: 'left' }
+    })
+    removing.value = null
+    await refresh()
+  } catch (err) {
+    actionError.value = apiErrorMessage(err, 'Could not remove that member.')
+  } finally {
+    busyId.value = null
+  }
+}
+
 function whenInvited(member: RosterMemberDto): string {
   if (!member.invited_at) return 'Invitation sent'
   return `Invited ${new Date(member.invited_at).toLocaleDateString()}`
@@ -152,13 +240,9 @@ const activeList = computed(() => {
 <template>
   <div class="min-h-screen bg-canvas p-4 lg:p-6">
     <div class="page-shell">
-      <NuxtLink
-        :to="`/clubs/${clubId}`"
-        class="inline-flex items-center gap-1.5 text-body-2 text-fg-muted hover:text-fg"
-      >
-        <UiIcon name="arrow-left" size="h-4 w-4" />
-        {{ club?.name ?? 'Back to the club' }}
-      </NuxtLink>
+      <!-- Returns to the page you came from; the club is only the fallback for
+           a deep link. -->
+      <UiPageHeader :to="`/clubs/${clubId}`" :back-label="club?.name ?? 'Back to the club'" />
 
       <h1 class="mt-1 text-2xl font-bold text-fg">Members</h1>
       <p class="mt-1 text-sm text-fg-muted">
@@ -235,8 +319,37 @@ const activeList = computed(() => {
             </span>
           </NuxtLink>
 
+          <!-- A member can be promoted, demoted or removed — by whoever is
+               allowed to; everyone else just sees the roster. -->
+          <template v-if="activeTab === 'members'">
+            <template v-if="canManage(member)">
+              <UiSelect
+                :model-value="member.role"
+                size="sm"
+                :aria-label="`Role for ${member.display_name}`"
+                :disabled="busyId === member.player_id"
+                :options="assignableRoles().map((r) => ({ value: r, label: ROLE_LABEL[r] }))"
+                @update:model-value="changeRole(member, $event)"
+              />
+              <button
+                type="button"
+                :disabled="busyId === member.player_id"
+                class="rounded-lg border border-border-strong px-3 py-1.5 text-sm text-fg-secondary hover:border-danger hover:text-danger disabled:opacity-50"
+                @click="removing = member"
+              >
+                Remove
+              </button>
+            </template>
+            <span
+              v-else-if="member.role === 'OWNER'"
+              class="rounded-pill bg-primary-soft px-2.5 py-1 text-xs text-primary"
+            >
+              Owner
+            </span>
+          </template>
+
           <!-- A request needs an answer; an invitation only needs a way back. -->
-          <template v-if="activeTab === 'incoming'">
+          <template v-else-if="activeTab === 'incoming'">
             <button
               type="button"
               :disabled="busyId === member.player_id"
@@ -270,6 +383,21 @@ const activeList = computed(() => {
           </template>
         </li>
       </ul>
+
+      <UiModal
+        :model-value="removing !== null"
+        title="Remove member"
+        :description="
+          removing
+            ? `${removing.display_name} will lose access to this club. They can ask to join again later.`
+            : null
+        "
+        confirm-label="Remove"
+        destructive
+        :loading="busyId !== null"
+        @update:model-value="removing = $event ? removing : null"
+        @confirm="confirmRemove"
+      />
     </div>
   </div>
 </template>

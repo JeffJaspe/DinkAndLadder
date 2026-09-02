@@ -26,19 +26,12 @@ const props = withDefaults(
   { backLabel: 'Back', title: undefined, subtitle: undefined }
 )
 
-const router = useRouter()
-
 /**
- * Nuxt seeds history with the entry the app booted on, so a length of 1 means
- * this page *is* the entry point and there is nothing of ours to go back to.
+ * See `useAppBack`: `window.history.length > 1` used to stand in for "we have
+ * somewhere to go back to", and it does not — it counts the tab's whole
+ * history, including everything before the app was opened.
  */
-function goBack() {
-  if (import.meta.client && window.history.length > 1) {
-    router.back()
-    return
-  }
-  navigateTo(props.to)
-}
+const { goBack } = useAppBack(props.to)
 </script>
 
 <template>

@@ -59,6 +59,16 @@ export interface BracketParticipantDto {
   rating: number | null
   /** Doubles only; null for a singles entrant. */
   partner_display_name: string | null
+  /**
+   * Who these names belong to, so a bracket slot can link to a profile.
+   *
+   * The slot carried names and no ids, which made every entrant on a draw a
+   * dead end — the one screen where you most want to look somebody up is the
+   * one where you have just seen them beat you. Null where the registration
+   * predates the join or the partner was recorded as a name only.
+   */
+  player_id: string | null
+  partner_player_id: string | null
 }
 
 /**

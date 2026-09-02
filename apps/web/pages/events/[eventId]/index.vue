@@ -13,8 +13,10 @@ import type { PartnerDto } from '~/server/domains/partnership/dto/partnership.dt
 import type { BoxScoreMatch } from '~/components/match/BoxScore.vue'
 import type { PlayerProfileDto } from '~/server/domains/player/dto/player-profile.dto'
 import { apiErrorMessage } from '~/utils/api-error-message'
-import { roundLabel } from '~/utils/bracket-rounds'
-import type { BracketDto } from '~/server/domains/event/dto/bracket.dto'
+import { championOf, stageLabels } from '~/utils/bracket-rounds'
+import { rulesForRound } from '~/utils/game-rules'
+import type { BracketDto, BracketMatchDto } from '~/server/domains/event/dto/bracket.dto'
+import type { TournamentCategoryDto } from '~/server/domains/event/dto/tournament-category.dto'
 import type { PlatformFeeRule } from '~/utils/convenience-fee'
 import type { FeeWaiver } from '~/server/domains/event/services/registration-fee'
 import type { MixupSchedule } from '~/server/domains/event/services/mixup-scheduler'
@@ -199,10 +201,28 @@ const { data: eventBracket, refresh: refreshEventBracket } = useLazyFetch<Bracke
   { immediate: false, server: false }
 )
 
+/**
+ * The categories, purely to name the Scores panel's sections and order them.
+ *
+ * A bracket match carries a `category_id` and nothing else about its category,
+ * so the panel could group by it but not label it. Lazy and client-only for the
+ * same reason as the bracket above: it is presentation for a panel that renders
+ * without it.
+ */
+const { data: eventCategories, refresh: refreshEventCategories } = useLazyFetch<{
+  data: TournamentCategoryDto[]
+}>(() => `/api/v1/tournaments/${primaryTournament.value?.id}/categories`, {
+  immediate: false,
+  server: false
+})
+
 watch(
   primaryTournament,
   (value) => {
-    if (value) refreshEventBracket()
+    if (value) {
+      refreshEventBracket()
+      refreshEventCategories()
+    }
   },
   { immediate: true }
 )
@@ -222,11 +242,11 @@ const liveBoxScoreMatches = computed<BoxScoreMatch[]>(() =>
     .map((court) => {
       const games = court.live_score ?? []
       const names = (side: typeof court.team1) =>
-        side?.players.map((p) => p.display_name) ?? ['TBC']
+        side?.players.map((p) => ({ name: p.display_name, playerId: p.id })) ?? [{ name: 'TBC' }]
 
       return {
         id: `court-${court.id}`,
-        teams: [names(court.team1), names(court.team2)] as [string[], string[]],
+        teams: [names(court.team1), names(court.team2)] as BoxScoreMatch['teams'],
         games: games.map((g) => ({ team1_score: g.team1_score, team2_score: g.team2_score })),
         context: court.court_name || `Court ${court.court_number}`,
         group: 'On court',
@@ -238,39 +258,147 @@ const liveBoxScoreMatches = computed<BoxScoreMatch[]>(() =>
 )
 
 /**
- * Finished matches, one card per round where the round is known.
+ * The draw split back out per category.
  *
- * The event's own match list carries no round — it is a flat list of played
- * matches — so a tournament's rounds come from the bracket, which is fetched
- * alongside. Anything the bracket does not place (open play, a match recorded
- * outside a draw) falls into one untitled card, which is the whole panel for a
- * non-tournament event.
+ * `/bracket` without a `category_id` returns every category's matches merged
+ * into shared `rounds`, so round 1 of the 3.0 singles and round 1 of the 4.0
+ * doubles arrive as one round. That is fine for a flat list and wrong for
+ * everything here: a category's champion is the winner of ITS last match, and
+ * naming a round "Final" only means something within one draw.
  */
-const roundByMatchId = computed(() => {
-  const byMatch = new Map<string, number>()
+interface CategoryDraw {
+  key: string
+  rounds: { round: number; matches: BracketMatchDto[] }[]
+}
+
+/** The section key for matches that belong to no category. */
+const NO_CATEGORY = ''
+
+const categoryDraws = computed<CategoryDraw[]>(() => {
+  const byCategory = new Map<string, Map<number, BracketMatchDto[]>>()
+
   for (const round of eventBracket.value?.rounds ?? []) {
     for (const match of round.matches) {
-      if (match.match_id) byMatch.set(match.match_id, round.round)
+      const key = match.category_id ?? NO_CATEGORY
+      const rounds = byCategory.get(key) ?? new Map<number, BracketMatchDto[]>()
+      const bucket = rounds.get(round.round) ?? []
+      bucket.push(match)
+      rounds.set(round.round, bucket)
+      byCategory.set(key, rounds)
     }
   }
+
+  return [...byCategory.entries()].map(([key, rounds]) => ({
+    key,
+    rounds: [...rounds.entries()]
+      .map(([round, matches]) => ({ round, matches }))
+      .sort((a, b) => a.round - b.round)
+  }))
+})
+
+/**
+ * Where a played match sits: which category, and what that round is called.
+ *
+ * The event's own match list carries neither — it is a flat list of results —
+ * so both come from the draw. Anything the draw does not place (open play, a
+ * match recorded outside a bracket) is left unplaced and falls into one
+ * untitled section, which is the whole panel for a non-tournament event.
+ */
+interface ScorePlacement {
+  categoryKey: string
+  round: number
+  stage: string
+}
+
+const placementByMatchId = computed(() => {
+  const byMatch = new Map<string, ScorePlacement>()
+
+  for (const draw of categoryDraws.value) {
+    const stages = stageLabels(draw.rounds)
+    for (const round of draw.rounds) {
+      for (const match of round.matches) {
+        if (!match.match_id) continue
+        byMatch.set(match.match_id, {
+          categoryKey: draw.key,
+          round: round.round,
+          stage: stages.get(round.round) ?? `Round ${round.round}`
+        })
+      }
+    }
+  }
+
   return byMatch
 })
 
-const finishedBoxScoreMatches = computed<BoxScoreMatch[]>(() =>
+/** "Ana Garcia" for a singles entrant, "Ana Garcia / Ben Cruz" for a pair. */
+function entrantLine(entrant: { display_name: string; partner_display_name: string | null }) {
+  return entrant.partner_display_name
+    ? `${entrant.display_name} / ${entrant.partner_display_name}`
+    : entrant.display_name
+}
+
+/**
+ * Who won each category, or nothing while its final is still to be played.
+ *
+ * `championOf` wants a bracket, so each category's rounds are handed over as
+ * one — which is exactly what the endpoint would have returned had it been
+ * asked for that category alone.
+ */
+const championByCategory = computed(() => {
+  const byCategory = new Map<string, string>()
+
+  for (const draw of categoryDraws.value) {
+    const champion = championOf({
+      tournament_id: primaryTournament.value?.id ?? '',
+      category_id: draw.key || null,
+      locked: true,
+      rounds: draw.rounds
+    })
+    if (champion) byCategory.set(draw.key, entrantLine(champion))
+  }
+
+  return byCategory
+})
+
+const categoryById = computed(
+  () => new Map((eventCategories.value?.data ?? []).map((category) => [category.id, category]))
+)
+
+interface FinishedScore extends BoxScoreMatch {
+  categoryKey: string
+  round: number
+}
+
+const finishedBoxScoreMatches = computed<FinishedScore[]>(() =>
   (matchesData.value?.data ?? [])
     .filter((match) => match.scores.length > 0)
-    .slice(0, 12)
+    // Generous, because a wrapped-up category is folded away: the cap exists to
+    // keep an all-day open-play session from rendering hundreds of rows, not to
+    // hide half a draw behind nothing.
+    .slice(0, 60)
     .map((match) => {
       const side = (team: 1 | 2) =>
         match.participants
           .filter((p) => p.team_number === team)
-          .map((p) => p.display_name ?? 'Unknown player')
+          .map((p) => ({ name: p.display_name ?? 'Unknown player', playerId: p.player_id }))
 
-      const round = roundByMatchId.value.get(match.id)
+      const placement = placementByMatchId.value.get(match.id)
+
+      /**
+       * The recorded result, not one re-derived from the games.
+       *
+       * `seriesWinner` applies win-by-two, so a match of 11-10 games — a house
+       * "first to 11" — resolves to nobody, and the row read FINAL with no ✓
+       * against either name. `result_status` is what the submission actually
+       * settled on.
+       */
+      const wonBy = (team: 1 | 2) =>
+        match.participants.some((p) => p.team_number === team && p.result_status === 'won')
+      const winner = wonBy(1) ? 1 : wonBy(2) ? 2 : null
 
       return {
         id: match.id,
-        teams: [side(1), side(2)] as [string[], string[]],
+        teams: [side(1), side(2)] as BoxScoreMatch['teams'],
         games: match.scores.map((s) => ({
           team1_score: s.team1_score,
           team2_score: s.team2_score
@@ -278,28 +406,85 @@ const finishedBoxScoreMatches = computed<BoxScoreMatch[]>(() =>
         context: [match.match_type === 'singles' ? 'Singles' : 'Doubles', match.venue]
           .filter(Boolean)
           .join(' · '),
-        group: round ? roundLabel(round) : null,
+        group: placement?.stage ?? null,
+        winner: winner as 1 | 2 | null,
+        /**
+         * The category's own rules, so a game is marked won by the rules it was
+         * played under. Without them the panel assumed 11 win-by-two and left
+         * the 11 in an 11-10 game unbolded — the same defect as the missing ✓,
+         * one level down.
+         */
+        rules: rulesForRound(
+          categoryById.value.get(placement?.categoryKey ?? NO_CATEGORY) ?? null,
+          placement?.round ?? null
+        ),
         liveGame: null,
-        complete: match.status === 'verified'
+        complete: match.status === 'verified',
+        categoryKey: placement?.categoryKey ?? NO_CATEGORY,
+        round: placement?.round ?? Number.MAX_SAFE_INTEGER
       }
     })
 )
 
 /**
- * Live first, then rounds newest-last.
+ * The panel, as sections: live play and open matches first, then a section per
+ * category — the ones still running above the ones already decided.
  *
- * BoxScore groups by insertion order, so the order here is the order on screen:
- * what is happening now, then the rounds behind it in the order they were
- * played.
+ * A decided category collapses to its champion (see `MatchScoreSection`), so
+ * putting them last is what stops a finished weekend from opening on a stack of
+ * folded cards with the live draw below the fold.
  */
-const boxScoreMatches = computed<BoxScoreMatch[]>(() => {
-  const finished = [...finishedBoxScoreMatches.value].sort((a, b) => {
-    const roundOf = (m: BoxScoreMatch) =>
-      roundByMatchId.value.get(m.id) ?? Number.MAX_SAFE_INTEGER
-    return roundOf(b) - roundOf(a)
-  })
-  return [...liveBoxScoreMatches.value, ...finished]
+interface ScoreSection {
+  key: string
+  label: string | null
+  champion: string | null
+  matches: BoxScoreMatch[]
+}
+
+const scoreSections = computed<ScoreSection[]>(() => {
+  const byCategory = new Map<string, FinishedScore[]>()
+  for (const match of finishedBoxScoreMatches.value) {
+    const bucket = byCategory.get(match.categoryKey) ?? []
+    bucket.push(match)
+    byCategory.set(match.categoryKey, bucket)
+  }
+
+  const sections: ScoreSection[] = []
+
+  // Whatever is on court now, plus anything the draw does not place. Unlabelled,
+  // so it renders as the bare round cards it always was.
+  const unplaced = [...liveBoxScoreMatches.value, ...(byCategory.get(NO_CATEGORY) ?? [])]
+  if (unplaced.length) {
+    sections.push({ key: NO_CATEGORY, label: null, champion: null, matches: unplaced })
+  }
+
+  /**
+   * A tournament's finished results are read on the category card.
+   *
+   * Each card now carries its own champion in the header, beside the band and
+   * the format, and its scores under Matches grouped by round — so listing them
+   * again up here was the same results twice on one page, with the category
+   * named in two places and its details in only one. What is on court right now
+   * stays: it is the only part of the picture no single card owns.
+   */
+  if (isTournament.value) return sections
+
+  const categorised = [...byCategory.entries()]
+    .filter(([key]) => key !== NO_CATEGORY)
+    .map(([key, matches]) => ({
+      key,
+      label: categoryById.value.get(key)?.name ?? null,
+      champion: championByCategory.value.get(key) ?? null,
+      order: categoryById.value.get(key)?.display_order ?? Number.MAX_SAFE_INTEGER,
+      // Newest round first: the final is the answer to the question being asked.
+      matches: [...matches].sort((a, b) => b.round - a.round)
+    }))
+    .sort((a, b) => Number(!!a.champion) - Number(!!b.champion) || a.order - b.order)
+
+  return [...sections, ...categorised]
 })
+
+const hasScores = computed(() => scoreSections.value.some((section) => section.matches.length))
 
 const { data: rankingsData, pending: rankingsPending } = await useFetch<{
   data: EventRankingEntry[]
@@ -643,6 +828,25 @@ const nextPair = computed(() => {
 function entryLabel(entry: EventQueueDto): string {
   const name = entry.player?.display_name ?? 'Unknown player'
   return entry.partner ? `${name} & ${entry.partner.display_name}` : name
+}
+
+/**
+ * The same entry as one line per person, so each name links to its profile.
+ *
+ * `entryLabel` stays for the places that need a plain string — a `<select>`
+ * option, an aria-label — where markup is not allowed.
+ */
+function entryPlayers(entry: EventQueueDto) {
+  const players = [
+    {
+      id: entry.player?.id ?? entry.player_id,
+      name: entry.player?.display_name ?? 'Unknown player'
+    }
+  ]
+  if (entry.partner) {
+    players.push({ id: entry.partner.id ?? entry.partner_id, name: entry.partner.display_name })
+  }
+  return players
 }
 
 /**
@@ -1016,12 +1220,17 @@ const sessionState = computed(() => {
   }
   return null
 })
+/**
+ * Back returns to the page you came from; the route below is only the
+ * fallback for a deep link, where there is nothing of ours behind us.
+ */
+const { goBack } = useAppBack('/events')
 </script>
 
 <template>
   <div class="min-h-screen bg-canvas p-4 lg:p-6">
     <div class="page-shell">
-      <UiPageHeader to="/events" back-label="Events" />
+      <UiPageHeader to="/events" />
 
       <!-- Loading -->
       <div v-if="eventPending" class="space-y-4">
@@ -1032,9 +1241,13 @@ const sessionState = computed(() => {
       <!-- Error -->
       <div v-else-if="eventError" class="rounded-xl bg-red-500/10 p-6 text-center">
         <p class="text-red-400">Could not load event.</p>
-        <NuxtLink to="/events" class="mt-4 inline-block text-sm text-primary hover:underline">
-          Back to events
-        </NuxtLink>
+        <button
+          type="button"
+          class="mt-4 inline-block text-sm text-primary hover:underline"
+          @click="goBack"
+        >
+          Back
+        </button>
       </div>
 
       <!-- A draft reached in player mode. Not an error and not a permission
@@ -1049,9 +1262,13 @@ const sessionState = computed(() => {
           Drafts live in club mode. Switch to the club that owns this event to finish setting it up
           and make it visible to players.
         </p>
-        <NuxtLink to="/events" class="mt-4 inline-block text-sm text-primary hover:underline">
-          Back to events
-        </NuxtLink>
+        <button
+          type="button"
+          class="mt-4 inline-block text-sm text-primary hover:underline"
+          @click="goBack"
+        >
+          Back
+        </button>
       </div>
 
       <template v-else-if="event">
@@ -1064,7 +1281,7 @@ const sessionState = computed(() => {
                    session were indistinguishable until you read the body. -->
               <p
                 class="mb-1 text-xs font-bold tracking-[0.14em]"
-                :class="isTournament ? 'text-accent' : 'text-primary'"
+                :class="eventTypeStyle(event.event_type).art"
               >
                 {{ eventKindLabel(event.event_type) }}
               </p>
@@ -1117,7 +1334,9 @@ const sessionState = computed(() => {
                 <!-- Singles or doubles, which the record has carried since 041
                      but nothing ever showed — an all-singles session looked
                      identical to an all-doubles one. -->
-                <span class="rounded-md bg-surface-3 px-2 py-0.5 text-caption font-medium capitalize text-fg-secondary">
+                <span
+                  class="rounded-md bg-surface-3 px-2 py-0.5 text-caption font-medium capitalize text-fg-secondary"
+                >
                   {{ event.match_format }}
                 </span>
 
@@ -1282,9 +1501,18 @@ const sessionState = computed(() => {
           The same grid as the score sheet and the match view, so a result reads
           identically wherever it is seen.
         -->
-        <section v-if="boxScoreMatches.length" class="mb-6">
+        <section v-if="hasScores" class="mb-6">
           <h2 class="mb-2 font-display text-heading-3 text-fg">Scores</h2>
-          <MatchBoxScore :matches="boxScoreMatches" />
+          <div class="space-y-4">
+            <MatchScoreSection
+              v-for="section in scoreSections"
+              :key="section.key"
+              :label="section.label"
+              :champion="section.champion"
+              :matches="section.matches"
+              :default-open="scoreSections.length === 1"
+            />
+          </div>
         </section>
 
         <template v-if="isTournament">
@@ -1661,7 +1889,9 @@ const sessionState = computed(() => {
               </span>
               <span class="flex items-center gap-1.5">
                 <span class="h-2 w-2 rounded-pill bg-border-strong" />
-                <span class="font-medium text-fg-secondary">{{ registeredOnlyCount }} registered</span>
+                <span class="font-medium text-fg-secondary"
+                  >{{ registeredOnlyCount }} registered</span
+                >
                 <span class="text-fg-muted">— holding a slot, not arrived</span>
               </span>
             </div>
@@ -1962,7 +2192,12 @@ const sessionState = computed(() => {
                         #{{ i + 1 }}
                       </span>
                       <span class="min-w-0">
-                        <span class="block truncate text-fg">{{ entryLabel(e) }}</span>
+                        <span class="block truncate text-fg">
+                          <template v-for="(player, n) in entryPlayers(e)" :key="player.id ?? n"
+                            ><span v-if="n > 0"> &amp; </span
+                            ><UiPlayerLink :player-id="player.id" :name="player.name"
+                          /></template>
+                        </span>
                         <span class="block text-xs text-fg-muted">
                           <span class="capitalize">{{ e.match_type }}</span>
                           · {{ waitedFor(e.joined_at, clockNow) }}
@@ -1988,8 +2223,10 @@ const sessionState = computed(() => {
                       class="flex items-center justify-between rounded-lg bg-canvas p-3"
                     >
                       <span class="text-fg">
-                        {{ e.player?.display_name
-                        }}{{ e.partner ? ` & ${e.partner.display_name}` : '' }}
+                        <template v-for="(player, n) in entryPlayers(e)" :key="player.id ?? n"
+                          ><span v-if="n > 0"> &amp; </span
+                          ><UiPlayerLink :player-id="player.id" :name="player.name"
+                        /></template>
                       </span>
                       <span class="text-sm text-primary">Court {{ e.court_number }}</span>
                     </div>
@@ -2007,9 +2244,9 @@ const sessionState = computed(() => {
 
         <!-- Back Link -->
         <div class="mt-6 text-center">
-          <NuxtLink to="/events" class="text-sm text-primary hover:underline">
-            Back to events
-          </NuxtLink>
+          <button type="button" class="text-sm text-primary hover:underline" @click="goBack">
+            Back
+          </button>
         </div>
       </template>
     </div>

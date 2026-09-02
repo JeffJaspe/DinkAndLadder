@@ -75,6 +75,7 @@ function createFakeEventRepository(overrides?: Partial<EventRepository>): EventR
     update: vi.fn(),
     updateStatus: vi.fn(),
     search: vi.fn().mockResolvedValue([]),
+    findOpenPlayAwaitingClose: vi.fn().mockResolvedValue([]),
     // Added to EventRepository alongside cascade delete; the fakes were never
     // updated, which broke `vue-tsc` for every spec that builds one.
     countBlockingChildren: vi
@@ -554,7 +555,8 @@ describe('BracketService', () => {
         makeRegistrationRecord('reg-1', 'player-1', {
           display_name: 'Ana Cruz',
           rating: 4.25,
-          partner_display_name: 'Bea Lim'
+          partner_display_name: 'Bea Lim',
+          partner_player_id: 'player-1b'
         }),
         makeRegistrationRecord('reg-2', 'player-2', {
           display_name: 'Carlo Reyes',
@@ -581,7 +583,10 @@ describe('BracketService', () => {
         registration_id: 'reg-1',
         display_name: 'Ana Cruz',
         rating: 4.25,
-        partner_display_name: 'Bea Lim'
+        partner_display_name: 'Bea Lim',
+        // Ids ride along so a name on a draw can link to its profile.
+        player_id: 'player-1',
+        partner_player_id: 'player-1b'
       })
       expect(final.participant2?.display_name).toBe('Carlo Reyes')
       expect(final.participant2?.rating).toBe(3.8)

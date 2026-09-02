@@ -6,6 +6,7 @@ import {
   createTournamentRegistrationRepository
 } from '~/server/domains/event/repositories/tournament.repository'
 import { createEventService } from '~/server/domains/event/services/event.service'
+import { createClubRepository } from '~/server/domains/club/repositories/club.repository'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
 import { apiError } from '~/server/utils/api-error'
 import { isFeatureEnabled } from '~/server/utils/feature-flags'
@@ -66,6 +67,9 @@ export default defineEventHandler(async (event) => {
               ].includes(v)
             ) as EventSearchQuery['event_types'])
         : undefined,
+    // Opt-in, so the browse list hides cancelled sessions unless a caller asks
+    // for them by name (?include_cancelled=true) or filters to that status.
+    include_cancelled: query.include_cancelled === 'true' || query.include_cancelled === '1',
     include_drafts_for_player_id: ownPlayerId,
     // Same id, second use: it also decides which cards can say "Registered".
     viewer_player_id: showRegisteredBadge ? ownPlayerId : undefined,
@@ -80,7 +84,12 @@ export default defineEventHandler(async (event) => {
     undefined,
     // Lets each result carry how many slots are taken, and whether the caller
     // is already in it, without a request per event.
-    createEventRegistrationRepository(client)
+    createEventRegistrationRepository(client),
+    undefined,
+    undefined,
+    undefined,
+    // Names the hosting club on each result, in one query for the whole page.
+    createClubRepository(client)
   )
 
   try {
