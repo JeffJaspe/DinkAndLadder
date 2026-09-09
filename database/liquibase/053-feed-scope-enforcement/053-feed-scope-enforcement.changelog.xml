@@ -1,0 +1,430 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Make the feed's scope an identity rather than an argument.
+
+     049 and 050 got the *policy* right - the feed is the player's own community
+     and nothing else - but expressed it as a parameter the caller supplies.
+     Both functions are SECURITY DEFINER, so they run as the owner and bypass
+     RLS, and neither checks that `p_player_id` has anything to do with whoever
+     is calling. Verified against the dev project with nothing but the anon key
+     that ships in every page, no session at all:
+
+       fn_feed_for_player(p_player_id => null, p_scope => 'geo')
+         -> 200, the whole public listing, which the API layer deliberately
+            refuses to serve. The refusal lived only in the Nuxt endpoint;
+            PostgREST serves the function directly.
+
+       fn_community_player_ids(<any player id, harvested from the response above>)
+         -> 200, 19 rows: that player's duo partners, accepted team-ups and
+            every opponent they have played a verified match against.
+
+       fn_feed_for_player(<that same id>, p_scope => 'community')
+         -> 200, that player's own community feed.
+
+     The second one is the breach. RLS on `partnerships` and `team_ups` already
+     says that data is private - both return zero rows to that exact anonymous
+     caller - and the SECURITY DEFINER function handed it out anyway. The first
+     is noisy but not a leak: RLS on `activities` already publishes exactly the
+     `visibility = 'public'` rows the geo listing returns, and refuses `club`,
+     `followers` and `private`. So the fix closes the graph and leaves the
+     public listing alone.
+
+     Root cause is one Postgres default rather than a mistake in the grants.
+     CREATE FUNCTION grants EXECUTE to PUBLIC, and PUBLIC includes `anon`, so
+     049's explicit `GRANT ... TO authenticated` reads like access control while
+     granting nothing that was not already there. Nothing was ever revoked.
+
+     What changes:
+
+       1. Both functions derive the viewer from auth.uid() instead of trusting
+          an argument. The parameters stay so the two RPC call sites keep
+          working, but they are no longer authoritative: pass someone else's id
+          and you get nothing back.
+       2. `p_scope` stops being caller-controlled. An authenticated caller is
+          always community-scoped; an anonymous one keeps the public listing it
+          gets today. That is exactly what the application already sends, so no
+          product behaviour changes.
+       3. EXECUTE is revoked from PUBLIC and granted deliberately.
+       4. The feed's ORDER BY gains `id` as a final tiebreaker.
+
+     On (4): `activities.created_at` defaults to now(), which is transaction
+     time, so every row written by one transaction carries an identical
+     timestamp. Ordering by (geo_score, verified_score, created_at) alone is
+     therefore not a total order, and OFFSET pagination over a non-deterministic
+     sort is free to repeat a row on one page and skip it on the next - which is
+     what the feed's "Load more" does.
+
+     Signatures are unchanged, so apps/web needs no edit. -->
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+    <changeSet id="053-community-ids-identity-scoped" author="claude">
+        <!-- The community set now belongs to whoever is asking. `p_player_id`
+             is kept for signature compatibility and is accepted only when it is
+             NULL or is already the caller's own id; anything else returns zero
+             rows, which fails closed rather than silently answering about
+             somebody else. -->
+        <sql splitStatements="false">
+            CREATE OR REPLACE FUNCTION fn_community_player_ids(p_player_id uuid)
+            RETURNS TABLE (player_id uuid)
+            LANGUAGE sql
+            STABLE
+            SECURITY DEFINER
+            SET search_path = public
+            AS $$
+                WITH me AS (
+                    -- auth.uid() is read from the request JWT and is unaffected
+                    -- by SECURITY DEFINER, so this is the caller, not the owner.
+                    -- An anonymous caller resolves to no rows, and every CTE
+                    -- below joins to this one, so the whole result is empty.
+                    SELECT pp.id
+                      FROM player_profiles pp
+                     WHERE pp.user_id = auth.uid()
+                       AND (p_player_id IS NULL OR p_player_id = pp.id)
+                ),
+                my_matches AS (
+                    SELECT mp.match_id
+                      FROM match_participants mp
+                      JOIN me ON me.id = mp.player_id
+                ),
+                candidates AS (
+                    SELECT id FROM me
+                    UNION
+                    SELECT CASE WHEN p.player1_id = me.id THEN p.player2_id ELSE p.player1_id END
+                      FROM partnerships p
+                      JOIN me ON me.id IN (p.player1_id, p.player2_id)
+                    UNION
+                    SELECT CASE WHEN t.owner_player_id = me.id
+                                THEN t.member_player_id ELSE t.owner_player_id END
+                      FROM team_ups t
+                      JOIN me ON me.id IN (t.owner_player_id, t.member_player_id)
+                     WHERE t.status = 'accepted'
+                    UNION
+                    -- Everyone who was on court, both sides of the net. Verified
+                    -- only, since an unverified match is a claim, not a game.
+                    SELECT mp.player_id
+                      FROM match_participants mp
+                      JOIN my_matches mm ON mm.match_id = mp.match_id
+                      JOIN matches m ON m.id = mp.match_id
+                     WHERE m.status = 'verified'
+                )
+                SELECT c.id
+                  FROM candidates c
+                 WHERE c.id IS NOT NULL
+                   AND NOT EXISTS (
+                       SELECT 1
+                         FROM player_relationships b, me
+                        WHERE b.relationship_type = 'block'
+                          AND b.status = 'active'
+                          AND (
+                              (b.from_player_id = me.id AND b.to_player_id = c.id)
+                           OR (b.from_player_id = c.id AND b.to_player_id = me.id)
+                          )
+                   );
+            $$;
+        </sql>
+        <rollback>
+            <!-- Back to 050: correct policy, caller-supplied identity. -->
+            <sql splitStatements="false">
+                CREATE OR REPLACE FUNCTION fn_community_player_ids(p_player_id uuid)
+                RETURNS TABLE (player_id uuid)
+                LANGUAGE sql
+                STABLE
+                SECURITY DEFINER
+                SET search_path = public
+                AS $$
+                    WITH me AS (
+                        SELECT p_player_id AS id WHERE p_player_id IS NOT NULL
+                    ),
+                    my_matches AS (
+                        SELECT mp.match_id
+                          FROM match_participants mp
+                          JOIN me ON me.id = mp.player_id
+                    ),
+                    candidates AS (
+                        SELECT id FROM me
+                        UNION
+                        SELECT CASE WHEN p.player1_id = me.id THEN p.player2_id ELSE p.player1_id END
+                          FROM partnerships p
+                          JOIN me ON me.id IN (p.player1_id, p.player2_id)
+                        UNION
+                        SELECT CASE WHEN t.owner_player_id = me.id
+                                    THEN t.member_player_id ELSE t.owner_player_id END
+                          FROM team_ups t
+                          JOIN me ON me.id IN (t.owner_player_id, t.member_player_id)
+                         WHERE t.status = 'accepted'
+                        UNION
+                        SELECT mp.player_id
+                          FROM match_participants mp
+                          JOIN my_matches mm ON mm.match_id = mp.match_id
+                          JOIN matches m ON m.id = mp.match_id
+                         WHERE m.status = 'verified'
+                    )
+                    SELECT c.id
+                      FROM candidates c
+                     WHERE c.id IS NOT NULL
+                       AND NOT EXISTS (
+                           SELECT 1
+                             FROM player_relationships b
+                            WHERE b.relationship_type = 'block'
+                              AND b.status = 'active'
+                              AND (
+                                  (b.from_player_id = p_player_id AND b.to_player_id = c.id)
+                               OR (b.from_player_id = c.id AND b.to_player_id = p_player_id)
+                              )
+                       );
+                $$;
+            </sql>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="053-feed-identity-scoped" author="claude">
+        <!-- Same treatment for the feed, plus a total order. `p_player_id` and
+             `p_scope` are both kept in the signature - the repository names them
+             - and both are now advisory: the viewer comes from auth.uid(), and
+             the scope follows from whether there is one. -->
+        <sql splitStatements="false">
+            CREATE OR REPLACE FUNCTION fn_feed_for_player(
+                p_player_id uuid,
+                p_limit int DEFAULT 20,
+                p_offset int DEFAULT 0,
+                p_types text[] DEFAULT NULL,
+                p_since timestamptz DEFAULT NULL,
+                p_scope text DEFAULT 'community'
+            )
+            RETURNS TABLE (
+                id uuid,
+                actor_player_id uuid,
+                actor_club_id uuid,
+                activity_type varchar(50),
+                reference_type varchar(50),
+                reference_id uuid,
+                visibility varchar(20),
+                metadata jsonb,
+                created_at timestamptz,
+                geo_score int
+            )
+            LANGUAGE sql
+            STABLE
+            SECURITY DEFINER
+            SET search_path = public
+            AS $$
+                WITH me AS (
+                    SELECT pp.id
+                      FROM player_profiles pp
+                     WHERE pp.user_id = auth.uid()
+                ),
+                effective AS (
+                    -- An anonymous caller keeps the public listing it gets
+                    -- today; RLS on `activities` already publishes exactly
+                    -- these rows, so this is not a widening. An authenticated
+                    -- caller is always scoped to their own community, which is
+                    -- the only thing the application ever asks for - so the
+                    -- caller can no longer request the firehose for themselves,
+                    -- or a community that is not theirs.
+                    SELECT
+                        (SELECT m.id FROM me m) AS player_id,
+                        CASE
+                            WHEN (SELECT m.id FROM me m) IS NULL THEN 'geo'
+                            ELSE 'community'
+                        END AS scope
+                ),
+                community AS (
+                    SELECT c.player_id
+                      FROM fn_community_player_ids((SELECT e.player_id FROM effective e)) c
+                     WHERE (SELECT e.scope FROM effective e) = 'community'
+                ),
+                my_clubs AS (
+                    SELECT cm.club_id
+                      FROM club_memberships cm
+                     WHERE (SELECT e.scope FROM effective e) = 'community'
+                       AND cm.player_id = (SELECT e.player_id FROM effective e)
+                       AND cm.status = 'active'
+                ),
+                scored AS (
+                    SELECT
+                        a.id,
+                        a.actor_player_id,
+                        a.actor_club_id,
+                        a.activity_type,
+                        a.reference_type,
+                        a.reference_id,
+                        a.visibility,
+                        a.metadata,
+                        a.created_at,
+                        COALESCE(
+                            CASE
+                                WHEN lower(btrim(COALESCE(pp.barangay, c.barangay)))
+                                     = lower(btrim(v.barangay))
+                                 AND lower(btrim(COALESCE(pp.city, c.city)))
+                                     = lower(btrim(v.city))
+                                THEN 3
+                                WHEN lower(btrim(COALESCE(pp.city, c.city)))
+                                     = lower(btrim(v.city))
+                                 AND lower(btrim(COALESCE(pp.province, c.province)))
+                                     = lower(btrim(v.province))
+                                THEN 2
+                                WHEN lower(btrim(COALESCE(pp.province, c.province)))
+                                     = lower(btrim(v.province))
+                                THEN 1
+                                ELSE 0
+                            END,
+                            0
+                        ) AS geo_score,
+                        CASE WHEN c.verification_status = 'verified' THEN 1 ELSE 0 END
+                            AS verified_score
+                      FROM activities a
+                      LEFT JOIN player_profiles pp ON pp.id = a.actor_player_id
+                      LEFT JOIN clubs c ON c.id = a.actor_club_id
+                      LEFT JOIN player_profiles v
+                             ON v.id = (SELECT e.player_id FROM effective e)
+                     WHERE a.visibility = 'public'
+                       AND (p_types IS NULL OR a.activity_type = ANY(p_types))
+                       AND (p_since IS NULL OR a.created_at &gt; p_since)
+                       AND (
+                           (SELECT e.scope FROM effective e) &lt;&gt; 'community'
+                        OR a.actor_player_id IN (SELECT cp.player_id FROM community cp)
+                        OR a.actor_club_id IN (SELECT mc.club_id FROM my_clubs mc)
+                       )
+                )
+                SELECT
+                    s.id, s.actor_player_id, s.actor_club_id, s.activity_type,
+                    s.reference_type, s.reference_id, s.visibility, s.metadata,
+                    s.created_at, s.geo_score
+                  FROM scored s
+                 -- `id` makes this a total order. Without it, rows sharing a
+                 -- transaction timestamp sort arbitrarily and OFFSET paging can
+                 -- repeat one page's row on the next.
+                 ORDER BY s.geo_score DESC, s.verified_score DESC,
+                          s.created_at DESC, s.id DESC
+                 LIMIT p_limit
+                OFFSET p_offset;
+            $$;
+        </sql>
+        <rollback>
+            <!-- Back to 049: caller-supplied identity and scope, partial order. -->
+            <sql splitStatements="false">
+                CREATE OR REPLACE FUNCTION fn_feed_for_player(
+                    p_player_id uuid,
+                    p_limit int DEFAULT 20,
+                    p_offset int DEFAULT 0,
+                    p_types text[] DEFAULT NULL,
+                    p_since timestamptz DEFAULT NULL,
+                    p_scope text DEFAULT 'community'
+                )
+                RETURNS TABLE (
+                    id uuid,
+                    actor_player_id uuid,
+                    actor_club_id uuid,
+                    activity_type varchar(50),
+                    reference_type varchar(50),
+                    reference_id uuid,
+                    visibility varchar(20),
+                    metadata jsonb,
+                    created_at timestamptz,
+                    geo_score int
+                )
+                LANGUAGE sql
+                STABLE
+                SECURITY DEFINER
+                SET search_path = public
+                AS $$
+                    WITH community AS (
+                        SELECT c.player_id
+                          FROM fn_community_player_ids(p_player_id) c
+                         WHERE p_scope = 'community' AND p_player_id IS NOT NULL
+                    ),
+                    my_clubs AS (
+                        SELECT cm.club_id
+                          FROM club_memberships cm
+                         WHERE p_scope = 'community'
+                           AND p_player_id IS NOT NULL
+                           AND cm.player_id = p_player_id
+                           AND cm.status = 'active'
+                    ),
+                    scored AS (
+                        SELECT
+                            a.id,
+                            a.actor_player_id,
+                            a.actor_club_id,
+                            a.activity_type,
+                            a.reference_type,
+                            a.reference_id,
+                            a.visibility,
+                            a.metadata,
+                            a.created_at,
+                            COALESCE(
+                                CASE
+                                    WHEN lower(btrim(COALESCE(pp.barangay, c.barangay)))
+                                         = lower(btrim(v.barangay))
+                                     AND lower(btrim(COALESCE(pp.city, c.city)))
+                                         = lower(btrim(v.city))
+                                    THEN 3
+                                    WHEN lower(btrim(COALESCE(pp.city, c.city)))
+                                         = lower(btrim(v.city))
+                                     AND lower(btrim(COALESCE(pp.province, c.province)))
+                                         = lower(btrim(v.province))
+                                    THEN 2
+                                    WHEN lower(btrim(COALESCE(pp.province, c.province)))
+                                         = lower(btrim(v.province))
+                                    THEN 1
+                                    ELSE 0
+                                END,
+                                0
+                            ) AS geo_score,
+                            CASE WHEN c.verification_status = 'verified' THEN 1 ELSE 0 END
+                                AS verified_score
+                          FROM activities a
+                          LEFT JOIN player_profiles pp ON pp.id = a.actor_player_id
+                          LEFT JOIN clubs c ON c.id = a.actor_club_id
+                          LEFT JOIN player_profiles v ON v.id = p_player_id
+                         WHERE a.visibility = 'public'
+                           AND (p_types IS NULL OR a.activity_type = ANY(p_types))
+                           AND (p_since IS NULL OR a.created_at &gt; p_since)
+                           AND (
+                               p_scope &lt;&gt; 'community'
+                            OR a.actor_player_id IN (SELECT player_id FROM community)
+                            OR a.actor_club_id IN (SELECT club_id FROM my_clubs)
+                           )
+                    )
+                    SELECT
+                        id, actor_player_id, actor_club_id, activity_type,
+                        reference_type, reference_id, visibility, metadata,
+                        created_at, geo_score
+                      FROM scored
+                     ORDER BY geo_score DESC, verified_score DESC, created_at DESC
+                     LIMIT p_limit
+                    OFFSET p_offset;
+                $$;
+            </sql>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="053-revoke-public-execute" author="claude">
+        <!-- The actual root cause. CREATE FUNCTION grants EXECUTE to PUBLIC, so
+             049's `GRANT ... TO authenticated` added nothing and `anon` already
+             had it. Revoke first, then grant on purpose. Both functions guard
+             themselves now, so these grants are the intended surface rather
+             than the only thing standing in the way. -->
+        <sql splitStatements="true">
+            REVOKE ALL ON FUNCTION fn_community_player_ids(uuid) FROM PUBLIC;
+            REVOKE ALL ON FUNCTION
+                fn_feed_for_player(uuid, int, int, text[], timestamptz, text) FROM PUBLIC;
+
+            GRANT EXECUTE ON FUNCTION fn_community_player_ids(uuid) TO authenticated;
+            GRANT EXECUTE ON FUNCTION
+                fn_feed_for_player(uuid, int, int, text[], timestamptz, text)
+                TO anon, authenticated;
+        </sql>
+        <rollback>
+            <sql splitStatements="true">
+                GRANT EXECUTE ON FUNCTION fn_community_player_ids(uuid) TO PUBLIC;
+                GRANT EXECUTE ON FUNCTION
+                    fn_feed_for_player(uuid, int, int, text[], timestamptz, text) TO PUBLIC;
+            </sql>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

@@ -50,6 +50,11 @@ function makeEventRecord(overrides?: Partial<EventRecord>): EventRecord {
     queue_enabled: true,
     queue_courts: 4,
     match_format: 'doubles',
+    // Game rules on the event, added by 054. The values restate what every
+    // session was played to before the columns existed.
+    target_points: 11,
+    win_by_two: true,
+    games_default: 1,
     queue_mode: 'first_come',
     min_players_to_start: null,
     close_policy: 'manual',
@@ -59,6 +64,7 @@ function makeEventRecord(overrides?: Partial<EventRecord>): EventRecord {
     fee_payer: 'player',
     organizer_fee_amount: null,
     queue_skip_timeout_seconds: 120,
+    current_round: 1,
     created_by_player_id: 'organizer-1',
     created_at: '2026-08-01T00:00:00Z',
     updated_at: '2026-08-01T00:00:00Z',
@@ -124,6 +130,7 @@ function createFakeEventRepository(overrides?: Partial<EventRepository>): EventR
     create: vi.fn(),
     update: vi.fn(),
     updateStatus: vi.fn(),
+    setCurrentRound: vi.fn(),
     search: vi.fn().mockResolvedValue([]),
     findOpenPlayAwaitingClose: vi.fn().mockResolvedValue([]),
     // Added to EventRepository alongside cascade delete; the fakes were never

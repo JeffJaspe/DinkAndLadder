@@ -26,6 +26,8 @@ export interface MatchJoinRow {
   match_type: string
   status: string
   event_id?: string | null
+  /** The open-play wave, when the event endpoint asked for it. See 052. */
+  event_round?: number | null
   affects_rating?: boolean | null
   venue?: string | null
   played_at: string
@@ -51,6 +53,8 @@ export interface MatchListItemDto {
   match_type: string
   status: string
   event_id?: string | null
+  /** The open-play wave. Null for a hand-recorded match and anything pre-052. */
+  event_round?: number | null
   affects_rating?: boolean | null
   venue?: string | null
   played_at: string

@@ -48,9 +48,7 @@ function setup() {
   const findById = vi.fn(async (id: string) => makeProfile(id))
   const findByIds = vi.fn(async (ids: string[]) => ids.map(makeProfile))
   const getRating = vi.fn(async (id: string) => makeRating(id, 3.5))
-  const getRatingsForPlayers = vi.fn(async (ids: string[]) =>
-    ids.map((id) => makeRating(id, 3.5))
-  )
+  const getRatingsForPlayers = vi.fn(async (ids: string[]) => ids.map((id) => makeRating(id, 3.5)))
 
   const partnerships = {
     async findPartners() {
@@ -126,7 +124,14 @@ describe('PartnershipService.getPartners', () => {
   it('asks for nothing when there are no partners', async () => {
     const { findByIds, getRatingsForPlayers } = setup()
     const empty = createPartnershipService(
-      { async findPartners() { return [] }, async findDefaultPartner() { return null } } as unknown as PartnershipRepository,
+      {
+        async findPartners() {
+          return []
+        },
+        async findDefaultPartner() {
+          return null
+        }
+      } as unknown as PartnershipRepository,
       { findByIds } as unknown as PlayerProfileRepository,
       { getRatingsForPlayers } as unknown as RatingRepository
     )

@@ -170,7 +170,7 @@ watch(
               :id="`cat-name-${category.id}`"
               v-model="form.name"
               type="text"
-              class="w-full rounded-lg border border-border-strong bg-surface px-3 py-2 text-sm text-fg focus:border-primary focus:outline-none"
+              class="w-full rounded-lg border border-border-strong bg-surface px-3 py-2 text-sm text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
             />
           </div>
           <div>
@@ -182,7 +182,7 @@ watch(
               v-model="form.max_participants"
               type="number"
               min="2"
-              class="w-full rounded-lg border border-border-strong bg-surface px-3 py-2 text-sm text-fg focus:border-primary focus:outline-none"
+              class="w-full rounded-lg border border-border-strong bg-surface px-3 py-2 text-sm text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
             />
           </div>
         </div>
@@ -198,7 +198,7 @@ watch(
               type="number"
               step="0.1"
               placeholder="Any"
-              class="w-full rounded-lg border border-border-strong bg-surface px-3 py-2 text-sm text-fg placeholder-fg-muted focus:border-primary focus:outline-none"
+              class="w-full rounded-lg border border-border-strong bg-surface px-3 py-2 text-sm text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
             />
           </div>
           <div>
@@ -211,7 +211,7 @@ watch(
               type="number"
               step="0.1"
               placeholder="Any"
-              class="w-full rounded-lg border border-border-strong bg-surface px-3 py-2 text-sm text-fg placeholder-fg-muted focus:border-primary focus:outline-none"
+              class="w-full rounded-lg border border-border-strong bg-surface px-3 py-2 text-sm text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
             />
           </div>
           <div class="sm:col-span-2">
@@ -251,7 +251,7 @@ watch(
           <select
             :id="`cat-format-${category.id}`"
             v-model="form.format"
-            class="w-full max-w-sm rounded-lg border border-border-strong bg-surface px-3 py-2 text-sm text-fg focus:border-primary focus:outline-none"
+            class="w-full max-w-sm rounded-lg border border-border-strong bg-surface px-3 py-2 text-sm text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
           >
             <option v-for="option in TOURNAMENT_FORMATS" :key="option.value" :value="option.value">
               {{ option.label }}

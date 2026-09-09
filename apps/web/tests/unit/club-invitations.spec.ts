@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { createClubService, ClubServiceError } from '../../server/domains/club/services/club.service'
+import {
+  createClubService,
+  ClubServiceError
+} from '../../server/domains/club/services/club.service'
 import type {
   ClubMembershipRepository,
   CreateMembershipInput,

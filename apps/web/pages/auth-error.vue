@@ -38,13 +38,13 @@ const isExpired = computed(() => code.value === 'otp_expired')
       <div class="rounded-xl bg-surface p-6 text-center shadow-card">
         <div class="mb-4 flex justify-center">
           <div
-            class="flex h-12 w-12 items-center justify-center rounded-full bg-amber-500/20 text-amber-400"
+            class="flex h-12 w-12 items-center justify-center rounded-full bg-warning-soft text-warning"
           >
             <UiIcon name="alert" size="h-6 w-6" />
           </div>
         </div>
 
-        <h1 class="text-xl font-semibold text-fg">This link didn't work</h1>
+        <h1 class="font-display text-heading-2 text-fg">This link didn't work</h1>
         <p class="mt-2 text-fg-secondary">{{ explanation }}</p>
 
         <div class="mt-6 space-y-3">

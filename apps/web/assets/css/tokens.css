@@ -62,7 +62,12 @@
   --dnl-danger: 208 30 30; /* #D01E1E — #DC2626 was 4.36:1 on the primary-soft highlight row */
   --dnl-danger-soft: 254 232 232;
   --dnl-info: 37 99 235; /* #2563EB */
-  --dnl-info-soft: 227 237 254;
+  /* #EFF5FF — was #E3EDFE, which put `info` on it at 4.38:1 and `fg-muted` at
+     4.39:1, both under AA. Lightened rather than darkening `info`, which is a
+     documented event-taxonomy hue used as text elsewhere: 4.72:1 vs info,
+     4.73:1 vs fg-muted, and 1.10:1 off white — the same separation
+     primary-soft already accepts in this theme. */
+  --dnl-info-soft: 239 245 255;
 
   /* Coaching's hue.
      A lesson is neither open play nor a competition, and the event cards had
@@ -184,19 +189,50 @@
 
   /* Accent */
   --dnl-accent: 181 185 240; /* #B5B9F0 */
+  /* Deliberately the same light periwinkle as `accent`, unlike every other
+     -soft below: the accent chip is the one fill in this theme that carries
+     DARK ink (`on-accent` #0B0D09, 10.38:1). Do not "fix" this to a dark tint
+     without also flipping its three callers' text token. */
   --dnl-accent-soft: 181 185 240;
   --dnl-on-accent: 11 13 9; /* #0B0D09 */
 
-  /* Status */
+  /*
+   * Status
+   *
+   * The -soft tokens are the SOLID tint a chip or a row fill sits on, and they
+   * are read by callers that write `bg-*-soft` with no alpha - exactly the
+   * mistake `primary-soft` was corrected for above. Each of these four was
+   * still the raw status colour, which painted amber text on an amber fill:
+   * measured 1.00:1 in dark, on the NOW count pill, the W/L badge, the live
+   * scoresheet cell and every round-progress chip. They now carry a real dark
+   * tint of their own hue, measured against the two inks their callers
+   * actually use - the status colour itself and white `fg` - plus `fg-muted`
+   * for the container sites that put a supporting line inside the fill.
+   */
   --dnl-success: 77 177 117;
-  --dnl-success-soft: 77 177 117;
+  /* #1D3C28 — 4.55:1 vs success, 12.14:1 vs fg, 5.49:1 vs fg-muted.
+     Lighter than primary-soft despite both being this theme's green, because
+     they play different parts: primary-soft fills a whole nav row or table row,
+     where subtlety is right, and this fills a chip, which has to read as a
+     shape. It cannot be pushed further - `success` is a light green, so every
+     step that strengthens the fill costs ink contrast, and 4.5:1 is the floor.
+     That the amber chip ends up the loudest of the four is the correct outcome:
+     "waiting on you" should catch the eye and "confirmed" should not. */
+  --dnl-success-soft: 29 60 40;
   --dnl-warning: 245 166 35; /* #F5A623 */
   --dnl-warning-fill: 245 166 35;
-  --dnl-warning-soft: 245 166 35;
+  /* #4E370E — 5.52:1 vs warning, 11.19:1 vs fg, 5.06:1 vs fg-muted. Kept the
+     lightest of the four because amber is the one status a player has to spot
+     without reading it, so its fill separates from the panel best (1.27:1). */
+  --dnl-warning-soft: 78 55 14;
   --dnl-danger: 255 107 107; /* #FF6B6B */
-  --dnl-danger-soft: 255 107 107;
+  /* #301A17 — 5.89:1 vs danger, 16.33:1 vs fg, 7.39:1 vs fg-muted. */
+  --dnl-danger-soft: 48 26 23;
   --dnl-info: 96 165 250; /* #60A5FA — #3B82F6 is 3.86:1 on a dark card and fails AA */
-  --dnl-info-soft: 59 130 246;
+  /* #223650 — 4.83:1 vs info, 12.27:1 vs fg, 5.55:1 vs fg-muted, and 1.16:1
+     off the panel so the chip reads as a shape. No caller writes bg-info-soft
+     today; fixed alongside the others so the next one is safe. */
+  --dnl-info-soft: 34 54 80;
 
   /* Vivid on a near-black canvas, and dark-labelled like every other fill in
      this theme — see the on-primary note above. */

@@ -1,0 +1,340 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-03T00:00:00Z",
+  "title": "Design System: DinkAndLadder",
+  "extensions": {
+    "colorMeta": {
+      "primary": {
+        "role": "primary",
+        "displayName": "Court Green",
+        "canonical": "rgb(10 127 69)",
+        "darkValue": "#4DB175",
+        "note": "4.80:1 as text on the light canvas, 5.08:1 carrying white as a fill. Dark mode labels its green fills with near-black #06170F because no single green clears both roles.",
+        "tonalRamp": [
+          "#031A0E",
+          "#062F1B",
+          "#084828",
+          "#0A7F45",
+          "#0FA55B",
+          "#4DB175",
+          "#93D4B2",
+          "#E8F7EE"
+        ]
+      },
+      "accent": {
+        "role": "secondary",
+        "displayName": "Court Mint",
+        "canonical": "rgb(167 227 193)",
+        "darkValue": "#B5B9F0",
+        "note": "Deliberately a different family per theme: mint on light, periwinkle on dark.",
+        "tonalRamp": [
+          "#0B3B24",
+          "#145637",
+          "#22764F",
+          "#3E9A6E",
+          "#6FBF95",
+          "#A7E3C1",
+          "#CDEEDD",
+          "#EDF9F2"
+        ]
+      },
+      "coach": {
+        "role": "tertiary",
+        "displayName": "Coach Sky",
+        "canonical": "rgb(3 105 161)",
+        "darkValue": "#7DD3FC",
+        "note": "A lesson is neither open play nor a competition, and 'info' was already spent on open play. Darkened from #0284C7 (4.02:1) until it cleared AA at 5.36:1.",
+        "tonalRamp": [
+          "#02273C",
+          "#03415F",
+          "#035A85",
+          "#0369A1",
+          "#0284C7",
+          "#38BDF8",
+          "#7DD3FC",
+          "#E0F2FE"
+        ]
+      },
+      "ranked": {
+        "role": "tertiary",
+        "displayName": "Ranked Violet",
+        "canonical": "rgb(109 40 217)",
+        "darkValue": "#C4B5FD",
+        "note": "Ranked open play's own hue; 'info' now marks the casual half only. Darkened from #7C3AED (4.28:1) to 6.16:1.",
+        "tonalRamp": [
+          "#1E0B3D",
+          "#2E1065",
+          "#4C1D95",
+          "#6D28D9",
+          "#8B5CF6",
+          "#A78BFA",
+          "#C4B5FD",
+          "#EDE9FE"
+        ]
+      },
+      "canvas": {
+        "role": "neutral",
+        "displayName": "Court Chalk",
+        "canonical": "rgb(247 249 248)",
+        "darkValue": "#0B0D09",
+        "note": "Near-white rather than white, so a white card still reads as raised. Measured hero ground on the shipped landing page: 240,240,240 light with ink 16,32,16; 32,32,32 dark with ink 255,255,255.",
+        "tonalRamp": [
+          "#0B0D09",
+          "#14201C",
+          "#1E2E2A",
+          "#2E4540",
+          "#63706A",
+          "#CBD5D0",
+          "#E3E8E5",
+          "#F7F9F8"
+        ]
+      },
+      "fg": {
+        "role": "neutral",
+        "displayName": "Ink",
+        "canonical": "rgb(15 26 21)",
+        "darkValue": "#FFFFFF",
+        "tonalRamp": [
+          "#0F1A15",
+          "#1E2E2A",
+          "#2E4540",
+          "#4F5D57",
+          "#63706A",
+          "#A2B2AC",
+          "#CBD5D0",
+          "#F7F9F8"
+        ]
+      },
+      "fg-muted": {
+        "role": "neutral",
+        "displayName": "Muted Ink",
+        "canonical": "rgb(99 112 106)",
+        "darkValue": "#A2B2AC",
+        "note": "Raised from #77857F, which was 3.65:1 on the canvas and failed AA at caption size. As the ledger's hairline rule it measures 4.90:1 light and 8.83:1 dark.",
+        "tonalRamp": [
+          "#171D1A",
+          "#293230",
+          "#3D4A46",
+          "#4F5D57",
+          "#63706A",
+          "#8A9A94",
+          "#A2B2AC",
+          "#D7DEDB"
+        ]
+      },
+      "warning-fill": {
+        "role": "tertiary",
+        "displayName": "Brand Amber",
+        "canonical": "rgb(245 166 35)",
+        "note": "A fill under dark text. Amber text on white fails AA, which is why the text role is a separate token (#B45309).",
+        "tonalRamp": [
+          "#3A2503",
+          "#5C3A05",
+          "#8A5607",
+          "#B45309",
+          "#D98A12",
+          "#F5A623",
+          "#FBC96B",
+          "#FEF3DB"
+        ]
+      },
+      "danger": {
+        "role": "tertiary",
+        "displayName": "Dispute Red",
+        "canonical": "rgb(208 30 30)",
+        "darkValue": "#FF6B6B",
+        "note": "#DC2626 measured 4.36:1 on the primary-soft highlight row and was darkened.",
+        "tonalRamp": [
+          "#340707",
+          "#570D0D",
+          "#8A1616",
+          "#D01E1E",
+          "#E64545",
+          "#FF6B6B",
+          "#FCA5A5",
+          "#FEE8E8"
+        ]
+      },
+      "plinth": {
+        "role": "tertiary",
+        "displayName": "Podium Plinth",
+        "canonical": "rgb(111 191 149)",
+        "darkValue": "#2A6B48",
+        "note": "The podium's saturated face, so the blocks read as objects on the page rather than panels of it.",
+        "tonalRamp": [
+          "#0B3B24",
+          "#1E5236",
+          "#2A6B48",
+          "#3C8A5C",
+          "#57AC80",
+          "#6FBF95",
+          "#93D4B2",
+          "#E8F5EE"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Landing Claim",
+        "purpose": "The landing page's opening claim, set on the page itself with no hero box behind it. 19ch measure, Lexend 500."
+      },
+      "heading-1": {
+        "displayName": "Page Title",
+        "purpose": "Page and band titles. Dropped 700 to 600 this session; the lighter weight is most of what makes the product read calm."
+      },
+      "heading-2": { "displayName": "Section Title", "purpose": "Section titles. Lexend 500." },
+      "heading-3": { "displayName": "Subsection Title", "purpose": "List-item and column titles, including the verification loop's stops." },
+      "body-1": { "displayName": "Body", "purpose": "Lead copy and primary rows. Measure capped at 62ch for lead, 48ch for a band claim." },
+      "body-2": { "displayName": "Body Small", "purpose": "Supporting copy, table cells, secondary ledger rows. The densest legible step." },
+      "caption": { "displayName": "Caption", "purpose": "Metadata, hints, timestamps, and the sample-data disclaimer." },
+      "label": { "displayName": "Column Label", "purpose": "Uppercase widely-tracked heading standing over ruled content on its own rule. A heading in its own right, never a kicker over a headline." },
+      "stat-xl": { "displayName": "Stat", "purpose": "The large figure on a dashboard tile in the card composition. The one place the system still sets 700. Always tabular." }
+    },
+    "shadows": [
+      { "name": "card", "value": "0 1px 2px rgb(16 24 20 / 0.06), 0 4px 12px rgb(16 24 20 / 0.1)", "darkValue": "0 2px 8px rgb(0 0 0 / 0.3)", "purpose": "Resting elevation of every panel in the card composition. Strong in light because a white card on the off-white canvas separates by only 1.06:1; quiet in dark because those surfaces already separate by lightness." },
+      { "name": "card-hover", "value": "0 2px 4px rgb(16 24 20 / 0.08), 0 12px 28px rgb(16 24 20 / 0.16)", "darkValue": "0 4px 16px rgb(0 0 0 / 0.4)", "purpose": "Lift on an interactive card, usually paired with ring-1 ring-primary/50." },
+      { "name": "raised", "value": "0 1px 0 rgb(255 255 255 / 0.7) inset, 0 2px 4px rgb(16 24 20 / 0.06), 0 14px 28px -10px rgb(16 24 20 / 0.28)", "purpose": "A block standing on the page rather than floating in it — the podium plinth. The inset hairline is what makes the cap and face read as two surfaces meeting." },
+      { "name": "glow-primary", "value": "0 0 20px rgb(var(--dnl-primary) / 0.3)", "purpose": "Celebratory only — achievement unlock, tier badge. Never structural." }
+    ],
+    "motion": [
+      { "name": "ledger-draw", "value": "transform 700ms cubic-bezier(0.16, 1, 0.3, 1)", "purpose": "The verification loop's connecting rule advancing stop by stop. Finished state is the CSS default; only a motion-permitted handler winds it back." },
+      { "name": "stagger", "value": "120ms / 820ms transition-delay", "purpose": "Stop-by-stop delay so the loop reads as one stroke travelling the band rather than three items appearing." },
+      { "name": "theme-switch", "value": "background-color 150ms ease, border-color 150ms ease, color 150ms ease", "purpose": "Applied to <html> only for the duration of an actual theme flip, so the cost is paid once per toggle and never on hover or route change. Off under reduced motion." },
+      { "name": "fade-in", "value": "fadeIn 0.2s ease-out", "purpose": "Default entrance for toasts and revealed panels." },
+      { "name": "slide-up", "value": "slideUp 0.3s ease-out", "purpose": "Sheet and toast entrance from 10px below." }
+    ],
+    "breakpoints": [
+      { "name": "sm", "value": "640px" },
+      { "name": "md", "value": "768px" },
+      { "name": "lg", "value": "1024px" },
+      { "name": "container", "value": "max-w-6xl (72rem), 1rem gutters rising to 1.5rem at sm" }
+    ],
+    "compositions": [
+      { "name": "Card composition", "scope": "~48 product surfaces in apps/web/pages", "description": "12px panels on the off-white canvas, separated by shadow-card. The app's incumbent and current composition; not deprecated." },
+      { "name": "Ruled ledger composition", "scope": "apps/web/pages/index.vue only", "description": "One surface. No card, panel, tile, gradient or shadow; structure is three rule weights (1px fg-muted, 2px fg-muted, 2px fg). Recorded as a surface composition, not as the app's system." }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary-lg",
+      "description": "The single primary action on a surface: Create your club, Submit, Confirm.",
+      "html": "<a class=\"ds-btn-primary\" href=\"#\">Create your club</a>",
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; justify-content: center; gap: 8px; background: rgb(var(--dnl-primary)); color: rgb(var(--dnl-on-primary)); font-family: 'Inter', system-ui, sans-serif; font-size: 16px; font-weight: 600; line-height: 1.5; padding: 12px 24px; border: none; border-radius: 8px; text-decoration: none; cursor: pointer; transition: background-color .15s ease; } .ds-btn-primary:hover { background: rgb(var(--dnl-primary-hover)); } .ds-btn-primary:focus-visible { outline: none; box-shadow: 0 0 0 2px rgb(var(--dnl-canvas)), 0 0 0 4px rgb(var(--dnl-primary)); }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "The alternate path beside a primary action. Outlined, never filled.",
+      "html": "<a class=\"ds-btn-secondary\" href=\"#\">Find play near you</a>",
+      "css": ".ds-btn-secondary { display: inline-flex; align-items: center; justify-content: center; gap: 8px; background: rgb(var(--dnl-canvas)); color: rgb(var(--dnl-fg)); font-family: 'Inter', system-ui, sans-serif; font-size: 16px; font-weight: 600; padding: 12px 24px; border: 1px solid rgb(var(--dnl-fg-muted)); border-radius: 8px; text-decoration: none; cursor: pointer; transition: background-color .15s ease; } .ds-btn-secondary:hover { background: rgb(var(--dnl-surface-2)); } .ds-btn-secondary:focus-visible { outline: none; box-shadow: 0 0 0 2px rgb(var(--dnl-canvas)), 0 0 0 4px rgb(var(--dnl-primary)); }"
+    },
+    {
+      "name": "Danger Button",
+      "kind": "button",
+      "refersTo": "button-danger",
+      "description": "Dispute a match. An outline, never a solid fill: legitimate, but it must not be the visually easiest thing on the page.",
+      "html": "<button class=\"ds-btn-danger\">Dispute</button>",
+      "css": ".ds-btn-danger { display: inline-flex; align-items: center; justify-content: center; background: transparent; color: rgb(var(--dnl-danger)); font-family: 'Inter', system-ui, sans-serif; font-size: 14px; font-weight: 500; padding: 8px 16px; border: 1px solid rgb(var(--dnl-danger)); border-radius: 8px; cursor: pointer; transition: background-color .15s ease; } .ds-btn-danger:hover { background: rgb(var(--dnl-danger) / 0.1); } .ds-btn-danger:focus-visible { outline: none; box-shadow: 0 0 0 2px rgb(var(--dnl-canvas)), 0 0 0 4px rgb(var(--dnl-primary)); }"
+    },
+    {
+      "name": "Text Input",
+      "kind": "input",
+      "refersTo": "input-text",
+      "description": "The standard field: label above, optional stroked icon inset left, helper or error line below.",
+      "html": "<div class=\"ds-field\"><label class=\"ds-field-label\" for=\"ds-i1\">Club name</label><input class=\"ds-input\" id=\"ds-i1\" placeholder=\"Manila Dinkers\" /><p class=\"ds-field-hint\">Members will see this name.</p></div>",
+      "css": ".ds-field { display: flex; flex-direction: column; gap: 4px; font-family: 'Inter', system-ui, sans-serif; } .ds-field-label { font-size: 12px; font-weight: 500; color: rgb(var(--dnl-fg-secondary)); } .ds-input { width: 100%; background: rgb(var(--dnl-surface)); color: rgb(var(--dnl-fg)); font-size: 14px; padding: 8px 12px; border: 1px solid rgb(var(--dnl-border-strong)); border-radius: 8px; transition: border-color .15s ease, box-shadow .15s ease; } .ds-input::placeholder { color: rgb(var(--dnl-fg-muted)); } .ds-input:focus { outline: none; border-color: rgb(var(--dnl-primary)); box-shadow: 0 0 0 2px rgb(var(--dnl-primary) / 0.5); } .ds-field-hint { font-size: 12px; color: rgb(var(--dnl-fg-muted)); margin: 0; }"
+    },
+    {
+      "name": "Status Pill",
+      "kind": "chip",
+      "refersTo": "status-pill",
+      "description": "States a fact about a record — pending, verified, disputed, draft. Never interactive.",
+      "html": "<span class=\"ds-pill ds-pill-verified\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.4\" stroke-linecap=\"round\" stroke-linejoin=\"round\" width=\"14\" height=\"14\" aria-hidden=\"true\"><path d=\"M20 6 9 17l-5-5\"/></svg>Verified</span>",
+      "css": ".ds-pill { display: inline-flex; align-items: center; gap: 6px; font-family: 'Inter', system-ui, sans-serif; font-size: 12px; font-weight: 500; padding: 2px 8px; border-radius: 9999px; } .ds-pill-verified { background: rgb(var(--dnl-success) / 0.2); color: rgb(var(--dnl-success)); }"
+    },
+    {
+      "name": "Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "The app composition's panel: a 12px face on the canvas, separated by a real shadow because the surfaces themselves separate by only 1.06:1 in light mode.",
+      "html": "<a class=\"ds-card\" href=\"#\"><p class=\"ds-card-title\">Tuesday Open Play</p><p class=\"ds-card-meta\">Ayala Courts · 6:00 PM</p><p class=\"ds-card-stat\">4.147</p></a>",
+      "css": ".ds-card { display: block; background: rgb(var(--dnl-surface)); color: rgb(var(--dnl-fg)); font-family: 'Inter', system-ui, sans-serif; padding: 16px; border-radius: 12px; box-shadow: var(--dnl-shadow-card); text-decoration: none; transition: box-shadow .2s ease; } .ds-card:hover { box-shadow: var(--dnl-shadow-card-hover); outline: 1px solid rgb(var(--dnl-primary) / 0.5); } .ds-card-title { font-family: 'Lexend', 'Inter', sans-serif; font-size: 20px; font-weight: 500; line-height: 1.4; margin: 0; } .ds-card-meta { font-size: 14px; color: rgb(var(--dnl-fg-muted)); margin: 4px 0 0; } .ds-card-stat { font-family: 'Lexend', 'Inter', sans-serif; font-size: 32px; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; color: rgb(var(--dnl-primary)); margin: 12px 0 0; }"
+    },
+    {
+      "name": "Ledger Row",
+      "kind": "custom",
+      "refersTo": "ledger-row",
+      "description": "The landing page's unit of structure: a hairline-ruled row, claim left and evidence right, with no box around it. 1px border-fg-muted measures 4.90:1 light and 8.83:1 dark.",
+      "html": "<dl class=\"ds-ledger\"><div class=\"ds-ledger-row\"><dt>Open play sessions</dt><dd>Schedule a session, set the skill range, and let members reserve a slot.</dd></div><div class=\"ds-ledger-row\"><dt>Tournaments, brackets and courts</dt><dd>Draw the bracket, assign courts, and run scoresheets through the event.</dd></div></dl>",
+      "css": ".ds-ledger { font-family: 'Inter', system-ui, sans-serif; margin: 0; } .ds-ledger-row { display: grid; grid-template-columns: 1fr 2fr; gap: 24px; padding: 20px 0; border-top: 1px solid rgb(var(--dnl-fg-muted)); } .ds-ledger-row:first-child { border-top: 0; padding-top: 0; } .ds-ledger-row dt { font-size: 16px; font-weight: 600; color: rgb(var(--dnl-fg)); } .ds-ledger-row dd { font-size: 14px; line-height: 1.5; color: rgb(var(--dnl-fg-secondary)); margin: 0; }"
+    },
+    {
+      "name": "Browse Index",
+      "kind": "nav",
+      "refersTo": null,
+      "description": "The landing page's destination strip, closed by the heaviest rule the page owns (2px border-fg). Hairline-separated rows on mobile, a 4-column grid with vertical hairlines from md.",
+      "html": "<nav class=\"ds-browse\" aria-label=\"Browse\"><a href=\"#\"><span class=\"ds-browse-label\">Rankings</span><span class=\"ds-browse-line\">The ladder, singles and doubles</span></a><a href=\"#\"><span class=\"ds-browse-label\">Events</span><span class=\"ds-browse-line\">Open play and tournaments</span></a><a href=\"#\"><span class=\"ds-browse-label\">Clubs</span><span class=\"ds-browse-line\">Who runs play, and where</span></a></nav>",
+      "css": ".ds-browse { display: grid; grid-template-columns: repeat(3, 1fr); border-bottom: 2px solid rgb(var(--dnl-fg)); font-family: 'Inter', system-ui, sans-serif; } .ds-browse a { display: flex; flex-direction: column; gap: 4px; padding: 20px; text-decoration: none; border-left: 1px solid rgb(var(--dnl-fg-muted)); transition: color .15s ease; } .ds-browse a:first-child { border-left: 0; padding-left: 0; } .ds-browse-label { font-size: 16px; font-weight: 600; color: rgb(var(--dnl-fg)); } .ds-browse-line { font-size: 14px; color: rgb(var(--dnl-fg-muted)); } .ds-browse a:hover .ds-browse-label, .ds-browse a:hover .ds-browse-line { color: rgb(var(--dnl-primary)); } .ds-browse a:focus-visible { outline: 2px solid rgb(var(--dnl-primary)); outline-offset: 2px; }"
+    },
+    {
+      "name": "Verification Loop Stop",
+      "kind": "custom",
+      "refersTo": null,
+      "description": "One stop of the signature band: a ringed dot on a 2px connecting rule, a numbered Lexend title, and a record row above a hairline pushed to the bottom of the column. Green marks the confirmed stop only.",
+      "html": "<ol class=\"ds-loop\"><li class=\"ds-stop\"><span class=\"ds-seg\" aria-hidden=\"true\"></span><span class=\"ds-dot\" aria-hidden=\"true\"></span><p class=\"ds-stop-title\"><span class=\"ds-stop-num\">1.</span> Submitted</p><p class=\"ds-stop-line\">A player records the score straight after the game.</p><p class=\"ds-stop-record\">11 — 7</p></li><li class=\"ds-stop\"><span class=\"ds-dot\" aria-hidden=\"true\"></span><p class=\"ds-stop-title\"><span class=\"ds-stop-num\">2.</span> Confirmed</p><p class=\"ds-stop-line\">The opponent confirms it, rejects it, or disputes it.</p><p class=\"ds-stop-record ds-stop-record-confirmed\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.4\" stroke-linecap=\"round\" stroke-linejoin=\"round\" width=\"16\" height=\"16\" aria-hidden=\"true\"><path d=\"M20 6 9 17l-5-5\"/></svg>Opponent agreed</p></li></ol>",
+      "css": ".ds-loop { display: grid; grid-template-columns: repeat(2, 1fr); gap: 32px; list-style: none; margin: 0; padding: 32px 0; font-family: 'Inter', system-ui, sans-serif; background: rgb(var(--dnl-surface-2) / 0.6); } .ds-stop { position: relative; display: flex; flex-direction: column; } .ds-seg { position: absolute; left: 0; top: 5px; height: 2px; width: calc(100% + 2rem); background: rgb(var(--dnl-fg-muted)); } .ds-dot { position: relative; z-index: 1; display: block; height: 12px; width: 12px; border-radius: 9999px; border: 2px solid rgb(var(--dnl-fg)); background: rgb(var(--dnl-canvas)); box-sizing: border-box; } .ds-stop-title { font-family: 'Lexend', 'Inter', sans-serif; font-size: 20px; font-weight: 500; line-height: 1.4; color: rgb(var(--dnl-fg)); margin: 20px 0 0; } .ds-stop-num { font-variant-numeric: tabular-nums; color: rgb(var(--dnl-fg-muted)); } .ds-stop-line { font-size: 14px; line-height: 1.5; color: rgb(var(--dnl-fg-secondary)); margin: 8px 0 0; max-width: 40ch; } .ds-stop-record { display: flex; align-items: center; gap: 8px; margin: auto 0 0; padding-top: 12px; border-top: 1px solid rgb(var(--dnl-fg-muted)); font-size: 14px; font-weight: 500; font-variant-numeric: tabular-nums; color: rgb(var(--dnl-fg)); } .ds-stop-record-confirmed { color: rgb(var(--dnl-primary)); }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Ruled Ledger and the Lit Court",
+    "overview": "DinkAndLadder is a record before it is an app. A rating here is a number two people agreed on, and the visual system's whole job is to look like something you could point at in an argument and win. That means measured, quiet, and legible before it means expressive: flat inks, a single brand green spent sparingly, tabular figures everywhere a number is a fact, and a hairline structure you can follow with a finger. The system is warm rather than clinical — the green is a court green, the light canvas is off-white rather than glaring, the dark canvas is near-black rather than blue-grey — but it never raises its voice.\n\nTwo compositions live in the shipped build, and both are current. The card composition is the app: roughly forty-eight product surfaces built from 12px-radius panels on an off-white canvas, separated by a real shadow because a white card on a #F7F9F8 canvas separates by only 1.06:1 and the shadow is doing all of the work. The ruled-ledger composition is one surface — the landing page — built entirely from horizontal rules at three declared weights, with no card, no panel, no tile and no gradient anywhere on it. The ledger is not a replacement for the cards and nothing has deprecated them; it is recorded here so a second marketing or record-shaped surface can be built in the same language deliberately rather than by accident.\n\nWhat is genuinely app-wide, and binding on both compositions: the token system (every color is a semantic name backed by a per-theme custom property, never a literal hex in a template), the light/dark peerage, the AA contrast floor, the Lexend/Inter pairing, and the type ramp. Light is the product default and needs no class and no script to render correctly. Dark is not an afterthought skin: it reaches the same contrast by opposite routes, lifting surfaces by lightness where light mode leans on shadow, and labelling saturated fills with dark ink where light mode labels them white.",
+    "keyCharacteristics": [
+      "Semantic tokens only; no literal color in any template.",
+      "Light and dark are peers, each measured to WCAG AA independently.",
+      "One brand green, spent on what is confirmed or actionable.",
+      "Tabular figures on every rating, score, rank and date.",
+      "Humanist display type at 500/600, never 700 in headings.",
+      "Two live compositions: layered cards (the app), ruled hairlines (the landing page)."
+    ],
+    "rules": [
+      { "name": "The Semantic-Only Rule", "body": "No template ever writes a color. It writes intent (bg-surface, text-fg-muted, border-fg-muted) and the theme resolves it. A literal hex in a component is a bug, because it is a value that cannot follow the visitor into dark mode.", "section": "colors" },
+      { "name": "The Measured-Both-Ways Rule", "body": "A color pair ships only when both themes have been measured against their own ground. Light and dark reach the same contrast by opposite routes — light lifts with shadow because it cannot go darker without reading as a hole; dark lifts by going lighter — so a token that works in one is not evidence for the other.", "section": "colors" },
+      { "name": "The Confirmed-Or-Actionable Rule", "body": "Court Green marks the primary action and things a person has actually confirmed. It is not decoration, not a section accent, and not a way to make a heading feel branded. On the landing page green appears on the two buttons, on link hover, and exactly once in the body — on the step where an opponent agreed.", "section": "colors" },
+      { "name": "The Operator Wash Rule", "body": "When a SuperAdmin supplies hero artwork, the page lays one flat canvas/0.92 wash over it — never a gradient ramp, never a fixed dark slab. Because the wash is the theme's own canvas, the ordinary fg ink on top keeps exactly the contrast it has everywhere else, in both themes, whatever image and overlay opacity the operator picked. The fixed-white on-scrim token still exists for the event artwork, but the landing page no longer needs it.", "section": "colors" },
+      { "name": "The Quiet Heading Rule", "body": "Headings set 500 and 600. The ramp dropped a full step this session (heading-1 700→600, heading-2 and heading-3 600→500) and the lighter weight is most of what makes the product read calm. New headings use the ramp roles; do not reach for font-bold to add emphasis to a heading.", "section": "typography" },
+      { "name": "The Tabular Number Rule", "body": "Every rating, score, rank, seed, date and time renders with tabular-nums. A number that moves horizontally when it changes is a number people stop trusting.", "section": "typography" },
+      { "name": "The Sample-Data Rule", "body": "Any number shown as an illustration of a mechanism rather than as a recorded fact carries a caption saying so, in muted ink, beneath the block it explains. Pre-launch, an unlabelled number is a claim.", "section": "typography" },
+      { "name": "The Claim-Left, Evidence-Right Rule", "body": "In the ledger composition a band states its claim in the narrow left column and proves it in the wide right one — a ruled list, a real schedule, a drawn mechanism. Nothing floats between them.", "section": "layout" },
+      { "name": "The Shadow-Is-Separation Rule", "body": "A shadow exists to separate a surface from its ground, not to decorate it. If two surfaces already separate by lightness — which is the dark theme's normal case — the shadow gets quieter, not louder.", "section": "elevation" },
+      { "name": "The One-Depth-Per-Surface Rule", "body": "A surface picks layered or flat and stays there. The landing page carries no shadow at all; a card page does not substitute hairlines for its cards. Mixing the two on one screen reads as an unfinished migration.", "section": "elevation" },
+      { "name": "The Visible-Line Rule", "body": "Every rule on a ruled surface must be measurably visible in both themes. border-border — the card composition's panel edge — is too faint to carry structure on its own on a flat page; the ledger uses border-fg-muted as its lightest structural line precisely because it was measured, not assumed.", "section": "shapes" },
+      { "name": "The Three-Weights Rule", "body": "A ruled surface gets three rule weights and no more. A fourth weight is not a new level of hierarchy; it is the point at which the reader stops being able to tell the levels apart.", "section": "shapes" },
+      { "name": "The Recoverable-Motion Rule", "body": "An entrance animation is something a page opts into, never something it recovers from. The complete state is the default in CSS, so the surface is correct with no JS, on a failed hydration, and under reduced motion; the animation only ever winds it back and releases it, and it carries a timeout that releases it anyway.", "section": "components" }
+    ],
+    "dos": [
+      "Do write semantic token names in templates (bg-surface, text-fg-muted, border-fg-muted) and let the theme resolve them.",
+      "Do measure a new color against both themes' own grounds before shipping it, and record the ratio in tokens.css next to the value. WCAG AA is the enforced floor here, not an aspiration.",
+      "Do set headings from the ramp roles at weight 500/600, in Lexend.",
+      "Do put tabular-nums on every rating, score, rank, date and time.",
+      "Do spend Court Green on the primary action and on confirmed state, and let its rarity do the work.",
+      "Do pick one depth model per surface: cards with shadow-card, or flat with ruled hairlines.",
+      "Do cap measure — 62ch on lead copy, 48ch on a band claim, 40ch on a supporting column.",
+      "Do design the empty state as the honest default. Pre-launch, an empty schedule is the real state, and it should read as an invitation rather than as a failure.",
+      "Do ship an entrance animation whose finished state is the CSS default, gated on prefers-reduced-motion, with a failsafe.",
+      "Do label any number that illustrates a mechanism rather than records a fact."
+    ],
+    "donts": [
+      "Don't write a literal hex, rgb, or Tailwind palette color (bg-green-600) in a component. It cannot follow the visitor into dark mode.",
+      "Don't use border-border as the only structure on a flat, card-less surface; it is a panel edge and is too faint to carry a page on its own.",
+      "Don't reach for font-bold on a heading. The ramp dropped a weight step deliberately, and 700 now belongs to large stat figures only.",
+      "Don't put a fourth rule weight on a ruled surface.",
+      "Don't lay a gradient ramp over operator-supplied artwork to buy legibility; use the flat canvas/0.92 wash so the theme's own ink stays correct in both themes.",
+      "Don't invent traction. No counts, testimonials, partner logos, press, prices, or plan names may be rendered as fact while the product is pre-launch and pricing is unsettled.",
+      "Don't treat dark mode as a filter over light. Its surfaces, its green's label ink, and its shadow strength are separate decisions that were measured separately.",
+      "Don't animate a structural element into existence. If a failed trigger would remove meaning, the element is structure and must be present at rest."
+    ]
+  }
+}

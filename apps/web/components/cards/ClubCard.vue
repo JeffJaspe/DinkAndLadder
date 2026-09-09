@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { initialsFor } from '~/utils/initials'
 interface Props {
   id: string
   name: string
@@ -37,7 +38,7 @@ const location = computed(() => {
           v-else
           class="flex h-14 w-14 items-center justify-center rounded-card bg-surface-3 text-xl font-bold text-fg"
         >
-          {{ name.charAt(0).toUpperCase() }}
+          {{ initialsFor(name, 1) }}
         </div>
       </div>
 

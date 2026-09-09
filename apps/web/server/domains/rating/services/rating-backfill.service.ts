@@ -20,7 +20,11 @@ export interface RatingBackfillReport {
 }
 
 export interface RatingBackfillService {
-  run(options?: { limit?: number; offset?: number; dryRun?: boolean }): Promise<RatingBackfillReport>
+  run(options?: {
+    limit?: number
+    offset?: number
+    dryRun?: boolean
+  }): Promise<RatingBackfillReport>
 }
 
 const DEFAULT_LIMIT = 100

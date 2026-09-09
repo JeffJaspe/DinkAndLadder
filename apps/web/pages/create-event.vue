@@ -95,7 +95,29 @@ const form = reactive({
   max_participants: '',
   queue_enabled: false,
   queue_mode: 'first_come' as QueueMode,
-  queue_courts: '',
+  /**
+   * How many courts the session runs on.
+   *
+   * Used to live inside the "Match Queue" block, so a session run without the
+   * queue never answered it: `queue_courts` stayed null and
+   * `event-court.service.openCourts` floored it at one, silently giving a
+   * four-court evening a single court row with no way to fix it after publish.
+   * It is a fact about the venue, not about the pairing mode, so it is asked
+   * on every session now. Defaults to one because that is what those sessions
+   * were already behaving as.
+   */
+  queue_courts: '1',
+  /**
+   * Game length. See 054.
+   *
+   * Open play was scored against DEFAULT_GAME_RULES — one game to 11, win by
+   * two — with no way to say otherwise, so a club playing to 15 or a rally-
+   * scored 21 had a legitimate 15-13 rejected by the score sheet as an
+   * unfinished game.
+   */
+  target_points: 11,
+  win_by_two: true,
+  games_default: 1,
   visibility: 'public' as 'public' | 'private' | 'registered_only',
   // Only sent for a tournament event, where they configure the one tournament
   // created alongside it. There is no separate "add tournament" step any more.
@@ -112,6 +134,54 @@ const form = reactive({
 })
 
 const isTournament = computed(() => form.event_type === 'tournament')
+
+/**
+ * The point targets clubs actually play to, plus an escape hatch.
+ *
+ * 11 is the pickleball standard and stays first. 15 and 21 are the common
+ * rally-scored variants; 18 turns up in timed club formats. Anything else is
+ * real but rare enough that a fifth chip would cost more than it earns, so it
+ * goes behind Custom rather than being unreachable.
+ */
+const SCORING_PRESETS = [11, 15, 18, 21] as const
+
+/**
+ * Whether the custom field is open.
+ *
+ * A ref rather than `!PRESETS.includes(target)`, because an organiser who
+ * opens Custom and clears the box would otherwise have the panel snap shut
+ * underneath them on the way to typing "9".
+ */
+const usingCustomTarget = ref(false)
+
+function pickTarget(points: number) {
+  usingCustomTarget.value = false
+  form.target_points = points
+}
+
+/**
+ * Best-of. Even numbers are absent rather than disabled: best of 2 can end
+ * 1-1, so it is not a format somebody could mean.
+ */
+const GAMES_OPTIONS = [
+  { value: 1, label: 'One game', hint: 'The usual for open play' },
+  { value: 3, label: 'Best of 3', hint: 'First to two games' },
+  { value: 5, label: 'Best of 5', hint: 'First to three games' }
+]
+
+/**
+ * Scoring is a property of a game, so it is asked wherever games are played.
+ *
+ * A tournament answers it per category — that is what 046's columns are for —
+ * and a coaching session has no games at all.
+ */
+const wantsScoring = computed(() => !isTournament.value && !isCoaching.value)
+
+/** The rule in one line, so the organiser reads back what they just set. */
+const scoringSummary = computed(() => {
+  const games = form.games_default === 1 ? 'One game' : `Best of ${form.games_default}`
+  return `${games} to ${form.target_points}${form.win_by_two ? ', win by 2' : ' — first to the number takes it'}.`
+})
 
 /**
  * A coaching session is a plain event: a name, a time, a venue and an amount.
@@ -155,9 +225,7 @@ async function loadCoachName(coachId: string | null) {
     return
   }
   try {
-    const player = await $fetch<{ id: string; display_name: string }>(
-      `/api/v1/players/${coachId}`
-    )
+    const player = await $fetch<{ id: string; display_name: string }>(`/api/v1/players/${coachId}`)
     selectedCoach.value = { id: player.id, display_name: player.display_name }
   } catch {
     // A coach whose profile has since gone private or been removed: keep the
@@ -267,7 +335,15 @@ watch(
     form.max_participants = value.max_participants?.toString() ?? ''
     form.queue_enabled = value.queue_enabled
     form.queue_mode = value.queue_mode
-    form.queue_courts = value.queue_courts?.toString() ?? ''
+    form.queue_courts = value.queue_courts?.toString() ?? '1'
+    form.target_points = value.target_points
+    form.win_by_two = value.win_by_two
+    form.games_default = value.games_default
+    // A stored target that is not one of the chips has to open the custom
+    // field, or editing the event would silently snap it back to 11.
+    usingCustomTarget.value = !SCORING_PRESETS.includes(
+      value.target_points as (typeof SCORING_PRESETS)[number]
+    )
     form.visibility = value.visibility
     form.match_format = value.match_format
     form.fee_payer = value.fee_payer
@@ -307,9 +383,61 @@ watch(
 
 const selectedEventType = computed(() => eventTypes.find((t) => t.value === form.event_type))
 
+/**
+ * The court count actually sent, as a number.
+ *
+ * A coaching session has no courts to run, and a tournament's courts come from
+ * its draw, so both send 1 rather than whatever was left in the box — the
+ * column is NOT NULL and the value would be a number nothing reads.
+ */
+const courtCount = computed(() => {
+  if (isCoaching.value || isTournament.value) return 1
+  const parsed = parseInt(form.queue_courts, 10)
+  return Number.isFinite(parsed) ? parsed : 1
+})
+
+/**
+ * Everything wrong with the form, in the order the fields appear.
+ *
+ * A list rather than the first failure: somebody who left three fields blank
+ * should be told all three, not made to press Create three times. The service
+ * checks the same bounds — this exists so the answer arrives before a request
+ * does, not instead of the server's.
+ */
+const validationProblems = computed<string[]>(() => {
+  const problems: string[] = []
+  if (!form.club_id) problems.push('Choose the club hosting this event.')
+  if (!form.name.trim()) problems.push('Give the event a name.')
+  if (!form.start_date) problems.push('Set a start date.')
+  if (!form.end_date) problems.push('Set an end date.')
+  if (form.end_date && form.start_date && form.end_date < form.start_date) {
+    problems.push('The end date cannot be before the start date.')
+  }
+  if (!form.registration_closes) problems.push('Set when registration closes.')
+  if (form.close_policy === 'scheduled' && !form.closes_at) {
+    problems.push('A scheduled session needs a closing time.')
+  }
+
+  if (!isCoaching.value && !isTournament.value) {
+    const courts = parseInt(form.queue_courts, 10)
+    if (!Number.isFinite(courts) || courts < 1 || courts > 24) {
+      problems.push('Number of courts must be between 1 and 24.')
+    }
+  }
+
+  if (wantsScoring.value) {
+    const target = form.target_points
+    if (!Number.isInteger(target) || target < 1 || target > 99) {
+      problems.push('Points to win must be a whole number between 1 and 99.')
+    }
+  }
+
+  return problems
+})
+
 async function submit() {
-  if (!form.club_id || !form.name || !form.start_date || !form.end_date) {
-    errorMessage.value = 'Club, name, start date, and end date are required.'
+  if (validationProblems.value.length) {
+    errorMessage.value = validationProblems.value.join(' ')
     return
   }
   errorMessage.value = ''
@@ -355,8 +483,11 @@ async function submit() {
           max_participants: form.max_participants ? parseInt(form.max_participants) : null,
           queue_enabled: form.queue_enabled,
           queue_mode: form.queue_mode,
-          queue_courts: form.queue_courts ? parseInt(form.queue_courts) : undefined,
+          queue_courts: courtCount.value,
           match_format: form.match_format,
+          target_points: form.target_points,
+          win_by_two: form.win_by_two,
+          games_default: form.games_default,
           visibility: form.visibility
         }
       })
@@ -381,7 +512,10 @@ async function submit() {
         registration_opens: form.registration_opens || null,
         registration_closes: form.registration_closes || null,
         close_policy: form.close_policy,
-        closes_at: form.close_policy === 'scheduled' && form.closes_at ? new Date(form.closes_at).toISOString() : null,
+        closes_at:
+          form.close_policy === 'scheduled' && form.closes_at
+            ? new Date(form.closes_at).toISOString()
+            : null,
         min_players_to_start: form.min_players_to_start ? Number(form.min_players_to_start) : null,
         coach_player_id: isCoaching.value ? (selectedCoach.value?.id ?? null) : null,
         fee_payer: form.fee_payer,
@@ -394,8 +528,11 @@ async function submit() {
         max_participants: form.max_participants ? parseInt(form.max_participants) : null,
         queue_enabled: form.queue_enabled,
         queue_mode: form.queue_mode,
-        queue_courts: form.queue_courts ? parseInt(form.queue_courts) : undefined,
+        queue_courts: courtCount.value,
         match_format: form.match_format,
+        target_points: form.target_points,
+        win_by_two: form.win_by_two,
+        games_default: form.games_default,
         visibility: form.visibility,
         ...(isTournament.value
           ? {
@@ -421,12 +558,14 @@ async function submit() {
 
       <!-- Header -->
       <div class="mb-6">
-        <h1 class="text-2xl font-bold text-fg">{{ isEditing ? 'Edit Event' : 'Create Event' }}</h1>
+        <h1 class="font-display text-heading-1 text-fg">
+          {{ isEditing ? 'Edit Event' : 'Create Event' }}
+        </h1>
         <p class="mt-1 text-sm text-fg-muted">
           {{
             isEditing
               ? 'Changes apply to this draft. Publish when it is ready.'
-              : 'Organize open play, ranked sessions, or tournaments'
+              : 'Open play, ranked sessions, tournaments and coaching'
           }}
         </p>
       </div>
@@ -440,8 +579,8 @@ async function submit() {
       </div>
 
       <!-- Error loading clubs -->
-      <div v-else-if="clubsError" class="rounded-xl bg-red-500/10 p-6 text-center">
-        <p class="text-red-400">Could not load your clubs. Please try again.</p>
+      <div v-else-if="clubsError" class="rounded-xl bg-danger-soft p-6 text-center">
+        <p class="text-danger">Could not load your clubs. Please try again.</p>
         <NuxtLink to="/my-clubs" class="mt-4 inline-block text-sm text-primary hover:underline">
           Go to My Clubs
         </NuxtLink>
@@ -461,7 +600,7 @@ async function submit() {
             />
           </svg>
         </div>
-        <h2 class="text-lg font-semibold text-fg">No Clubs to Manage</h2>
+        <h2 class="font-display text-heading-3 text-fg">No Clubs to Manage</h2>
         <p class="mt-2 text-sm text-fg-muted">
           You need to be an owner or admin of a club to create events.
         </p>
@@ -485,10 +624,14 @@ async function submit() {
       <form v-else class="space-y-6" @submit.prevent="submit">
         <!-- Basic Info -->
         <div class="rounded-xl bg-surface p-5 shadow-card">
-          <h2 class="mb-4 font-semibold text-fg">Basic Information</h2>
+          <h2 class="mb-4 font-display text-heading-3 text-fg">Basic Information</h2>
           <div class="space-y-4">
             <div>
-              <label class="mb-1.5 block text-sm text-fg-secondary">Hosting Club</label>
+              <label
+                :for="adminClubs.length === 1 ? undefined : 'event-club'"
+                class="mb-1.5 block text-sm text-fg-secondary"
+                >Hosting Club</label
+              >
               <div
                 v-if="adminClubs.length === 1"
                 class="w-full rounded-lg border border-border-strong bg-canvas/50 px-4 py-2.5 text-fg"
@@ -497,9 +640,10 @@ async function submit() {
               </div>
               <select
                 v-else
+                id="event-club"
                 v-model="form.club_id"
                 required
-                class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg focus:border-primary focus:outline-none"
+                class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
               >
                 <option value="" disabled>Select a club</option>
                 <option v-for="m in adminClubs" :key="m.club.id" :value="m.club.id">
@@ -511,30 +655,36 @@ async function submit() {
               </p>
             </div>
             <div>
-              <label class="mb-1.5 block text-sm text-fg-secondary">Event Name</label>
+              <label for="event-name" class="mb-1.5 block text-sm text-fg-secondary"
+                >Event Name</label
+              >
               <input
+                id="event-name"
                 v-model="form.name"
                 type="text"
                 required
                 placeholder="e.g., Friday Night Open Play"
-                class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none"
+                class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
               />
             </div>
             <div>
-              <label class="mb-1.5 block text-sm text-fg-secondary">Description</label>
+              <label for="event-description" class="mb-1.5 block text-sm text-fg-secondary"
+                >Description</label
+              >
               <textarea
+                id="event-description"
                 v-model="form.description"
                 rows="3"
                 placeholder="Describe your event..."
-                class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none"
+                class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
               />
             </div>
           </div>
         </div>
 
         <!-- Event Type -->
-        <div class="rounded-xl bg-surface p-5 shadow-card">
-          <h2 class="mb-4 font-semibold text-fg">Event Type</h2>
+        <fieldset class="rounded-xl bg-surface p-5 shadow-card">
+          <legend class="mb-4 font-display text-heading-3 text-fg">Event Type</legend>
           <div class="grid gap-3 sm:grid-cols-2">
             <label
               v-for="t in eventTypes"
@@ -572,29 +722,35 @@ async function submit() {
           >
             Matches in this event will affect player ratings.
           </div>
-        </div>
+        </fieldset>
 
         <!-- Schedule -->
         <div class="rounded-xl bg-surface p-5 shadow-card">
-          <h2 class="mb-4 font-semibold text-fg">Schedule</h2>
+          <h2 class="mb-4 font-display text-heading-3 text-fg">Schedule</h2>
           <div class="space-y-4">
             <div class="grid gap-4 sm:grid-cols-2">
               <div>
-                <label class="mb-1.5 block text-sm text-fg-secondary">Start Date</label>
+                <label for="event-start-date" class="mb-1.5 block text-sm text-fg-secondary"
+                  >Start Date</label
+                >
                 <input
+                  id="event-start-date"
                   v-model="form.start_date"
                   type="date"
                   required
-                  class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg focus:border-primary focus:outline-none"
+                  class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
                 />
               </div>
               <div>
-                <label class="mb-1.5 block text-sm text-fg-secondary">End Date</label>
+                <label for="event-end-date" class="mb-1.5 block text-sm text-fg-secondary"
+                  >End Date</label
+                >
                 <input
+                  id="event-end-date"
                   v-model="form.end_date"
                   type="date"
                   required
-                  class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg focus:border-primary focus:outline-none"
+                  class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
                 />
               </div>
               <UiSelect
@@ -612,22 +768,29 @@ async function submit() {
             </div>
             <div class="grid gap-4 sm:grid-cols-2">
               <div>
-                <label class="mb-1.5 block text-sm text-fg-secondary">Registration Opens</label>
+                <label for="event-registration-opens" class="mb-1.5 block text-sm text-fg-secondary"
+                  >Registration Opens</label
+                >
                 <input
+                  id="event-registration-opens"
                   v-model="form.registration_opens"
                   type="date"
-                  class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg focus:border-primary focus:outline-none"
+                  class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
                 />
               </div>
               <div>
-                <label class="mb-1.5 block text-sm text-fg-secondary">
+                <label
+                  for="event-registration-closes"
+                  class="mb-1.5 block text-sm text-fg-secondary"
+                >
                   Registration Closes <span class="text-danger">*</span>
                 </label>
                 <input
+                  id="event-registration-closes"
                   v-model="form.registration_closes"
                   type="date"
                   required
-                  class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg focus:border-primary focus:outline-none"
+                  class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
                 />
                 <p class="mt-1 text-caption text-fg-muted">
                   When sign-ups stop. Required — a session with no closing date never stops taking
@@ -639,8 +802,10 @@ async function submit() {
             <!-- How the session itself ends, which is a different question from
                  when sign-ups stop: a drop-in session can keep taking players
                  right up until the organiser calls it. -->
-            <div class="mt-4 border-t border-border pt-4">
-              <label class="mb-1.5 block text-sm text-fg-secondary">How does this session end?</label>
+            <fieldset class="mt-4 border-t border-border pt-4">
+              <legend class="mb-1.5 block text-sm text-fg-secondary">
+                How does this session end?
+              </legend>
               <div class="grid gap-2 sm:grid-cols-2">
                 <label
                   class="flex cursor-pointer items-start gap-3 rounded-lg border-2 p-3 transition-all"
@@ -684,41 +849,50 @@ async function submit() {
                 </label>
               </div>
               <div v-if="form.close_policy === 'scheduled'" class="mt-3">
-                <label class="mb-1.5 block text-sm text-fg-secondary">Closes at</label>
+                <label for="event-closes-at" class="mb-1.5 block text-sm text-fg-secondary"
+                  >Closes at</label
+                >
                 <input
+                  id="event-closes-at"
                   v-model="form.closes_at"
                   type="datetime-local"
                   required
-                  class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg focus:border-primary focus:outline-none"
+                  class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
                 />
               </div>
-            </div>
+            </fieldset>
           </div>
         </div>
 
         <!-- Capacity & Fees -->
         <div class="rounded-xl bg-surface p-5 shadow-card">
-          <h2 class="mb-4 font-semibold text-fg">Capacity & Fees</h2>
+          <h2 class="mb-4 font-display text-heading-3 text-fg">Capacity & Fees</h2>
           <div class="grid gap-4 sm:grid-cols-2">
             <div>
-              <label class="mb-1.5 block text-sm text-fg-secondary">Max Participants</label>
+              <label for="event-max-participants" class="mb-1.5 block text-sm text-fg-secondary"
+                >Max Participants</label
+              >
               <input
+                id="event-max-participants"
                 v-model="form.max_participants"
                 type="number"
                 min="2"
                 placeholder="Leave empty for unlimited"
-                class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none"
+                class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
               />
             </div>
             <div>
-              <label class="mb-1.5 block text-sm text-fg-secondary">Registration Fee (PHP)</label>
+              <label for="event-fee-amount" class="mb-1.5 block text-sm text-fg-secondary"
+                >Registration Fee (PHP)</label
+              >
               <input
+                id="event-fee-amount"
                 v-model="form.fee_amount"
                 type="number"
                 min="0"
                 step="0.01"
                 placeholder="0 for free"
-                class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none"
+                class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
               />
             </div>
           </div>
@@ -726,7 +900,7 @@ async function submit() {
           <!-- Who is teaching. Only on a coaching session — on anything else
                the field would be a value nothing reads. -->
           <div v-if="isCoaching" class="mt-4 border-t border-border pt-4">
-            <label class="mb-1.5 block text-sm text-fg-secondary">
+            <label for="event-coach" class="mb-1.5 block text-sm text-fg-secondary">
               Coach <span class="text-fg-muted">(optional)</span>
             </label>
 
@@ -746,10 +920,11 @@ async function submit() {
 
             <div v-else class="relative">
               <input
+                id="event-coach"
                 v-model="coachQuery"
                 type="text"
                 placeholder="Search players by name"
-                class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none"
+                class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
               />
               <ul
                 v-if="coachOptions.length"
@@ -766,8 +941,7 @@ async function submit() {
                 </li>
               </ul>
               <p class="mt-1 text-caption text-fg-muted">
-                Any player can be the coach, including you. Leave blank if nobody is being
-                credited.
+                Any player can be the coach, including you. Leave blank if nobody is being credited.
               </p>
             </div>
           </div>
@@ -776,8 +950,8 @@ async function submit() {
                player is charged", with no way to say the organiser is covering
                it — so an organiser-funded session had to be listed as free and
                the real cost went unrecorded. -->
-          <div v-if="form.fee_amount" class="mt-4 border-t border-border pt-4">
-            <label class="mb-1.5 block text-sm text-fg-secondary">Who pays?</label>
+          <fieldset v-if="form.fee_amount" class="mt-4 border-t border-border pt-4">
+            <legend class="mb-1.5 block text-sm text-fg-secondary">Who pays?</legend>
             <div class="grid gap-2 sm:grid-cols-3">
               <label
                 v-for="option in FEE_PAYERS"
@@ -803,24 +977,25 @@ async function submit() {
             </div>
 
             <div v-if="form.fee_payer === 'split'" class="mt-3">
-              <label class="mb-1.5 block text-sm text-fg-secondary">
+              <label for="event-organizer-share" class="mb-1.5 block text-sm text-fg-secondary">
                 Organizer's share (PHP)
               </label>
               <input
+                id="event-organizer-share"
                 v-model="form.organizer_fee_amount"
                 type="number"
                 min="0"
                 step="0.01"
-                class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg focus:border-primary focus:outline-none"
+                class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
               />
             </div>
-          </div>
+          </fieldset>
         </div>
 
         <!-- Tournament shape. Replaces the old create-tournament page, whose
              heading read "Create Category" while it created a tournament. -->
         <div v-if="isTournament" class="rounded-xl bg-surface p-5 shadow-card">
-          <h2 class="font-semibold text-fg">Tournament format</h2>
+          <h2 class="font-display text-heading-3 text-fg">Tournament format</h2>
           <p class="mt-0.5 text-sm text-fg-muted">
             The default every category in this tournament starts from. You add the categories
             themselves on the event page, and each one can be changed to a different format there.
@@ -878,56 +1053,202 @@ async function submit() {
           </div>
         </div>
 
-        <!-- Format. Open play only: a tournament answers this per category. -->
-        <div v-if="!isTournament" class="rounded-xl bg-surface p-5 shadow-card">
-          <h2 class="font-semibold text-fg">Format</h2>
+        <!-- Format and courts. Open play only: a tournament answers the format
+             per category, and its courts come from the draw. -->
+        <div v-if="!isTournament && !isCoaching" class="rounded-xl bg-surface p-5 shadow-card">
+          <h2 class="font-display text-heading-3 text-fg">Format &amp; courts</h2>
           <p class="mt-0.5 text-sm text-fg-muted">
-            What people will be playing. This decides how the queue pairs players and how many go on
-            each court.
+            What people will be playing, and how much of the venue you have. This decides how the
+            queue pairs players and how many go on each court.
           </p>
 
-          <div class="mt-4 flex gap-2">
-            <label
-              v-for="type in ['doubles', 'singles'] as const"
-              :key="type"
-              class="flex flex-1 cursor-pointer items-center gap-2 rounded-lg border-2 px-3 py-2 text-sm capitalize transition-all"
-              :class="
-                form.match_format === type
-                  ? 'border-primary bg-primary/5 text-fg'
-                  : 'border-border-strong text-fg-secondary hover:border-primary/40'
-              "
-            >
-              <input
-                v-model="form.match_format"
-                type="radio"
-                :value="type"
-                class="accent-primary"
-              />
-              {{ type }}
-            </label>
-          </div>
+          <fieldset class="mt-4">
+            <legend class="sr-only">Match format</legend>
+            <div class="flex gap-2">
+              <label
+                v-for="type in ['doubles', 'singles'] as const"
+                :key="type"
+                class="flex flex-1 cursor-pointer items-center gap-2 rounded-lg border-2 px-3 py-2 text-sm capitalize transition-all"
+                :class="
+                  form.match_format === type
+                    ? 'border-primary bg-primary/5 text-fg'
+                    : 'border-border-strong text-fg-secondary hover:border-primary/40'
+                "
+              >
+                <input
+                  v-model="form.match_format"
+                  type="radio"
+                  :value="type"
+                  class="accent-primary"
+                />
+                {{ type }}
+              </label>
+            </div>
+          </fieldset>
           <p class="mt-1.5 text-xs text-fg-muted">
             Doubles is listed first because it is what most club sessions run.
+          </p>
+
+          <!-- Courts. This lived inside the Match Queue block, so a session run
+               without the queue never answered it and started with exactly one
+               court however many the venue has - and there was no way to
+               correct it once the event was published. -->
+          <div class="mt-4 border-t border-border pt-4">
+            <label for="event-courts" class="mb-1.5 block text-sm text-fg-secondary">
+              Number of courts
+            </label>
+            <input
+              id="event-courts"
+              v-model="form.queue_courts"
+              type="number"
+              inputmode="numeric"
+              min="1"
+              max="24"
+              required
+              aria-describedby="event-courts-hint"
+              class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg tabular-nums focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40 sm:w-40"
+            />
+            <p id="event-courts-hint" class="mt-1 text-xs text-fg-muted">
+              How many courts you have for this session. Games are recorded per court, so this has
+              to match the venue whether or not you use the queue.
+            </p>
+          </div>
+        </div>
+
+        <!-- Scoring. The one thing open play could never say: every game was
+             scored against the built-in default of one game to 11, so a club
+             playing to 15 had a legitimate 15-13 rejected as unfinished. -->
+        <div v-if="wantsScoring" class="rounded-xl bg-surface p-5 shadow-card">
+          <h2 class="font-display text-heading-3 text-fg">Scoring</h2>
+          <p class="mt-0.5 text-sm text-fg-muted">
+            How a game is won. Score sheets and the live court board are validated against this, so
+            it has to be the rule you are actually playing.
+          </p>
+
+          <fieldset class="mt-4">
+            <legend class="mb-1.5 block text-sm text-fg-secondary">Points to win</legend>
+            <div class="flex flex-wrap gap-2">
+              <button
+                v-for="points in SCORING_PRESETS"
+                :key="points"
+                type="button"
+                class="min-h-11 min-w-[3.75rem] rounded-lg border-2 px-4 text-body-1 font-semibold tabular-nums transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+                :class="
+                  !usingCustomTarget && form.target_points === points
+                    ? 'border-primary bg-primary/5 text-fg'
+                    : 'border-border-strong text-fg-secondary hover:border-primary/40'
+                "
+                :aria-pressed="!usingCustomTarget && form.target_points === points"
+                @click="pickTarget(points)"
+              >
+                {{ points }}
+              </button>
+              <button
+                type="button"
+                class="min-h-11 rounded-lg border-2 px-4 text-body-2 font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+                :class="
+                  usingCustomTarget
+                    ? 'border-primary bg-primary/5 text-fg'
+                    : 'border-border-strong text-fg-secondary hover:border-primary/40'
+                "
+                :aria-pressed="usingCustomTarget"
+                @click="usingCustomTarget = true"
+              >
+                Custom
+              </button>
+            </div>
+
+            <div v-if="usingCustomTarget" class="mt-3">
+              <label for="event-target-points" class="mb-1.5 block text-sm text-fg-secondary">
+                Points to win
+              </label>
+              <input
+                id="event-target-points"
+                v-model.number="form.target_points"
+                type="number"
+                inputmode="numeric"
+                min="1"
+                max="99"
+                class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg tabular-nums focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40 sm:w-40"
+              />
+            </div>
+          </fieldset>
+
+          <!-- Win by two is what makes 12-10 and 15-13 possible at all, so it
+               is stated rather than assumed: turning it off means reaching the
+               number ends the game outright. -->
+          <!-- The label wraps the whole row, switch and text together. With the
+               text in a sibling span the only hit target was the 44x24 switch
+               itself and tapping the words did nothing — which on a phone is
+               most of where a thumb actually lands. -->
+          <label
+            class="mt-4 flex cursor-pointer items-start justify-between gap-4 border-t border-border pt-4"
+          >
+            <input v-model="form.win_by_two" type="checkbox" class="peer sr-only" />
+            <span class="min-w-0">
+              <span class="block text-sm font-medium text-fg">Win by two</span>
+              <span class="mt-0.5 block text-caption text-fg-muted">
+                A game runs past the target until someone leads by two. Off means first to the
+                number takes it.
+              </span>
+            </span>
+            <span
+              class="relative block h-6 w-11 shrink-0 rounded-full bg-surface-3 transition-colors after:absolute after:left-0.5 after:top-1/2 after:h-5 after:w-5 after:-translate-y-1/2 after:rounded-full after:bg-white after:transition-all after:content-[''] peer-checked:bg-primary peer-checked:after:translate-x-full peer-focus-visible:ring-2 peer-focus-visible:ring-primary peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-surface"
+            />
+          </label>
+
+          <fieldset class="mt-4 border-t border-border pt-4">
+            <legend class="mb-1.5 block text-sm text-fg-secondary">Games per match</legend>
+            <div class="grid gap-2 sm:grid-cols-3">
+              <label
+                v-for="option in GAMES_OPTIONS"
+                :key="option.value"
+                class="flex cursor-pointer items-start gap-2.5 rounded-lg border-2 p-3 transition-all"
+                :class="
+                  form.games_default === option.value
+                    ? 'border-primary bg-primary/5'
+                    : 'border-border-strong hover:border-primary/40'
+                "
+              >
+                <input
+                  v-model.number="form.games_default"
+                  type="radio"
+                  :value="option.value"
+                  class="mt-0.5 h-4 w-4 accent-primary"
+                />
+                <span>
+                  <span class="block text-sm font-medium text-fg">{{ option.label }}</span>
+                  <span class="mt-0.5 block text-caption text-fg-muted">{{ option.hint }}</span>
+                </span>
+              </label>
+            </div>
+          </fieldset>
+
+          <!-- The rule read back in one line, because four controls above do
+               not add up to a sentence anybody can check at a glance. -->
+          <p class="mt-4 rounded-lg bg-primary-soft px-3 py-2 text-sm font-medium text-primary">
+            {{ scoringSummary }}
           </p>
         </div>
 
         <!-- Queue Mode. Not offered for a tournament: a draw decides who plays
              whom, so there is nothing to queue for. -->
-        <div v-if="!isTournament" class="rounded-xl bg-surface p-5 shadow-card">
-          <div class="mb-4 flex items-center justify-between">
-            <div>
-              <h2 class="font-semibold text-fg">Match Queue</h2>
-              <p class="mt-0.5 text-sm text-fg-muted">
+        <div v-if="!isTournament && !isCoaching" class="rounded-xl bg-surface p-5 shadow-card">
+          <!-- Label wraps the row for the same reason the win-by-two switch
+               does: with the heading outside it, the only hit target was the
+               44x24 switch and tapping the words did nothing. -->
+          <label class="mb-4 flex cursor-pointer items-center justify-between gap-4">
+            <input v-model="form.queue_enabled" type="checkbox" class="peer sr-only" />
+            <span class="min-w-0">
+              <span class="block font-display text-heading-3 text-fg">Match Queue</span>
+              <span class="mt-0.5 block text-sm text-fg-muted">
                 Optional matchmaking system for players at the event
-              </p>
-            </div>
-            <label class="relative inline-flex cursor-pointer items-center">
-              <input v-model="form.queue_enabled" type="checkbox" class="peer sr-only" />
-              <div
-                class="h-6 w-11 rounded-full bg-surface-3 transition-colors peer-checked:bg-primary after:absolute after:left-0.5 after:top-0.5 after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-all after:content-[''] peer-checked:after:translate-x-full"
-              />
-            </label>
-          </div>
+              </span>
+            </span>
+            <span
+              class="relative block h-6 w-11 shrink-0 rounded-full bg-surface-3 transition-colors after:absolute after:left-0.5 after:top-1/2 after:h-5 after:w-5 after:-translate-y-1/2 after:rounded-full after:bg-white after:transition-all after:content-[''] peer-checked:bg-primary peer-checked:after:translate-x-full peer-focus-visible:ring-2 peer-focus-visible:ring-primary peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-surface"
+            />
+          </label>
 
           <div v-if="form.queue_enabled" class="space-y-4">
             <div class="space-y-3">
@@ -996,39 +1317,33 @@ async function submit() {
                 </div>
               </label>
             </div>
-            <div>
-              <label class="mb-1.5 block text-sm text-fg-secondary">Number of Courts</label>
-              <input
-                v-model="form.queue_courts"
-                type="number"
-                min="1"
-                placeholder="e.g., 4"
-                class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none"
-              />
-            </div>
           </div>
         </div>
 
         <!-- Location -->
         <div class="rounded-xl bg-surface p-5 shadow-card">
-          <h2 class="mb-4 font-semibold text-fg">Location</h2>
+          <h2 class="mb-4 font-display text-heading-3 text-fg">Location</h2>
           <div class="space-y-4">
             <div>
-              <label class="mb-1.5 block text-sm text-fg-secondary">Venue</label>
+              <label for="event-venue" class="mb-1.5 block text-sm text-fg-secondary">Venue</label>
               <input
+                id="event-venue"
                 v-model="form.venue"
                 type="text"
                 placeholder="e.g., Manila Sports Complex"
-                class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none"
+                class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
               />
             </div>
             <div class="grid gap-4 sm:grid-cols-2">
               <div>
-                <label class="mb-1.5 block text-sm text-fg-secondary">Province</label>
+                <label for="event-province" class="mb-1.5 block text-sm text-fg-secondary"
+                  >Province</label
+                >
                 <select
+                  id="event-province"
                   :value="selectedProvince"
                   :disabled="loadingProvinces"
-                  class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg focus:border-primary focus:outline-none disabled:opacity-50"
+                  class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:opacity-50"
                   @change="selectProvince(($event.target as HTMLSelectElement).value)"
                 >
                   <option value="">
@@ -1038,11 +1353,12 @@ async function submit() {
                 </select>
               </div>
               <div>
-                <label class="mb-1.5 block text-sm text-fg-secondary">City</label>
+                <label for="event-city" class="mb-1.5 block text-sm text-fg-secondary">City</label>
                 <select
+                  id="event-city"
                   :value="selectedCity"
                   :disabled="!selectedProvince || loadingCities"
-                  class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg focus:border-primary focus:outline-none disabled:opacity-50"
+                  class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:opacity-50"
                   @change="selectCity(($event.target as HTMLSelectElement).value)"
                 >
                   <option value="">
@@ -1062,8 +1378,8 @@ async function submit() {
         </div>
 
         <!-- Visibility -->
-        <div class="rounded-xl bg-surface p-5 shadow-card">
-          <h2 class="mb-4 font-semibold text-fg">Visibility</h2>
+        <fieldset class="rounded-xl bg-surface p-5 shadow-card">
+          <legend class="mb-4 font-display text-heading-3 text-fg">Visibility</legend>
           <div class="space-y-3">
             <label
               class="flex cursor-pointer items-start gap-4 rounded-lg border-2 p-4 transition-all"
@@ -1129,10 +1445,10 @@ async function submit() {
               </div>
             </label>
           </div>
-        </div>
+        </fieldset>
 
         <!-- Error -->
-        <div v-if="errorMessage" class="rounded-xl bg-red-500/10 p-4 text-red-400">
+        <div v-if="errorMessage" class="rounded-xl bg-danger-soft p-4 text-danger">
           {{ errorMessage }}
         </div>
 

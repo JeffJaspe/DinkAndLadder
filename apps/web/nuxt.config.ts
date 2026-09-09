@@ -17,7 +17,7 @@ export default defineNuxtConfig({
       link: [
         {
           // Body text is Inter on every screen, so it is on the critical path.
-          // Preloading it removes the swap-in flash on first paint. Poppins is
+          // Preloading it removes the swap-in flash on first paint. Lexend is
           // headings-only and small, so it is left to normal discovery.
           rel: 'preload',
           as: 'font',
@@ -86,6 +86,15 @@ export default defineNuxtConfig({
         '/clubs/*',
         '/rankings',
         '/clubs',
+        // The index pages, not just their detail routes. `/clubs` and
+        // `/rankings` were listed but `/events` and `/players` were not, so a
+        // signed-out visitor could open one event and one player profile yet
+        // got bounced to /login the moment they asked to see the list — and the
+        // landing page's own "Find play near you" button points at /events.
+        // Browsing is free; the login prompt belongs at the point of joining,
+        // registering or submitting, not at the point of looking.
+        '/events',
+        '/players',
         // Retired route, kept public because it was public and in the sidebar:
         // it redirects to /clubs?verified=1, and a signed-out visitor following
         // an old bookmark must reach that redirect rather than the login page.

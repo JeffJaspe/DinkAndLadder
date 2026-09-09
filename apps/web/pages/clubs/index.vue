@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { initialsFor } from '~/utils/initials'
 import type { ClubSearchResultDto } from '~/server/domains/club/dto/club.dto'
 
 useHead({ title: 'Discover Clubs' })
@@ -87,11 +88,11 @@ function clearFilters() {
 </script>
 
 <template>
-  <div class="min-h-screen bg-canvas p-4 lg:p-6">
+  <div class="page-shell min-h-screen bg-canvas p-4 lg:p-6">
     <!-- Header -->
     <div class="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
       <div>
-        <h1 class="text-2xl font-bold text-fg">Discover Clubs</h1>
+        <h1 class="font-display text-heading-1 text-fg">Discover Clubs</h1>
         <p class="mt-1 text-sm text-fg-muted">Find your pickleball community</p>
       </div>
       <NuxtLink
@@ -111,7 +112,8 @@ function clearFilters() {
           v-model="search"
           type="search"
           placeholder="Search clubs..."
-          class="w-full rounded-lg border border-border-strong bg-surface py-2.5 pl-10 pr-4 text-fg placeholder-fg-muted focus:border-primary focus:outline-none"
+          aria-label="Search clubs by name"
+          class="w-full rounded-lg border border-border-strong bg-surface py-2.5 pl-10 pr-4 text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
         />
         <UiIcon
           name="search"
@@ -125,7 +127,7 @@ function clearFilters() {
           :value="selectedProvince"
           :disabled="loadingProvinces"
           aria-label="Province"
-          class="rounded-lg border border-border-strong bg-surface px-4 py-2.5 text-fg focus:border-primary focus:outline-none disabled:opacity-50"
+          class="rounded-lg border border-border-strong bg-surface px-4 py-2.5 text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:opacity-50"
           @change="selectProvince(($event.target as HTMLSelectElement).value)"
         >
           <option value="">{{ loadingProvinces ? 'Loading...' : 'All Provinces' }}</option>
@@ -135,11 +137,17 @@ function clearFilters() {
           :value="selectedCity"
           :disabled="!selectedProvince || loadingCities"
           aria-label="City"
-          class="rounded-lg border border-border-strong bg-surface px-4 py-2.5 text-fg focus:border-primary focus:outline-none disabled:opacity-50"
+          class="rounded-lg border border-border-strong bg-surface px-4 py-2.5 text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:opacity-50"
           @change="selectCity(($event.target as HTMLSelectElement).value)"
         >
           <option value="">
-            {{ loadingCities ? 'Loading...' : selectedProvince ? 'All Cities' : 'Select province' }}
+            {{
+              loadingCities
+                ? 'Loading...'
+                : selectedProvince
+                  ? 'All Cities'
+                  : 'Pick a province first'
+            }}
           </option>
           <option v-for="c in cities" :key="c.code" :value="c.code">{{ c.name }}</option>
         </select>
@@ -178,8 +186,12 @@ function clearFilters() {
 
     <!-- Empty -->
     <div v-else-if="!clubs.length" class="rounded-xl bg-surface p-12 text-center shadow-card">
-      <p class="text-4xl">🏸</p>
-      <h3 class="mt-4 text-lg font-semibold text-fg">No clubs found</h3>
+      <span
+        class="mx-auto flex h-12 w-12 items-center justify-center rounded-pill bg-surface-2 text-fg-muted"
+      >
+        <UiIcon name="clubs" size="h-6 w-6" />
+      </span>
+      <h2 class="mt-4 font-display text-heading-3 text-fg">No clubs found</h2>
       <p class="mt-2 text-sm text-fg-muted">
         {{
           hasFilters
@@ -216,11 +228,11 @@ function clearFilters() {
           <div
             class="flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-xl bg-surface-2 text-xl font-bold text-fg-secondary"
           >
-            {{ club.name.charAt(0).toUpperCase() }}
+            {{ initialsFor(club.name, 1) }}
           </div>
           <div class="min-w-0 flex-1">
             <div class="flex items-center gap-1.5">
-              <h3 class="truncate font-semibold text-fg">{{ club.name }}</h3>
+              <h2 class="truncate text-body-1 font-medium text-fg">{{ club.name }}</h2>
               <VerifiedBadge
                 v-if="club.verification_status === 'verified'"
                 size="sm"
@@ -230,7 +242,10 @@ function clearFilters() {
             <p v-if="club.city || club.province" class="mt-0.5 text-sm text-fg-muted">
               {{ [club.city, club.province].filter(Boolean).join(', ') }}
             </p>
-            <p class="mt-1 text-xs text-fg-muted">{{ club.member_count }} members</p>
+            <p class="mt-1 text-caption text-fg-muted">
+              <span class="tabular-nums">{{ club.member_count ?? 0 }}</span>
+              {{ club.member_count === 1 ? 'member' : 'members' }}
+            </p>
           </div>
         </div>
       </NuxtLink>

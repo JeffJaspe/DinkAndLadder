@@ -40,7 +40,9 @@ const emit = defineEmits<{ 'update:modelValue': [string] }>()
         :aria-label="ariaLabel ?? label"
         :disabled="disabled"
         class="w-full appearance-none rounded-button border border-border-strong bg-surface pr-9 text-fg transition-colors focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:cursor-not-allowed disabled:opacity-50"
-        :class="size === 'sm' ? 'py-1.5 pl-3 text-caption' : 'py-2 pl-3 text-body-2'"
+        :class="
+          size === 'sm' ? 'min-h-9 py-1.5 pl-3 text-caption' : 'min-h-11 py-2 pl-3 text-body-2'
+        "
         @change="emit('update:modelValue', ($event.target as HTMLSelectElement).value)"
       >
         <option v-for="option in options" :key="option.value" :value="option.value">

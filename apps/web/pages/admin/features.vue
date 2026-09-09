@@ -64,7 +64,7 @@ function updatedLabel(flag: FeatureFlagDto): string {
 <template>
   <div class="min-h-screen bg-canvas p-4 lg:p-6">
     <div class="page-shell">
-      <h1 class="text-2xl font-bold text-fg">Platform Features</h1>
+      <h1 class="font-display text-heading-1 text-fg">Platform Features</h1>
       <p class="mt-1 text-sm text-fg-muted">
         Super admin only. A feature that is off is invisible to everyone — the UI does not render it
         and the API does not serve it.

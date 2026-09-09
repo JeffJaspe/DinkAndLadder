@@ -91,8 +91,7 @@ async function run(dryRun: boolean) {
     <header class="mb-6">
       <h1 class="font-display text-heading-1 text-fg">Ratings</h1>
       <p class="mt-1 max-w-prose text-body-2 text-fg-secondary">
-        Recalculate ratings for matches that were recorded before the rating engine could see
-        them.
+        Recalculate ratings for matches that were recorded before the rating engine could see them.
       </p>
     </header>
 
@@ -102,9 +101,8 @@ async function run(dryRun: boolean) {
     >
       <p class="font-medium">Not available on this environment.</p>
       <p class="mt-1 text-fg-secondary">
-        The rating backfill runs against development only. It rewrites ratings and history in
-        bulk, and there is no way to undo it — so it is disabled everywhere else, whoever is
-        signed in.
+        The rating backfill runs against development only. It rewrites ratings and history in bulk,
+        and there is no way to undo it — so it is disabled everywhere else, whoever is signed in.
       </p>
     </div>
 
@@ -114,8 +112,8 @@ async function run(dryRun: boolean) {
       <div class="mt-3 max-w-prose space-y-2 text-body-2 text-fg-secondary">
         <p>
           Tournament results used to be saved without ever reaching the rating engine, so those
-          matches moved nobody's rating and left no history. Matches recorded from now on are
-          rated correctly — this repairs the older ones.
+          matches moved nobody's rating and left no history. Matches recorded from now on are rated
+          correctly — this repairs the older ones.
         </p>
         <p>
           <strong class="text-fg">Check first</strong> counts what would change without writing

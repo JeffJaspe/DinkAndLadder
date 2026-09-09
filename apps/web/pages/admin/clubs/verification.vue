@@ -53,19 +53,19 @@ async function reject(clubId: string) {
 <template>
   <div class="min-h-screen bg-canvas p-4 lg:p-6">
     <div class="page-shell">
-      <h1 class="text-2xl font-bold text-fg">Club Verification Requests</h1>
+      <h1 class="font-display text-heading-1 text-fg">Club Verification Requests</h1>
       <p class="mt-1 text-sm text-fg-muted">Super admin only.</p>
 
       <div v-if="pending" class="mt-6 space-y-3">
         <div v-for="i in 3" :key="i" class="h-20 animate-pulse rounded-xl bg-surface" />
       </div>
 
-      <div v-else-if="notAuthorized" class="mt-6 rounded-xl bg-red-500/10 p-6 text-center">
-        <p class="text-red-400">You don't have access to this page.</p>
+      <div v-else-if="notAuthorized" class="mt-6 rounded-xl bg-danger-soft p-6 text-center">
+        <p class="text-danger">You don't have access to this page.</p>
       </div>
 
-      <div v-else-if="error" class="mt-6 rounded-xl bg-red-500/10 p-6 text-center">
-        <p class="text-red-400">Could not load pending verification requests.</p>
+      <div v-else-if="error" class="mt-6 rounded-xl bg-danger-soft p-6 text-center">
+        <p class="text-danger">Could not load pending verification requests.</p>
       </div>
 
       <div v-else-if="!clubs.length" class="mt-6 rounded-xl bg-surface p-8 text-center shadow-card">
@@ -73,7 +73,7 @@ async function reject(clubId: string) {
       </div>
 
       <div v-else class="mt-6 space-y-3">
-        <p v-if="actionError" class="rounded-lg bg-red-500/10 p-3 text-sm text-red-400">
+        <p v-if="actionError" class="rounded-lg bg-danger-soft p-3 text-sm text-danger">
           {{ actionError }}
         </p>
         <div

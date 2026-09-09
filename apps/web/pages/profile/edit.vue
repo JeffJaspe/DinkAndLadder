@@ -171,7 +171,7 @@ async function handleSave() {
 
       <!-- Header -->
       <div class="mb-6">
-        <h1 class="text-2xl font-bold text-fg">Edit Profile</h1>
+        <h1 class="font-display text-heading-1 text-fg">Edit Profile</h1>
         <p class="mt-1 text-sm text-fg-muted">Update your player information</p>
       </div>
 
@@ -184,16 +184,16 @@ async function handleSave() {
       <!-- Error -->
       <div
         v-else-if="error && error.statusCode !== 404"
-        class="rounded-xl bg-red-500/10 p-6 text-center"
+        class="rounded-xl bg-danger-soft p-6 text-center"
       >
-        <p class="text-red-400">Could not load your profile.</p>
+        <p class="text-danger">Could not load your profile.</p>
       </div>
 
       <!-- Form -->
       <form v-else class="space-y-6" @submit.prevent="handleSave">
         <!-- Account Info -->
         <div class="rounded-xl bg-surface p-5 shadow-card">
-          <h2 class="mb-4 font-semibold text-fg">Account</h2>
+          <h2 class="mb-4 font-display text-heading-3 text-fg">Account</h2>
           <div class="flex items-center gap-3">
             <div
               class="flex h-10 w-10 items-center justify-center rounded-lg"
@@ -243,7 +243,7 @@ async function handleSave() {
 
         <!-- Basic Info -->
         <div class="rounded-xl bg-surface p-5 shadow-card">
-          <h2 class="mb-4 font-semibold text-fg">Basic Information</h2>
+          <h2 class="mb-4 font-display text-heading-3 text-fg">Basic Information</h2>
           <div class="space-y-4">
             <div>
               <label class="mb-1.5 block text-sm text-fg-secondary">Display Name</label>
@@ -252,7 +252,7 @@ async function handleSave() {
                 type="text"
                 required
                 placeholder="Your public name"
-                class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none"
+                class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
               />
             </div>
             <div class="grid gap-4 sm:grid-cols-2">
@@ -262,7 +262,7 @@ async function handleSave() {
                   v-model="form.first_name"
                   type="text"
                   placeholder="First name"
-                  class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none"
+                  class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
                 />
               </div>
               <div>
@@ -271,7 +271,7 @@ async function handleSave() {
                   v-model="form.last_name"
                   type="text"
                   placeholder="Last name"
-                  class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none"
+                  class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
                 />
               </div>
             </div>
@@ -281,7 +281,7 @@ async function handleSave() {
                 v-model="form.bio"
                 rows="3"
                 placeholder="Tell others about yourself..."
-                class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none"
+                class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
               />
             </div>
           </div>
@@ -289,14 +289,14 @@ async function handleSave() {
 
         <!-- Location -->
         <div class="rounded-xl bg-surface p-5 shadow-card">
-          <h2 class="mb-4 font-semibold text-fg">Location</h2>
+          <h2 class="mb-4 font-display text-heading-3 text-fg">Location</h2>
           <div class="grid gap-4 sm:grid-cols-3">
             <div>
               <label class="mb-1.5 block text-sm text-fg-secondary">Province</label>
               <select
                 :value="selectedProvince"
                 :disabled="loadingProvinces"
-                class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg focus:border-primary focus:outline-none disabled:opacity-50"
+                class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:opacity-50"
                 @change="onProvinceChange(($event.target as HTMLSelectElement).value)"
               >
                 <option value="">{{ loadingProvinces ? 'Loading...' : 'Select province' }}</option>
@@ -308,7 +308,7 @@ async function handleSave() {
               <select
                 :value="selectedCity"
                 :disabled="!selectedProvince || loadingCities"
-                class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg focus:border-primary focus:outline-none disabled:opacity-50"
+                class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:opacity-50"
                 @change="onCityChange(($event.target as HTMLSelectElement).value)"
               >
                 <option value="">
@@ -328,7 +328,7 @@ async function handleSave() {
               <select
                 :value="selectedBarangay"
                 :disabled="!selectedCity || loadingBarangays"
-                class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg focus:border-primary focus:outline-none disabled:opacity-50"
+                class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:opacity-50"
                 @change="onBarangayChange(($event.target as HTMLSelectElement).value)"
               >
                 <option value="">
@@ -348,13 +348,13 @@ async function handleSave() {
 
         <!-- Play Style -->
         <div class="rounded-xl bg-surface p-5 shadow-card">
-          <h2 class="mb-4 font-semibold text-fg">Play Style</h2>
+          <h2 class="mb-4 font-display text-heading-3 text-fg">Play Style</h2>
           <div class="grid gap-4 sm:grid-cols-2">
             <div>
               <label class="mb-1.5 block text-sm text-fg-secondary">Dominant Hand</label>
               <select
                 v-model="form.dominant_hand"
-                class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg focus:border-primary focus:outline-none"
+                class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
               >
                 <option value="">Select hand</option>
                 <option value="right">Right</option>
@@ -366,7 +366,7 @@ async function handleSave() {
               <label class="mb-1.5 block text-sm text-fg-secondary">Preferred Position</label>
               <select
                 v-model="form.preferred_position"
-                class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg focus:border-primary focus:outline-none"
+                class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
               >
                 <option value="">Select position</option>
                 <option value="forehand">Forehand</option>
@@ -379,7 +379,7 @@ async function handleSave() {
 
         <!-- Privacy -->
         <div class="rounded-xl bg-surface p-5 shadow-card">
-          <h2 class="mb-4 font-semibold text-fg">Privacy</h2>
+          <h2 class="mb-4 font-display text-heading-3 text-fg">Privacy</h2>
           <div class="space-y-3">
             <label
               class="flex cursor-pointer items-start gap-4 rounded-lg border-2 p-4 transition-all"
@@ -429,7 +429,7 @@ async function handleSave() {
         >
           {{ savedMessage }}
         </div>
-        <div v-if="errorMessage" class="rounded-xl bg-red-500/10 p-4 text-red-400">
+        <div v-if="errorMessage" class="rounded-xl bg-danger-soft p-4 text-danger">
           {{ errorMessage }}
         </div>
 

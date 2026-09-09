@@ -89,7 +89,7 @@ function swatchesFor(colors: Record<string, string | undefined>) {
 <template>
   <div class="min-h-screen bg-canvas p-4 lg:p-6">
     <div class="page-shell">
-      <h1 class="text-2xl font-bold text-fg">Platform Theme</h1>
+      <h1 class="font-display text-heading-1 text-fg">Platform Theme</h1>
       <p class="mt-1 text-sm text-fg-muted">
         Super admin only. Each palette ships a light and a dark counterpart — players keep their own
         light/dark choice, and this decides the brand colours inside it.

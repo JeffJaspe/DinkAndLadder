@@ -328,7 +328,7 @@ watch(
         <select
           id="new-category-format"
           v-model="format"
-          class="w-full max-w-sm rounded-lg border border-border-strong bg-canvas px-3 py-2 text-sm text-fg focus:border-primary focus:outline-none"
+          class="w-full max-w-sm rounded-lg border border-border-strong bg-canvas px-3 py-2 text-sm text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
         >
           <option v-for="option in TOURNAMENT_FORMATS" :key="option.value" :value="option.value">
             {{ option.label }}
@@ -350,7 +350,7 @@ watch(
           type="number"
           min="2"
           list="category-size-suggestions"
-          class="w-full rounded-lg border border-border-strong bg-canvas px-3 py-2 text-sm text-fg focus:border-primary focus:outline-none"
+          class="w-full rounded-lg border border-border-strong bg-canvas px-3 py-2 text-sm text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
         />
         <datalist id="category-size-suggestions">
           <option v-for="n in SIZE_SUGGESTIONS" :key="n" :value="n" />
@@ -403,7 +403,7 @@ watch(
               <span class="text-caption text-fg-muted">{{ roundName(round) }}</span>
               <select
                 v-model="roundOverrides[round]"
-                class="rounded-lg border border-border-strong bg-canvas px-2 py-1.5 text-sm text-fg focus:border-primary focus:outline-none"
+                class="rounded-lg border border-border-strong bg-canvas px-2 py-1.5 text-sm text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
               >
                 <option value="">Same</option>
                 <option v-for="n in GAME_COUNTS" :key="n" :value="n">{{ gamesLabel(n) }}</option>
@@ -426,7 +426,7 @@ watch(
             <select
               id="category-template"
               v-model="templateId"
-              class="w-full max-w-sm rounded-lg border border-border-strong bg-canvas px-3 py-2 text-sm text-fg focus:border-primary focus:outline-none"
+              class="w-full max-w-sm rounded-lg border border-border-strong bg-canvas px-3 py-2 text-sm text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
             >
               <option value="">Choose a band…</option>
               <option v-for="t in available" :key="t.id" :value="t.id">
@@ -454,7 +454,7 @@ watch(
               v-model="custom.name"
               type="text"
               placeholder="e.g. 3.5–4.0"
-              class="w-full rounded-lg border border-border-strong bg-canvas px-3 py-2 text-sm text-fg placeholder-fg-muted focus:border-primary focus:outline-none"
+              class="w-full rounded-lg border border-border-strong bg-canvas px-3 py-2 text-sm text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
             />
           </div>
           <div>
@@ -467,7 +467,7 @@ watch(
               type="number"
               step="0.1"
               placeholder="Any"
-              class="w-full rounded-lg border border-border-strong bg-canvas px-3 py-2 text-sm text-fg placeholder-fg-muted focus:border-primary focus:outline-none"
+              class="w-full rounded-lg border border-border-strong bg-canvas px-3 py-2 text-sm text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
             />
           </div>
           <div>
@@ -480,7 +480,7 @@ watch(
               type="number"
               step="0.1"
               placeholder="Any"
-              class="w-full rounded-lg border border-border-strong bg-canvas px-3 py-2 text-sm text-fg placeholder-fg-muted focus:border-primary focus:outline-none"
+              class="w-full rounded-lg border border-border-strong bg-canvas px-3 py-2 text-sm text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
             />
           </div>
         </div>

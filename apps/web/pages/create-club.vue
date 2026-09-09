@@ -90,7 +90,7 @@ async function handleCreate() {
 
       <!-- Header -->
       <div class="mb-6">
-        <h1 class="text-2xl font-bold text-fg">Create a Club</h1>
+        <h1 class="font-display text-heading-1 text-fg">Create a Club</h1>
         <p class="mt-1 text-sm text-fg-muted">Build your pickleball community</p>
       </div>
 
@@ -98,7 +98,7 @@ async function handleCreate() {
       <form class="space-y-6" @submit.prevent="handleCreate">
         <!-- Basic Info -->
         <div class="rounded-xl bg-surface p-5 shadow-card">
-          <h2 class="mb-4 font-semibold text-fg">Basic Information</h2>
+          <h2 class="mb-4 font-display text-heading-3 text-fg">Basic Information</h2>
           <div class="space-y-4">
             <div>
               <label class="mb-1.5 block text-sm text-fg-secondary">Club Name</label>
@@ -107,7 +107,7 @@ async function handleCreate() {
                 type="text"
                 required
                 placeholder="Enter club name"
-                class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none"
+                class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
                 @input="handleNameInput"
               />
             </div>
@@ -119,7 +119,7 @@ async function handleCreate() {
                 v-model="form.slug"
                 type="text"
                 placeholder="Auto-generated from name if empty"
-                class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none"
+                class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
               />
               <p class="mt-1 text-xs text-fg-muted">Used in your club's URL</p>
             </div>
@@ -129,7 +129,7 @@ async function handleCreate() {
                 v-model="form.description"
                 rows="4"
                 placeholder="Tell people about your club..."
-                class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none"
+                class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
               />
             </div>
           </div>
@@ -137,7 +137,7 @@ async function handleCreate() {
 
         <!-- Location -->
         <div class="rounded-xl bg-surface p-5 shadow-card">
-          <h2 class="mb-4 font-semibold text-fg">Location</h2>
+          <h2 class="mb-4 font-display text-heading-3 text-fg">Location</h2>
           <div class="space-y-4">
             <div class="grid gap-4 sm:grid-cols-2">
               <div>
@@ -145,7 +145,7 @@ async function handleCreate() {
                 <select
                   :value="selectedProvince"
                   :disabled="loadingProvinces"
-                  class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg focus:border-primary focus:outline-none disabled:opacity-50"
+                  class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:opacity-50"
                   @change="(e) => selectProvince((e.target as HTMLSelectElement).value)"
                 >
                   <option value="">
@@ -159,7 +159,7 @@ async function handleCreate() {
                 <select
                   :value="selectedCity"
                   :disabled="!selectedProvince || loadingCities"
-                  class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg focus:border-primary focus:outline-none disabled:opacity-50"
+                  class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:opacity-50"
                   @change="(e) => selectCity((e.target as HTMLSelectElement).value)"
                 >
                   <option value="">
@@ -176,7 +176,7 @@ async function handleCreate() {
               <select
                 :value="selectedBarangay"
                 :disabled="!selectedCity || loadingBarangays"
-                class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg focus:border-primary focus:outline-none disabled:opacity-50"
+                class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:opacity-50"
                 @change="(e) => selectBarangay((e.target as HTMLSelectElement).value)"
               >
                 <option value="">
@@ -190,7 +190,7 @@ async function handleCreate() {
 
         <!-- Court Details (Optional) -->
         <div class="rounded-xl bg-surface p-5 shadow-card">
-          <h2 class="mb-4 font-semibold text-fg">
+          <h2 class="mb-4 font-display text-heading-3 text-fg">
             Court Details <span class="text-sm font-normal text-fg-muted">(optional)</span>
           </h2>
           <div class="space-y-4">
@@ -200,7 +200,7 @@ async function handleCreate() {
                 v-model="form.courtName"
                 type="text"
                 placeholder="e.g., Main Court, Sports Complex"
-                class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none"
+                class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
               />
             </div>
             <div>
@@ -209,7 +209,7 @@ async function handleCreate() {
                 v-model="form.courtAddress"
                 type="text"
                 placeholder="Full address of your home court"
-                class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none"
+                class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
               />
             </div>
           </div>
@@ -217,7 +217,7 @@ async function handleCreate() {
 
         <!-- Visibility -->
         <div class="rounded-xl bg-surface p-5 shadow-card">
-          <h2 class="mb-4 font-semibold text-fg">Club Visibility</h2>
+          <h2 class="mb-4 font-display text-heading-3 text-fg">Club Visibility</h2>
           <div class="space-y-3">
             <label
               class="flex cursor-pointer items-start gap-4 rounded-lg border-2 p-4 transition-all"
@@ -261,7 +261,7 @@ async function handleCreate() {
         </div>
 
         <!-- Error -->
-        <div v-if="errorMessage" class="rounded-xl bg-red-500/10 p-4 text-red-400">
+        <div v-if="errorMessage" class="rounded-xl bg-danger-soft p-4 text-danger">
           {{ errorMessage }}
         </div>
 

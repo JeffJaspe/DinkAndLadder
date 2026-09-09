@@ -66,6 +66,32 @@ export function rulesForRound(
   }
 }
 
+/**
+ * The rules in force for an open play session. See 054.
+ *
+ * The event-shaped twin of `rulesForRound`. Open play has no category and no
+ * per-round exceptions - a court belongs to an event - so this reads the three
+ * columns straight and falls back to the same defaults, which is exactly what
+ * every session created before 054 was played to.
+ *
+ * Takes a loose shape rather than EventDto so the server, the pages and the
+ * components can all hand it what they have without importing a DTO into a
+ * module that deliberately imports nothing.
+ */
+export function rulesForEvent(
+  event: {
+    target_points?: number | null
+    win_by_two?: boolean | null
+    games_default?: number | null
+  } | null
+): GameRules {
+  return {
+    targetPoints: event?.target_points ?? DEFAULT_GAME_RULES.targetPoints,
+    winByTwo: event?.win_by_two ?? DEFAULT_GAME_RULES.winByTwo,
+    bestOf: event?.games_default ?? DEFAULT_GAME_RULES.bestOf
+  }
+}
+
 /** Games one side must take to win the match. */
 export function gamesNeeded(rules: GameRules): number {
   return Math.floor(rules.bestOf / 2) + 1

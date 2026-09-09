@@ -122,18 +122,23 @@ export default {
       },
       fontFamily: {
         sans: ['Inter', 'system-ui', 'sans-serif'],
-        display: ['Poppins', 'Inter', 'system-ui', 'sans-serif'],
+        display: ['Lexend', 'Inter', 'system-ui', 'sans-serif'],
         body: ['Inter', 'system-ui', 'sans-serif']
       },
       fontSize: {
+        // The live score on the per-court scoring page, which is the one
+        // screen where the number IS the interface: read across a desk, hit
+        // without looking. Between stat-lg and stat-xl because 4rem left the
+        // two +1 targets fighting it for the card and 3rem did not carry.
+        'stat-court': ['5rem', { lineHeight: '1', fontWeight: '700' }],
         'stat-xl': ['4rem', { lineHeight: '1', fontWeight: '700' }],
         'stat-lg': ['3rem', { lineHeight: '1', fontWeight: '700' }],
         'stat-md': ['2rem', { lineHeight: '1.1', fontWeight: '600' }],
         'stat-sm': ['1.5rem', { lineHeight: '1.2', fontWeight: '600' }],
-        // Mockup type ramp: Poppins for headings, Inter for body
-        'heading-1': ['32px', { lineHeight: '1.2', fontWeight: '700' }],
-        'heading-2': ['24px', { lineHeight: '1.3', fontWeight: '600' }],
-        'heading-3': ['20px', { lineHeight: '1.4', fontWeight: '600' }],
+        // Type ramp: Lexend for headings, Inter for body
+        'heading-1': ['32px', { lineHeight: '1.2', fontWeight: '600' }],
+        'heading-2': ['24px', { lineHeight: '1.3', fontWeight: '500' }],
+        'heading-3': ['20px', { lineHeight: '1.4', fontWeight: '500' }],
         'body-1': ['16px', { lineHeight: '1.5', fontWeight: '400' }],
         'body-2': ['14px', { lineHeight: '1.5', fontWeight: '400' }],
         caption: ['12px', { lineHeight: '1.4', fontWeight: '400' }]

@@ -45,7 +45,7 @@ async function handleReset() {
         <NuxtLink to="/" class="inline-flex items-center gap-2">
           <UiBrandMark size="xl" :show-name="false" />
         </NuxtLink>
-        <h1 class="mt-4 text-2xl font-bold text-fg">Reset your password</h1>
+        <h1 class="mt-4 font-display text-heading-1 text-fg">Reset your password</h1>
         <p class="mt-2 text-fg-muted">Enter your email to receive a reset link</p>
       </div>
 
@@ -53,7 +53,7 @@ async function handleReset() {
       <div class="rounded-xl bg-surface p-6 shadow-card">
         <p
           v-if="fromRegister"
-          class="mb-4 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-fg-secondary"
+          class="mb-4 rounded-lg border border-warning/40 bg-warning-soft px-4 py-3 text-sm text-fg-secondary"
         >
           This works even if you signed up with Google and never had a password. The link adds one
           to that same account — you'll be able to log in either way afterwards.
@@ -77,11 +77,11 @@ async function handleReset() {
               required
               autocomplete="email"
               placeholder="you@example.com"
-              class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+              class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
             />
           </div>
 
-          <div v-if="errorMessage" class="rounded-lg bg-red-500/10 px-4 py-3 text-sm text-red-400">
+          <div v-if="errorMessage" class="rounded-lg bg-danger-soft px-4 py-3 text-sm text-danger">
             {{ errorMessage }}
           </div>
 

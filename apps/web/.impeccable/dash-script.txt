@@ -1,0 +1,442 @@
+<script setup lang="ts">
+import type { UserDto } from '~/server/domains/identity/dto/user.dto'
+import type { PlayerProfileDto } from '~/server/domains/player/dto/player-profile.dto'
+import type { RankingEntryDto } from '~/server/domains/rating/dto/ranking.dto'
+import type { RatingTransactionDto } from '~/server/domains/rating/dto/rating.dto'
+import type { MyClubMembershipDto } from '~/server/domains/club/dto/club-membership.dto'
+// Imported rather than re-declared locally. The hand-written copy this
+// replaces had already drifted from the real DTO - the same mismatch that
+// left every unread indicator on /notifications permanently false.
+import type { ShoutoutDto } from '~/server/domains/shoutout/dto/shoutout.dto'
+import { tierForRating } from '~/utils/rating-tiers'
+
+useHead({ title: 'Dashboard' })
+
+interface MatchSummary {
+  id: string
+  match_type: 'singles' | 'doubles'
+  status: string
+  played_at: string
+  participants: Array<{ player_id: string; team_number: 1 | 2; display_name: string }>
+  scores: Array<{ set_number: number; team1_score: number; team2_score: number }>
+  /** What this match did to the reader's rating. Null when it was not rated. */
+  rating_delta?: number | null
+  new_rating?: number | null
+}
+
+interface UpcomingEventEntry {
+  event: {
+    id: string
+    name: string
+    venue: string | null
+    city: string | null
+    start_date: string
+    end_date: string
+  }
+  registration_status: string
+}
+
+interface PendingActionsResponse {
+  pending_verifications: Array<{ match_id: string; match_type: string; played_at: string }>
+  pending_memberships: Array<{ club_id: string; club_name: string }>
+  total: number
+}
+
+interface BadgeDefinition {
+  id: string
+  name: string
+  icon: string
+  description: string
+  category: string
+}
+
+interface BadgeShowcaseDto {
+  playerId: string
+  selectedBadgeId: string | null
+  updatedAt: string
+}
+
+interface BadgeResponse {
+  showcase: BadgeShowcaseDto | null
+  availableBadges: BadgeDefinition[]
+}
+
+/**
+ * The seven server-rendered reads behind the dashboard, fired together.
+ *
+ * Each was a separate top-level `await useFetch`, which suspends setup until
+ * it resolves — so the dashboard cost the sum of its queries, not the slowest
+ * of them, and it is the first screen after sign-in. Still awaited, because
+ * these render server-side; just concurrently.
+ */
+const currentUserQuery = useFetch<UserDto>('/api/v1/auth/me')
+const myProfileQuery = useFetch<PlayerProfileDto>('/api/v1/players/me')
+const ratingsQuery = useFetch<{
+  singles?: { rating_value: number }
+  doubles?: { rating_value: number }
+}>('/api/v1/players/me/ratings')
+const myClubsQuery = useFetch<{ items: MyClubMembershipDto[] }>('/api/v1/clubs/mine')
+/**
+ * Both lists are first pages now, not fixed windows.
+ *
+ * Recent Matches asked for five and stopped; My Upcoming Events asked for
+ * everything and rendered all of it. Neither could be walked. Same page size
+ * for both, appended below with a Show more button — see `loadMoreMatches` /
+ * `loadMoreEvents`.
+ */
+const LIST_PAGE_SIZE = 5
+
+const recentMatchesQuery = useFetch<{ data: MatchSummary[] }>('/api/v1/players/me/matches', {
+  query: { limit: LIST_PAGE_SIZE, offset: 0 }
+})
+const upcomingEventsQuery = useFetch<{ data: UpcomingEventEntry[]; has_more?: boolean }>(
+  '/api/v1/players/me/upcoming-events',
+  { query: { limit: LIST_PAGE_SIZE, offset: 0 } }
+)
+const pendingActionsQuery = useFetch<{ data: PendingActionsResponse }>(
+  '/api/v1/players/me/pending-actions'
+)
+
+await Promise.all([
+  currentUserQuery,
+  myProfileQuery,
+  ratingsQuery,
+  myClubsQuery,
+  recentMatchesQuery,
+  upcomingEventsQuery,
+  pendingActionsQuery
+])
+
+const { data: currentUser, pending, error } = currentUserQuery
+const { data: myProfile } = myProfileQuery
+const { data: ratingsData } = ratingsQuery
+const { data: myClubsData } = myClubsQuery
+const { data: recentMatches } = recentMatchesQuery
+const { data: upcomingEvents } = upcomingEventsQuery
+
+/**
+ * Pages 2..n for the two lists.
+ *
+ * Held apart from the `useFetch` data so a refresh still means "reload the
+ * first page" rather than silently dropping whatever was appended. Same shape
+ * as the feed's loadMore, minus the scroll sentinel: these are short panels on
+ * a dashboard, so a button the reader chooses to press beats an infinite list
+ * that pushes everything below it out of reach.
+ */
+const moreMatches = ref<MatchSummary[]>([])
+const matchesEnd = ref(false)
+const loadingMatches = ref(false)
+
+const allRecentMatches = computed(() => [...(recentMatches.value?.data ?? []), ...moreMatches.value])
+
+watch(
+  recentMatches,
+  (value) => {
+    moreMatches.value = []
+    matchesEnd.value = (value?.data?.length ?? 0) < LIST_PAGE_SIZE
+  },
+  { immediate: true }
+)
+
+async function loadMoreMatches() {
+  if (loadingMatches.value || matchesEnd.value) return
+  loadingMatches.value = true
+  try {
+    const response = await $fetch<{ data: MatchSummary[] }>('/api/v1/players/me/matches', {
+      query: { limit: LIST_PAGE_SIZE, offset: allRecentMatches.value.length }
+    })
+    const batch = response.data ?? []
+    moreMatches.value = [...moreMatches.value, ...batch]
+    if (batch.length < LIST_PAGE_SIZE) matchesEnd.value = true
+  } catch {
+    // Keep the button: a failed page is worth another press, and replacing the
+    // matches already on screen with an error would cost more than it explains.
+  } finally {
+    loadingMatches.value = false
+  }
+}
+
+const moreEvents = ref<UpcomingEventEntry[]>([])
+const eventsEnd = ref(false)
+const loadingEvents = ref(false)
+
+const allUpcomingEvents = computed(() => [
+  ...(upcomingEvents.value?.data ?? []),
+  ...moreEvents.value
+])
+
+watch(
+  upcomingEvents,
+  (value) => {
+    moreEvents.value = []
+    // This endpoint says so outright, so there is no need to infer it from a
+    // short page.
+    eventsEnd.value = value?.has_more === false
+  },
+  { immediate: true }
+)
+
+async function loadMoreEvents() {
+  if (loadingEvents.value || eventsEnd.value) return
+  loadingEvents.value = true
+  try {
+    const response = await $fetch<{ data: UpcomingEventEntry[]; has_more?: boolean }>(
+      '/api/v1/players/me/upcoming-events',
+      { query: { limit: LIST_PAGE_SIZE, offset: allUpcomingEvents.value.length } }
+    )
+    moreEvents.value = [...moreEvents.value, ...(response.data ?? [])]
+    if (response.has_more === false) eventsEnd.value = true
+  } catch {
+    // As above.
+  } finally {
+    loadingEvents.value = false
+  }
+}
+const { data: pendingActions } = pendingActionsQuery
+
+// Only active memberships in My Clubs; pending ones are shown in Pending Actions.
+const myActiveClubs = computed(
+  () => myClubsData.value?.items.filter((m) => m.status === 'active') ?? []
+)
+const { data: myShoutout, refresh: refreshShoutout } = useFetch<{ data: ShoutoutDto | null }>(
+  '/api/v1/players/me/shoutout',
+  { server: false }
+)
+const { data: badgeData, refresh: refreshBadge } = useFetch<{ data: BadgeResponse }>(
+  '/api/v1/players/me/badge',
+  { server: false }
+)
+
+const supabase = useSupabaseClient()
+
+const badgeSelectorOpen = ref(false)
+const badgeSaving = ref(false)
+
+const selectedBadge = computed(() => {
+  if (!badgeData.value?.data?.showcase?.selectedBadgeId) return null
+  return badgeData.value.data.availableBadges.find(
+    (b) => b.id === badgeData.value!.data.showcase!.selectedBadgeId
+  )
+})
+
+async function selectBadge(badgeId: string | null) {
+  badgeSaving.value = true
+  try {
+    await $fetch('/api/v1/players/me/badge', {
+      method: 'PUT',
+      body: { badge_id: badgeId }
+    })
+    await refreshBadge()
+    badgeSelectorOpen.value = false
+  } finally {
+    badgeSaving.value = false
+  }
+}
+
+const shoutoutInput = ref('')
+const shoutoutEventId = ref('')
+const shoutoutError = ref('')
+
+/**
+ * Events this shout-out may be attached to: ones the player created or is
+ * registered for. Lazy and client-only — the picker is optional, nobody should
+ * wait on it to type a message, and the server re-checks the id anyway
+ * (ShoutoutService.validateEventLink). This list is a convenience, not a gate.
+ */
+const { data: linkableEventsData } = useLazyFetch<{
+  data: { id: string; title?: string; name?: string; start_date: string | null }[]
+}>('/api/v1/players/me/linkable-events', {
+  server: false,
+  default: () => ({ data: [] })
+})
+
+const linkableEvents = computed(() => linkableEventsData.value?.data ?? [])
+const shoutoutEditing = ref(false)
+const shoutoutSaving = ref(false)
+
+const shoutoutExamples = [
+  'Looking for a doubles partner',
+  'LFG doubles 4.0+',
+  'Hosting open play this weekend',
+  'New to the area, looking for clubs'
+]
+
+async function saveShoutout() {
+  if (!shoutoutInput.value.trim()) return
+  shoutoutSaving.value = true
+  shoutoutError.value = ''
+  try {
+    const isEditing = !!myShoutout.value?.data
+    await $fetch('/api/v1/players/me/shoutout', {
+      method: isEditing ? 'PUT' : 'POST',
+      body: {
+        message: shoutoutInput.value.trim(),
+        event_id: shoutoutEventId.value || null
+      }
+    })
+    await refreshShoutout()
+    shoutoutEditing.value = false
+    shoutoutInput.value = ''
+    shoutoutEventId.value = ''
+  } catch (err) {
+    // Phone numbers are rejected server-side (CONTACT_INFO_NOT_ALLOWED) and the
+    // message explains why, so it has to be shown rather than swallowed — this
+    // used to fail silently with the composer still full of text.
+    const fetchError = err as { data?: { message?: string } }
+    shoutoutError.value = fetchError.data?.message ?? 'Could not post your shout-out.'
+  } finally {
+    shoutoutSaving.value = false
+  }
+}
+
+const shoutoutExpiresIn = computed(() => {
+  if (!myShoutout.value?.data?.expires_at) return null
+  const expiresAt = new Date(myShoutout.value.data.expires_at).getTime()
+  const now = Date.now()
+  const diff = expiresAt - now
+  if (diff <= 0) return 'Expired'
+  const hours = Math.floor(diff / (1000 * 60 * 60))
+  const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60))
+  if (hours > 0) return `${hours}h ${minutes}m left`
+  return `${minutes}m left`
+})
+
+function startEditingShoutout() {
+  shoutoutInput.value = myShoutout.value?.data?.message ?? ''
+  shoutoutEventId.value = myShoutout.value?.data?.event_id ?? ''
+  shoutoutError.value = ''
+  shoutoutEditing.value = true
+}
+
+async function handleLogout() {
+  await supabase.auth.signOut()
+  await navigateTo('/login')
+}
+
+const activeRatingType = ref<'singles' | 'doubles'>('singles')
+const singlesRating = computed(() => ratingsData.value?.singles?.rating_value ?? 0)
+const doublesRating = computed(() => ratingsData.value?.doubles?.rating_value ?? 0)
+const displayRating = computed(() =>
+  activeRatingType.value === 'singles' ? singlesRating.value : doublesRating.value
+)
+
+// Same nine bands the rating domain defines. This page previously carried its
+// own five-tier table (Professional/Advanced/Intermediate/Beginner/Novice at
+// 5.5/4.5/3.5/3.0) which matched neither the domain nor RatingBadge, so the
+// dashboard and a player's own badge could disagree about their tier.
+const ratingTier = computed(() =>
+  displayRating.value > 0 ? tierForRating(displayRating.value).name : 'Unrated'
+)
+
+const { data: rankingData } = await useFetch<{ data: RankingEntryDto[] }>('/api/v1/rankings', {
+  query: {
+    rating_type: activeRatingType,
+    province: computed(() => myProfile.value?.province || undefined),
+    limit: 100
+  },
+  watch: [activeRatingType]
+})
+
+const myRankEntry = computed(() => {
+  if (!myProfile.value || !rankingData.value?.data) return null
+  return rankingData.value.data.find((r) => r.player_id === myProfile.value!.id) ?? null
+})
+
+const { data: historyData } = await useFetch<{ data: RatingTransactionDto[] }>(
+  '/api/v1/players/me/rating-history',
+  {
+    query: { type: activeRatingType },
+    watch: [activeRatingType]
+  }
+)
+
+/**
+ * Oldest first, by when the match was played.
+ *
+ * The endpoint returns newest-first by `created_at`, which is when the rating
+ * engine wrote the row. Those two orders agree for a match rated live and
+ * disagree completely after a backfill, so the sort is on `occurred_at` rather
+ * than a plain reverse.
+ */
+const ratingHistoryChronological = computed(() =>
+  [...(historyData.value?.data ?? [])].sort(
+    (a, b) => new Date(a.occurred_at).getTime() - new Date(b.occurred_at).getTime()
+  )
+)
+
+/**
+ * Rating Progress chart (docs/33 §5.2 / §5.8).
+ *
+ * Was a 12-bar sparkline with no time axis, so a rating that moved twice in one
+ * day looked identical to one that moved twice in a year. Now a real line over
+ * a chosen range, plotted against actual dates.
+ */
+const RANGES = [
+  { value: '7d', label: '7D', days: 7 },
+  { value: '1m', label: '1M', days: 30 },
+  { value: '3m', label: '3M', days: 90 },
+  { value: '6m', label: '6M', days: 180 },
+  { value: '1y', label: '1Y', days: 365 },
+  { value: 'all', label: 'ALL', days: null }
+] as const
+
+const chartRange = ref<string>('3m')
+
+const chartPoints = computed(() => {
+  const all = ratingHistoryChronological.value.map((t) => ({
+    // When the match was played, not when the engine wrote the row — otherwise
+    // a backfilled season lands inside one afternoon and every range from 7D to
+    // ALL draws the identical line.
+    date: t.occurred_at,
+    value: t.new_rating
+  }))
+
+  const range = RANGES.find((r) => r.value === chartRange.value)
+  if (!range?.days) return all
+
+  const cutoff = Date.now() - range.days * 24 * 60 * 60 * 1000
+  const windowed = all.filter((p) => new Date(p.date).getTime() >= cutoff)
+
+  // A range with a single point cannot draw a line. Carrying the last earlier
+  // point in gives the line a starting anchor instead of an empty chart for
+  // someone who played once last month.
+  if (windowed.length < 2) {
+    const earlier = all.filter((p) => new Date(p.date).getTime() < cutoff)
+    const anchor = earlier[earlier.length - 1]
+    return anchor ? [anchor, ...windowed] : windowed
+  }
+  return windowed
+})
+
+function getOpponentNames(match: MatchSummary): string {
+  const myTeam = match.participants.find((p) => p.player_id === myProfile.value?.id)?.team_number
+  const opponents = match.participants.filter((p) => p.team_number !== myTeam)
+  return opponents.map((p) => p.display_name).join(' & ') || 'Unknown'
+}
+
+function didIWin(match: MatchSummary): boolean | null {
+  const myTeam = match.participants.find((p) => p.player_id === myProfile.value?.id)?.team_number
+  if (!myTeam || match.scores.length === 0) return null
+  const mySets = match.scores.filter((s) =>
+    myTeam === 1 ? s.team1_score > s.team2_score : s.team2_score > s.team1_score
+  ).length
+  return mySets > match.scores.length / 2
+}
+
+function formatScore(match: MatchSummary): string {
+  return match.scores.map((s) => `${s.team1_score}-${s.team2_score}`).join(', ')
+}
+
+function formatRelativeTime(dateStr: string): string {
+  const diffMs = Date.now() - new Date(dateStr).getTime()
+  const days = Math.floor(diffMs / (1000 * 60 * 60 * 24))
+  if (days <= 0) return 'Today'
+  if (days === 1) return 'Yesterday'
+  if (days < 30) return `${days}d ago`
+  return new Date(dateStr).toLocaleDateString()
+}
+
+function formatEventDate(dateStr: string): string {
+  return new Date(dateStr).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}
+</script>

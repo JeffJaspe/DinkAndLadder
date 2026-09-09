@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { initialsFor } from '~/utils/initials'
 // The whole page is one switchable surface. Its endpoints 404 when the flag
 // is off (server/utils/require-feature.ts), so without this the page would
 // render its own error state instead of simply not being there.
@@ -73,19 +74,21 @@ const tierConfig: Record<string, { bg: string; text: string; label: string }> = 
       <!-- Header -->
       <div class="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 class="text-2xl font-bold text-fg">Achievements</h1>
+          <h1 class="font-display text-heading-1 text-fg">Achievements</h1>
           <p class="mt-1 text-sm text-fg-muted">Track your progress and earn rewards</p>
         </div>
 
         <!-- Points Badge -->
         <div class="flex items-center gap-4 rounded-xl bg-surface p-4 shadow-card">
           <div class="text-center">
-            <p class="text-2xl font-bold text-warning">{{ totalPoints }}</p>
+            <p class="font-display text-stat-sm tabular-nums text-warning">{{ totalPoints }}</p>
             <p class="text-xs text-fg-muted">Total Points</p>
           </div>
           <div class="h-10 w-px bg-surface-3" />
           <div class="text-center">
-            <p class="text-2xl font-bold text-primary">{{ unlockedCount }}/{{ totalCount }}</p>
+            <p class="font-display text-stat-sm tabular-nums text-primary">
+              {{ unlockedCount }}/{{ totalCount }}
+            </p>
             <p class="text-xs text-fg-muted">Unlocked</p>
           </div>
         </div>
@@ -157,12 +160,12 @@ const tierConfig: Record<string, { bg: string; text: string; label: string }> = 
               class="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl text-xl text-fg"
               :class="tierConfig[achievement.tier]?.bg || 'bg-surface-3'"
             >
-              {{ achievement.icon_name || achievement.name.charAt(0) }}
+              {{ achievement.icon_name || initialsFor(achievement.name, 1) }}
             </div>
 
             <!-- Content -->
             <div class="min-w-0 flex-1">
-              <h3 class="font-semibold text-fg">{{ achievement.name }}</h3>
+              <h3 class="text-body-1 font-medium text-fg">{{ achievement.name }}</h3>
               <p class="mt-1 text-sm text-fg-muted line-clamp-2">{{ achievement.description }}</p>
 
               <div class="mt-3 flex items-center gap-2">

@@ -1,0 +1,15 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "overused-font",
+        "value": "inter",
+        "createdAt": "2026-09-03T01:05:02.211Z",
+        "reason": "Body face only; the display face is Lexend, which the rule does not flag. Inter is the incumbent body font across all 49 pages of this app, self-hosted as a variable latin subset, and it was chosen for its tabular figures: ratings render at numeric(5,3) and the rankings tables, score columns and rating deltas all depend on figures that do not shift width when a digit changes. Swapping it is a system-wide change to data legibility, not a landing-page typography choice, and this session's scope was one surface. Not user-confirmed."
+      }
+    ]
+  },
+  "buildPath": "code"
+}

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { initialsFor } from '~/utils/initials'
 import type { ClubDto } from '~/server/domains/club/dto/club.dto'
 import type { RosterMemberDto } from '~/server/domains/club/dto/club-membership.dto'
 import {
@@ -176,7 +177,9 @@ async function clearImage(slot: 'cover' | 'logo') {
  * Back returns to the page you came from; the route below is only the
  * fallback for a deep link, where there is nothing of ours behind us.
  */
-const { goBack } = useAppBack(`/clubs/${clubId}`)
+// `clubId` is a computed: interpolating the ref itself put "[object Object]"
+// in the URL, so a deep link into settings had no working way back.
+const { goBack } = useAppBack(`/clubs/${clubId.value}`)
 </script>
 
 <template>
@@ -210,7 +213,7 @@ const { goBack } = useAppBack(`/clubs/${clubId}`)
       <div v-else-if="club" class="space-y-6">
         <!-- Images -->
         <section class="rounded-card bg-surface p-5 shadow-card">
-          <h2 class="font-semibold text-fg">Cover photo &amp; logo</h2>
+          <h2 class="font-display text-heading-3 text-fg">Cover photo &amp; logo</h2>
           <p class="mt-1 text-caption text-fg-muted">
             Leave either blank and the club keeps its generated artwork, which is designed from the
             club's name.
@@ -267,7 +270,7 @@ const { goBack } = useAppBack(`/clubs/${clubId}`)
                 v-else
                 class="flex h-16 w-16 items-center justify-center rounded-card bg-primary-soft text-heading-3 font-bold text-primary"
               >
-                {{ club.name.charAt(0).toUpperCase() }}
+                {{ initialsFor(club.name, 1) }}
               </div>
               <div class="flex flex-wrap items-center gap-3">
                 <label
@@ -298,7 +301,7 @@ const { goBack } = useAppBack(`/clubs/${clubId}`)
 
         <!-- Custom URL -->
         <section class="rounded-card bg-surface p-5 shadow-card">
-          <h2 class="font-semibold text-fg">Club URL</h2>
+          <h2 class="font-display text-heading-3 text-fg">Club URL</h2>
           <p class="mt-1 text-caption text-fg-muted">
             A name people can read and remember instead of an ID. Changing it never breaks your old
             links — the ID address keeps working.
@@ -311,7 +314,7 @@ const { goBack } = useAppBack(`/clubs/${clubId}`)
               type="text"
               :minlength="MIN_SLUG_LENGTH"
               :maxlength="MAX_SLUG_LENGTH"
-              class="min-w-0 flex-1 rounded-button border border-border-strong bg-canvas px-3 py-2 text-body-2 text-fg focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+              class="min-w-0 flex-1 rounded-button border border-border-strong bg-canvas px-3 py-2 text-body-2 text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
               @input="slugInput = slugInput.toLowerCase()"
             />
             <UiButton
@@ -330,7 +333,7 @@ const { goBack } = useAppBack(`/clubs/${clubId}`)
 
         <!-- Details -->
         <section class="rounded-card bg-surface p-5 shadow-card">
-          <h2 class="font-semibold text-fg">Details</h2>
+          <h2 class="font-display text-heading-3 text-fg">Details</h2>
 
           <div class="mt-4 space-y-4">
             <div>
@@ -341,7 +344,7 @@ const { goBack } = useAppBack(`/clubs/${clubId}`)
                 id="club-name"
                 v-model="form.name"
                 type="text"
-                class="w-full rounded-button border border-border-strong bg-canvas px-3 py-2 text-body-2 text-fg focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                class="w-full rounded-button border border-border-strong bg-canvas px-3 py-2 text-body-2 text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
               />
             </div>
 
@@ -353,7 +356,7 @@ const { goBack } = useAppBack(`/clubs/${clubId}`)
                 id="club-desc"
                 v-model="form.description"
                 rows="3"
-                class="w-full rounded-button border border-border-strong bg-canvas px-3 py-2 text-body-2 text-fg focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                class="w-full rounded-button border border-border-strong bg-canvas px-3 py-2 text-body-2 text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
               />
             </div>
 
@@ -369,7 +372,7 @@ const { goBack } = useAppBack(`/clubs/${clubId}`)
                   id="club-court"
                   v-model="form.court_name"
                   type="text"
-                  class="w-full rounded-button border border-border-strong bg-canvas px-3 py-2 text-body-2 text-fg focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                  class="w-full rounded-button border border-border-strong bg-canvas px-3 py-2 text-body-2 text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
                 />
               </div>
               <div>
@@ -383,7 +386,7 @@ const { goBack } = useAppBack(`/clubs/${clubId}`)
                   id="club-court-address"
                   v-model="form.court_address"
                   type="text"
-                  class="w-full rounded-button border border-border-strong bg-canvas px-3 py-2 text-body-2 text-fg focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                  class="w-full rounded-button border border-border-strong bg-canvas px-3 py-2 text-body-2 text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
                 />
               </div>
             </div>
@@ -398,7 +401,7 @@ const { goBack } = useAppBack(`/clubs/${clubId}`)
               <select
                 id="club-visibility"
                 v-model="form.visibility"
-                class="w-full rounded-button border border-border-strong bg-canvas px-3 py-2 text-body-2 text-fg focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                class="w-full rounded-button border border-border-strong bg-canvas px-3 py-2 text-body-2 text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
               >
                 <option value="public">Public — anyone can find this club</option>
                 <option value="private">Private — only members can see it</option>

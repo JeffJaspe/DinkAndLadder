@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { initialsFor } from '~/utils/initials'
 import type { PlayerProfileDto } from '~/server/domains/player/dto/player-profile.dto'
 import type { PlayerRatingDto } from '~/server/domains/rating/dto/rating.dto'
 import type {
@@ -567,7 +568,7 @@ const trendLabel = computed(() => {
 })
 const trendClass = computed(() => {
   if (stats.value?.rating_trend === 'rising') return 'text-primary'
-  if (stats.value?.rating_trend === 'falling') return 'text-red-400'
+  if (stats.value?.rating_trend === 'falling') return 'text-danger'
   return 'text-fg'
 })
 
@@ -646,8 +647,12 @@ function formatActivityText(activity: ProfileActivity): string {
 
     <!-- Error -->
     <div v-else-if="error" class="page-shell rounded-xl bg-surface p-8 text-center shadow-card">
-      <p class="text-4xl">🔒</p>
-      <h2 class="mt-4 text-xl font-semibold text-fg">
+      <span
+        class="mx-auto flex h-12 w-12 items-center justify-center rounded-pill bg-surface-2 text-fg-muted"
+      >
+        <UiIcon name="alert" size="h-6 w-6" />
+      </span>
+      <h2 class="mt-4 font-display text-heading-2 text-fg">
         {{ error.statusCode === 404 ? 'Profile Not Found' : 'Error Loading Profile' }}
       </h2>
       <p class="mt-2 text-sm text-fg-muted">
@@ -681,12 +686,12 @@ function formatActivityText(activity: ProfileActivity): string {
               <div
                 class="flex h-20 w-20 flex-shrink-0 items-center justify-center rounded-full bg-surface-2 text-3xl font-bold text-fg ring-4 ring-primary"
               >
-                {{ profile.display_name?.charAt(0).toUpperCase() }}
+                {{ initialsFor(profile.display_name, 1) }}
               </div>
             </div>
             <div>
               <div class="flex items-center gap-2">
-                <h1 class="text-2xl font-bold text-fg">{{ profile.display_name }}</h1>
+                <h1 class="font-display text-heading-1 text-fg">{{ profile.display_name }}</h1>
                 <span
                   v-if="achievementsEnabled && selectedBadge"
                   :title="selectedBadge.name"
@@ -704,8 +709,10 @@ function formatActivityText(activity: ProfileActivity): string {
           <!-- Rating & Action -->
           <div class="flex flex-col items-end gap-2">
             <div class="text-right">
-              <p class="text-xs uppercase text-fg-muted">RATING</p>
-              <p class="text-3xl font-bold text-primary">
+              <p class="text-caption font-semibold uppercase tracking-widest text-fg-muted">
+                Rating
+              </p>
+              <p class="font-display text-stat-md tabular-nums text-primary">
                 {{ displayRating > 0 ? displayRating.toFixed(2) : '—' }}
               </p>
             </div>
@@ -748,7 +755,7 @@ function formatActivityText(activity: ProfileActivity): string {
               <!-- Already partners -->
               <button
                 v-if="isPartner"
-                class="rounded-lg border border-primary px-5 py-2 text-sm font-medium text-primary transition-colors hover:border-red-400 hover:text-red-400"
+                class="rounded-lg border border-primary px-5 py-2 text-sm font-medium text-primary transition-colors hover:border-danger hover:text-danger"
                 :disabled="partnerLoading"
                 @click="removePartner"
               >
@@ -778,7 +785,7 @@ function formatActivityText(activity: ProfileActivity): string {
               <!-- Pending request -->
               <button
                 v-else-if="pendingRequest"
-                class="rounded-lg border border-warning-fill px-5 py-2 text-sm font-medium text-warning transition-colors hover:border-red-400 hover:text-red-400"
+                class="rounded-lg border border-warning-fill px-5 py-2 text-sm font-medium text-warning transition-colors hover:border-danger hover:text-danger"
                 :disabled="partnerLoading"
                 @click="cancelPartnerRequest"
               >
@@ -854,21 +861,27 @@ function formatActivityText(activity: ProfileActivity): string {
         <!-- Stats Row -->
         <div class="mt-6 grid grid-cols-4 gap-4 border-t border-border-strong pt-4">
           <div class="text-center">
-            <p class="text-xl font-bold text-fg">{{ stats?.total_matches ?? 0 }}</p>
+            <p class="font-display text-stat-sm tabular-nums text-fg">
+              {{ stats?.total_matches ?? 0 }}
+            </p>
             <p class="text-xs text-fg-muted">Matches</p>
           </div>
           <div class="text-center">
-            <p class="text-xl font-bold text-fg">{{ stats ? `${stats.win_rate}%` : '—' }}</p>
+            <p class="font-display text-stat-sm tabular-nums text-fg">
+              {{ stats ? `${stats.win_rate}%` : '—' }}
+            </p>
             <p class="text-xs text-fg-muted">Win Rate</p>
           </div>
           <div class="text-center">
-            <p class="text-xl font-bold text-fg">
+            <p class="font-display text-stat-sm tabular-nums text-fg">
               {{ stats ? `${stats.wins}-${stats.losses}` : '—' }}
             </p>
             <p class="text-xs text-fg-muted">W - L</p>
           </div>
           <div v-if="achievementsEnabled" class="text-center">
-            <p class="text-xl font-bold text-fg">{{ stats?.achievements_count ?? 0 }}</p>
+            <p class="font-display text-stat-sm tabular-nums text-fg">
+              {{ stats?.achievements_count ?? 0 }}
+            </p>
             <p class="text-xs text-fg-muted">Achievements</p>
           </div>
         </div>
@@ -915,7 +928,7 @@ function formatActivityText(activity: ProfileActivity): string {
         <!-- Matches Tab -->
         <template v-if="activeTab === 'matches'">
           <div class="rounded-xl bg-surface p-5 shadow-card">
-            <h3 class="mb-4 text-sm font-medium text-fg">Recent Matches</h3>
+            <h3 class="mb-4 text-body-2 font-medium text-fg">Recent Matches</h3>
             <div v-if="!isOwnProfile" class="py-6 text-center text-sm text-fg-muted">
               Match history is only visible to the player themselves.
             </div>
@@ -940,7 +953,7 @@ function formatActivityText(activity: ProfileActivity): string {
                       didIWin(match) === true
                         ? 'bg-primary/20 text-primary'
                         : didIWin(match) === false
-                          ? 'bg-red-500/20 text-red-400'
+                          ? 'bg-danger-soft text-danger'
                           : 'bg-surface-2 text-fg-secondary'
                     "
                   >
@@ -970,25 +983,31 @@ function formatActivityText(activity: ProfileActivity): string {
         <!-- Stats Tab -->
         <template v-if="activeTab === 'stats'">
           <div class="rounded-xl bg-surface p-5 shadow-card">
-            <h3 class="mb-4 text-sm font-medium text-fg">Performance Stats</h3>
+            <h3 class="mb-4 text-body-2 font-medium text-fg">Performance Stats</h3>
             <div class="grid gap-4 sm:grid-cols-2">
               <div class="rounded-lg bg-canvas p-3">
                 <p class="text-xs text-fg-muted">Singles / Doubles Played</p>
-                <p class="text-xl font-bold text-fg">
+                <p class="font-display text-stat-sm tabular-nums text-fg">
                   {{ stats?.singles_matches ?? 0 }} / {{ stats?.doubles_matches ?? 0 }}
                 </p>
               </div>
               <div class="rounded-lg bg-canvas p-3">
                 <p class="text-xs text-fg-muted">Matches This Month</p>
-                <p class="text-xl font-bold text-fg">{{ stats?.matches_this_month ?? 0 }}</p>
+                <p class="font-display text-stat-sm tabular-nums text-fg">
+                  {{ stats?.matches_this_month ?? 0 }}
+                </p>
               </div>
               <div class="rounded-lg bg-canvas p-3">
                 <p class="text-xs text-fg-muted">Rating Trend</p>
-                <p class="text-xl font-bold" :class="trendClass">{{ trendLabel }}</p>
+                <p class="font-display text-stat-sm tabular-nums" :class="trendClass">
+                  {{ trendLabel }}
+                </p>
               </div>
               <div class="rounded-lg bg-canvas p-3">
                 <p class="text-xs text-fg-muted">Tournaments Played</p>
-                <p class="text-xl font-bold text-fg">{{ stats?.tournaments_participated ?? 0 }}</p>
+                <p class="font-display text-stat-sm tabular-nums text-fg">
+                  {{ stats?.tournaments_participated ?? 0 }}
+                </p>
               </div>
             </div>
           </div>
@@ -997,7 +1016,7 @@ function formatActivityText(activity: ProfileActivity): string {
         <!-- Achievements Tab -->
         <template v-if="activeTab === 'achievements' && achievementsEnabled">
           <div class="rounded-xl bg-surface p-5 shadow-card">
-            <h3 class="mb-4 text-sm font-medium text-fg">Achievements</h3>
+            <h3 class="mb-4 text-body-2 font-medium text-fg">Achievements</h3>
             <div v-if="achievements.length > 0" class="grid grid-cols-2 gap-3 sm:grid-cols-3">
               <div
                 v-for="pa in achievements"
@@ -1020,7 +1039,7 @@ function formatActivityText(activity: ProfileActivity): string {
         <!-- Activity Tab -->
         <template v-if="activeTab === 'activity'">
           <div class="rounded-xl bg-surface p-5 shadow-card">
-            <h3 class="mb-4 text-sm font-medium text-fg">Recent Activity</h3>
+            <h3 class="mb-4 text-body-2 font-medium text-fg">Recent Activity</h3>
             <div v-if="activities.length === 0" class="py-6 text-center text-sm text-fg-muted">
               No recent activity.
             </div>
@@ -1065,7 +1084,7 @@ function formatActivityText(activity: ProfileActivity): string {
         <!-- Clubs Tab -->
         <template v-if="activeTab === 'clubs'">
           <div class="rounded-xl bg-surface p-5 shadow-card">
-            <h3 class="mb-4 text-sm font-medium text-fg">Club Memberships</h3>
+            <h3 class="mb-4 text-body-2 font-medium text-fg">Club Memberships</h3>
             <div v-if="!clubsData?.items?.length" class="py-6 text-center text-sm text-fg-muted">
               Not a member of any clubs.
             </div>
@@ -1079,7 +1098,7 @@ function formatActivityText(activity: ProfileActivity): string {
                 <div
                   class="flex h-10 w-10 items-center justify-center rounded-lg bg-surface-2 text-lg font-bold text-fg-secondary"
                 >
-                  {{ membership.club.name.charAt(0).toUpperCase() }}
+                  {{ initialsFor(membership.club.name, 1) }}
                 </div>
                 <div class="flex-1">
                   <p class="text-sm font-medium text-fg">{{ membership.club.name }}</p>
@@ -1121,7 +1140,7 @@ function formatActivityText(activity: ProfileActivity): string {
           <select
             id="report-reason"
             v-model="reportReason"
-            class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+            class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
           >
             <option value="" disabled>Pick a reason…</option>
             <option v-for="r in REPORT_REASONS" :key="r.value" :value="r.value">
@@ -1140,7 +1159,7 @@ function formatActivityText(activity: ProfileActivity): string {
             rows="4"
             maxlength="1000"
             placeholder="Dates, events or matches help the moderator a lot."
-            class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+            class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
           />
           <p class="mt-1 text-xs text-fg-muted">{{ reportDetails.length }}/1000</p>
         </div>

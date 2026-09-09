@@ -25,6 +25,16 @@ export interface EventCourtService {
   startCourt(courtId: string, input: StartCourtInput): Promise<EventCourtRecord>
   updateLiveScore(courtId: string, scores: LiveGameScore[]): Promise<EventCourtRecord>
   /**
+   * Renames one court.
+   *
+   * event_courts.court_name has existed since 017 and every surface already
+   * renders `court_name || `Court ${court_number}`` — but nothing could ever
+   * write it, so the fallback was the only label the product could produce. A
+   * venue whose courts are signposted "Center" and "A" through "D" was sending
+   * players to numbers that matched nothing on the fence.
+   */
+  renameCourt(courtId: string, name: string | null): Promise<EventCourtRecord>
+  /**
    * Ends the game on a court and frees it.
    *
    * Returns the queue entries that were playing, so the caller can create the
@@ -36,12 +46,33 @@ export interface EventCourtService {
     team1: EventQueueRecord | null
     team2: EventQueueRecord | null
     finalScore: LiveGameScore[]
+    /** The wave this game belonged to, for the match row to record. See 052. */
+    round: number | null
   }>
 }
 
 /** A game is not a result until somebody has actually won one. */
 function isPlayableScore(scores: LiveGameScore[]): boolean {
   return scores.length > 0 && scores.some((g) => g.team1_score > 0 || g.team2_score > 0)
+}
+
+/**
+ * Which wave a court is about to play, given the session's counter.
+ *
+ * A round in open play is a wave of simultaneous games, not a schedule handed
+ * out in advance - see 052 for why nothing is committed up front. The counter
+ * therefore has to be inferred from what organisers actually do at the desk,
+ * and the one reliable signal is a court being restarted: if this court has
+ * already had its turn in the current wave, then starting it again means that
+ * wave is over and the session has moved on.
+ *
+ * Courts that are slow to finish join whatever wave is current when they
+ * restart, rather than the next one in sequence. That looks like a court
+ * "skipping" a round and it is the honest answer: a court still mid-game while
+ * two others have started and finished did not play the round in between.
+ */
+function roundForStart(courtRound: number | null, sessionRound: number): number {
+  return courtRound !== null && courtRound >= sessionRound ? sessionRound + 1 : sessionRound
 }
 
 export function createEventCourtService(
@@ -65,6 +96,26 @@ export function createEventCourtService(
 
     async listCourts(eventId) {
       return courts.listByEvent(eventId)
+    },
+
+    async renameCourt(courtId, name) {
+      const court = await courts.findById(courtId)
+      if (!court) {
+        throw new EventCourtServiceError(404, 'NOT_FOUND', 'Court not found.')
+      }
+
+      // Blank clears the name and restores "Court N", which is the only way
+      // back from a rename somebody regrets.
+      const trimmed = name?.trim() ?? ''
+      if (trimmed.length > 40) {
+        throw new EventCourtServiceError(
+          400,
+          'VALIDATION_ERROR',
+          'A court name has to fit on a card — 40 characters at most.'
+        )
+      }
+
+      return courts.update(courtId, { court_name: trimmed || null })
     },
 
     async startCourt(courtId, input) {
@@ -115,8 +166,19 @@ export function createEventCourtService(
         }
       }
 
+      // Resolved before the write so the court and the session move together:
+      // a court stamped with a wave the event has not reached would make the
+      // board show a round nobody is playing.
+      const eventRow = await events.findById(court.event_id)
+      const sessionRound = eventRow?.current_round ?? 1
+      const round = roundForStart(court.round_number, sessionRound)
+      if (round !== sessionRound) {
+        await events.setCurrentRound(court.event_id, round)
+      }
+
       const started = await courts.update(courtId, {
         status: 'playing',
+        round_number: round,
         team1_queue_id: team1.id,
         team2_queue_id: team2.id,
         match_started_at: new Date().toISOString(),
@@ -215,7 +277,10 @@ export function createEventCourtService(
           .map((entry) => queue.updateStatus(entry.id, 'completed'))
       )
 
-      return { court: freed, team1, team2, finalScore }
+      // `round_number` is deliberately left on the freed court: it is what
+      // tells the next start whether this court has already played the current
+      // wave. Clearing it would make every restart look like a first game.
+      return { court: freed, team1, team2, finalScore, round: court.round_number }
     }
   }
 }

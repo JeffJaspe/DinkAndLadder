@@ -111,7 +111,7 @@ async function handleSubmit() {
       </section>
 
       <section>
-        <h2 class="mb-2 text-caption font-semibold uppercase tracking-wide text-fg-muted">
+        <h2 class="mb-2 text-caption font-semibold uppercase tracking-widest text-fg-muted">
           {{ hasPassword ? 'Change your password' : 'Add a password' }}
         </h2>
 
@@ -143,7 +143,7 @@ async function handleSubmit() {
                 autocomplete="new-password"
                 minlength="8"
                 placeholder="Create a password"
-                class="w-full rounded-button border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                class="w-full rounded-button border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
               />
               <p class="mt-1.5 text-caption text-fg-muted">Minimum 8 characters</p>
             </div>
@@ -162,13 +162,13 @@ async function handleSubmit() {
                 autocomplete="new-password"
                 minlength="8"
                 placeholder="Repeat the password"
-                class="w-full rounded-button border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                class="w-full rounded-button border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
               />
             </div>
 
             <div
               v-if="errorMessage"
-              class="rounded-button bg-red-500/10 px-4 py-3 text-body-2 text-red-400"
+              class="rounded-button bg-danger-soft px-4 py-3 text-body-2 text-danger"
             >
               {{ errorMessage }}
             </div>

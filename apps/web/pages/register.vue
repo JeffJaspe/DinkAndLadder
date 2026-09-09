@@ -93,20 +93,15 @@ async function handleGoogleSignUp() {
 </script>
 
 <template>
-  <div class="flex min-h-screen items-center justify-center bg-canvas px-4 py-12">
+  <AuthShell
+    title="Create your account"
+    subtitle="A rating that comes from real, verified matches — and the clubs that run them."
+  >
     <UiToast :message="errorMessage" :variant="errorVariant" @close="errorMessage = ''" />
-    <div class="w-full max-w-md">
-      <!-- Logo -->
-      <div class="mb-8 text-center">
-        <NuxtLink to="/" class="inline-flex items-center gap-2">
-          <UiBrandMark size="xl" :show-name="false" />
-        </NuxtLink>
-        <h1 class="mt-4 text-2xl font-bold text-fg">Create your account</h1>
-        <p class="mt-2 text-fg-muted">Start tracking your pickleball journey</p>
-      </div>
-
-      <!-- Card -->
-      <div class="rounded-xl bg-surface p-6 shadow-card">
+    <div>
+      <!-- No card: AuthShell already separates the form side from the brand
+           field, and a panel inside a panel is the nesting the system bans. -->
+      <div>
         <!-- Already-registered explainer: shown instead of a dead end. Leads with
              the reset link because it is the only door that opens regardless of
              how the account was made — the caller cannot be told which provider
@@ -114,9 +109,9 @@ async function handleGoogleSignUp() {
              someone who created it with Google has no password to log in with. -->
         <div
           v-if="accountExists"
-          class="mb-6 rounded-lg border border-amber-500/40 bg-amber-500/10 p-4"
+          class="mb-6 rounded-lg border border-warning/40 bg-warning-soft p-4"
         >
-          <p class="text-sm font-medium text-amber-300">This email already has an account</p>
+          <p class="text-sm font-medium text-warning">This email already has an account</p>
           <p class="mt-1 text-sm text-fg-secondary">
             No confirmation email was sent, because there is nothing to confirm. If you created it
             with Google, or you don't remember a password, send yourself a reset link and set one —
@@ -194,7 +189,7 @@ async function handleGoogleSignUp() {
               required
               autocomplete="email"
               placeholder="you@example.com"
-              class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+              class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
             />
           </div>
 
@@ -212,7 +207,7 @@ async function handleGoogleSignUp() {
               autocomplete="new-password"
               minlength="8"
               placeholder="Create a password"
-              class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+              class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
             />
             <p class="mt-1.5 text-xs text-fg-muted">Minimum 8 characters</p>
           </div>
@@ -249,5 +244,5 @@ async function handleGoogleSignUp() {
         </NuxtLink>
       </p>
     </div>
-  </div>
+  </AuthShell>
 </template>

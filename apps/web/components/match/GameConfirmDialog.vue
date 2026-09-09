@@ -84,8 +84,7 @@ const winnerName = computed(() => props.teams[winningSide.value - 1].join(' / ')
     </div>
 
     <p class="mt-3 text-body-2 text-fg-secondary">
-      <strong class="font-medium text-fg">{{ winnerName }}</strong> takes game
-      {{ gameIndex + 1 }}.
+      <strong class="font-medium text-fg">{{ winnerName }}</strong> takes game {{ gameIndex + 1 }}.
     </p>
 
     <div class="mt-4 flex flex-wrap gap-2">

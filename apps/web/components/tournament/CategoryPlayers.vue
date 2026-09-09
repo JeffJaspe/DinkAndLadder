@@ -48,10 +48,7 @@ const emit = defineEmits<{
               </span>
               <span v-if="reg.partner_display_name" class="block truncate text-xs text-fg-muted">
                 with
-                <UiPlayerLink
-                  :player-id="reg.partner_player_id"
-                  :name="reg.partner_display_name"
-                />
+                <UiPlayerLink :player-id="reg.partner_player_id" :name="reg.partner_display_name" />
               </span>
             </span>
           </span>
@@ -85,10 +82,8 @@ const emit = defineEmits<{
               v-if="reg.partner_display_name"
             >
               &amp;
-              <UiPlayerLink
-                :player-id="reg.partner_player_id"
-                :name="reg.partner_display_name" /></template
-            >
+              <UiPlayerLink :player-id="reg.partner_player_id" :name="reg.partner_display_name"
+            /></template>
           </span>
           <UiRatingBadge v-if="reg.rating != null" :rating="reg.rating" size="sm" />
           <button

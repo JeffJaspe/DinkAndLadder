@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { initialsFor } from '~/utils/initials'
 import type { MyClubMembershipDto } from '~/server/domains/club/dto/club-membership.dto'
 import { apiErrorMessage } from '~/utils/api-error-message'
 
@@ -23,9 +24,7 @@ const { data, pending, error, refresh } = await useFetch<PageResponse>('/api/v1/
  * is the only thing on this page that needs an answer, and it would otherwise
  * sit among clubs the player is already in, looking like one of them.
  */
-const invitations = computed(() =>
-  (data.value?.items ?? []).filter((m) => m.status === 'invited')
-)
+const invitations = computed(() => (data.value?.items ?? []).filter((m) => m.status === 'invited'))
 
 const joined = computed(() => (data.value?.items ?? []).filter((m) => m.status !== 'invited'))
 
@@ -62,7 +61,7 @@ const roleColors: Record<string, string> = {
       <!-- Header -->
       <div class="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 class="text-2xl font-bold text-fg">My Clubs</h1>
+          <h1 class="font-display text-heading-1 text-fg">My Clubs</h1>
           <p class="mt-1 text-sm text-fg-muted">Clubs you've joined or created</p>
         </div>
         <NuxtLink
@@ -86,7 +85,7 @@ const roleColors: Record<string, string> = {
            it sits above the clubs the player is already in rather than among
            them, where it would read as another membership. -->
       <section v-if="invitations.length" class="mb-6 space-y-2">
-        <h2 class="text-caption font-semibold uppercase tracking-wide text-fg-muted">
+        <h2 class="text-caption font-semibold uppercase tracking-widest text-fg-muted">
           Invitations
         </h2>
         <p v-if="inviteError" role="alert" class="text-sm text-danger">{{ inviteError }}</p>
@@ -129,8 +128,8 @@ const roleColors: Record<string, string> = {
       </div>
 
       <!-- Error -->
-      <div v-else-if="error" class="rounded-xl bg-red-500/10 p-6 text-center">
-        <p class="text-red-400">Could not load your clubs. Please try again.</p>
+      <div v-else-if="error" class="rounded-xl bg-danger-soft p-6 text-center">
+        <p class="text-danger">Could not load your clubs. Please try again.</p>
       </div>
 
       <!-- Empty -->
@@ -138,8 +137,12 @@ const roleColors: Record<string, string> = {
         v-else-if="!joined.length && !invitations.length"
         class="rounded-xl bg-surface p-12 text-center shadow-card"
       >
-        <p class="text-4xl">🏸</p>
-        <h3 class="mt-4 text-lg font-semibold text-fg">No clubs yet</h3>
+        <span
+          class="mx-auto flex h-12 w-12 items-center justify-center rounded-pill bg-surface-2 text-fg-muted"
+        >
+          <UiIcon name="clubs" size="h-6 w-6" />
+        </span>
+        <h3 class="mt-4 font-display text-heading-3 text-fg">No clubs yet</h3>
         <p class="mt-2 text-sm text-fg-muted">
           Join a club to connect with other players, or create your own
         </p>
@@ -163,12 +166,12 @@ const roleColors: Record<string, string> = {
           <div
             class="flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-xl bg-surface-2 text-xl font-bold text-fg-secondary"
           >
-            {{ membership.club.name.charAt(0).toUpperCase() }}
+            {{ initialsFor(membership.club.name, 1) }}
           </div>
 
           <!-- Info -->
           <div class="min-w-0 flex-1">
-            <h3 class="font-semibold text-fg">{{ membership.club.name }}</h3>
+            <h3 class="text-body-1 font-medium text-fg">{{ membership.club.name }}</h3>
             <p
               v-if="membership.club.city || membership.club.province"
               class="mt-0.5 text-sm text-fg-muted"

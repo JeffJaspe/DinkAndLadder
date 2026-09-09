@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import type { EventDto } from '~/server/domains/event/dto/event.dto'
+// The registry is a typed union, so a name that is not drawn fails the build
+// rather than rendering nothing.
+import type { IconName } from '~/utils/icons'
 
 useHead({ title: 'Feed' })
 
@@ -57,10 +60,7 @@ const olderActivities = ref<Activity[]>([])
 const loadingMore = ref(false)
 const reachedEnd = ref(false)
 
-const activities = computed(() => [
-  ...(data.value?.activities ?? []),
-  ...olderActivities.value
-])
+const activities = computed(() => [...(data.value?.activities ?? []), ...olderActivities.value])
 
 // A short page means the server has nothing further; asking again would be a
 // request that can only come back empty.
@@ -152,23 +152,49 @@ function formatEventDate(startDate: string | null): string {
   })
 }
 
-const ACTIVITY_ICONS: Record<string, string> = {
-  'match.verified': '🎯',
-  'rating.changed': '📈',
-  'social.started_following': '👤',
-  'social.shoutout': '📣',
-  'achievement.earned': '🏆',
-  'achievement.unlocked': '🏆',
-  'club.member_joined': '🏸',
-  'club.joined': '🏸',
-  'club.event_created': '📅',
-  'club.announcement': '📢',
-  'profile.updated': '✏️',
-  'tournament.registered': '🎪'
+/**
+ * The row's type mark, from the app's own stroked icon registry.
+ *
+ * This was twelve emoji - 🎯📈👤📣🏆🏸📅📢✏️🎪 - and they were most of why the
+ * feed was tiring to read. Each glyph arrives with its own palette and its own
+ * weight, so a screen of them is a dozen competing colours in a product whose
+ * whole identity is one restrained green, and none of them can follow the
+ * reader into dark mode or inherit a muted ink. These are drawn paths at one
+ * stroke weight in `currentColor`, which lets the column recede into a rhythm
+ * the eye can skip rather than a row of stickers it has to decode.
+ */
+const ACTIVITY_ICONS: Record<string, IconName> = {
+  'match.verified': 'paddle',
+  'rating.changed': 'stats',
+  'social.started_following': 'players',
+  'social.shoutout': 'chat',
+  'achievement.earned': 'achievements',
+  'achievement.unlocked': 'achievements',
+  'club.member_joined': 'clubs',
+  'club.joined': 'clubs',
+  'club.event_created': 'calendar',
+  'club.announcement': 'bell',
+  'profile.updated': 'edit',
+  'tournament.registered': 'trophy'
 }
 
-function getActivityIcon(type: string): string {
-  return ACTIVITY_ICONS[type] ?? '📌'
+function getActivityIcon(type: string): IconName {
+  return ACTIVITY_ICONS[type] ?? 'info'
+}
+
+/**
+ * Whether a row has anything of its own to say.
+ *
+ * The feed was twenty-five identical panels in which nothing outranked
+ * anything, which is exactly what makes a log exhausting: the reader has to
+ * give every row the same attention because the page gives every row the same
+ * weight. A shout-out carries a person's own words and an event carries
+ * something to open; "updated their profile" carries neither and should cost
+ * one line. So the hierarchy comes from the content that is actually there,
+ * not from decoration applied on top of it.
+ */
+function hasBody(activity: Activity): boolean {
+  return Boolean(shoutoutMessage(activity)) || Boolean(activity.event)
 }
 
 /**
@@ -253,13 +279,14 @@ function formatTime(dateStr: string): string {
     <div class="mx-auto max-w-2xl">
       <div class="mb-6 flex items-start justify-between gap-4">
         <div>
-          <h1 class="text-2xl font-bold text-fg">Feed</h1>
-          <p class="mt-1 text-sm text-fg-muted">
-            Your community — partners, team-ups, opponents and your clubs — closest to you first.
+          <h1 class="font-display text-heading-1 font-semibold tracking-tight text-fg">Feed</h1>
+          <p class="mt-1 max-w-[52ch] text-body-2 text-fg-muted">
+            Your community — partners, team-ups, opponents and your clubs — closest to you first,
+            not newest first.
           </p>
         </div>
         <button
-          class="rounded-button p-2 text-fg-muted transition-colors hover:bg-surface hover:text-fg"
+          class="dnl-press shrink-0 rounded-button p-2 text-fg-muted transition-colors hover:bg-surface hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
           aria-label="Refresh feed"
           @click="refresh()"
         >
@@ -269,34 +296,61 @@ function formatTime(dateStr: string): string {
 
       <!-- Coming up. Sits above the log deliberately: the feed is a record of
            the past, so an event that has not happened yet would otherwise never
-           surface here at all. Vertical, like everything else on this page —
-           the horizontal strip it replaced hid its last cards off-screen. -->
-      <section v-if="upcomingEvents.length" class="mb-6 space-y-2">
-        <h2 class="text-caption font-semibold uppercase tracking-wide text-fg-muted">Coming up</h2>
-        <NuxtLink
-          v-for="upcoming in upcomingEvents"
-          :key="upcoming.id"
-          :to="`/events/${upcoming.id}`"
-          class="flex items-center gap-3 rounded-card border-l-2 border-primary bg-surface p-3 shadow-card transition-colors hover:bg-surface-2"
+           surface here at all. One panel of ruled rows, not three floating
+           cards - it is a short list, and a list is what it should look like.
+           The 2px green left border it used to carry was the loudest mark on
+           the page and named nothing that was actually actionable. -->
+      <section
+        v-if="upcomingEvents.length"
+        class="mb-6 rounded-card border border-border bg-surface px-4 shadow-card sm:px-5"
+      >
+        <h2
+          class="border-b-2 border-border-strong py-3 text-caption font-semibold uppercase tracking-widest text-fg-muted"
         >
-          <span class="min-w-0 flex-1">
-            <span class="block truncate text-body-2 font-medium text-fg">{{ upcoming.name }}</span>
-            <span
-              v-if="upcoming.venue || upcoming.city"
-              class="block truncate text-caption text-fg-muted"
+          Coming up
+        </h2>
+        <ul>
+          <li v-for="upcoming in upcomingEvents" :key="upcoming.id">
+            <NuxtLink
+              :to="`/events/${upcoming.id}`"
+              class="dnl-row group flex items-baseline gap-4 border-t border-border py-3.5 first:border-t-0 focus-visible:outline-none"
             >
-              {{ [upcoming.venue, upcoming.city].filter(Boolean).join(', ') }}
-            </span>
-          </span>
-          <span class="shrink-0 text-caption font-medium text-primary">
-            {{ formatEventDate(upcoming.start_date) }}
-          </span>
-        </NuxtLink>
+              <span class="min-w-0 flex-1">
+                <span
+                  class="block truncate text-body-2 font-medium text-fg transition-colors group-hover:text-primary group-focus-visible:text-primary"
+                  >{{ upcoming.name }}</span
+                >
+                <span
+                  v-if="upcoming.venue || upcoming.city"
+                  class="block truncate text-caption text-fg-muted"
+                >
+                  {{ [upcoming.venue, upcoming.city].filter(Boolean).join(', ') }}
+                </span>
+              </span>
+              <span class="shrink-0 text-caption font-medium tabular-nums text-fg-secondary">
+                {{ formatEventDate(upcoming.start_date) }}
+              </span>
+            </NuxtLink>
+          </li>
+        </ul>
       </section>
 
-      <!-- Loading -->
-      <div v-if="status === 'pending'" class="space-y-3">
-        <div v-for="i in 5" :key="i" class="h-24 animate-pulse rounded-card bg-surface" />
+      <!-- Loading. Ruled lines inside the panel the feed will occupy, rather
+           than five floating blocks: a placeholder should be the shape of the
+           thing that is arriving. -->
+      <div
+        v-if="status === 'pending'"
+        class="rounded-card border border-border bg-surface px-4 shadow-card sm:px-5"
+      >
+        <div
+          v-for="i in 5"
+          :key="i"
+          class="flex items-center gap-3 border-t border-border py-4 first:border-t-0"
+        >
+          <div class="h-4 w-4 shrink-0 animate-pulse rounded-badge bg-surface-2" />
+          <div class="h-3 w-full max-w-sm animate-pulse rounded-badge bg-surface-2" />
+          <div class="ml-auto h-3 w-8 shrink-0 animate-pulse rounded-badge bg-surface-2" />
+        </div>
       </div>
 
       <UiErrorState
@@ -325,91 +379,130 @@ function formatTime(dateStr: string): string {
         action-to="/events"
       />
 
-      <!-- The feed itself: one column, newest first inside each proximity band. -->
-      <div v-else class="space-y-3">
-        <article
-          v-for="activity in activities"
-          :key="activity.id"
-          class="rounded-card bg-surface p-4 shadow-card"
-        >
-          <div class="flex gap-3">
-            <span
-              class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-surface-2 text-xl"
-              aria-hidden="true"
-            >
-              {{ getActivityIcon(activity.activity_type) }}
-            </span>
+      <!--
+        The log.
 
-            <div class="min-w-0 flex-1">
-              <div class="flex items-baseline justify-between gap-2">
-                <p class="min-w-0 text-body-2">
-                  <NuxtLink
-                    v-if="activity.actor_player_id"
-                    :to="`/players/${activity.actor_player_id}`"
-                    class="font-medium text-primary hover:underline"
+        One panel of ruled rows, not twenty-five stacked cards. Twenty-five
+        shadows is a great deal of weight for a page whose content is mostly
+        one-line sentences, and when every row is a panel of the same size
+        nothing outranks anything - the reader has to spend the same attention
+        on "updated their profile" as on someone's own words. A row here costs
+        one line unless it brought something with it.
+      -->
+      <div v-else>
+        <ul class="rounded-card border border-border bg-surface px-4 shadow-card sm:px-5">
+          <li
+            v-for="activity in activities"
+            :key="activity.id"
+            class="border-t border-border first:border-t-0"
+            :class="hasBody(activity) ? 'py-4' : 'py-3'"
+          >
+            <div class="flex gap-3">
+              <!-- The type mark. 16px, one stroke weight, muted: it is there to
+                   be skipped past until the reader wants it. -->
+              <UiIcon
+                :name="getActivityIcon(activity.activity_type)"
+                size="h-4 w-4"
+                :stroke-width="2"
+                class="mt-0.5 shrink-0 text-fg-muted"
+                aria-hidden="true"
+              />
+
+              <div class="min-w-0 flex-1">
+                <div class="flex items-baseline justify-between gap-3">
+                  <p class="min-w-0 text-body-2 text-fg-secondary">
+                    <!-- The actor's name is identity, not an action, so it sits
+                         in ordinary ink at weight 600 and turns green only under
+                         the pointer. It used to be green at rest on every row,
+                         which spent the page's scarcest colour twenty-five times
+                         a screen and left nothing to mark what could actually be
+                         opened. -->
+                    <NuxtLink
+                      v-if="activity.actor_player_id"
+                      :to="`/players/${activity.actor_player_id}`"
+                      class="dnl-press rounded-badge font-semibold text-fg transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+                    >
+                      {{ activity.actor_display_name }}
+                    </NuxtLink>
+                    <span v-else class="font-semibold text-fg">{{
+                      activity.actor_display_name
+                    }}</span>
+                    {{ formatActivityText(activity) }}
+                    <NuxtLink
+                      v-if="namedEvent(activity)"
+                      :to="`/events/${namedEvent(activity)!.id}`"
+                      class="dnl-press rounded-badge font-medium text-primary underline decoration-primary/40 underline-offset-2 transition-colors hover:decoration-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+                      >{{ namedEvent(activity)!.name }}</NuxtLink
+                    >
+                  </p>
+                  <time
+                    :datetime="activity.created_at"
+                    class="shrink-0 text-caption tabular-nums text-fg-muted"
+                    >{{ formatTime(activity.created_at) }}</time
                   >
-                    {{ activity.actor_display_name }}
-                  </NuxtLink>
-                  <span v-else class="font-medium text-fg">{{ activity.actor_display_name }}</span>
-                  <span class="text-fg-secondary"> {{ formatActivityText(activity) }}</span>
-                  <!-- The event's name, as a link, when the activity is about
-                       one and it still exists. Split out of the sentence rather
-                       than wrapping the whole line: the actor's name in front of
-                       it is already a link somewhere else. -->
-                  <NuxtLink
-                    v-if="namedEvent(activity)"
-                    :to="`/events/${namedEvent(activity)!.id}`"
-                    class="font-medium text-primary hover:underline"
-                    >{{ namedEvent(activity)!.name }}</NuxtLink
-                  >
-                </p>
-                <time :datetime="activity.created_at" class="shrink-0 text-caption text-fg-muted">{{
-                  formatTime(activity.created_at)
-                }}</time>
+                </div>
+
+                <!-- The shout-out's own words: the one place on this page where
+                     a person actually wrote something, so it gets the body ramp
+                     and real room. Its rule stays neutral - green here would
+                     mark a message as confirmed, which it is not. -->
+                <blockquote
+                  v-if="shoutoutMessage(activity)"
+                  class="mt-2 border-l border-border-strong py-0.5 pl-3 text-body-1 text-fg"
+                >
+                  {{ shoutoutMessage(activity) }}
+                </blockquote>
+
+                <!-- The event a shout-out points at. A ruled row, not a tinted
+                     block: a panel inside a panel is one container too many. -->
+                <NuxtLink
+                  v-if="activity.event && !namedEvent(activity)"
+                  :to="`/events/${activity.event.id}`"
+                  class="dnl-row dnl-step group mt-2.5 flex items-center gap-2.5 border-t border-border pt-2.5 focus-visible:outline-none"
+                >
+                  <UiIcon
+                    name="calendar"
+                    size="h-4 w-4"
+                    :stroke-width="2"
+                    class="shrink-0 text-fg-muted"
+                    aria-hidden="true"
+                  />
+                  <span class="min-w-0 flex-1">
+                    <span
+                      class="block truncate text-body-2 font-medium text-fg transition-colors group-hover:text-primary group-focus-visible:text-primary"
+                    >
+                      {{ activity.event.name }}
+                    </span>
+                    <span class="block truncate text-caption tabular-nums text-fg-muted">
+                      {{
+                        [formatEventDate(activity.event.start_date), activity.event.city]
+                          .filter(Boolean)
+                          .join(' · ')
+                      }}
+                    </span>
+                  </span>
+                  <UiIcon
+                    name="chevron-right"
+                    size="h-4 w-4"
+                    :stroke-width="2.2"
+                    class="dnl-step-chevron shrink-0 text-fg-muted"
+                    aria-hidden="true"
+                  />
+                </NuxtLink>
               </div>
-
-              <!-- The shout-out's own words, given room rather than squeezed
-                   into the sentence above in quotes. -->
-              <blockquote
-                v-if="shoutoutMessage(activity)"
-                class="mt-2 border-l-2 border-primary/40 py-0.5 pl-3 text-body text-fg"
-              >
-                {{ shoutoutMessage(activity) }}
-              </blockquote>
-
-              <!-- The event a shout-out points at, if any. -->
-              <NuxtLink
-                v-if="activity.event && !namedEvent(activity)"
-                :to="`/events/${activity.event.id}`"
-                class="mt-2 flex items-center gap-2 rounded-button bg-canvas p-2.5 transition-colors hover:bg-surface-2"
-              >
-                <UiIcon name="calendar" size="h-4 w-4" class="shrink-0 text-primary" />
-                <span class="min-w-0 flex-1">
-                  <span class="block truncate text-body-2 font-medium text-fg">
-                    {{ activity.event.name }}
-                  </span>
-                  <span class="block truncate text-caption text-fg-muted">
-                    {{
-                      [formatEventDate(activity.event.start_date), activity.event.city]
-                        .filter(Boolean)
-                        .join(' · ')
-                    }}
-                  </span>
-                </span>
-              </NuxtLink>
             </div>
-          </div>
-        </article>
+          </li>
+        </ul>
 
         <!-- Scrolling this into view fetches the next page. It is also the
              manual fallback: without IntersectionObserver, or if a page fails,
              the button is still there to press. -->
-        <div ref="sentinel" class="pt-2 text-center">
+        <div ref="sentinel" class="pt-4 text-center">
           <p v-if="loadingMore" class="py-3 text-caption text-fg-muted">Loading more…</p>
           <button
             v-else-if="!reachedEnd"
             type="button"
-            class="rounded-lg border border-border-strong px-5 py-2 text-sm font-medium text-fg-secondary transition-colors hover:border-primary hover:text-fg"
+            class="dnl-press rounded-button border border-border-strong px-5 py-2 text-body-2 font-medium text-fg-secondary transition-colors hover:border-primary hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
             @click="loadMore"
           >
             Load more

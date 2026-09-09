@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { initialsFor } from '~/utils/initials'
 interface Player {
   id: string
   displayName: string
@@ -56,7 +57,7 @@ const player1Won = computed(() => props.winnerId === props.player1.id)
             class="flex h-10 w-10 items-center justify-center rounded-full bg-surface-3 text-sm font-semibold"
             :class="player1Won ? 'ring-2 ring-success' : ''"
           >
-            {{ player1.displayName.charAt(0) }}
+            {{ initialsFor(player1.displayName, 1) }}
           </div>
           <svg
             v-if="player1Won"
@@ -95,7 +96,7 @@ const player1Won = computed(() => props.winnerId === props.player1.id)
             class="flex h-10 w-10 items-center justify-center rounded-full bg-surface-3 text-sm font-semibold"
             :class="!player1Won ? 'ring-2 ring-success' : ''"
           >
-            {{ player2.displayName.charAt(0) }}
+            {{ initialsFor(player2.displayName, 1) }}
           </div>
           <svg
             v-if="!player1Won"

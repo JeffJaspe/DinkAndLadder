@@ -22,6 +22,7 @@ function createFakeEventRepository(overrides?: Partial<EventRepository>): EventR
     create: vi.fn(),
     update: vi.fn(),
     updateStatus: vi.fn(),
+    setCurrentRound: vi.fn(),
     search: vi.fn().mockResolvedValue([]),
     findOpenPlayAwaitingClose: vi.fn().mockResolvedValue([]),
     // Added to EventRepository alongside cascade delete; the fakes were never
@@ -113,6 +114,11 @@ function makeEventRecord(overrides?: Partial<EventRecord>): EventRecord {
     queue_enabled: false,
     queue_courts: 1,
     match_format: 'doubles',
+    // Game rules on the event, added by 054. The values restate what every
+    // session was played to before the columns existed.
+    target_points: 11,
+    win_by_two: true,
+    games_default: 1,
     queue_mode: 'first_come',
     min_players_to_start: null,
     close_policy: 'manual',
@@ -122,6 +128,7 @@ function makeEventRecord(overrides?: Partial<EventRecord>): EventRecord {
     fee_payer: 'player',
     organizer_fee_amount: null,
     queue_skip_timeout_seconds: 120,
+    current_round: 1,
     created_by_player_id: 'player-1',
     created_at: '2026-08-01T00:00:00Z',
     updated_at: '2026-08-01T00:00:00Z',
@@ -339,6 +346,111 @@ describe('EventService', () => {
           end_date: '2026-09-02',
           event_type: 'open_ranked'
         })
+      ).rejects.toThrow(EventServiceError)
+    })
+  })
+
+  // 054-open-play-scoring. events_game_rules_valid enforces the same bounds
+  // in the database, but a check constraint answers with a 500 and a
+  // constraint name; an organiser who typed 210 instead of 21 deserves the
+  // sentence. The bounds are deliberately the same ones 046 put on
+  // tournament_categories, so a game cannot be legal in a draw and illegal
+  // in open play.
+  describe('game rules', () => {
+    function scoringService() {
+      return createEventService(
+        createFakeEventRepository({ create: vi.fn().mockResolvedValue(makeEventRecord()) }),
+        createFakeTournamentRepository(),
+        createFakeRegistrationRepository(),
+        createFakeMembershipRepository()
+      )
+    }
+
+    const base = {
+      club_id: 'club-1',
+      name: 'Friday Open Play',
+      start_date: '2026-09-01',
+      end_date: '2026-09-01',
+      event_type: 'open_casual' as const
+    }
+
+    it.each([11, 15, 18, 21, 1, 99])('accepts a target of %i', async (target) => {
+      const service = scoringService()
+      await expect(
+        service.createEvent('player-1', { ...base, target_points: target })
+      ).resolves.toBeDefined()
+    })
+
+    it.each([0, -1, 100, 11.5])('rejects a target of %s', async (target) => {
+      const service = scoringService()
+      await expect(
+        service.createEvent('player-1', { ...base, target_points: target })
+      ).rejects.toThrow(EventServiceError)
+    })
+
+    it.each([1, 3, 5, 7, 9])('accepts a best-of %i', async (games) => {
+      const service = scoringService()
+      await expect(
+        service.createEvent('player-1', { ...base, games_default: games })
+      ).resolves.toBeDefined()
+    })
+
+    // Even is not "unsupported", it is undecidable: best of 2 can end 1-1.
+    it.each([2, 4, 0, 11])('rejects a best-of %i', async (games) => {
+      const service = scoringService()
+      await expect(
+        service.createEvent('player-1', { ...base, games_default: games })
+      ).rejects.toThrow(EventServiceError)
+    })
+
+    it('leaves the rules alone when the organiser did not set any', async () => {
+      const create = vi.fn().mockResolvedValue(makeEventRecord())
+      const service = createEventService(
+        createFakeEventRepository({ create }),
+        createFakeTournamentRepository(),
+        createFakeRegistrationRepository(),
+        createFakeMembershipRepository()
+      )
+
+      await service.createEvent('player-1', base)
+
+      // The repository applies the defaults, not the service: an absent
+      // field must stay absent so an update never rewrites a rule the
+      // organiser did not touch.
+      expect(create.mock.calls[0][0]).not.toHaveProperty('target_points')
+    })
+  })
+
+  // The court count used to be collected only behind the "Match Queue"
+  // toggle, so a four-court session run without the queue stored null and
+  // materialised exactly one court at start.
+  describe('court count', () => {
+    const base = {
+      club_id: 'club-1',
+      name: 'Friday Open Play',
+      start_date: '2026-09-01',
+      end_date: '2026-09-01',
+      event_type: 'open_casual' as const
+    }
+
+    function courtService() {
+      return createEventService(
+        createFakeEventRepository({ create: vi.fn().mockResolvedValue(makeEventRecord()) }),
+        createFakeTournamentRepository(),
+        createFakeRegistrationRepository(),
+        createFakeMembershipRepository()
+      )
+    }
+
+    it.each([1, 4, 24])('accepts %i courts', async (courts) => {
+      await expect(
+        courtService().createEvent('player-1', { ...base, queue_courts: courts })
+      ).resolves.toBeDefined()
+    })
+
+    it.each([0, -2, 25, 2.5])('rejects %s courts', async (courts) => {
+      await expect(
+        courtService().createEvent('player-1', { ...base, queue_courts: courts })
       ).rejects.toThrow(EventServiceError)
     })
   })
@@ -941,6 +1053,66 @@ describe('EventService', () => {
       await service.updateEvent('player-1', 'event-1', { event_type: 'tournament' })
 
       expect(tournamentRepo.create).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  /**
+   * queue_mode became organiser-editable when the pairing control moved to the
+   * Queue tab, so a value now arrives from a client rather than only from the
+   * create form.
+   */
+  describe('updateEvent queue_mode', () => {
+    /** Owned by player-1, so the organiser check passes and the patch is reached. */
+    function repoFor() {
+      const record = makeEventRecord({ created_by_player_id: 'player-1' })
+      return createFakeEventRepository({
+        findById: vi.fn().mockResolvedValue(record),
+        update: vi.fn().mockResolvedValue(record)
+      })
+    }
+
+    it.each(['first_come', 'rating_based', 'random'] as const)('accepts %s', async (mode) => {
+      const eventRepo = repoFor()
+      const service = createEventService(
+        eventRepo,
+        createFakeTournamentRepository(),
+        createFakeRegistrationRepository()
+      )
+
+      await service.updateEvent('player-1', 'event-1', { queue_mode: mode })
+
+      expect(eventRepo.update).toHaveBeenCalledWith('event-1', { queue_mode: mode })
+    })
+
+    it('rejects a mode outside the stored enum', async () => {
+      const eventRepo = repoFor()
+      const service = createEventService(
+        eventRepo,
+        createFakeTournamentRepository(),
+        createFakeRegistrationRepository()
+      )
+
+      await expect(
+        service.updateEvent('player-1', 'event-1', {
+          queue_mode: 'mixup' as unknown as 'random'
+        })
+      ).rejects.toMatchObject({ status: 400, code: 'VALIDATION_ERROR' })
+
+      // Rejected before the write, not cleaned up after it.
+      expect(eventRepo.update).not.toHaveBeenCalled()
+    })
+
+    it('leaves queue_mode alone when it is not part of the patch', async () => {
+      const eventRepo = repoFor()
+      const service = createEventService(
+        eventRepo,
+        createFakeTournamentRepository(),
+        createFakeRegistrationRepository()
+      )
+
+      await service.updateEvent('player-1', 'event-1', { description: 'Bring water.' })
+
+      expect(eventRepo.update).toHaveBeenCalledWith('event-1', { description: 'Bring water.' })
     })
   })
 

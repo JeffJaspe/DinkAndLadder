@@ -210,7 +210,7 @@ function formatTime(dateStr: string): string {
       <!-- Header -->
       <div class="mb-6 flex items-center justify-between">
         <div>
-          <h1 class="text-2xl font-bold text-fg">Notifications</h1>
+          <h1 class="font-display text-heading-1 text-fg">Notifications</h1>
           <p v-if="unreadCount" class="mt-1 text-sm text-fg-muted">{{ unreadCount }} unread</p>
         </div>
         <button
@@ -261,8 +261,12 @@ function formatTime(dateStr: string): string {
         v-else-if="notifications.length === 0"
         class="rounded-xl bg-surface p-12 text-center shadow-card"
       >
-        <p class="text-4xl">🔔</p>
-        <h3 class="mt-4 text-lg font-semibold text-fg">
+        <span
+          class="mx-auto flex h-12 w-12 items-center justify-center rounded-pill bg-surface-2 text-fg-muted"
+        >
+          <UiIcon name="bell" size="h-6 w-6" />
+        </span>
+        <h3 class="mt-4 font-display text-heading-3 text-fg">
           {{ activeCategory === 'all' ? 'No notifications' : 'Nothing in here' }}
         </h3>
         <p class="mt-2 text-sm text-fg-muted">
@@ -277,7 +281,7 @@ function formatTime(dateStr: string): string {
       <!-- Notifications, grouped by day -->
       <div v-else class="space-y-5">
         <section v-for="group in groupedNotifications" :key="group.label" class="space-y-2">
-          <h2 class="text-caption font-semibold uppercase tracking-wide text-fg-muted">
+          <h2 class="text-caption font-semibold uppercase tracking-widest text-fg-muted">
             {{ group.label }}
           </h2>
           <component

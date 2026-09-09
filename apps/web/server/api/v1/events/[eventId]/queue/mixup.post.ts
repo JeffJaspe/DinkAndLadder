@@ -1,7 +1,10 @@
 import { serverSupabaseClient, serverSupabaseServiceRole } from '#supabase/server'
 import { createEventQueueRepository } from '~/server/domains/event/repositories/event-queue.repository'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
-import { generateMixupSchedule, mixupShortfall } from '~/server/domains/event/services/mixup-scheduler'
+import {
+  generateMixupSchedule,
+  mixupShortfall
+} from '~/server/domains/event/services/mixup-scheduler'
 import { assertCanRunEvent } from '~/server/utils/event-organizer'
 import { apiError } from '~/server/utils/api-error'
 import { getOptionalUser } from '~/server/utils/optional-user'

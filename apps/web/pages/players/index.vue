@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { initialsFor } from '~/utils/initials'
 import type { PlayerSearchResultDto } from '~/server/domains/player/dto/player-profile.dto'
 import { formatRating } from '~/utils/rating-tiers'
 
@@ -66,10 +67,10 @@ function clearFilters() {
 </script>
 
 <template>
-  <div class="min-h-screen bg-canvas p-4 lg:p-6">
+  <div class="page-shell min-h-screen bg-canvas p-4 lg:p-6">
     <!-- Header -->
     <div class="mb-6">
-      <h1 class="text-2xl font-bold text-fg">Find Players</h1>
+      <h1 class="font-display text-heading-1 text-fg">Find Players</h1>
       <p class="mt-1 text-sm text-fg-muted">
         Search for players to follow, challenge, or connect with
       </p>
@@ -82,7 +83,8 @@ function clearFilters() {
           v-model="search"
           type="search"
           placeholder="Search by name..."
-          class="w-full rounded-lg border border-border-strong bg-surface py-2.5 pl-10 pr-4 text-fg placeholder-fg-muted focus:border-primary focus:outline-none"
+          aria-label="Search players by name"
+          class="w-full rounded-lg border border-border-strong bg-surface py-2.5 pl-10 pr-4 text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
         />
         <svg
           class="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-fg-muted"
@@ -103,7 +105,8 @@ function clearFilters() {
         <select
           :value="selectedProvince"
           :disabled="loadingProvinces"
-          class="rounded-lg border border-border-strong bg-surface px-4 py-2.5 text-fg focus:border-primary focus:outline-none disabled:opacity-50"
+          aria-label="Province"
+          class="rounded-lg border border-border-strong bg-surface px-4 py-2.5 text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:opacity-50"
           @change="selectProvince(($event.target as HTMLSelectElement).value)"
         >
           <option value="">{{ loadingProvinces ? 'Loading...' : 'All Provinces' }}</option>
@@ -112,22 +115,32 @@ function clearFilters() {
         <select
           :value="selectedCity"
           :disabled="!selectedProvince || loadingCities"
-          class="rounded-lg border border-border-strong bg-surface px-4 py-2.5 text-fg focus:border-primary focus:outline-none disabled:opacity-50"
+          aria-label="City"
+          class="rounded-lg border border-border-strong bg-surface px-4 py-2.5 text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:opacity-50"
           @change="selectCity(($event.target as HTMLSelectElement).value)"
         >
           <option value="">
-            {{ loadingCities ? 'Loading...' : selectedProvince ? 'All Cities' : 'Select province' }}
+            {{
+              loadingCities
+                ? 'Loading...'
+                : selectedProvince
+                  ? 'All Cities'
+                  : 'Pick a province first'
+            }}
           </option>
           <option v-for="c in cities" :key="c.code" :value="c.code">{{ c.name }}</option>
         </select>
         <select
           :value="selectedBarangay"
           :disabled="!selectedCity || loadingBarangays"
-          class="rounded-lg border border-border-strong bg-surface px-4 py-2.5 text-fg focus:border-primary focus:outline-none disabled:opacity-50"
+          aria-label="Barangay"
+          class="rounded-lg border border-border-strong bg-surface px-4 py-2.5 text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:opacity-50"
           @change="selectBarangay(($event.target as HTMLSelectElement).value)"
         >
           <option value="">
-            {{ loadingBarangays ? 'Loading...' : selectedCity ? 'All Barangays' : 'Select city' }}
+            {{
+              loadingBarangays ? 'Loading...' : selectedCity ? 'All Barangays' : 'Pick a city first'
+            }}
           </option>
           <option v-for="b in barangays" :key="b.code" :value="b.code">{{ b.name }}</option>
         </select>
@@ -149,8 +162,12 @@ function clearFilters() {
 
     <!-- Empty -->
     <div v-else-if="!players.length" class="rounded-xl bg-surface p-12 text-center shadow-card">
-      <p class="text-4xl">👥</p>
-      <h3 class="mt-4 text-lg font-semibold text-fg">No players found</h3>
+      <span
+        class="mx-auto flex h-12 w-12 items-center justify-center rounded-pill bg-surface-2 text-fg-muted"
+      >
+        <UiIcon name="players" size="h-6 w-6" />
+      </span>
+      <h2 class="mt-4 font-display text-heading-3 text-fg">No players found</h2>
       <p class="mt-2 text-sm text-fg-muted">
         {{
           hasSearchCriteria
@@ -179,16 +196,18 @@ function clearFilters() {
         <div
           class="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-surface-2 text-lg font-bold text-fg-secondary"
         >
-          {{ player.display_name.charAt(0).toUpperCase() }}
+          {{ initialsFor(player.display_name, 1) }}
         </div>
         <div class="min-w-0 flex-1">
-          <h3 class="font-semibold text-fg">{{ player.display_name }}</h3>
+          <h2 class="text-body-1 font-medium text-fg">{{ player.display_name }}</h2>
           <p v-if="player.city || player.province" class="text-sm text-fg-muted">
             {{ [player.city, player.province].filter(Boolean).join(', ') }}
           </p>
         </div>
         <div v-if="player.singles_rating" class="text-right">
-          <p class="text-lg font-bold text-primary">{{ formatRating(player.singles_rating) }}</p>
+          <p class="font-display text-heading-3 tabular-nums text-primary">
+            {{ formatRating(player.singles_rating) }}
+          </p>
           <p class="text-xs text-fg-muted">Rating</p>
         </div>
       </NuxtLink>

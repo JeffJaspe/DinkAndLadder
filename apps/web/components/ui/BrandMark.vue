@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { initialsFor } from '~/utils/initials'
 /**
  * The platform's mark: the uploaded logo if the SuperAdmin set one, otherwise
  * the monogram tile that has always been there.
@@ -31,7 +32,7 @@ const props = withDefaults(
   { size: 'md', showName: true, nameClass: 'text-body-2 font-semibold', gradient: false }
 )
 
-const monogram = computed(() => appName.value.trim().charAt(0).toUpperCase() || 'D')
+const monogram = computed(() => initialsFor(appName.value, 1))
 
 const BOX: Record<string, string> = {
   sm: 'h-7 w-7 rounded-lg text-caption',

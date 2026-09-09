@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { BoxScoreMatch } from '~/components/match/BoxScore.vue'
 import { playerLines } from '~/utils/player-line'
-import { DEFAULT_GAME_RULES, seriesWinner, type GameRules } from '~/utils/game-rules'
+import { DEFAULT_GAME_RULES, gameWinner, seriesWinner, type GameRules } from '~/utils/game-rules'
 
 /**
  * One match, collapsed to a line and opened to its score sheet.
@@ -56,6 +56,40 @@ const currentGame = computed(() => {
   return props.match.games[props.match.liveGame! - 1] ?? props.match.games.at(-1) ?? null
 })
 
+/**
+ * The score on the collapsed line, live or finished.
+ *
+ * Only a live match used to show one, so a finished result had to be opened to
+ * be read. In open play that is the whole content of the row: a session is a
+ * long run of one-game matches between partners who change every round, and
+ * making somebody expand each one to see 11–7 turns a scannable list into
+ * twenty clicks.
+ *
+ * A single game shows its points, because that IS the result. Several games
+ * show games won, because the points of game two say nothing about who won the
+ * match.
+ */
+const lineScore = computed(() => {
+  if (currentGame.value) {
+    return `${currentGame.value.team1_score}–${currentGame.value.team2_score}`
+  }
+
+  const games = props.match.games
+  if (games.length === 0) return null
+  if (games.length === 1) return `${games[0].team1_score}–${games[0].team2_score}`
+
+  const won = games.reduce(
+    (tally, game) => {
+      const by = gameWinner(game, rules.value)
+      if (by === 1) tally[0] += 1
+      else if (by === 2) tally[1] += 1
+      return tally
+    },
+    [0, 0]
+  )
+  return `${won[0]}–${won[1]}`
+})
+
 const state = computed(() => {
   if (isLive.value) return { label: `Live · G${props.match.liveGame}`, live: true }
   if (props.match.complete || winner.value) {
@@ -103,9 +137,8 @@ watch(isLive, (live) => {
 
         <!-- The running score on the collapsed line: a spectator should not
              have to open anything to see it. -->
-        <span v-if="currentGame" class="text-body-1 font-bold tabular-nums text-fg">
-          {{ currentGame.team1_score }}<span class="mx-1 text-fg-muted">–</span
-          >{{ currentGame.team2_score }}
+        <span v-if="lineScore" class="text-body-1 font-bold tabular-nums text-fg">
+          {{ lineScore }}
         </span>
 
         <span

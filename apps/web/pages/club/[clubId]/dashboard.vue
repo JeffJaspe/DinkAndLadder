@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { initialsFor } from '~/utils/initials'
 import type { ClubDto } from '~/server/domains/club/dto/club.dto'
 import type { RosterMemberDto } from '~/server/domains/club/dto/club-membership.dto'
 import type { AnnouncementDto } from '~/server/domains/announcement/dto/announcement.dto'
@@ -99,7 +100,7 @@ const newMembers = computed(() => {
 </script>
 
 <template>
-  <div class="min-h-screen bg-canvas p-4 lg:p-6">
+  <div class="page-shell min-h-screen bg-canvas p-4 lg:p-6">
     <div v-if="clubPending" class="space-y-4">
       <div class="h-8 w-64 animate-pulse rounded bg-surface" />
       <div class="grid gap-4 sm:grid-cols-3">
@@ -107,14 +108,14 @@ const newMembers = computed(() => {
       </div>
     </div>
 
-    <div v-else-if="clubError || !club" class="rounded-xl bg-red-500/10 p-6 text-center">
-      <p class="text-red-400">Could not load this club's dashboard.</p>
+    <div v-else-if="clubError || !club" class="rounded-xl bg-danger-soft p-6 text-center">
+      <p class="text-danger">Could not load this club's dashboard.</p>
     </div>
 
     <div v-else class="space-y-6">
       <div class="flex items-center justify-between">
         <div>
-          <h1 class="text-2xl font-bold text-fg">{{ club.name }}</h1>
+          <h1 class="font-display text-heading-1 text-fg">{{ club.name }}</h1>
           <p class="mt-1 text-sm text-fg-muted">Club dashboard</p>
         </div>
         <VerifiedBadge v-if="club.verification_status === 'verified'" />
@@ -124,21 +125,27 @@ const newMembers = computed(() => {
       <div class="grid gap-4 sm:grid-cols-3">
         <div class="rounded-xl bg-surface p-5 shadow-card">
           <p class="text-xs uppercase tracking-wider text-fg-muted">Members</p>
-          <p class="mt-1 text-2xl font-bold text-fg">{{ activeMembers.length }}</p>
+          <p class="mt-1 font-display text-stat-sm tabular-nums text-fg">
+            {{ activeMembers.length }}
+          </p>
         </div>
         <div class="rounded-xl bg-surface p-5 shadow-card">
           <p class="text-xs uppercase tracking-wider text-fg-muted">Recent Matches</p>
-          <p class="mt-1 text-2xl font-bold text-fg">{{ recentMatches.length }}</p>
+          <p class="mt-1 font-display text-stat-sm tabular-nums text-fg">
+            {{ recentMatches.length }}
+          </p>
         </div>
         <div class="rounded-xl bg-surface p-5 shadow-card">
           <p class="text-xs uppercase tracking-wider text-fg-muted">Verification</p>
-          <p class="mt-1 text-2xl font-bold capitalize text-fg">{{ club.verification_status }}</p>
+          <p class="mt-1 font-display text-heading-2 capitalize text-fg">
+            {{ club.verification_status }}
+          </p>
         </div>
       </div>
 
       <!-- Announcements -->
       <div v-if="recentAnnouncements.length" class="rounded-xl bg-surface p-5 shadow-card">
-        <h2 class="mb-4 font-semibold text-fg">Announcements</h2>
+        <h2 class="mb-4 font-display text-heading-3 text-fg">Announcements</h2>
         <div class="space-y-3">
           <div
             v-for="announcement in recentAnnouncements"
@@ -154,7 +161,7 @@ const newMembers = computed(() => {
                 </svg>
               </span>
               <div class="flex-1">
-                <h3 class="font-medium text-fg">{{ announcement.title }}</h3>
+                <h3 class="text-body-1 font-medium text-fg">{{ announcement.title }}</h3>
                 <p class="mt-1 text-sm text-fg-secondary line-clamp-2">{{ announcement.body }}</p>
                 <p class="mt-2 text-xs text-fg-muted">
                   {{
@@ -177,7 +184,7 @@ const newMembers = computed(() => {
 
       <!-- New Members -->
       <div v-if="newMembers.length" class="rounded-xl bg-surface p-5 shadow-card">
-        <h2 class="mb-4 font-semibold text-fg">New Members</h2>
+        <h2 class="mb-4 font-display text-heading-3 text-fg">New Members</h2>
         <div class="flex flex-wrap gap-3">
           <NuxtLink
             v-for="member in newMembers"
@@ -188,7 +195,7 @@ const newMembers = computed(() => {
             <div
               class="flex h-8 w-8 items-center justify-center rounded-full bg-surface-2 text-sm font-bold text-fg-secondary"
             >
-              {{ member.display_name.charAt(0).toUpperCase() }}
+              {{ initialsFor(member.display_name, 1) }}
             </div>
             <span class="text-sm text-fg">{{ member.display_name }}</span>
           </NuxtLink>
@@ -202,7 +209,7 @@ const newMembers = computed(() => {
            sidebar-scale summaries, not the main ladder. -->
       <div class="grid gap-6 lg:grid-cols-2">
         <div class="rounded-xl bg-surface p-5 shadow-card">
-          <h2 class="mb-4 font-semibold text-fg">Top Members (Singles)</h2>
+          <h2 class="mb-4 font-display text-heading-3 text-fg">Top Members (Singles)</h2>
           <RankingBoard
             :entries="topSinglesRankings"
             :show-podium="false"
@@ -215,7 +222,7 @@ const newMembers = computed(() => {
         </div>
 
         <div class="rounded-xl bg-surface p-5 shadow-card">
-          <h2 class="mb-4 font-semibold text-fg">Top Members (Doubles)</h2>
+          <h2 class="mb-4 font-display text-heading-3 text-fg">Top Members (Doubles)</h2>
           <RankingBoard
             :entries="topDoublesRankings"
             :show-podium="false"
@@ -230,7 +237,7 @@ const newMembers = computed(() => {
 
       <!-- Recent matches -->
       <div class="rounded-xl bg-surface p-5 shadow-card">
-        <h2 class="mb-4 font-semibold text-fg">Recent Matches</h2>
+        <h2 class="mb-4 font-display text-heading-3 text-fg">Recent Matches</h2>
         <p v-if="!recentMatches.length" class="text-sm text-fg-muted">No matches yet.</p>
         <ul v-else class="space-y-2">
           <li

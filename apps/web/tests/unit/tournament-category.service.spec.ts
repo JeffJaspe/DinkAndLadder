@@ -193,6 +193,9 @@ describe('TournamentCategoryService', () => {
       async updateStatus() {
         throw new Error('not used')
       },
+      async setCurrentRound() {
+        throw new Error('not used')
+      },
       async findOpenPlayAwaitingClose() {
         return []
       },

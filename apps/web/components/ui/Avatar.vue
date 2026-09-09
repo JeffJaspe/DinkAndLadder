@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { initialsFor } from '~/utils/initials'
 /**
  * Player / club avatar with an initials fallback.
  *
@@ -30,14 +31,7 @@ const SIZES = {
 } as const
 
 /** First letters of the first two words: "Juan Dela Cruz" -> "JD". */
-const initials = computed(() => {
-  const parts = (props.name ?? '').trim().split(/\s+/).filter(Boolean)
-  if (!parts.length) return '?'
-  return parts
-    .slice(0, 2)
-    .map((p) => p[0]!.toUpperCase())
-    .join('')
-})
+const initials = computed(() => initialsFor(props.name))
 
 /**
  * Deterministic tint per name. Only tokenised fills are used, so the palette

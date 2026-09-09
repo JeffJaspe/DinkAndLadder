@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { initialsFor } from '~/utils/initials'
 interface Props {
   id: string
   displayName: string
@@ -53,7 +54,7 @@ function handleFollowClick() {
           v-else
           class="flex h-12 w-12 items-center justify-center rounded-full bg-surface-3 text-lg font-semibold text-fg"
         >
-          {{ displayName.charAt(0).toUpperCase() }}
+          {{ initialsFor(displayName, 1) }}
         </div>
         <UiRankBadge
           v-if="rank && rank <= 10"

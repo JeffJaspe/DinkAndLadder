@@ -106,7 +106,7 @@ function toCents(value: number | null): number | null {
   <div class="min-h-screen bg-canvas p-4 lg:p-6">
     <div class="page-shell space-y-6">
       <header>
-        <h1 class="text-heading-3 text-fg">Fees &amp; Payments</h1>
+        <h1 class="font-display text-heading-1 text-fg">Fees &amp; Payments</h1>
         <p class="mt-1 text-sm text-fg-muted">
           The convenience fee added on top of an event's entry fee. The entry itself goes to the
           organising club; this is the only part the platform collects.
@@ -120,7 +120,7 @@ function toCents(value: number | null): number | null {
 
         <template v-else>
           <section class="rounded-xl bg-surface p-5 shadow-card">
-            <h2 class="text-sm font-medium text-fg">Fee ladder</h2>
+            <h2 class="text-body-2 font-medium text-fg">Fee ladder</h2>
             <p class="mt-1 text-sm text-fg-muted">
               Each band matches on the entry total. A percentage can be given a minimum and maximum
               so it stays sensible at both ends of its band.
@@ -263,7 +263,7 @@ function toCents(value: number | null): number | null {
           <!-- The number that actually matters, computed by the same function
                the registration screen uses. -->
           <section class="rounded-xl bg-surface p-5 shadow-card">
-            <h2 class="text-sm font-medium text-fg">What a player would be quoted</h2>
+            <h2 class="text-body-2 font-medium text-fg">What a player would be quoted</h2>
             <div class="scroll-x mt-3">
               <table class="w-full min-w-[26rem] text-sm">
                 <thead>
@@ -298,7 +298,7 @@ function toCents(value: number | null): number | null {
 
           <!-- The provider side, deliberately not wired. -->
           <section class="rounded-xl bg-surface p-5 shadow-card">
-            <h2 class="text-sm font-medium text-fg">PayMongo</h2>
+            <h2 class="text-body-2 font-medium text-fg">PayMongo</h2>
             <p class="mt-1 text-sm text-fg-muted">
               Online payment is not switched on. Both gateway webhooks return 501 so that no event
               is silently accepted and lost.

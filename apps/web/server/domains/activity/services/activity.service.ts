@@ -153,7 +153,10 @@ export function createActivityService(
       // "you have no community yet" and "your community has been quiet" need
       // different words. Any later page is empty because the feed ran out.
       const shouldCount =
-        viewerPlayerId !== null && scope === 'community' && records.length === 0 && query.offset === 0
+        viewerPlayerId !== null &&
+        scope === 'community' &&
+        records.length === 0 &&
+        query.offset === 0
 
       return {
         activities: records.map(toActivityDto),

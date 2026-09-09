@@ -101,20 +101,12 @@ async function handleGoogleLogin() {
 </script>
 
 <template>
-  <div class="flex min-h-screen items-center justify-center bg-canvas px-4 py-12">
+  <AuthShell title="Welcome back" :subtitle="`Sign in to continue to ${appName}`">
     <UiToast :message="errorMessage" :variant="errorVariant" @close="errorMessage = ''" />
-    <div class="w-full max-w-md">
-      <!-- Logo -->
-      <div class="mb-8 text-center">
-        <NuxtLink to="/" class="inline-flex items-center gap-2">
-          <UiBrandMark size="xl" :show-name="false" />
-        </NuxtLink>
-        <h1 class="mt-4 text-2xl font-bold text-fg">Welcome back</h1>
-        <p class="mt-2 text-fg-muted">Sign in to continue to {{ appName }}</p>
-      </div>
-
-      <!-- Card -->
-      <div class="rounded-xl bg-surface p-6 shadow-card">
+    <div>
+      <!-- No card: AuthShell already separates the form side from the brand
+           field, and a panel inside a panel is the nesting the system bans. -->
+      <div>
         <!-- Google OAuth -->
         <button
           type="button"
@@ -163,7 +155,7 @@ async function handleGoogleLogin() {
               required
               autocomplete="email"
               placeholder="you@example.com"
-              class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+              class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
             />
           </div>
 
@@ -178,7 +170,7 @@ async function handleGoogleLogin() {
               required
               autocomplete="current-password"
               placeholder="Enter your password"
-              class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+              class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
             />
           </div>
 
@@ -216,5 +208,5 @@ async function handleGoogleLogin() {
         </NuxtLink>
       </p>
     </div>
-  </div>
+  </AuthShell>
 </template>

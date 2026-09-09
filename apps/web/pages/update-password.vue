@@ -104,7 +104,7 @@ async function handleUpdate() {
         <NuxtLink to="/" class="inline-flex items-center gap-2">
           <UiBrandMark size="xl" :show-name="false" />
         </NuxtLink>
-        <h1 class="mt-4 text-2xl font-bold text-fg">Set a new password</h1>
+        <h1 class="mt-4 font-display text-heading-1 text-fg">Set a new password</h1>
         <p class="mt-2 text-fg-muted">Choose a password for your account</p>
       </div>
 
@@ -147,7 +147,7 @@ async function handleUpdate() {
               autocomplete="new-password"
               minlength="8"
               placeholder="Create a password"
-              class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+              class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
             />
             <p class="mt-1.5 text-xs text-fg-muted">Minimum 8 characters</p>
           </div>
@@ -166,11 +166,11 @@ async function handleUpdate() {
               autocomplete="new-password"
               minlength="8"
               placeholder="Repeat the password"
-              class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+              class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
             />
           </div>
 
-          <div v-if="errorMessage" class="rounded-lg bg-red-500/10 px-4 py-3 text-sm text-red-400">
+          <div v-if="errorMessage" class="rounded-lg bg-danger-soft px-4 py-3 text-sm text-danger">
             {{ errorMessage }}
           </div>
 

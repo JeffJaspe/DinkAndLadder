@@ -20,7 +20,10 @@ import {
  * looked like three different things depending where you saw it.
  *
  * The grid is generated from the category's rules, so an open play session
- * (one game) and a best-of-five final use this with no special-casing. Nothing
+ * (one game) and a best-of-five final use this with no special-casing. The one
+ * concession to the short case is the column heading: "G1" over a lone column
+ * labels a breakdown that does not exist, so a single-game match calls it
+ * "Score", which is what it is. Nothing
  * about scoring is decided here — every rule comes from `utils/game-rules.ts`,
  * which the server validates against too.
  */
@@ -83,9 +86,7 @@ function scoreFor(index: number, side: 1 | 2): number | null {
 function setScore(index: number, side: 1 | 2, raw: string) {
   const parsed = raw === '' ? null : Math.max(0, Math.min(99, Number(raw)))
   const next = props.games.map((game, i) =>
-    i === index
-      ? { ...game, [side === 1 ? 'team1_score' : 'team2_score']: parsed }
-      : game
+    i === index ? { ...game, [side === 1 ? 'team1_score' : 'team2_score']: parsed } : game
   )
   emit('update:games', next as GameScore[])
 }
@@ -106,7 +107,7 @@ function setScore(index: number, side: 1 | 2, raw: string) {
             :key="`h-${i}`"
             class="w-16 pb-2 text-center text-caption uppercase tracking-wider text-fg-muted"
           >
-            G{{ i + 1 }}
+            {{ games.length === 1 ? 'Score' : `G${i + 1}` }}
           </th>
           <th class="w-16 pb-2 text-center text-caption uppercase tracking-wider text-fg-muted">
             Result
@@ -114,7 +115,7 @@ function setScore(index: number, side: 1 | 2, raw: string) {
         </tr>
       </thead>
       <tbody>
-        <tr v-for="side in ([1, 2] as const)" :key="side">
+        <tr v-for="side in [1, 2] as const" :key="side">
           <!-- Partners stack, one name per line: a doubles pair joined onto one
                line is the first thing to be truncated in a narrow column, and a
                cut-off name is the same problem as showing an id. -->
@@ -151,9 +152,7 @@ function setScore(index: number, side: 1 | 2, raw: string) {
             <span
               v-if="readonly"
               class="block px-1 py-3 font-mono text-lg font-bold tabular-nums"
-              :class="
-                gameWinner(games[i], rules) === side ? 'text-fg' : 'text-fg-muted'
-              "
+              :class="gameWinner(games[i], rules) === side ? 'text-fg' : 'text-fg-muted'"
             >
               {{ scoreFor(i, side) ?? '–' }}
             </span>
@@ -183,11 +182,7 @@ function setScore(index: number, side: 1 | 2, raw: string) {
             <span
               v-if="winner"
               class="inline-block rounded-md px-2.5 py-1 font-mono text-xs font-bold"
-              :class="
-                winner === side
-                  ? 'bg-primary text-on-primary'
-                  : 'bg-danger-soft text-danger'
-              "
+              :class="winner === side ? 'bg-primary text-on-primary' : 'bg-danger-soft text-danger'"
             >
               {{ winner === side ? 'W' : 'L' }}
             </span>

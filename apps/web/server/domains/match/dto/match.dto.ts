@@ -133,6 +133,13 @@ export interface SubmitMatchInput {
    */
   winner_team?: 1 | 2 | null
   event_id: string
+  /**
+   * The open-play wave this game belonged to. See 052.
+   *
+   * Optional and normally absent: a match recorded by hand, and every
+   * tournament match, belongs to no wave.
+   */
+  event_round?: number | null
   match_type: MatchType
   venue?: string | null
   played_at: string

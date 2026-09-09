@@ -434,7 +434,7 @@ function confirmTrash() {
           v-if="isDoubles && !myRegistration && canRegister"
           :value="partnerId"
           :aria-label="`Partner for ${name}`"
-          class="max-w-[12rem] rounded-lg border border-border-strong bg-surface px-2 py-1.5 text-sm text-fg focus:border-primary focus:outline-none"
+          class="max-w-[12rem] rounded-lg border border-border-strong bg-surface px-2 py-1.5 text-sm text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
           @change="emit('update:partnerId', ($event.target as HTMLSelectElement).value)"
         >
           <option value="">

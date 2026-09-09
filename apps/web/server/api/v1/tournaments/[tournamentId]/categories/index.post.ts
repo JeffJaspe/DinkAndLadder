@@ -36,7 +36,8 @@ interface CreateCategoryBody {
  * as the category is.
  */
 function readGameRules(body: CreateCategoryBody) {
-  const oddInRange = (value: number) => Number.isInteger(value) && value >= 1 && value <= 9 && value % 2 === 1
+  const oddInRange = (value: number) =>
+    Number.isInteger(value) && value >= 1 && value <= 9 && value % 2 === 1
 
   if (body.games_default != null && !oddInRange(body.games_default)) {
     throw createError({

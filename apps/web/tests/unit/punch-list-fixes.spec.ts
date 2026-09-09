@@ -4,7 +4,10 @@ import {
   effectiveMinPlayersToStart
 } from '../../server/domains/event/dto/event.dto'
 import { ncrAliasesFor } from '../../server/domains/player/repositories/player-profile.repository'
-import { minPlayersForMixup, mixupShortfall } from '../../server/domains/event/services/mixup-scheduler'
+import {
+  minPlayersForMixup,
+  mixupShortfall
+} from '../../server/domains/event/services/mixup-scheduler'
 import { queueModeLabel, queuePairsAutomatically } from '../../utils/queue-mode'
 import { eventKindLabel, eventKindQualifiers, eventTypesForFilter } from '../../utils/event-type'
 import { toEventDto, type EventRecord } from '../../server/domains/event/dto/event.dto'
@@ -33,6 +36,11 @@ const baseEventRecord: EventRecord = {
   queue_enabled: false,
   queue_courts: 1,
   match_format: 'doubles',
+  // Game rules on the event, added by 054. The values restate what every
+  // session was played to before the columns existed.
+  target_points: 11,
+  win_by_two: true,
+  games_default: 1,
   queue_mode: 'first_come',
   min_players_to_start: null,
   close_policy: 'manual',
@@ -42,6 +50,7 @@ const baseEventRecord: EventRecord = {
   fee_payer: 'player',
   organizer_fee_amount: null,
   queue_skip_timeout_seconds: 120,
+  current_round: 1,
   created_by_player_id: 'player-1',
   created_at: '2026-09-01T00:00:00Z',
   updated_at: '2026-09-01T00:00:00Z'

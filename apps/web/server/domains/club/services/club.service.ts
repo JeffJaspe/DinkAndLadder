@@ -58,11 +58,7 @@ export interface ClubService {
     targetPlayerId: string
   ): Promise<ClubMembershipDto>
   /** The invited player's answer. Only they can give it. */
-  respondToInvite(
-    clubId: string,
-    playerId: string,
-    accept: boolean
-  ): Promise<ClubMembershipDto>
+  respondToInvite(clubId: string, playerId: string, accept: boolean): Promise<ClubMembershipDto>
   leaveClub(clubId: string, playerId: string): Promise<ClubMembershipDto>
   listMine(playerId: string): Promise<MyClubMembershipDto[]>
   listRoster(actingPlayerId: string, clubId: string): Promise<RosterMemberDto[]>

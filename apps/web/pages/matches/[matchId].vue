@@ -127,10 +127,10 @@ async function submitCounter() {
 }
 
 const statusConfig: Record<string, { bg: string; text: string }> = {
-  submitted: { bg: 'bg-yellow-500/20', text: 'text-yellow-400' },
+  submitted: { bg: 'bg-warning-soft', text: 'text-warning' },
   pending_verification: { bg: 'bg-accent/20', text: 'text-accent' },
   verified: { bg: 'bg-primary/20', text: 'text-primary' },
-  disputed: { bg: 'bg-red-500/20', text: 'text-red-400' },
+  disputed: { bg: 'bg-danger-soft', text: 'text-danger' },
   cancelled: { bg: 'bg-surface-3', text: 'text-fg-muted' }
 }
 
@@ -234,8 +234,8 @@ const { goBack } = useAppBack('/matches')
       </div>
 
       <!-- Error -->
-      <div v-else-if="error" class="rounded-xl bg-red-500/10 p-6 text-center">
-        <p class="text-red-400">
+      <div v-else-if="error" class="rounded-xl bg-danger-soft p-6 text-center">
+        <p class="text-danger">
           {{
             error.statusCode === 404
               ? 'This match does not exist, or you were not a participant.'
@@ -256,7 +256,7 @@ const { goBack } = useAppBack('/matches')
         <!-- Header -->
         <div class="mb-6 flex items-start justify-between">
           <div>
-            <h1 class="text-2xl font-bold text-fg">
+            <h1 class="font-display text-heading-1 text-fg">
               {{ match.match_type === 'singles' ? 'Singles' : 'Doubles' }} Match
             </h1>
             <p class="mt-1 text-fg-muted">
@@ -327,14 +327,14 @@ const { goBack } = useAppBack('/matches')
 
         <!-- Decision Form -->
         <div v-if="canDecide" class="mb-6 rounded-xl bg-surface p-5 shadow-card">
-          <h2 class="mb-4 font-semibold text-fg">Your Decision</h2>
+          <h2 class="mb-4 font-display text-heading-3 text-fg">Your Decision</h2>
           <p class="mb-4 text-sm text-fg-muted">
             Please verify the match details above and confirm or dispute.
           </p>
           <textarea
             v-model="note"
             placeholder="Add an optional note..."
-            class="mb-4 w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none"
+            class="mb-4 w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
             rows="2"
           />
           <div class="flex gap-2">
@@ -347,14 +347,14 @@ const { goBack } = useAppBack('/matches')
             </button>
             <button
               :disabled="acting"
-              class="flex-1 rounded-lg border border-red-400 py-2.5 font-medium text-red-400 hover:bg-red-400/10 disabled:opacity-50"
+              class="flex-1 rounded-lg border border-danger py-2.5 font-medium text-danger hover:bg-danger-soft disabled:opacity-50"
               @click="recordDecision('rejected')"
             >
               Reject
             </button>
             <button
               :disabled="acting"
-              class="flex-1 rounded-lg border border-yellow-400 py-2.5 font-medium text-yellow-400 hover:bg-yellow-400/10 disabled:opacity-50"
+              class="flex-1 rounded-lg border border-warning py-2.5 font-medium text-warning hover:bg-warning-soft disabled:opacity-50"
               @click="recordDecision('disputed')"
             >
               Dispute
@@ -365,11 +365,11 @@ const { goBack } = useAppBack('/matches')
         <!-- Counter-Proposal -->
         <div v-if="canCounter" class="mb-6 rounded-xl bg-surface p-5 shadow-card">
           <div class="mb-4 flex items-center justify-between">
-            <h2 class="font-semibold text-fg">Disagree with the score?</h2>
+            <h2 class="font-display text-heading-3 text-fg">Disagree with the score?</h2>
             <button
               v-if="!showCounterForm"
               type="button"
-              class="text-sm text-yellow-400 hover:underline"
+              class="text-sm text-warning hover:underline"
               @click="showCounterForm = true"
             >
               Propose Different Score
@@ -392,7 +392,7 @@ const { goBack } = useAppBack('/matches')
                   type="number"
                   min="0"
                   placeholder="T1"
-                  class="w-full rounded-lg border border-border-strong bg-surface px-3 py-2 text-center text-fg focus:border-primary focus:outline-none"
+                  class="w-full rounded-lg border border-border-strong bg-surface px-3 py-2 text-center text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
                 />
                 <span class="text-fg-muted">-</span>
                 <input
@@ -400,13 +400,13 @@ const { goBack } = useAppBack('/matches')
                   type="number"
                   min="0"
                   placeholder="T2"
-                  class="w-full rounded-lg border border-border-strong bg-surface px-3 py-2 text-center text-fg focus:border-primary focus:outline-none"
+                  class="w-full rounded-lg border border-border-strong bg-surface px-3 py-2 text-center text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
                 />
               </div>
               <button
                 v-if="counterSets.length > 1"
                 type="button"
-                class="text-fg-muted hover:text-red-400"
+                class="text-fg-muted hover:text-danger"
                 @click="removeCounterSet(i)"
               >
                 <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -431,7 +431,7 @@ const { goBack } = useAppBack('/matches')
               <button
                 type="button"
                 :disabled="acting"
-                class="flex-1 rounded-lg border border-yellow-400 py-2.5 font-medium text-yellow-400 hover:bg-yellow-400/10 disabled:opacity-50"
+                class="flex-1 rounded-lg border border-warning py-2.5 font-medium text-warning hover:bg-warning-soft disabled:opacity-50"
                 @click="submitCounter"
               >
                 {{ acting ? 'Submitting...' : 'Submit Proposed Score' }}
@@ -452,7 +452,7 @@ const { goBack } = useAppBack('/matches')
           v-if="match.score_proposals.length > 0"
           class="mb-6 rounded-xl bg-surface p-5 shadow-card"
         >
-          <h2 class="mb-4 font-semibold text-fg">Proposed Scores</h2>
+          <h2 class="mb-4 font-display text-heading-3 text-fg">Proposed Scores</h2>
           <div class="space-y-3">
             <div
               v-for="proposal in match.score_proposals"
@@ -465,7 +465,7 @@ const { goBack } = useAppBack('/matches')
                   {{ nameForPlayer(proposal.proposed_by_player_id) }}
                 </span>
                 <span
-                  class="rounded-md bg-yellow-500/20 px-2 py-0.5 text-xs font-medium capitalize text-yellow-400"
+                  class="rounded-md bg-warning-soft px-2 py-0.5 text-xs font-medium capitalize text-warning"
                 >
                   {{ proposal.status }}
                 </span>
@@ -490,7 +490,7 @@ const { goBack } = useAppBack('/matches')
         >
           {{ actionMessage }}
         </div>
-        <div v-if="actionError" class="mb-6 rounded-xl bg-red-500/10 p-4 text-red-400">
+        <div v-if="actionError" class="mb-6 rounded-xl bg-danger-soft p-4 text-danger">
           {{ actionError }}
         </div>
 

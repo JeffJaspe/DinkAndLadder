@@ -56,5 +56,8 @@
     <include file="049-feed-community-scope/049-feed-community-scope.changelog.xml" relativeToChangelogFile="true"/>
     <include file="050-community-scope-narrowing/050-community-scope-narrowing.changelog.xml" relativeToChangelogFile="true"/>
     <include file="051-club-invitations/051-club-invitations.changelog.xml" relativeToChangelogFile="true"/>
+    <include file="052-open-play-rounds/052-open-play-rounds.changelog.xml" relativeToChangelogFile="true"/>
+    <include file="053-feed-scope-enforcement/053-feed-scope-enforcement.changelog.xml" relativeToChangelogFile="true"/>
+    <include file="054-open-play-scoring/054-open-play-scoring.changelog.xml" relativeToChangelogFile="true"/>
 
 </databaseChangeLog>

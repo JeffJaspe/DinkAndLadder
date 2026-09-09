@@ -418,8 +418,8 @@ function formatDateRange(start: string, end: string): string {
       <!-- Header -->
       <div class="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 class="text-2xl font-bold text-fg">Events</h1>
-          <p class="mt-1 text-sm text-fg-muted">Tournaments and competitions</p>
+          <h1 class="font-display text-heading-1 text-fg">Events</h1>
+          <p class="mt-1 text-sm text-fg-muted">Open play, tournaments and coaching near you</p>
         </div>
         <NuxtLink
           v-if="canCreateEvent"
@@ -458,7 +458,7 @@ function formatDateRange(start: string, end: string): string {
               v-model="searchTerm"
               type="search"
               placeholder="Name, venue or town"
-              class="w-full rounded-lg border border-border-strong bg-surface py-2 pl-9 pr-3 text-sm text-fg placeholder:text-fg-muted focus:border-primary focus:outline-none"
+              class="min-h-11 w-full rounded-lg border border-border-strong bg-surface py-2 pl-9 pr-3 text-sm text-fg placeholder:text-fg-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
             />
           </div>
         </div>
@@ -476,7 +476,7 @@ function formatDateRange(start: string, end: string): string {
             id="filter-province"
             :value="selectedProvince"
             :disabled="loadingProvinces"
-            class="w-full rounded-lg border border-border-strong bg-surface px-3 py-2 text-sm text-fg focus:border-primary focus:outline-none disabled:opacity-50"
+            class="min-h-11 w-full rounded-lg border border-border-strong bg-surface px-3 py-2 text-sm text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:opacity-50"
             @change="selectProvince(($event.target as HTMLSelectElement).value)"
           >
             <option value="">{{ loadingProvinces ? 'Loading…' : 'All provinces' }}</option>
@@ -489,7 +489,7 @@ function formatDateRange(start: string, end: string): string {
             id="filter-city"
             :value="selectedCity"
             :disabled="!selectedProvince || loadingCities"
-            class="w-full rounded-lg border border-border-strong bg-surface px-3 py-2 text-sm text-fg focus:border-primary focus:outline-none disabled:opacity-50"
+            class="min-h-11 w-full rounded-lg border border-border-strong bg-surface px-3 py-2 text-sm text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:opacity-50"
             @change="selectCity(($event.target as HTMLSelectElement).value)"
           >
             <option value="">
@@ -507,7 +507,7 @@ function formatDateRange(start: string, end: string): string {
         <button
           v-if="hasAnyFilter"
           type="button"
-          class="rounded-lg px-3 py-2 text-sm text-fg-muted hover:text-fg"
+          class="min-h-11 rounded-lg px-3 py-2 text-sm text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg"
           @click="clearFilters"
         >
           Clear
@@ -520,8 +520,8 @@ function formatDateRange(start: string, end: string): string {
       </div>
 
       <!-- Error -->
-      <div v-else-if="error" class="rounded-xl bg-red-500/10 p-6 text-center">
-        <p class="text-red-400">Could not load events.</p>
+      <div v-else-if="error" class="rounded-xl bg-danger-soft p-6 text-center">
+        <p class="text-danger">Could not load events.</p>
       </div>
 
       <!-- Empty -->
@@ -529,8 +529,12 @@ function formatDateRange(start: string, end: string): string {
         v-else-if="!visibleEvents.length"
         class="rounded-xl bg-surface p-12 text-center shadow-card"
       >
-        <p class="text-4xl">🎪</p>
-        <h3 class="mt-4 text-lg font-semibold text-fg">
+        <span
+          class="mx-auto flex h-12 w-12 items-center justify-center rounded-pill bg-surface-2 text-fg-muted"
+        >
+          <UiIcon name="calendar" size="h-6 w-6" />
+        </span>
+        <h3 class="mt-4 font-display text-heading-3 text-fg">
           {{ emptyTitle }}
         </h3>
         <!-- An active filter is the likeliest reason for an empty list, so say
@@ -539,10 +543,10 @@ function formatDateRange(start: string, end: string): string {
           {{ emptyHint }}
         </p>
         <p v-else-if="canCreateEvent" class="mt-2 text-sm text-fg-muted">
-          Be the first to create a tournament or competition
+          Be the first to put an open play session or a tournament on the calendar
         </p>
         <p v-else class="mt-2 text-sm text-fg-muted">
-          Events are hosted by clubs. Switch to a club account to create one.
+          Open play and tournaments are hosted by clubs. Switch to a club account to create one.
         </p>
         <NuxtLink
           v-if="canCreateEvent"
@@ -603,12 +607,23 @@ function formatDateRange(start: string, end: string): string {
             <!-- Who is hosting. Every event belongs to a club, but the card
                  only ever showed the venue and the town, so "whose session is
                  this" was unanswerable without opening it. Omitted rather than
-                 blanked when the club could not be resolved. -->
-            <div v-if="event.club_name" class="flex h-full items-center gap-2.5">
-              <UiAvatar :name="event.club_name" size="sm" class="shrink-0 ring-2 ring-on-scrim" />
-              <span class="min-w-0 border-l-2 border-on-art/30 pl-2.5">
+                 blanked when the club could not be resolved.
+
+                 On its own plate, closed by a hairline ring, for the reason the
+                 status chips above it are: the drawing behind this row is not
+                 reliably light, and at its darkest the club name was measuring
+                 1.04:1 against it. The plate is `surface`, so the name is drawn
+                 in the theme's own ink at the contrast it has everywhere else
+                 rather than in a fixed dark `on-art` that only ever suited a
+                 pale background. -->
+            <div
+              v-if="event.club_name"
+              class="inline-flex max-w-full items-center gap-2.5 rounded-badge bg-surface py-1.5 pl-1.5 pr-3 shadow-card ring-1 ring-inset ring-border"
+            >
+              <UiAvatar :name="event.club_name" size="sm" class="shrink-0" />
+              <span class="min-w-0">
                 <span class="flex items-center gap-1">
-                  <span class="truncate text-body-2 font-bold text-on-art">
+                  <span class="truncate text-body-2 font-medium text-fg">
                     {{ event.club_name }}
                   </span>
                   <!-- Same claim as the club page's VerifiedBadge, reduced to
@@ -628,15 +643,13 @@ function formatDateRange(start: string, end: string): string {
                     />
                   </span>
                 </span>
-                <span class="block text-caption text-on-art-muted">Host club</span>
+                <span class="block text-caption text-fg-muted">Host club</span>
               </span>
             </div>
           </EventTypeArtwork>
 
           <div class="flex flex-1 flex-col p-4">
-            <h2
-              class="mb-2 line-clamp-2 font-display text-heading-3 font-bold leading-tight text-fg"
-            >
+            <h2 class="mb-2 line-clamp-2 font-display text-heading-3 leading-tight text-fg">
               {{ event.name }}
             </h2>
             <p class="flex items-center gap-1.5 text-body-2 text-fg-secondary">
@@ -678,7 +691,7 @@ function formatDateRange(start: string, end: string): string {
                       : 'Full'
                   }}
                 </span>
-                <span v-if="slotsFor(event)!.remaining" class="block text-[11px] text-fg-muted">
+                <span v-if="slotsFor(event)!.remaining" class="block text-caption text-fg-muted">
                   slots left
                 </span>
               </span>
@@ -693,7 +706,7 @@ function formatDateRange(start: string, end: string): string {
                 <span class="block text-caption font-semibold tabular-nums text-fg">
                   {{ slotsFor(event)!.taken }}/{{ slotsFor(event)!.total }}
                 </span>
-                <span class="block text-[11px] text-fg-muted">registered</span>
+                <span class="block text-caption text-fg-muted">registered</span>
               </span>
             </div>
           </div>

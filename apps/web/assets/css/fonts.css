@@ -1,5 +1,5 @@
 /* ---------------------------------------------------------------------------
-   Typefaces — Poppins (display) + Inter (body)
+   Typefaces — Lexend (display) + Inter (body)
    ---------------------------------------------------------------------------
    Both were already named in `tailwind.config.ts` but never actually loaded, so
    every screen fell back to system-ui and none of the mockup's typography was
@@ -11,9 +11,9 @@
        portable off Vercel/Supabase per CLAUDE.md §2),
      - no cross-origin font privacy surface.
 
-   Only the `latin` subsets are shipped — 64KB total. Inter is the variable
-   file, so one download covers 400/500/600/700; Poppins is only used at the two
-   heading weights the mockup specifies (600 SemiBold, 700 Bold).
+   Only the `latin` subsets are shipped. Both families are variable, so two
+   files cover every weight either face uses — this replaced two static Poppins
+   cuts with one Lexend file and made the set smaller, not larger.
 
    `unicode-range` is deliberately omitted. With a single subset per family the
    browser already falls back per glyph for anything the file lacks (emoji, CJK),
@@ -32,20 +32,24 @@
   src: url('/fonts/inter-latin-var.woff2') format('woff2');
 }
 
-@font-face {
-  font-family: 'Poppins';
-  font-style: normal;
-  font-weight: 600;
-  font-display: swap;
-  src: url('/fonts/poppins-600-latin.woff2') format('woff2');
-}
+/* The display face.
 
+   Poppins was here first and was replaced deliberately: it is a geometric sans
+   built on near-perfect circles and a wide, high-energy cap, which read as
+   sporty rather than calm at heading size — the client's words were that it was
+   "not relaxing". Lexend is humanist rather than geometric, with open apertures,
+   a narrower cap and gentler curves, and it was designed and tested for reading
+   ease rather than for impact. It also ships as one variable file covering the
+   whole weight range, so the two static Poppins files become one 39KB download.
+
+   Headings now set 500/600 where they used to set 600/700: the lighter weight is
+   most of what makes the page read quieter. */
 @font-face {
-  font-family: 'Poppins';
+  font-family: 'Lexend';
   font-style: normal;
-  font-weight: 700;
+  font-weight: 100 900; /* variable */
   font-display: swap;
-  src: url('/fonts/poppins-700-latin.woff2') format('woff2');
+  src: url('/fonts/lexend-latin-var.woff2') format('woff2');
 }
 
 /* Headings use the display face; everything else inherits Inter from `body`.
@@ -55,5 +59,5 @@ h1,
 h2,
 h3,
 .font-display {
-  font-family: 'Poppins', 'Inter', system-ui, sans-serif;
+  font-family: 'Lexend', 'Inter', system-ui, sans-serif;
 }

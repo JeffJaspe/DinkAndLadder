@@ -1,7 +1,5 @@
 <script setup lang="ts">
-import type { IconName } from '~/utils/icons'
 import type { EventDto } from '~/server/domains/event/dto/event.dto'
-import type { RankingEntryDto } from '~/server/domains/rating/dto/ranking.dto'
 
 // This page ships its own fixed marketing header. Under the default layout a
 // signed-in visitor got that header *and* the app sidebar - two sets of chrome
@@ -9,13 +7,24 @@ import type { RankingEntryDto } from '~/server/domains/rating/dto/ranking.dto'
 // before render; the marketing layout is what a signed-out visitor sees.
 definePageMeta({ layout: 'marketing' })
 
+useHead({
+  title: 'Run your open play and tournaments on one record',
+  meta: [
+    {
+      name: 'description',
+      content:
+        'DinkAndLadder gives Philippine pickleball clubs one place to run open play, tournaments, brackets and members — and gives players a rating that only moves on matches an opponent confirmed.'
+    }
+  ]
+})
+
 /**
  * Sponsors, controlled from the SuperAdmin console (042-sponsors).
  *
- * Lazy and non-blocking: the hero and the stat strip are what the page is
- * for, and a logo row must never hold up first paint. An empty list hides the
- * whole section, which is also what a platform with no sponsors shows - so
- * there is no empty-state to design.
+ * Lazy and non-blocking: the claim band is what the page is for, and a logo row
+ * must never hold up first paint. An empty list hides the whole band, which is
+ * also what a platform with no sponsors shows - so there is no empty state to
+ * design.
  */
 interface Sponsor {
   id: string
@@ -31,13 +40,12 @@ const { data: sponsorsData } = useLazyFetch<{ data: Sponsor[] }>('/api/v1/platfo
 const sponsors = computed(() => sponsorsData.value?.data ?? [])
 
 /**
- * Landing hero, overridable by the SuperAdmin (docs/30 §2.3).
+ * Landing claim, overridable by the SuperAdmin (docs/30 §2.3).
  *
  * Every field falls back to the copy this page shipped with, so an unbranded
- * platform looks exactly as it always has. The built-in headline keeps its
- * two-line, gradient-highlighted treatment; a custom one is rendered as plain
- * text, because splitting someone else's sentence to colour half of it guesses
- * at emphasis they did not ask for.
+ * platform looks exactly as it always has. A custom headline renders as one
+ * plain block: splitting someone else's sentence to emphasise half of it
+ * guesses at emphasis they did not ask for.
  */
 const { appName, hero } = useBranding()
 
@@ -66,41 +74,176 @@ function cssUrl(url: string): string {
   return url.replace(/["'()\\]/g, encodeURIComponent)
 }
 
-type LandingTabId = 'home' | 'rankings' | 'events' | 'clubs' | 'players'
+/**
+ * Browse destinations.
+ *
+ * These were five tabs that swapped panels inside `/`, which meant the rankings
+ * a visitor was looking at had no URL to send anyone, and the marketing page and
+ * a browse tool competed for the same screen. They are real routes now, and this
+ * strip is the index that points at them.
+ */
+const browse: ReadonlyArray<{ to: string; label: string; line: string }> = [
+  { to: '/rankings', label: 'Rankings', line: 'The ladder, singles and doubles' },
+  { to: '/events', label: 'Events', line: 'Open play and tournaments' },
+  { to: '/clubs', label: 'Clubs', line: 'Who runs play, and where' },
+  { to: '/players', label: 'Players', line: 'Every rated player' }
+]
 
-const activeTab = ref<LandingTabId>('home')
-
-// Hoisted out of the template: it was an inline array literal, which Vue
-// rebuilt on every render, and it carried emoji glyphs while the rest of the
-// app has been on UiIcon since the theme pass.
-const landingTabs: ReadonlyArray<{ id: LandingTabId; label: string; icon: IconName }> = [
-  { id: 'home', label: 'Home', icon: 'home' },
-  { id: 'rankings', label: 'Rankings', icon: 'rankings' },
-  { id: 'events', label: 'Events', icon: 'calendar' },
-  { id: 'clubs', label: 'Clubs', icon: 'clubs' },
-  { id: 'players', label: 'Players', icon: 'players' }
+/** What a club actually runs here. Shipped capabilities only - see PRODUCT.md. */
+const clubLedger: ReadonlyArray<{ label: string; line: string }> = [
+  {
+    label: 'Open play sessions',
+    line: 'Schedule a session, set the skill range, and let members reserve a slot instead of replying in a thread.'
+  },
+  {
+    label: 'Tournaments, brackets and courts',
+    line: 'Draw the bracket, assign courts, and run scoresheets through the event rather than on paper at the desk.'
+  },
+  {
+    label: 'Members, roles and invitations',
+    line: 'Approve requests, invite players, and hand organiser duties to the people who actually run the sessions.'
+  },
+  {
+    label: 'Announcements',
+    line: 'Say it once to the club, on the same record the sessions and results already live on.'
+  }
 ]
 
 /**
- * Landing nav on a phone. The five section pills were a fixed strip that only
- * scrolled sideways, so the last tabs were reachable only by dragging a row
- * most people do not notice is scrollable. Below `sm` the strip is replaced by
- * a panel that also carries Log in / Get Started, which the header cannot fit
- * at that width. Structure follows the app drawer in `layouts/default.vue`.
+ * The verification loop. This is the mechanism, and it is drawn, not claimed.
+ *
+ * `record` is the same match travelling the three stops, so the band shows one
+ * result changing state rather than three captions in a row. The numbers are
+ * illustrative and labelled as such on the page - they are the shape of a
+ * rating move, not a claim that this match happened.
+ */
+const loop: ReadonlyArray<{
+  label: string
+  line: string
+  /** `null` on the stop that assembles its record from live state. */
+  record: string | null
+  /** Court Green marks the confirmed step, and nothing else on this page. */
+  confirmed?: boolean
+}> = [
+  {
+    label: 'Submitted',
+    line: 'A player records the score straight after the game.',
+    record: '11 — 7'
+  },
+  {
+    label: 'Confirmed',
+    line: 'The opponent confirms it, rejects it, or disputes it.',
+    record: 'Opponent agreed',
+    confirmed: true
+  },
+  {
+    label: 'Rating moves',
+    line: 'Only a confirmed result moves a rating — and it leaves a trail.',
+    // Assembled from `ratingTick` below so the figure can travel the gap the
+    // sentence describes. `null` means "this stop builds its own record".
+    record: null
+  }
+]
+
+/**
+ * The second beat of the page's one authored moment.
+ *
+ * The third stop says a rating moves, so the figure moves. It counts the same
+ * 45 thousandths a confirmed match is worth here, and it starts when the
+ * connecting rule arrives at that stop rather than when the band enters view,
+ * so the stroke and the number read as one event instead of two.
+ *
+ * Its resting value is the finished one, exactly like the rule's, and nothing
+ * winds it back unless motion is allowed - so the record is correct with no JS
+ * and under `prefers-reduced-motion`.
+ */
+const RATING_FROM = 4.102
+const RATING_TO = 4.147
+const ratingTick = ref(RATING_TO)
+
+/**
+ * Whether the move has happened yet. A rule wound back to nothing reads as a
+ * rule not yet drawn; a number wound back to its own starting value reads as
+ * wrong data - `4.102 → 4.102` is a match that did nothing. So while the record
+ * is wound back it shows the rating before the match and nothing else, and the
+ * arrow and the destination arrive with the movement they describe.
+ *
+ * `true` at rest, so the no-JS and reduced-motion record is the complete one.
+ */
+const ratingMoved = ref(true)
+const ratingRecord = computed(() =>
+  ratingMoved.value
+    ? `${RATING_FROM.toFixed(3)} → ${ratingTick.value.toFixed(3)}`
+    : RATING_FROM.toFixed(3)
+)
+
+const { data: eventsData } = await useFetch<{ events: EventDto[] }>('/api/v1/events')
+
+const upcoming = computed(() =>
+  (eventsData.value?.events ?? [])
+    .filter((e) => e.status === 'published' && new Date(e.start_date) > new Date())
+    .sort((a, b) => +new Date(a.start_date) - +new Date(b.start_date))
+    .slice(0, 4)
+)
+
+/**
+ * Schedule rows carry weekday, date and start time rather than the date alone.
+ * Several sessions on one day at one venue is the normal case for a club, and
+ * date-only rendered four consecutive rows as the same line - real data reading
+ * as filler.
+ */
+function formatEventDay(start: string): string {
+  return new Date(start).toLocaleDateString(undefined, {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric'
+  })
+}
+
+function formatEventTime(start: string): string {
+  return new Date(start).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+}
+
+/**
+ * Mobile nav panel. The header cannot fit the browse destinations plus Log in
+ * and the primary action below `sm`, so they move into a sheet. Structure
+ * follows the app drawer in `layouts/default.vue`: scrim, sheet, close button,
+ * Escape, and focus returned to the control that opened it.
  */
 const menuOpen = ref(false)
 const menuButton = ref<HTMLButtonElement | null>(null)
 
-function selectTab(id: LandingTabId) {
-  activeTab.value = id
-  closeMenu()
+/**
+ * The header's own rule, doubling as the read position.
+ *
+ * The page is a ledger and its structure is horizontal rules, so the one piece
+ * of persistent chrome that tells a visitor where they are is a rule too -
+ * drawn in the page's structural ink rather than in Court Green, because a
+ * scroll position is neither confirmed nor actionable and green is reserved for
+ * things that are. It is 2px, it sits on a line that already exists, and it is
+ * the only thing on the page that tracks the scroll.
+ *
+ * Written straight to a CSS custom property inside a rAF so a fast flick does
+ * not queue a reactive render per scroll event.
+ */
+const progressRule = ref<HTMLElement | null>(null)
+let progressFrame = 0
+
+function onScroll() {
+  if (progressFrame) return
+  progressFrame = requestAnimationFrame(() => {
+    progressFrame = 0
+    const el = progressRule.value
+    if (!el) return
+    const travel = document.documentElement.scrollHeight - window.innerHeight
+    const ratio = travel > 0 ? Math.min(1, Math.max(0, window.scrollY / travel)) : 0
+    el.style.setProperty('--dnl-read', String(ratio))
+  })
 }
 
 function closeMenu() {
   if (!menuOpen.value) return
   menuOpen.value = false
-  // Focus returns to the control that opened the panel rather than to the top
-  // of the document.
   nextTick(() => menuButton.value?.focus())
 }
 
@@ -108,118 +251,131 @@ function closeMenu() {
 function onKeydown(event: KeyboardEvent) {
   if (event.key === 'Escape') closeMenu()
 }
-onMounted(() => window.addEventListener('keydown', onKeydown))
-onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 
-const { data: eventsData } = await useFetch<{ events: EventDto[] }>('/api/v1/events')
-const { data: singlesRankings } = await useFetch<{ data: RankingEntryDto[] }>('/api/v1/rankings', {
-  query: { rating_type: 'singles', limit: 100 }
-})
-const { data: doublesRankings } = await useFetch<{ data: RankingEntryDto[] }>('/api/v1/rankings', {
-  query: { rating_type: 'doubles', limit: 100 }
-})
-const { data: clubsData } = await useFetch<{
-  data: Array<{
-    id: string
-    name: string
-    description: string | null
-    city: string | null
-    province: string | null
-    is_verified: boolean
-    member_count: number
-  }>
-}>('/api/v1/clubs/all')
+/**
+ * The page's one authored motion moment: the verification loop's connecting
+ * rule advances stop by stop as the band comes into view, so the mechanism
+ * reads as a single stroke rather than as three separate items.
+ *
+ * The default state in CSS is the finished one. Only this handler winds the
+ * rule back before releasing it, so the band is complete with no JS, on a
+ * failed hydration, and under `prefers-reduced-motion` — the animation is
+ * something the page opts into, never something it recovers from.
+ */
+const loopBand = ref<HTMLElement | null>(null)
+let observer: IntersectionObserver | null = null
+let failsafe: ReturnType<typeof setTimeout> | null = null
+let tickFrame = 0
 
-const events = computed(() => eventsData.value?.events ?? [])
-const upcomingEvents = computed(() =>
-  events.value.filter((e) => e.status === 'published' && new Date(e.start_date) > new Date())
-)
-const pastEvents = computed(() => events.value.filter((e) => e.status === 'completed'))
-const clubs = computed(() => clubsData.value?.data ?? [])
+onMounted(() => {
+  window.addEventListener('keydown', onKeydown)
+  window.addEventListener('scroll', onScroll, { passive: true })
+  onScroll()
 
-const rankingType = ref<'singles' | 'doubles'>('singles')
-const rankings = computed(() =>
-  rankingType.value === 'singles'
-    ? (singlesRankings.value?.data ?? [])
-    : (doublesRankings.value?.data ?? [])
-)
+  const band = loopBand.value
+  if (!band) return
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+  if (typeof IntersectionObserver === 'undefined') return
 
-const allPlayers = computed(() => {
-  const playerMap = new Map()
-  for (const p of singlesRankings.value?.data ?? []) {
-    playerMap.set(p.player_id, {
-      id: p.player_id,
-      display_name: p.display_name,
-      city: p.city,
-      province: p.province,
-      rating: p.rating_value
-    })
-  }
-  for (const p of doublesRankings.value?.data ?? []) {
-    if (!playerMap.has(p.player_id)) {
-      playerMap.set(p.player_id, {
-        id: p.player_id,
-        display_name: p.display_name,
-        city: p.city,
-        province: p.province,
-        rating: p.rating_value
-      })
+  band.dataset.animate = 'true'
+  // Motion is allowed, so - and only so - the record winds back to the value
+  // before the match. Everything above this line leaves it finished.
+  ratingTick.value = RATING_FROM
+  ratingMoved.value = false
+
+  const draw = () => {
+    band.dataset.drawn = 'true'
+    tickRating()
+    observer?.disconnect()
+    observer = null
+    if (failsafe) {
+      clearTimeout(failsafe)
+      failsafe = null
     }
   }
-  return Array.from(playerMap.values())
+
+  // A wound-back rule that never unwinds is a missing rule. The observer is the
+  // intended trigger; this is the guarantee that the band is complete anyway if
+  // it never fires - a fast jump-scroll past the threshold, a restored scroll
+  // position, a browser that batches the callback away.
+  failsafe = setTimeout(draw, 2500)
+
+  observer = new IntersectionObserver(
+    (entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) draw()
+    },
+    { threshold: 0.2 }
+  )
+  observer.observe(band)
 })
 
-function formatEventDate(start: string, end?: string): string {
-  const startDate = new Date(start).toLocaleDateString(undefined, {
-    month: 'short',
-    day: 'numeric'
-  })
-  if (!end || start === end) return startDate
-  const endDate = new Date(end).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-  return `${startDate} - ${endDate}`
+/**
+ * Counts the rating across the gap, starting as the connecting rule lands on
+ * the third stop (820ms stagger + 700ms travel). Tabular figures mean the
+ * digits change without the record moving a pixel sideways.
+ */
+function tickRating() {
+  if (ratingMoved.value) return
+
+  const START = 1500
+  const RUN = 900
+  const begin = performance.now() + START
+
+  const step = (now: number) => {
+    const t = (now - begin) / RUN
+    if (t <= 0) {
+      tickFrame = requestAnimationFrame(step)
+      return
+    }
+    ratingMoved.value = true
+    if (t >= 1) {
+      tickFrame = 0
+      ratingTick.value = RATING_TO
+      return
+    }
+    // The same exponential settle the rule uses, so the two beats share a hand.
+    const eased = 1 - Math.pow(1 - t, 3)
+    ratingTick.value = RATING_FROM + (RATING_TO - RATING_FROM) * eased
+    tickFrame = requestAnimationFrame(step)
+  }
+
+  tickFrame = requestAnimationFrame(step)
 }
 
-// Fetch real stats from database
-const { data: statsData } = await useFetch<{
-  data: { players: number; matches: number; clubs: number; events: number }
-}>('/api/v1/stats/public')
-
-const stats = computed(() => ({
-  players: statsData.value?.data?.players ?? allPlayers.value.length,
-  matches: statsData.value?.data?.matches ?? 0,
-  clubs: statsData.value?.data?.clubs ?? clubs.value.length,
-  tournaments: statsData.value?.data?.events ?? events.value.length
-}))
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onKeydown)
+  window.removeEventListener('scroll', onScroll)
+  observer?.disconnect()
+  if (failsafe) clearTimeout(failsafe)
+  if (progressFrame) cancelAnimationFrame(progressFrame)
+  if (tickFrame) cancelAnimationFrame(tickFrame)
+})
 </script>
 
 <template>
-  <div class="min-h-screen bg-canvas">
-    <div class="pointer-events-none fixed inset-0 overflow-hidden">
-      <div class="absolute -left-40 -top-40 h-80 w-80 rounded-full bg-primary/10 blur-[100px]" />
-      <div class="absolute -bottom-20 -right-20 h-60 w-60 rounded-full bg-primary/5 blur-[80px]" />
-    </div>
-
-    <header class="fixed left-0 right-0 top-0 z-50 bg-canvas/80 backdrop-blur-xl">
-      <div class="mx-auto flex h-16 max-w-6xl items-center justify-between px-4">
-        <UiBrandMark size="lg" gradient name-class="text-lg font-semibold" />
+  <div class="dnl-landing min-h-screen bg-canvas">
+    <header class="sticky top-0 z-50 border-b border-fg-muted bg-canvas">
+      <!-- The header's rule, doubling as the read position. Structural ink, not
+           Court Green: where you are is not a thing you confirmed. -->
+      <div ref="progressRule" class="dnl-read-rule" aria-hidden="true" />
+      <div class="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6">
+        <UiBrandMark size="lg" name-class="text-body-1 font-semibold" />
         <div class="flex items-center gap-2">
           <UiThemeToggle size="sm" />
-          <div class="hidden items-center gap-2 sm:flex">
-            <NuxtLink
-              to="/login"
-              class="rounded-lg px-4 py-2 text-sm font-medium text-fg-secondary transition-colors hover:text-fg"
-              >Log in</NuxtLink
-            >
-            <NuxtLink
-              to="/register"
-              class="rounded-xl bg-gradient-to-r from-primary to-primary-hover px-5 py-2.5 text-sm font-semibold text-on-primary shadow-lg shadow-primary/25 transition-all hover:shadow-xl hover:shadow-primary/30"
-              >Get Started</NuxtLink
-            >
-          </div>
+          <NuxtLink
+            to="/login"
+            class="dnl-press hidden rounded-button px-3 py-2 text-body-2 font-medium text-fg-secondary transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary sm:inline-block"
+            >Log in</NuxtLink
+          >
+          <NuxtLink
+            to="/register"
+            class="dnl-press hidden rounded-button bg-primary px-4 py-2 text-body-2 font-semibold text-on-primary transition-colors hover:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas sm:inline-block"
+            >Sign up</NuxtLink
+          >
           <button
             ref="menuButton"
             type="button"
-            class="rounded-xl p-2 text-fg-muted transition-colors hover:bg-fg/5 hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary sm:hidden"
+            class="dnl-press rounded-button p-2 text-fg-secondary transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary sm:hidden"
             aria-label="Open menu"
             aria-haspopup="dialog"
             :aria-expanded="menuOpen"
@@ -231,411 +387,375 @@ const stats = computed(() => ({
       </div>
     </header>
 
-    <!-- Centred on wide viewports, horizontally scrollable on a phone. The row
-         was justify-start inside a max-w-6xl container, so five pills packed
-         against the left edge under the brand and, below ~640px, overflowed
-         with no way to reach the last tab. -->
-    <nav class="fixed left-0 right-0 top-16 z-40 hidden bg-canvas/60 backdrop-blur-lg sm:block">
-      <div
-        class="dnl-navstrip mx-auto flex max-w-6xl justify-start gap-1 px-4 py-3 sm:justify-center"
-      >
-        <button
-          v-for="tab in landingTabs"
-          :key="tab.id"
-          type="button"
-          class="group relative flex shrink-0 items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-medium transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas motion-safe:hover:-translate-y-0.5"
-          :class="
-            activeTab === tab.id
-              ? 'bg-gradient-to-r from-primary to-primary-hover text-on-primary shadow-lg shadow-primary/25 ring-1 ring-primary/30'
-              : 'text-fg-muted hover:bg-fg/5 hover:text-fg'
-          "
-          :aria-current="activeTab === tab.id ? 'page' : undefined"
-          @click="activeTab = tab.id"
-        >
-          <UiIcon
-            :name="tab.icon"
-            size="h-4 w-4"
-            :stroke-width="activeTab === tab.id ? 2.2 : 1.8"
-            class="transition-transform duration-200 motion-safe:group-hover:scale-110"
-          />
-          <span>{{ tab.label }}</span>
-          <!-- The pill already carries the active state; this is the small
-               moving part that makes switching read as motion rather than a
-               repaint. Decorative, so it is hidden from assistive tech. -->
-          <span
-            v-if="activeTab === tab.id"
-            class="dnl-tab-underline absolute inset-x-4 -bottom-0.5 h-0.5 rounded-pill bg-on-primary/70"
-            aria-hidden="true"
-          />
-        </button>
-      </div>
-    </nav>
-
-    <!-- Mobile nav panel. Same shape as the app drawer: scrim, sheet, close
-         button; selecting a tab closes it so the page is not left behind an
-         open panel. -->
     <Teleport to="body">
-      <div v-if="menuOpen" class="fixed inset-0 z-[60] sm:hidden">
-        <div class="absolute inset-0 bg-black/60" @click="closeMenu" />
-        <aside
-          class="dnl-navpanel absolute right-0 top-0 flex h-full w-72 max-w-[85%] flex-col bg-canvas shadow-raised"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Menu"
-        >
-          <div class="flex h-16 shrink-0 items-center justify-between border-b border-border px-4">
-            <span class="text-lg font-semibold text-fg">{{ appName }}</span>
-            <button
-              type="button"
-              class="rounded-xl p-2 text-fg-muted transition-colors hover:bg-fg/5 hover:text-fg"
-              aria-label="Close menu"
-              @click="closeMenu"
-            >
-              <UiIcon name="x" :stroke-width="2" />
-            </button>
-          </div>
-
-          <nav class="flex-1 space-y-1 overflow-y-auto p-3">
-            <button
-              v-for="tab in landingTabs"
-              :key="tab.id"
-              type="button"
-              class="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors"
-              :class="
-                activeTab === tab.id
-                  ? 'bg-primary-soft text-primary'
-                  : 'text-fg-secondary hover:bg-fg/5 hover:text-fg'
-              "
-              :aria-current="activeTab === tab.id ? 'page' : undefined"
-              @click="selectTab(tab.id)"
-            >
-              <UiIcon :name="tab.icon" :stroke-width="activeTab === tab.id ? 2.2 : 1.8" />
-              {{ tab.label }}
-            </button>
-          </nav>
-
-          <div class="shrink-0 space-y-2 border-t border-border p-3">
-            <NuxtLink
-              to="/login"
-              class="block rounded-xl px-4 py-2.5 text-center text-sm font-medium text-fg-secondary transition-colors hover:bg-fg/5 hover:text-fg"
-              @click="closeMenu"
-              >Log in</NuxtLink
-            >
-            <NuxtLink
-              to="/register"
-              class="block rounded-xl bg-gradient-to-r from-primary to-primary-hover px-5 py-2.5 text-center text-sm font-semibold text-on-primary shadow-lg shadow-primary/25"
-              @click="closeMenu"
-              >Get Started</NuxtLink
-            >
-          </div>
-        </aside>
-      </div>
-    </Teleport>
-
-    <main class="relative mx-auto max-w-6xl px-4 pb-12 pt-20 sm:pt-36">
-      <!-- HOME -->
-      <div v-if="activeTab === 'home'" class="space-y-10">
-        <div
-          class="relative overflow-hidden rounded-3xl p-8 shadow-raised sm:p-12"
-          :class="
-            heroBackground ? 'bg-canvas' : 'bg-gradient-to-br from-grad-from via-surface to-canvas'
-          "
-          :style="heroBackground ?? undefined"
-        >
-          <!-- The brand glow belongs to the generated background; over a
-               photograph it just muddies the scrim. -->
-          <div
-            v-if="!heroBackground"
-            class="absolute right-0 top-0 h-64 w-64 rounded-full bg-primary/10 blur-[80px]"
-          />
-          <div class="relative">
+      <!-- The sheet arrives from the edge it lives on. A panel that pops into
+           existence is the single loudest "this is a document" tell on a phone;
+           240ms of travel is what makes the same markup read as an app. Both
+           halves are pure transform/opacity and both are neutralised under
+           `prefers-reduced-motion` by the media query in this page's styles. -->
+      <Transition name="dnl-sheet">
+        <div v-if="menuOpen" class="dnl-sheet fixed inset-0 z-[60] sm:hidden">
+          <div class="dnl-sheet-scrim absolute inset-0 bg-black/60" @click="closeMenu" />
+          <aside
+            class="dnl-sheet-panel absolute right-0 top-0 flex h-full w-72 max-w-[85%] flex-col border-l border-fg-muted bg-canvas"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Menu"
+          >
             <div
-              class="mb-4 inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-sm"
-              :class="
-                heroBackground ? 'bg-on-scrim/15 text-on-scrim' : 'bg-primary/10 text-primary'
-              "
+              class="flex h-16 shrink-0 items-center justify-between border-b border-fg-muted px-4"
             >
-              <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-primary" />Philippine
-              Pickleball Rating Platform
-            </div>
-            <h1
-              class="text-4xl font-bold tracking-tight sm:text-5xl"
-              :class="heroBackground ? 'text-on-scrim' : 'text-fg'"
-            >
-              <template v-if="hero.title">{{ hero.title }}</template>
-              <template v-else>
-                Play. Compete.<br /><span
-                  class="bg-gradient-to-r from-primary to-primary-hover bg-clip-text text-transparent"
-                  >Rise Up.</span
-                >
-              </template>
-            </h1>
-            <p
-              class="mt-4 max-w-xl text-lg"
-              :class="heroBackground ? 'text-on-scrim/85' : 'text-fg-muted'"
-            >
-              {{
-                hero.subtitle ??
-                'Track your rating, find tournaments, and connect with the pickleball community. Browse everything free — sign up to compete.'
-              }}
-            </p>
-            <div class="mt-8 flex flex-wrap gap-3">
-              <NuxtLink
-                to="/register"
-                class="rounded-xl bg-gradient-to-r from-primary to-primary-hover px-7 py-3.5 text-base font-semibold text-on-primary shadow-xl shadow-primary/25 transition-all hover:shadow-2xl hover:shadow-primary/30"
-                >Join Free</NuxtLink
-              >
+              <span class="text-body-1 font-semibold text-fg">{{ appName }}</span>
               <button
-                class="rounded-xl bg-fg/5 px-7 py-3.5 text-base font-semibold text-fg backdrop-blur-sm transition-all hover:bg-fg/10"
-                @click="activeTab = 'events'"
+                type="button"
+                class="dnl-press rounded-button p-2 text-fg-secondary transition-colors hover:text-fg"
+                aria-label="Close menu"
+                @click="closeMenu"
               >
-                Browse Events
+                <UiIcon name="x" :stroke-width="2" />
               </button>
             </div>
-          </div>
+
+            <nav class="flex-1 overflow-y-auto">
+              <NuxtLink
+                v-for="item in browse"
+                :key="item.to"
+                :to="item.to"
+                class="dnl-row dnl-press block border-b border-fg-muted px-4 py-3.5 text-body-2 font-medium text-fg-secondary transition-colors hover:text-fg"
+                @click="closeMenu"
+                >{{ item.label }}</NuxtLink
+              >
+            </nav>
+
+            <div class="shrink-0 space-y-2 border-t border-fg-muted p-4">
+              <NuxtLink
+                to="/login"
+                class="dnl-press block rounded-button px-4 py-2.5 text-center text-body-2 font-medium text-fg-secondary transition-colors hover:text-fg"
+                @click="closeMenu"
+                >Log in</NuxtLink
+              >
+              <NuxtLink
+                to="/register"
+                class="dnl-press block rounded-button bg-primary px-4 py-2.5 text-center text-body-2 font-semibold text-on-primary"
+                @click="closeMenu"
+                >Sign up</NuxtLink
+              >
+            </div>
+          </aside>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <main>
+      <!-- CLAIM BAND. No hero box: the claim is set on the page itself and
+           closed by the heaviest rule the page owns. -->
+      <section class="relative isolate" :style="heroBackground ?? undefined">
+        <!-- The operator's artwork sits *under* the page's own ground rather
+             than behind white knockout text.
+             The first pass laid a dark three-stop ramp over the image so fixed
+             white `on-scrim` ink would clear AA. That bought legibility and cost
+             everything else: a gradient on the one band the direction says is
+             flat, and the same near-black slab in both themes, so the light
+             theme had no light first viewport at all.
+             A flat wash of the theme's own canvas fixes both. The claim keeps
+             ordinary `fg` ink in whichever theme the visitor is in, the artwork
+             reads as a faint ground behind it, and `on-scrim` - which is a fixed
+             white by design, and the reason the ramp existed - is not needed on
+             this page at all. -->
+        <div v-if="heroBackground" class="dnl-hero-scrim" aria-hidden="true" />
+
+        <div class="relative z-10 mx-auto max-w-6xl px-4 pb-10 pt-14 sm:px-6 sm:pb-14 sm:pt-24">
+          <h1
+            class="max-w-[19ch] font-display text-[2.25rem] font-medium leading-[1.1] tracking-tight text-fg sm:text-6xl"
+          >
+            {{ hero.title ?? 'Run your open play and tournaments on one record.' }}
+          </h1>
+          <p class="mt-6 max-w-[62ch] text-body-1 text-fg-secondary sm:text-lg">
+            {{
+              hero.subtitle ??
+              'Sessions, entries, brackets, courts and results in one place instead of a group chat — and every result feeds a rating your players cannot argue with.'
+            }}
+          </p>
         </div>
 
-        <div class="grid grid-cols-2 gap-4 sm:grid-cols-4">
-          <div class="rounded-2xl bg-gradient-to-br from-grad-from to-grad-to p-5 shadow-card">
-            <p class="text-3xl font-bold text-fg">{{ stats.players.toLocaleString() }}</p>
-            <p class="mt-1 text-sm text-fg-muted">Rated Players</p>
-          </div>
-          <div class="rounded-2xl bg-gradient-to-br from-grad-from to-grad-to p-5 shadow-card">
-            <p class="text-3xl font-bold text-fg">{{ stats.matches.toLocaleString() }}</p>
-            <p class="mt-1 text-sm text-fg-muted">Verified Matches</p>
-          </div>
-          <div class="rounded-2xl bg-gradient-to-br from-grad-from to-grad-to p-5 shadow-card">
-            <p class="text-3xl font-bold text-fg">{{ stats.clubs }}</p>
-            <p class="mt-1 text-sm text-fg-muted">Active Clubs</p>
-          </div>
-          <div class="rounded-2xl bg-gradient-to-br from-grad-from to-grad-to p-5 shadow-card">
-            <p class="text-3xl font-bold text-fg">{{ stats.tournaments }}</p>
-            <p class="mt-1 text-sm text-fg-muted">Tournaments</p>
-          </div>
-        </div>
-
-        <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <button
-            class="group rounded-2xl bg-gradient-to-br from-grad-from to-grad-to p-6 text-left shadow-card transition-all hover:shadow-card-hover hover:from-grad-from hover:to-surface"
-            @click="activeTab = 'rankings'"
+        <!-- The actions sit on their own rule rather than inside a panel.
+             Solid canvas below `sm` only: at phone width the artwork's own
+             embedded lettering ghosts through the 0.92 wash directly behind the
+             two buttons, which is noise at the page's single point of action.
+             Desktop has room for the buttons to clear it, so the artwork keeps
+             reading there. -->
+        <div class="relative z-10 border-y border-fg-muted bg-canvas sm:bg-transparent">
+          <div
+            class="mx-auto flex max-w-6xl flex-col gap-3 px-4 py-5 sm:flex-row sm:items-center sm:px-6"
           >
-            <div
-              class="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 text-2xl transition-transform group-hover:scale-110"
-            >
-              🏆
-            </div>
-            <h3 class="font-semibold text-fg">Rankings</h3>
-            <p class="mt-1 text-sm text-fg-muted">See top-rated players</p>
-          </button>
-          <button
-            class="group rounded-2xl bg-gradient-to-br from-grad-from to-grad-to p-6 text-left shadow-card transition-all hover:shadow-card-hover hover:from-grad-from hover:to-grad-to"
-            @click="activeTab = 'events'"
-          >
-            <div
-              class="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 text-2xl transition-transform group-hover:scale-110"
-            >
-              📅
-            </div>
-            <h3 class="font-semibold text-fg">Events</h3>
-            <p class="mt-1 text-sm text-fg-muted">Tournaments & open play</p>
-          </button>
-          <button
-            class="group rounded-2xl bg-gradient-to-br from-grad-from to-grad-to p-6 text-left shadow-card transition-all hover:shadow-card-hover hover:from-grad-from hover:to-grad-to"
-            @click="activeTab = 'clubs'"
-          >
-            <div
-              class="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 text-2xl transition-transform group-hover:scale-110"
-            >
-              🏢
-            </div>
-            <h3 class="font-semibold text-fg">Clubs</h3>
-            <p class="mt-1 text-sm text-fg-muted">Find local communities</p>
-          </button>
-          <button
-            class="group rounded-2xl bg-gradient-to-br from-grad-from to-grad-to p-6 text-left shadow-card transition-all hover:shadow-card-hover hover:from-grad-from hover:to-grad-to"
-            @click="activeTab = 'players'"
-          >
-            <div
-              class="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 text-2xl transition-transform group-hover:scale-110"
-            >
-              👥
-            </div>
-            <h3 class="font-semibold text-fg">Players</h3>
-            <p class="mt-1 text-sm text-fg-muted">Browse all players</p>
-          </button>
-        </div>
-
-        <div class="rounded-3xl bg-gradient-to-br from-grad-from to-grad-to p-8 shadow-card">
-          <div class="mb-6 flex items-center gap-3">
-            <span class="text-2xl">🏸</span>
-            <h2 class="text-2xl font-bold text-fg">For Players</h2>
-          </div>
-          <div class="grid gap-6 sm:grid-cols-2">
-            <div class="flex gap-4">
-              <div
-                class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-lg"
-              >
-                🪜
-              </div>
-              <div>
-                <h4 class="font-semibold text-fg">Climb the Ladder</h4>
-                <p class="mt-1 text-sm text-fg-muted">
-                  Win matches, improve your rating, rise through the ranks
-                </p>
-              </div>
-            </div>
-            <div class="flex gap-4">
-              <div
-                class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-lg"
-              >
-                🎯
-              </div>
-              <div>
-                <h4 class="font-semibold text-fg">Find Fair Games</h4>
-                <p class="mt-1 text-sm text-fg-muted">
-                  Your verified rating helps match you with the right opponents
-                </p>
-              </div>
-            </div>
-            <div class="flex gap-4">
-              <div
-                class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-lg"
-              >
-                🏆
-              </div>
-              <div>
-                <h4 class="font-semibold text-fg">Compete in Tournaments</h4>
-                <p class="mt-1 text-sm text-fg-muted">Browse and register for events near you</p>
-              </div>
-            </div>
-            <div class="flex gap-4">
-              <div
-                class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-lg"
-              >
-                ⭐
-              </div>
-              <div>
-                <h4 class="font-semibold text-fg">Earn Recognition</h4>
-                <p class="mt-1 text-sm text-fg-muted">
-                  Unlock achievements and build your match history
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="rounded-3xl bg-gradient-to-br from-grad-from to-grad-to p-8 shadow-card">
-          <div class="mb-6 flex items-center gap-3">
-            <span class="text-2xl">🏢</span>
-            <h2 class="text-2xl font-bold text-fg">For Club Organizers</h2>
-          </div>
-          <div class="grid gap-6 sm:grid-cols-2">
-            <div class="flex gap-4">
-              <div
-                class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-lg"
-              >
-                🏢
-              </div>
-              <div>
-                <h4 class="font-semibold text-fg">Create Your Club</h4>
-                <p class="mt-1 text-sm text-fg-muted">Build your community, manage members</p>
-              </div>
-            </div>
-            <div class="flex gap-4">
-              <div
-                class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-lg"
-              >
-                🏆
-              </div>
-              <div>
-                <h4 class="font-semibold text-fg">Host Tournaments</h4>
-                <p class="mt-1 text-sm text-fg-muted">Set up brackets, manage registrations</p>
-              </div>
-            </div>
-            <div class="flex gap-4">
-              <div
-                class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-lg"
-              >
-                📅
-              </div>
-              <div>
-                <h4 class="font-semibold text-fg">Schedule Open Play</h4>
-                <p class="mt-1 text-sm text-fg-muted">Organize sessions, set skill requirements</p>
-              </div>
-            </div>
-            <div class="flex gap-4">
-              <div
-                class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-lg"
-              >
-                📊
-              </div>
-              <div>
-                <h4 class="font-semibold text-fg">Track Everything</h4>
-                <p class="mt-1 text-sm text-fg-muted">Club stats, member activity, results</p>
-              </div>
-            </div>
-          </div>
-          <div class="mt-6">
             <NuxtLink
               to="/register"
-              class="inline-flex items-center gap-2 rounded-xl bg-fg/5 px-6 py-3 font-semibold text-fg transition-all hover:bg-fg/10"
-              >+ Create Your Club</NuxtLink
+              class="dnl-press rounded-button bg-primary px-6 py-3 text-center text-body-1 font-semibold text-on-primary transition-colors hover:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+              >Create your club</NuxtLink
             >
+            <NuxtLink
+              to="/events"
+              class="dnl-press rounded-button border border-fg-muted bg-canvas px-6 py-3 text-center text-body-1 font-semibold text-fg transition-colors hover:border-fg hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+              >Find play near you</NuxtLink
+            >
+            <p class="text-body-2 text-fg-secondary sm:ml-auto">
+              Browsing is free and needs no account.
+            </p>
           </div>
         </div>
+      </section>
 
-        <div class="rounded-3xl bg-gradient-to-br from-grad-from to-grad-to p-8 shadow-card">
-          <h2 class="mb-8 text-center text-2xl font-bold text-fg">How It Works</h2>
-          <div class="grid gap-6 sm:grid-cols-4">
-            <div class="text-center">
-              <div
-                class="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-primary-hover text-xl font-bold text-on-primary shadow-lg shadow-primary/20"
+      <!-- BROWSE INDEX. The old tab strip, resolved into real URLs. -->
+      <nav aria-label="Browse" class="border-b-2 border-fg">
+        <ul class="mx-auto max-w-6xl px-4 sm:px-6 md:grid md:grid-cols-4">
+          <li
+            v-for="item in browse"
+            :key="item.to"
+            class="border-b border-fg-muted last:border-b-0 md:border-b-0 md:border-l md:border-fg-muted md:px-5 md:first:border-l-0 md:first:pl-0"
+          >
+            <NuxtLink
+              :to="item.to"
+              class="dnl-row group relative flex flex-col gap-1 py-4 focus-visible:outline-none md:py-5"
+            >
+              <span
+                class="dnl-row-shift text-body-1 font-semibold text-fg transition-colors group-hover:text-primary group-focus-visible:text-primary"
+                >{{ item.label }}</span
               >
-                1
-              </div>
-              <h4 class="font-semibold text-fg">Sign Up Free</h4>
-              <p class="mt-1 text-sm text-fg-muted">Create your profile</p>
+              <span class="dnl-row-shift text-body-2 text-fg-muted">{{ item.line }}</span>
+            </NuxtLink>
+          </li>
+        </ul>
+      </nav>
+
+      <!-- BAND: FOR CLUBS. Claim left, evidence right. -->
+      <section class="mx-auto max-w-6xl px-4 py-14 sm:px-6 sm:py-20">
+        <div class="md:grid md:grid-cols-12 md:gap-10">
+          <div class="md:col-span-5">
+            <h2
+              class="font-display text-heading-1 font-semibold tracking-tight text-fg sm:text-4xl"
+            >
+              For clubs
+            </h2>
+            <p class="mt-5 max-w-[48ch] text-body-1 text-fg-secondary">
+              A club here is an operator, not a listing. You run the play, hold the membership, and
+              own the record it all produces.
+            </p>
+            <NuxtLink
+              to="/register"
+              class="dnl-step mt-6 inline-flex items-center gap-2 rounded-button text-body-1 font-semibold text-fg underline decoration-fg-muted underline-offset-4 transition-colors hover:text-primary hover:decoration-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-4 focus-visible:ring-offset-canvas"
+            >
+              Create your club
+              <UiIcon
+                class="dnl-step-chevron"
+                name="chevron-right"
+                size="h-4 w-4"
+                :stroke-width="2.2"
+              />
+            </NuxtLink>
+          </div>
+
+          <!-- The evidence column gets a surface; the claim beside it stays on
+               the open canvas. Light mode cannot separate anything by tone, so
+               without a real panel and its shadow the whole page was strokes on
+               near-white — legible, but with no mass anywhere. Claim-left /
+               evidence-right survives; only the right half gains a ground. -->
+          <dl
+            class="mt-10 rounded-card border border-border bg-surface p-5 shadow-card sm:p-6 md:col-span-7 md:mt-0"
+          >
+            <div
+              v-for="row in clubLedger"
+              :key="row.label"
+              class="border-t border-border py-5 first:border-t-0 first:pt-0 sm:grid sm:grid-cols-3 sm:gap-6"
+            >
+              <dt class="text-body-1 font-semibold text-fg">{{ row.label }}</dt>
+              <dd class="mt-1.5 text-body-2 text-fg-secondary sm:col-span-2 sm:mt-0">
+                {{ row.line }}
+              </dd>
             </div>
-            <div class="text-center">
-              <div
-                class="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-primary-hover text-xl font-bold text-on-primary shadow-lg shadow-primary/20"
+          </dl>
+        </div>
+      </section>
+
+      <!-- BAND: THE RECORD. The mechanism, drawn. This is what stands where a
+           row of invented counts would normally go.
+
+           It carries the page's one real field of tone. `surface-2` at 60% was
+           a 1.03:1 step off the canvas in light mode - invisible, which is most
+           of why the page read pale. `surface-3` is the brand wash and actually
+           separates. Dark mode takes `surface-2` instead, because the dark
+           `surface-3` is light enough to put fg-secondary at 4.05:1, under AA;
+           on surface-2 it reads 5.28:1. -->
+      <section ref="loopBand" class="dnl-loop border-y-2 border-fg bg-surface-3 dark:bg-surface-2">
+        <div class="mx-auto max-w-6xl px-4 py-14 sm:px-6 sm:py-20">
+          <h2 class="font-display text-heading-1 font-semibold tracking-tight text-fg sm:text-4xl">
+            A rating nobody argues with
+          </h2>
+          <p class="mt-5 max-w-[62ch] text-body-1 text-fg-secondary">
+            No self-reported numbers. A result only counts once the person on the other side of the
+            net says it happened.
+          </p>
+
+          <ol class="mt-12 grid gap-10 sm:grid-cols-3 sm:gap-8">
+            <!-- `flex flex-col` with the record row pushed to the bottom: stop 3's
+                 description wraps to a second line, which left its record rule
+                 21px below the other two. Three rules at two heights is the most
+                 visible break possible on a page made of aligned rules. -->
+            <li v-for="(stop, i) in loop" :key="stop.label" class="dnl-stop relative flex flex-col">
+              <span class="dnl-seg" aria-hidden="true" />
+              <span
+                class="dnl-dot relative z-10 block h-3 w-3 rounded-pill border-2 border-fg bg-canvas"
+                aria-hidden="true"
+              />
+              <p class="mt-5 font-display text-heading-3 text-fg">
+                <span class="tabular-nums text-fg-muted">{{ i + 1 }}.</span> {{ stop.label }}
+              </p>
+              <p class="mt-2 max-w-[40ch] text-body-2 text-fg-secondary">{{ stop.line }}</p>
+              <!-- One match travelling the three stops, ruled like every other
+                   record on the page. Green appears exactly once here, on the
+                   step that is actually a confirmation. -->
+              <p
+                class="mt-4 flex items-center gap-2 border-t border-fg-muted pt-3 text-body-2 font-medium tabular-nums sm:mt-auto"
+                :class="stop.confirmed ? 'text-primary' : 'text-fg'"
               >
-                2
-              </div>
-              <h4 class="font-semibold text-fg">Find Events</h4>
-              <p class="mt-1 text-sm text-fg-muted">Browse tournaments & Open Play</p>
-            </div>
-            <div class="text-center">
-              <div
-                class="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-primary-hover text-xl font-bold text-on-primary shadow-lg shadow-primary/20"
-              >
-                3
-              </div>
-              <h4 class="font-semibold text-fg">Play & Record</h4>
-              <p class="mt-1 text-sm text-fg-muted">Submit results</p>
-            </div>
-            <div class="text-center">
-              <div
-                class="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-primary-hover text-xl font-bold text-on-primary shadow-lg shadow-primary/20"
-              >
-                4
-              </div>
-              <h4 class="font-semibold text-fg">Climb Rankings</h4>
-              <p class="mt-1 text-sm text-fg-muted">Watch rating rise</p>
-            </div>
+                <UiIcon
+                  v-if="stop.confirmed"
+                  name="check"
+                  size="h-4 w-4"
+                  :stroke-width="2.4"
+                  aria-hidden="true"
+                />
+                {{ stop.record ?? ratingRecord }}
+              </p>
+            </li>
+          </ol>
+          <p class="mt-8 text-caption text-fg-muted">
+            Scores and ratings shown here are an example, not a recorded match.
+          </p>
+        </div>
+      </section>
+
+      <!-- BAND: FOR PLAYERS. Claim left, the real schedule right. -->
+      <section class="mx-auto max-w-6xl px-4 py-14 sm:px-6 sm:py-20">
+        <div class="md:grid md:grid-cols-12 md:gap-10">
+          <div class="md:col-span-5">
+            <h2
+              class="font-display text-heading-1 font-semibold tracking-tight text-fg sm:text-4xl"
+            >
+              For players
+            </h2>
+            <p class="mt-5 max-w-[48ch] text-body-1 text-fg-secondary">
+              Find play near you and reserve a slot. Record the match when you are done. Watch the
+              ladder move — on results, not on opinions.
+            </p>
+            <NuxtLink
+              to="/register"
+              class="dnl-step mt-6 inline-flex items-center gap-2 rounded-button text-body-1 font-semibold text-fg underline decoration-fg-muted underline-offset-4 transition-colors hover:text-primary hover:decoration-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-4 focus-visible:ring-offset-canvas"
+            >
+              Get your rating
+              <UiIcon
+                class="dnl-step-chevron"
+                name="chevron-right"
+                size="h-4 w-4"
+                :stroke-width="2.2"
+              />
+            </NuxtLink>
+          </div>
+
+          <div
+            class="mt-10 rounded-card border border-border bg-surface p-5 shadow-card sm:p-6 md:col-span-7 md:mt-0"
+          >
+            <h3
+              class="border-b-2 border-border-strong pb-3 text-caption font-semibold uppercase tracking-widest text-fg-muted"
+            >
+              Next on the schedule
+            </h3>
+
+            <p
+              v-if="upcoming.length === 0"
+              class="border-b border-border py-6 text-body-2 text-fg-secondary"
+            >
+              Nothing is scheduled yet. Clubs publish their open play and tournaments here, and this
+              is where players find them —
+              <NuxtLink
+                to="/register"
+                class="dnl-press font-semibold text-primary underline underline-offset-4 transition-colors hover:decoration-2"
+                >start the first club</NuxtLink
+              >.
+            </p>
+
+            <ul v-else>
+              <li v-for="event in upcoming" :key="event.id">
+                <NuxtLink
+                  :to="`/events/${event.id}`"
+                  class="dnl-row group relative flex items-baseline gap-4 border-b border-border py-4 focus-visible:outline-none"
+                >
+                  <span class="w-24 shrink-0 tabular-nums">
+                    <span class="block text-body-2 font-semibold text-fg">{{
+                      formatEventDay(event.start_date)
+                    }}</span>
+                    <span class="block text-caption text-fg-muted">{{
+                      formatEventTime(event.start_date)
+                    }}</span>
+                  </span>
+                  <span class="min-w-0 flex-1">
+                    <span
+                      class="block truncate text-body-1 font-medium text-fg transition-colors group-hover:text-primary group-focus-visible:text-primary"
+                      >{{ event.name }}</span
+                    >
+                    <span class="block truncate text-body-2 text-fg-muted">
+                      {{ event.venue || event.city || 'Venue to be announced' }}
+                      <!-- On a phone the kind rides under the venue instead of
+                           competing with the name for the same row, which was
+                           truncating every title to five words. -->
+                      <span class="sm:hidden"
+                        >·
+                        {{ event.event_type === 'tournament' ? 'Tournament' : 'Open play' }}</span
+                      >
+                    </span>
+                  </span>
+                  <span
+                    class="hidden shrink-0 text-caption font-semibold uppercase tracking-wide text-fg-muted sm:block"
+                    >{{ event.event_type === 'tournament' ? 'Tournament' : 'Open play' }}</span
+                  >
+                </NuxtLink>
+              </li>
+            </ul>
+
+            <NuxtLink
+              to="/events"
+              class="dnl-step mt-5 inline-flex items-center gap-2 rounded-button text-body-2 font-semibold text-fg underline decoration-fg-muted underline-offset-4 transition-colors hover:text-primary hover:decoration-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-4 focus-visible:ring-offset-surface"
+            >
+              All events
+              <UiIcon
+                class="dnl-step-chevron"
+                name="chevron-right"
+                size="h-4 w-4"
+                :stroke-width="2.2"
+              />
+            </NuxtLink>
           </div>
         </div>
+      </section>
 
-        <!-- Sponsors. Above the closing CTA rather than in the footer: the
-             people paying for the section should not be below the fold that
-             nobody scrolls to. Hidden entirely when there are none. -->
-        <section v-if="sponsors.length" class="mb-12">
+      <!-- Sponsors. Above the closing action rather than in the footer: the
+           people paying for the band should not be below the fold that nobody
+           scrolls to. Hidden entirely when there are none. -->
+      <!-- Seated on the ledger's own claim-left / evidence-right row rather than
+           floating in open space. The logos are operator-uploaded and are not
+           restyled - but a raster tile adrift in the widest, emptiest band was
+           the one element on the page not built from rules. -->
+      <section v-if="sponsors.length" class="border-t border-fg-muted">
+        <div
+          class="mx-auto max-w-6xl px-4 py-10 sm:px-6 md:grid md:grid-cols-12 md:items-center md:gap-10"
+        >
           <h2
-            class="mb-6 text-center text-caption font-semibold uppercase tracking-widest text-fg-muted"
+            class="text-caption font-semibold uppercase tracking-widest text-fg-muted md:col-span-5"
           >
             Our sponsors
           </h2>
-          <div class="flex flex-wrap items-center justify-center gap-6 sm:gap-10">
+          <div
+            class="mt-6 flex flex-wrap items-center gap-8 border-t border-fg-muted pt-6 sm:gap-12 md:col-span-7 md:mt-0 md:border-t-0 md:pt-0"
+          >
             <component
               :is="sponsor.link_url ? 'a' : 'div'"
               v-for="sponsor in sponsors"
@@ -643,260 +763,203 @@ const stats = computed(() => ({
               :href="sponsor.link_url || undefined"
               :target="sponsor.link_url ? '_blank' : undefined"
               :rel="sponsor.link_url ? 'noopener noreferrer' : undefined"
-              class="flex flex-col items-center gap-2"
-              :class="sponsor.link_url ? 'transition-opacity hover:opacity-80' : ''"
+              :class="
+                sponsor.link_url
+                  ? 'dnl-press rounded-badge transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-4 focus-visible:ring-offset-canvas'
+                  : ''
+              "
             >
-              <!-- The label is the alt text, which is why it is required on
-                   the row: a logo with no accessible name is invisible to a
-                   screen reader and unreadable when the image fails. -->
+              <!-- The label is the alt text, which is why it is required on the
+                   row: a logo with no accessible name is invisible to a screen
+                   reader and unreadable when the image fails. -->
               <img
                 v-if="sponsor.image_url"
                 :src="sponsor.image_url"
                 :alt="sponsor.label"
-                class="h-12 w-auto max-w-[10rem] object-contain sm:h-14"
+                class="h-10 w-auto max-w-[9rem] object-contain sm:h-12"
                 loading="lazy"
               />
-              <span v-else class="text-body-2 font-medium text-fg-secondary">
-                {{ sponsor.label }}
-              </span>
+              <span v-else class="text-body-2 font-medium text-fg-secondary">{{
+                sponsor.label
+              }}</span>
             </component>
           </div>
-        </section>
+        </div>
+      </section>
 
+      <!-- CLOSING BAND. The action again, on the heavy rule. -->
+      <section class="border-t-2 border-fg">
         <div
-          class="relative overflow-hidden rounded-3xl bg-gradient-to-r from-primary to-primary-hover p-8 text-center shadow-raised sm:p-12"
+          class="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-14 sm:px-6 sm:py-20 md:flex-row md:items-end md:justify-between"
         >
-          <div
-            class="absolute -right-10 -top-10 h-40 w-40 rounded-full bg-on-primary/10 blur-2xl"
-          />
-          <h2 class="relative text-3xl font-bold text-on-primary">Ready to Play?</h2>
-          <p class="relative mt-3 text-lg text-on-primary/80">
-            Join the Philippine pickleball community today
-          </p>
-          <!-- Inverted card on a brand-green banner. `bg-white text-primary` was
-               2.67:1 in dark mode, because primary flips to the light green
-               while the button stayed white. canvas/primary passes in both. -->
-          <NuxtLink
-            to="/register"
-            class="relative mt-6 inline-block rounded-xl bg-canvas px-8 py-4 text-lg font-bold text-primary shadow-xl transition-all hover:shadow-2xl"
-            >Create Free Account</NuxtLink
-          >
-        </div>
-      </div>
-
-      <!-- RANKINGS -->
-      <div v-else-if="activeTab === 'rankings'" class="space-y-6">
-        <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <h2 class="text-2xl font-bold text-fg">Rankings</h2>
-          <div class="flex gap-2 rounded-xl bg-grad-to p-1.5">
-            <button
-              class="rounded-lg px-5 py-2 text-sm font-medium transition-all"
-              :class="
-                rankingType === 'singles'
-                  ? 'bg-gradient-to-r from-primary to-primary-hover text-on-primary shadow-lg'
-                  : 'text-fg-muted hover:text-fg'
-              "
-              @click="rankingType = 'singles'"
+          <div>
+            <h2
+              class="max-w-[20ch] font-display text-heading-1 font-semibold tracking-tight text-fg sm:text-4xl"
             >
-              Singles
-            </button>
-            <button
-              class="rounded-lg px-5 py-2 text-sm font-medium transition-all"
-              :class="
-                rankingType === 'doubles'
-                  ? 'bg-gradient-to-r from-primary to-primary-hover text-on-primary shadow-lg'
-                  : 'text-fg-muted hover:text-fg'
-              "
-              @click="rankingType = 'doubles'"
-            >
-              Doubles
-            </button>
+              Put your club's play on the record.
+            </h2>
+            <p class="mt-4 max-w-[52ch] text-body-1 text-fg-secondary">
+              Create the club, publish your first session, and let the results build the ladder.
+            </p>
           </div>
-        </div>
-        <div
-          v-if="rankings.length === 0"
-          class="rounded-2xl bg-gradient-to-br from-grad-from to-grad-to p-12 text-center shadow-card"
-        >
-          <p class="text-lg text-fg-muted">No ranked players yet.</p>
-          <NuxtLink
-            to="/register"
-            class="mt-4 inline-block rounded-xl bg-gradient-to-r from-primary to-primary-hover px-6 py-3 font-semibold text-on-primary"
-            >Be the First</NuxtLink
-          >
-        </div>
-        <!-- The same RankingBoard /rankings renders, so the signed-out view of
-             the ladder and the signed-in one cannot drift apart. The rows below
-             the podium used to be bespoke gradient cards with their own medal
-             colours — a half-migration that shared the podium and nothing else. -->
-        <RankingBoard
-          v-else
-          :entries="rankings"
-          @select="navigateTo(`/players/${$event.player_id}`)"
-        />
-      </div>
-
-      <!-- EVENTS -->
-      <div v-else-if="activeTab === 'events'" class="space-y-8">
-        <h2 class="text-2xl font-bold text-fg">Events</h2>
-        <div>
-          <h3 class="mb-4 flex items-center gap-2 text-lg font-semibold text-fg-secondary">
-            <span class="h-2 w-2 rounded-full bg-primary" />Upcoming
-          </h3>
-          <div
-            v-if="upcomingEvents.length === 0"
-            class="rounded-2xl bg-gradient-to-br from-grad-from to-grad-to p-10 text-center shadow-card"
-          >
-            <p class="text-fg-muted">No upcoming events</p>
-          </div>
-          <div v-else class="grid gap-4 sm:grid-cols-2">
+          <!-- One action, not a repeat of the header. This slot used to carry
+               `Create your club` beside `Log in`, both of which the header
+               already offers a scroll away — so the page's closing moment spent
+               itself restating the chrome. Log in belongs to the header, where
+               a returning visitor looks for it; the close belongs to the one
+               thing the page is arguing for. -->
+          <div class="shrink-0">
             <NuxtLink
-              v-for="event in upcomingEvents"
-              :key="event.id"
-              :to="`/events/${event.id}`"
-              class="group rounded-2xl bg-gradient-to-br from-grad-from to-grad-to p-5 shadow-card transition-all hover:shadow-card-hover hover:from-grad-from hover:to-grad-to"
+              to="/register"
+              class="dnl-press inline-block rounded-button bg-primary px-6 py-3 text-center text-body-1 font-semibold text-on-primary transition-colors hover:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+              >Create your club</NuxtLink
             >
-              <div class="flex items-start justify-between gap-4">
-                <div>
-                  <span
-                    class="mb-2 inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium"
-                    :class="
-                      event.event_type === 'tournament'
-                        ? 'bg-warning-fill/10 text-warning'
-                        : 'bg-primary/10 text-primary'
-                    "
-                    >{{
-                      event.event_type === 'tournament' ? '🏆 Tournament' : '🎾 Open Play'
-                    }}</span
-                  >
-                  <h4 class="mt-2 font-semibold text-fg group-hover:text-primary">
-                    {{ event.name }}
-                  </h4>
-                  <p class="mt-1 text-sm text-fg-muted">{{ event.venue || event.city || 'TBA' }}</p>
-                </div>
-                <div class="shrink-0 rounded-xl bg-primary/10 px-3 py-2 text-center">
-                  <p class="text-lg font-bold text-primary">
-                    {{ formatEventDate(event.start_date) }}
-                  </p>
-                </div>
-              </div>
-            </NuxtLink>
           </div>
         </div>
-        <div v-if="pastEvents.length > 0">
-          <h3 class="mb-4 text-lg font-semibold text-fg-muted">Past Events</h3>
-          <div class="space-y-2">
-            <NuxtLink
-              v-for="event in pastEvents.slice(0, 5)"
-              :key="event.id"
-              :to="`/events/${event.id}`"
-              class="flex items-center justify-between rounded-xl bg-grad-to/50 p-4 shadow-card transition-all hover:shadow-card-hover hover:bg-grad-from"
-            >
-              <div>
-                <h4 class="font-medium text-fg-secondary">{{ event.name }}</h4>
-                <p class="text-sm text-fg-muted">{{ event.city || event.venue }}</p>
-              </div>
-              <span class="text-sm text-fg-muted">{{ formatEventDate(event.start_date) }}</span>
-            </NuxtLink>
-          </div>
-        </div>
-      </div>
-
-      <!-- CLUBS -->
-      <div v-else-if="activeTab === 'clubs'" class="space-y-6">
-        <h2 class="text-2xl font-bold text-fg">Clubs</h2>
-        <div
-          v-if="clubs.length === 0"
-          class="rounded-2xl bg-gradient-to-br from-grad-from to-grad-to p-12 text-center shadow-card"
-        >
-          <p class="text-lg text-fg-muted">No clubs yet.</p>
-          <NuxtLink
-            to="/register"
-            class="mt-4 inline-block rounded-xl bg-gradient-to-r from-primary to-primary-hover px-6 py-3 font-semibold text-on-primary"
-            >Create the First Club</NuxtLink
-          >
-        </div>
-        <div v-else class="grid gap-4 sm:grid-cols-2">
-          <NuxtLink
-            v-for="club in clubs"
-            :key="club.id"
-            :to="`/clubs/${club.id}`"
-            class="group rounded-2xl bg-gradient-to-br from-grad-from to-grad-to p-5 shadow-card transition-all hover:shadow-card-hover hover:from-grad-from hover:to-grad-to"
-          >
-            <div class="flex items-start gap-4">
-              <div
-                class="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-surface-2 to-grad-from text-xl font-bold text-primary"
-              >
-                {{ club.name.charAt(0).toUpperCase() }}
-              </div>
-              <div class="flex-1">
-                <div class="flex items-center gap-2">
-                  <h4 class="font-semibold text-fg group-hover:text-primary">{{ club.name }}</h4>
-                  <span
-                    v-if="club.is_verified"
-                    class="rounded-full bg-primary/20 px-2 py-0.5 text-xs font-medium text-primary"
-                    >Verified</span
-                  >
-                </div>
-                <p class="mt-1 text-sm text-fg-muted">
-                  {{ [club.city, club.province].filter(Boolean).join(', ') || 'Philippines' }}
-                </p>
-                <p class="mt-2 text-xs text-fg-muted">{{ club.member_count }} members</p>
-              </div>
-            </div>
-          </NuxtLink>
-        </div>
-      </div>
-
-      <!-- PLAYERS -->
-      <div v-else-if="activeTab === 'players'" class="space-y-6">
-        <div class="flex items-center justify-between">
-          <h2 class="text-2xl font-bold text-fg">Players</h2>
-          <span class="text-sm text-fg-muted">{{ allPlayers.length }} rated players</span>
-        </div>
-        <div
-          v-if="allPlayers.length === 0"
-          class="rounded-2xl bg-gradient-to-br from-grad-from to-grad-to p-12 text-center shadow-card"
-        >
-          <p class="text-lg text-fg-muted">No players yet.</p>
-          <NuxtLink
-            to="/register"
-            class="mt-4 inline-block rounded-xl bg-gradient-to-r from-primary to-primary-hover px-6 py-3 font-semibold text-on-primary"
-            >Be the First</NuxtLink
-          >
-        </div>
-        <div v-else class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          <NuxtLink
-            v-for="player in allPlayers"
-            :key="player.id"
-            :to="`/players/${player.id}`"
-            class="group flex items-center gap-3 rounded-2xl bg-gradient-to-br from-grad-from to-grad-to p-4 shadow-card transition-all hover:shadow-card-hover hover:from-grad-from hover:to-grad-to"
-          >
-            <div
-              class="flex h-11 w-11 items-center justify-center rounded-xl bg-surface-2 font-bold text-primary"
-            >
-              {{ player.display_name.charAt(0).toUpperCase() }}
-            </div>
-            <div class="flex-1 overflow-hidden">
-              <p class="truncate font-medium text-fg group-hover:text-primary">
-                {{ player.display_name }}
-              </p>
-              <p class="text-sm text-fg-muted">
-                {{ player.city || player.province || 'Philippines' }}
-              </p>
-            </div>
-            <div v-if="player.rating" class="text-right">
-              <p class="font-bold text-primary">{{ player.rating.toFixed(2) }}</p>
-            </div>
-          </NuxtLink>
-        </div>
-      </div>
+      </section>
     </main>
 
-    <footer class="relative mt-12 bg-canvas px-4 py-8">
-      <div class="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 sm:flex-row">
-        <UiBrandMark size="sm" gradient name-class="text-sm font-medium" />
-        <p class="text-xs text-fg-muted">© 2026 Jeff Jaspe. All Rights Reserved.</p>
+    <footer class="border-t border-fg-muted">
+      <div
+        class="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 px-4 py-8 sm:flex-row sm:px-6"
+      >
+        <UiBrandMark size="sm" name-class="text-body-2 font-medium" />
+        <p class="text-caption text-fg-muted">© 2026 Jeff Jaspe. All Rights Reserved.</p>
       </div>
     </footer>
   </div>
 </template>
+
+<style scoped>
+/*
+ * The page's response vocabulary - .dnl-press, .dnl-row, .dnl-row-shift and
+ * .dnl-step-chevron - now lives in assets/css/main.css, because the feed needed
+ * the same one and two copies of an interaction language is how two surfaces
+ * start drifting apart. Only what is genuinely local to this page stays below.
+ */
+
+/* Selected text is a surface the page never drew and still ships. The brand
+   wash carries the theme's own ink at full contrast in both modes. */
+.dnl-landing :deep(::selection) {
+  background-color: rgb(var(--dnl-primary-soft));
+  color: rgb(var(--dnl-fg));
+}
+
+/*
+ * Reduced motion keeps every one of these responses and removes only their
+ * travel. Someone who asked for less movement still needs to see which row is
+ * under their finger, so the rule still appears and the ink still changes -
+ * only the sliding stops.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .dnl-sheet-enter-active .dnl-sheet-panel,
+  .dnl-sheet-leave-active .dnl-sheet-panel {
+    transition: none;
+  }
+
+  .dnl-sheet-enter-from .dnl-sheet-panel,
+  .dnl-sheet-leave-to .dnl-sheet-panel {
+    transform: none;
+  }
+}
+
+/*
+ * The legibility floor under an operator-chosen hero image.
+ *
+ * One flat wash of the theme's own canvas - not a gradient, and not a fixed
+ * colour. Because it is the canvas, the claim's ordinary `fg` ink keeps exactly
+ * the contrast it has everywhere else on the page, in both themes, whatever
+ * image or overlay opacity the SuperAdmin picked. The artwork stays readable
+ * underneath as a ground rather than competing with the words on top of it.
+ */
+.dnl-hero-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-color: rgb(var(--dnl-canvas) / 0.92);
+}
+
+/*
+ * The verification loop's connecting rule.
+ *
+ * The finished state is the default, so the band is complete with no JS and
+ * under `prefers-reduced-motion`. `data-animate` is written by the page only
+ * when motion is allowed; that is the single selector that winds the rule back
+ * to nothing, and `data-drawn` releases it.
+ */
+.dnl-seg {
+  position: absolute;
+  left: 0;
+  top: 5px;
+  height: 2px;
+  /* Reaches the next marker, not just the edge of its own grid column. At a
+     plain 100% the rule stopped one gap short of every dot and the stroke read
+     as three disconnected dashes - the exact "three separate items" reading
+     this moment exists to prevent. 2rem is the `sm:gap-8` between columns. */
+  width: calc(100% + 2rem);
+  background-color: rgb(var(--dnl-fg-muted));
+  transform-origin: left center;
+}
+
+/* The rule runs between stops, not past the last one. */
+.dnl-stop:last-child .dnl-seg {
+  display: none;
+}
+
+.dnl-loop[data-animate='true'] .dnl-seg {
+  transform: scaleX(0);
+  transition: transform 700ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.dnl-loop[data-animate='true'][data-drawn='true'] .dnl-seg {
+  transform: scaleX(1);
+}
+
+/*
+ * The stop markers never animate. They are the band's structure, not its
+ * motion: fading them in made the whole mechanism vanish whenever the trigger
+ * did not fire, which is the one failure a decorative entrance must not be able
+ * to cause. Only the rule between them is animated.
+ */
+
+/* Stop by stop, so it reads as one stroke travelling the band. */
+.dnl-stop:nth-child(1) .dnl-seg {
+  transition-delay: 120ms;
+}
+.dnl-stop:nth-child(2) .dnl-seg {
+  transition-delay: 820ms;
+}
+
+/*
+ * On a phone the stops are a column, so the rule that joins them is vertical
+ * and runs down the left edge rather than across.
+ */
+@media (max-width: 639px) {
+  /* The rule gets its own gutter. Run full-width like the horizontal version
+     and it crosses every line of the stop's own text. */
+  .dnl-stop {
+    padding-left: 1.75rem;
+  }
+
+  .dnl-dot {
+    margin-left: -1.75rem;
+  }
+
+  .dnl-seg {
+    left: 5px;
+    top: 0;
+    height: calc(100% + 2.5rem);
+    width: 2px;
+    transform-origin: top center;
+  }
+
+  .dnl-loop[data-animate='true'] .dnl-seg {
+    transform: scaleY(0);
+  }
+
+  .dnl-loop[data-animate='true'][data-drawn='true'] .dnl-seg {
+    transform: scaleY(1);
+  }
+}
+</style>

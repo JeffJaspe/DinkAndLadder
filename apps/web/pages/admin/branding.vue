@@ -180,7 +180,7 @@ async function saveHero() {
 <template>
   <div class="min-h-screen bg-canvas p-4 lg:p-6">
     <div class="page-shell">
-      <h1 class="text-2xl font-bold text-fg">Platform Branding</h1>
+      <h1 class="font-display text-heading-1 text-fg">Platform Branding</h1>
       <p class="mt-1 text-sm text-fg-muted">
         Super admin only. The name and logo shown across the app and in every browser tab.
       </p>
@@ -219,7 +219,7 @@ async function saveHero() {
               type="text"
               maxlength="60"
               :placeholder="DEFAULT_APP_NAME"
-              class="min-w-0 flex-1 rounded-button border border-border-strong bg-surface px-3 py-2 text-sm text-fg focus:border-primary focus:outline-none"
+              class="min-w-0 flex-1 rounded-button border border-border-strong bg-surface px-3 py-2 text-sm text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
             />
             <button
               type="submit"
@@ -302,7 +302,7 @@ async function saveHero() {
                 type="text"
                 :maxlength="MAX_HERO_TITLE_LENGTH"
                 placeholder="Play. Compete. Rise Up."
-                class="w-full rounded-button border border-border-strong bg-surface px-3 py-2 text-sm text-fg focus:border-primary focus:outline-none"
+                class="w-full rounded-button border border-border-strong bg-surface px-3 py-2 text-sm text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
               />
             </div>
 
@@ -316,7 +316,7 @@ async function saveHero() {
                 rows="2"
                 :maxlength="MAX_HERO_SUBTITLE_LENGTH"
                 placeholder="Track your rating, find tournaments, and connect with the pickleball community."
-                class="w-full rounded-button border border-border-strong bg-surface px-3 py-2 text-sm text-fg focus:border-primary focus:outline-none"
+                class="w-full rounded-button border border-border-strong bg-surface px-3 py-2 text-sm text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
               />
             </div>
 

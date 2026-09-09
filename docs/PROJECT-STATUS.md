@@ -6563,3 +6563,223 @@ Worth remembering the next time a status value is added anywhere.
 `typecheck` clean, `lint` 0 errors, 1138 tests pass (75 files) — 3 more covering
 the two service-level fixes. Event and club pages verified 200 against the
 running dev server.
+
+---
+
+## Open play live board — one screen for the whole session (2026-09-03)
+
+The open play screen was measured against a rival's live view and lost on one
+thing: seamlessness. Not features — the function was already there — but the
+fact that a single evening was drawn by two unrelated pieces of code and split
+across two tabs.
+
+**What was wrong.** Live courts lived on a "Courts" tab, finished games on a
+"Matches" tab. Same four people, same court, same evening, and nothing about
+the two presentations rhymed: a live game was a card with a score and controls,
+a finished one was a row in a list somewhere else. Following a match from "on
+court" to "final" meant changing tabs mid-game, and a player at the fence
+asking "how long until I'm on?" had to read both halves and join them up
+themselves.
+
+**What it is now.** One board, one card shape, grouped by round — current wave
+at the top, finished waves falling away below it newest first.
+
+### 052 — rounds are now stored
+
+The mixer scheduler has generated rounds since 041, but they were a *preview*:
+nothing was written, so the moment an organiser started courts from it the
+rounds ceased to exist. Three columns, all nullable or defaulted, because every
+existing row predates rounds and no backfill can honestly say which wave an old
+game belonged to:
+
+- `events.current_round` — the wave the session is on.
+- `event_courts.round_number` — the wave of the last game *started* on a court.
+  Deliberately **not** cleared when the game finishes; it is what tells the next
+  start whether this court has already had its turn.
+- `matches.event_round` — the wave a finished game belonged to, so the history
+  groups the same way the live board does. Partial index, since the
+  overwhelming majority of match rows will never have one.
+
+**The round rule.** A round here is a *wave inferred from what organisers do at
+the desk*, not a schedule committed up front — same reasoning that kept the
+mixer preview unpersisted: people arrive late, leave early and pull out with a
+bad ankle, so an evening's pairings baked into the database at 7pm is a
+liability by 8. Starting a court that has already played the current wave is
+the signal that the wave is over, and only then does the session advance.
+
+A consequence worth stating: a court still mid-game while two others start and
+finish rejoins at whatever wave is current, not the next one in sequence. That
+looks like a court skipping a round, and it is the honest answer — it did not
+play the round in between.
+
+No invented business rule here. The round is a label for play that already
+happened; it decides nothing about rating, ranking or verification.
+
+### UI
+
+- `EventMatchShell` — the fixed arrangement every match takes: court chip,
+  status pill, two sides either end of a `vs`. State changes the trim only.
+- `EventResultCard` — a finished game on that shell. Winner highlighted, score
+  at the size the answer deserves.
+- `EventCourtCard` — rebuilt onto the same shell; scoring controls unchanged.
+- `EventRoundGroup` — a wave, with the `2/3 done` progress badge that answers
+  "how long until the next round".
+- `EventLiveBoard` — assembles it. Free courts sit above the rounds and only
+  for organisers: a free court is something to *do* something about, and to a
+  spectator it is an empty box between the games they came to watch.
+- Tabs collapsed from five peers to **Matches** and **Scoreboard**, with Info,
+  Players and Queue demoted. The page now opens on the board rather than the
+  roster — "what is happening on court" is what it is opened to answer during a
+  session, and that was two clicks away.
+- A sticky strip keeps the event name, the round and the LIVE pill on screen
+  while a long evening is scrolled.
+
+### Not yet applied
+
+052 needs the `db-migrate` workflow, and **before** the code deploys — the app
+selects `current_round`, `round_number` and `event_round`, so shipping the other
+way round is the `42703 column does not exist` failure that took the event
+screens down on 028. 051 is still outstanding on the same path.
+
+### Validation
+
+`typecheck` clean, `lint` 0 errors, **1188 tests pass (81 files)** — 6 new
+covering the round rule: first game, joining the current wave, advancing on
+restart, an event predating 052, the round travelling out with the score, and
+the deliberate non-clearing of `round_number` on a freed court.
+
+---
+
+## Open play UX audit — creator and player, mobile
+
+An audit of the open play path from both sides — the organiser creating and
+running a session, and the player finding, entering and being scored in one —
+followed by the fixes it found. Scored 13/20 going in: performance and theming
+were already strong, accessibility and responsive behaviour were not.
+
+### 054 — open play can say how long a game is
+
+The audit's central finding. `utils/game-rules.ts` declares `targetPoints`,
+`winByTwo` and `bestOf` as configurable and 046 gave tournament categories the
+columns to set them — but open play never got them, so every court in the
+product was scored against the constant in `DEFAULT_GAME_RULES`. A club playing
+to 15 had a legitimate 15-13 rejected by `validateGames` as an unfinished game,
+and no stored result said which rule it had been played under.
+
+`054-open-play-scoring` puts `target_points`, `win_by_two` and `games_default`
+on `events`, mirroring 046 exactly, with the same `events_game_rules_valid`
+bounds so a game cannot be legal in a draw and illegal in open play. Defaults
+restate what every existing session was already played to, so no recorded result
+changes. `round_game_rules` is deliberately not copied — a per-round best-of is
+a draw concept, and a column nothing can write is worse than an absent one.
+
+`rulesForEvent()` is the event-shaped twin of `rulesForRound()`, and it is what
+the create form, the court board, the per-court scoring page and manual match
+submission all now read.
+
+**Creator:** a Scoring card offering 11 / 15 / 18 / 21 / Custom, a win-by-two
+switch, and games per match, with the rule read back as one sentence — four
+controls do not add up to something anybody can check at a glance.
+**Player:** the rule appears on the Info tab, in the queue panel, and on the
+court card beside the game counter. A scorer who thinks it is 11 when the club
+plays 15 calls the game early.
+
+### Courts are asked for on every session, and can be named
+
+`queue_courts` was collected only inside the "Match Queue" block, so a session
+run without the queue stored null — and `openCourts` floors null at 1. A
+four-court evening silently became one court row, with no way back because
+editing is draft-only. It is a fact about the venue, not the pairing mode, so
+the form now always asks. 054 backfills the nulls to the 1 they were already
+behaving as.
+
+`event_courts.court_name` has been rendered since 017 as
+`court_name || \`Court ${court_number}\`` with nothing able to write it, so a
+number was the only label a court could carry — a venue signposted "Center" or
+"A" was sending players to names that matched nothing on the fence. Adds
+`PATCH /api/v1/events/:id/courts/:courtId`, `renameCourt` on the court service,
+and a folded-away panel on the Matches tab. Blank clears it back to the number.
+
+### Two shape bugs on the per-court scoring page
+
+`GET /api/v1/events/:id` and `GET /api/v1/players/me` both return their DTO
+directly, not a `{ data }` envelope — unlike the `/courts` and `/queue`
+siblings, which do. `score.vue` read `.data` on both, so `event` and
+`myProfile` were **always** null, `canManage` was always false, and the
+organiser's own scoring page only ever rendered "Not yours to score". Found
+while wiring the session's game rules through it, not by reading the code.
+
+### The queue defaulted every player to singles
+
+`joinMatchType` was hard-coded to `'singles'` regardless of the event's
+`match_format`, which defaults to doubles. `nextPair` only pairs two waiting
+entries of the *same* format, so a doubles session whose players took the
+default filled with singles entries the organiser could not put on a court. Now
+seeded from the event.
+
+### Mobile, measured rather than asserted
+
+Every finding below was measured in a browser at 390x844 and 1280x900, not
+inferred from markup.
+
+- **Header** stacked below `sm`. The actions sat in a fixed right-hand column
+  at every width, so "Close to new players" alone took most of a phone row and
+  the event name wrapped down a ~140px gutter beside it.
+- **Tab bar** needed ~450px of minimum content against a phone's 328px and
+  pushed the page sideways. It scrolls now, and the primary tabs size to their
+  labels below `sm` rather than sharing a 126px remainder and truncating to
+  "Mat…".
+- **Touch targets.** The organiser's +/- point buttons were 36px; "Submit final
+  score" — the control that ends a game and creates the match record — was
+  **29px**, the smallest thing on the card. Withdraw, Skip, Refresh, the round
+  sort, the back controls and the browse filters were all under 44px. All raised.
+- **"Score this court"** force-opened a new tab at every width. That is the
+  desk's working pattern and the wrong one on a phone, where the browser offers
+  no way back. New tab from `lg` up, in-place below it, announced either way.
+- **The wide scoring card** was sized for a laptop and truncated every name at
+  390px — which now matters, because the link above reaches it on a phone. It
+  scales up from `sm` instead of at all widths.
+- **Two dead switch labels.** "Win by two" and "Match Queue" had their text in a
+  sibling of the `<label>`, so only the 44x24 switch was tappable and tapping
+  the words did nothing. Caught by driving the form, not by looking at it.
+
+### Accessibility
+
+`create-event.vue` had 17 orphan `<label>` elements and zero `id` attributes —
+every hand-rolled field announced as "edit text, blank". All paired, and the six
+radio groups are `fieldset`/`legend` rather than an `h2` over loose labels.
+Measured after: **0 unlabelled controls** on the form. `UiSelect` and `UiButton`
+were already correct; every failure was in markup written inline instead of
+through them.
+
+### Copy
+
+The browse page called itself "Tournaments and competitions" and invited people
+to "create a tournament or competition" — open play, a stated positioning
+pillar, was absent from the page that finds it. "Next on court" printed "First
+come, first served." on every session including Rating Based and Mix & Match.
+`court(s)` pluralisation replaced.
+
+### Design system
+
+`stat-court` (5rem) added to the ramp and recorded in DESIGN.md — the live score
+on the scoring page, where the number *is* the interface. It was a literal
+`text-[5rem]`. Detector clean afterwards; `check:tokens` clean.
+
+### Not yet applied
+
+054 needs the `db-migrate` workflow, and **before** the code deploys — the app
+selects `target_points`, `win_by_two` and `games_default`, so shipping the other
+way round is the `42703 column does not exist` failure that took the event
+screens down on 028. 051, 052 and 053 are still outstanding on the same path and
+054 sits behind them.
+
+### Validation
+
+`typecheck` clean, `lint` 0 errors (8 pre-existing warnings in untouched files),
+`check:tokens` clean, design detector clean, **1252 tests pass (84 files)** — 44
+new across `open-play-scoring.spec.ts` (rulesForEvent, a session played to 15 or
+rally-scored 21, best-of-3, court renaming) and the service's game-rule and
+court-count bounds. Beyond the suite, the surfaces were driven in a real browser
+at both viewports: overflow, every control's hit box, label association, and the
+create form's POST body end to end.

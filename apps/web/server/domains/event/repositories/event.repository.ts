@@ -7,15 +7,21 @@ import type {
   EventStatus,
   UpdateEventInput
 } from '../dto/event.dto'
+// PENDING-052: see utils/pending-052.ts. Delete with the migration.
+import { ROUNDS_MIGRATION_PENDING, withoutPendingColumns } from '~/utils/pending-052'
 
-const EVENT_COLUMNS =
+// PENDING-052: see utils/pending-052.ts. Delete with the migration.
+const EVENT_COLUMNS = withoutPendingColumns(
   'id, club_id, name, description, venue, province, city, start_date, end_date, ' +
-  'start_time, end_time, ' +
-  'registration_opens, registration_closes, status, visibility, event_type, ' +
-  'fee_amount, fee_currency, max_participants, queue_enabled, queue_courts, queue_mode, match_format, ' +
-  'min_players_to_start, close_policy, closes_at, closed_at, ' +
-  'coach_player_id, fee_payer, organizer_fee_amount, ' +
-  'queue_skip_timeout_seconds, created_by_player_id, created_at, updated_at'
+    'start_time, end_time, ' +
+    'registration_opens, registration_closes, status, visibility, event_type, ' +
+    'fee_amount, fee_currency, max_participants, queue_enabled, queue_courts, queue_mode, match_format, ' +
+    'target_points, win_by_two, games_default, ' +
+    'min_players_to_start, close_policy, closes_at, closed_at, ' +
+    'coach_player_id, fee_payer, organizer_fee_amount, ' +
+    'queue_skip_timeout_seconds, current_round, created_by_player_id, created_at, updated_at',
+  ['current_round']
+)
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -24,6 +30,14 @@ export interface EventRepository {
   create(input: CreateEventInput, createdByPlayerId: string): Promise<EventRecord>
   update(eventId: string, input: UpdateEventInput): Promise<EventRecord>
   updateStatus(eventId: string, status: EventStatus): Promise<EventRecord>
+  /**
+   * Moves the session on to a new wave. See 052.
+   *
+   * Its own method rather than a field on UpdateEventInput: the round is
+   * session state that only the court service is allowed to move, and putting
+   * it on the general update input would let any organiser edit form set it.
+   */
+  setCurrentRound(eventId: string, round: number): Promise<EventRecord>
   search(query: EventSearchQuery): Promise<EventRecord[]>
   /**
    * Open-play sessions still running on or before a given date, which nobody
@@ -107,6 +121,11 @@ export function createEventRepository(client: SupabaseClient): EventRepository {
           queue_enabled: input.queue_enabled ?? false,
           queue_courts: input.queue_courts ?? 1,
           match_format: input.match_format ?? 'doubles',
+          // The defaults restate DEFAULT_GAME_RULES, which is what every
+          // session created before 054 was scored against.
+          target_points: input.target_points ?? 11,
+          win_by_two: input.win_by_two ?? true,
+          games_default: input.games_default ?? 1,
           queue_mode: input.queue_mode ?? 'first_come',
           // Null means "derive the floor from the format" — see 045. Only a
           // deliberate override is stored.
@@ -147,6 +166,27 @@ export function createEventRepository(client: SupabaseClient): EventRepository {
       const { data, error } = await client
         .from('events')
         .update({ status, updated_at: new Date().toISOString() })
+        .eq('id', eventId)
+        .select(EVENT_COLUMNS)
+        .single()
+
+      if (error) throw error
+      return data as unknown as EventRecord
+    },
+
+    async setCurrentRound(eventId, round) {
+      // PENDING-052: nothing to advance until the column exists. Reading the
+      // row back unchanged keeps every caller on its normal path — the round
+      // is display-only while the migration is outstanding.
+      if (ROUNDS_MIGRATION_PENDING) {
+        const existing = await this.findById(eventId)
+        if (!existing) throw new Error('Event not found.')
+        return existing
+      }
+
+      const { data, error } = await client
+        .from('events')
+        .update({ current_round: round, updated_at: new Date().toISOString() })
         .eq('id', eventId)
         .select(EVENT_COLUMNS)
         .single()

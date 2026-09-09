@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Rounds for an open play session.
+
+     A mixer schedule has always had rounds - see mixup-scheduler - but they
+     were a preview and nothing else. Nothing was ever written down, so once an
+     organiser started courts from the preview the rounds ceased to exist: the
+     live board could show which courts were busy and the history could show a
+     flat list of finished games, and neither could say "round 9, one of two
+     courts still playing".
+
+     A round here is a *wave*, not a schedule. It is the session's own counter,
+     stamped onto play as it happens, rather than a plan committed up front -
+     which is deliberate and matches why the mixer preview was never persisted:
+     people arrive late, leave early and pull out with a bad ankle, so an
+     evening's pairings baked into the database at 7pm is a liability by 8.
+
+       events.current_round      - the wave the session is on now.
+       event_courts.round_number - the wave of the last game STARTED on this
+                                   court. Deliberately not cleared when the game
+                                   finishes: it is what tells the next start
+                                   whether this court has already had its turn
+                                   in the current wave, and so whether starting
+                                   it means the session has moved on.
+       matches.event_round       - the wave a finished game belonged to, so the
+                                   history can be grouped the same way the live
+                                   board is.
+
+     All three are nullable or defaulted, because every row that exists today
+     predates rounds and no backfill can honestly say which wave an old game
+     was part of. The UI reads a missing round as "ungrouped" rather than
+     inventing one. -->
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+    <changeSet id="052-events-current-round" author="claude">
+        <addColumn tableName="events">
+            <column name="current_round" type="int" defaultValueNumeric="1">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+        <rollback>
+            <dropColumn tableName="events" columnName="current_round"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="052-events-current-round-check" author="claude">
+        <sql>
+            ALTER TABLE events ADD CONSTRAINT ck_events_current_round
+                CHECK (current_round >= 1);
+        </sql>
+        <rollback>
+            ALTER TABLE events DROP CONSTRAINT ck_events_current_round;
+        </rollback>
+    </changeSet>
+
+    <changeSet id="052-event-courts-round-number" author="claude">
+        <addColumn tableName="event_courts">
+            <!-- Nullable: a court that has never been started has not played a
+                 round, and 0 would be a lie dressed up as a number. -->
+            <column name="round_number" type="int"/>
+        </addColumn>
+        <rollback>
+            <dropColumn tableName="event_courts" columnName="round_number"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="052-matches-event-round" author="claude">
+        <addColumn tableName="matches">
+            <!-- Nullable and staying that way: a match recorded by hand, and
+                 every tournament match, belongs to no open-play wave. -->
+            <column name="event_round" type="int"/>
+        </addColumn>
+        <rollback>
+            <dropColumn tableName="matches" columnName="event_round"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="052-matches-event-round-index" author="claude">
+        <!-- The live board's only new query: every match of one event, grouped
+             by round. Partial, because the overwhelming majority of rows have
+             no round and indexing them would be dead weight. -->
+        <sql>
+            CREATE INDEX idx_matches_event_round
+                ON matches (event_id, event_round DESC)
+                WHERE event_round IS NOT NULL;
+        </sql>
+        <rollback>
+            DROP INDEX IF EXISTS idx_matches_event_round;
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

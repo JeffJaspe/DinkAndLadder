@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { initialsFor } from '~/utils/initials'
 /**
  * Community — everyone you play with, in one place.
  *
@@ -129,7 +130,7 @@ function formatRelativeTime(dateStr: string): string {
 <template>
   <div class="min-h-screen bg-canvas p-4 lg:p-6">
     <div class="page-shell">
-      <h1 class="text-2xl font-bold text-fg">Community</h1>
+      <h1 class="font-display text-heading-1 text-fg">Community</h1>
       <p class="mt-1 text-sm text-fg-muted">Your duo partners, teammates and opponents</p>
 
       <!-- Tabs -->
@@ -198,7 +199,7 @@ function formatRelativeTime(dateStr: string): string {
               <div
                 class="flex h-12 w-12 items-center justify-center rounded-full bg-surface-2 text-lg font-bold text-fg-secondary"
               >
-                {{ teammate.display_name.charAt(0).toUpperCase() }}
+                {{ initialsFor(teammate.display_name, 1) }}
               </div>
               <div>
                 <p class="font-medium text-fg">{{ teammate.display_name }}</p>
@@ -247,7 +248,7 @@ function formatRelativeTime(dateStr: string): string {
               <div
                 class="flex h-12 w-12 items-center justify-center rounded-full bg-surface-2 text-lg font-bold text-fg-secondary"
               >
-                {{ opponent.display_name.charAt(0).toUpperCase() }}
+                {{ initialsFor(opponent.display_name, 1) }}
               </div>
               <div>
                 <p class="font-medium text-fg">{{ opponent.display_name }}</p>
@@ -260,7 +261,7 @@ function formatRelativeTime(dateStr: string): string {
               <p class="font-medium">
                 <span class="text-primary">{{ opponent.wins }}W</span>
                 <span class="mx-1 text-fg-muted">-</span>
-                <span class="text-red-400">{{ opponent.losses }}L</span>
+                <span class="text-danger">{{ opponent.losses }}L</span>
               </p>
               <p class="text-xs text-fg-muted">{{ formatRelativeTime(opponent.last_played) }}</p>
             </div>

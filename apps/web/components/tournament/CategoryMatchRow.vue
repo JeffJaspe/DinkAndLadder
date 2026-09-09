@@ -559,10 +559,8 @@ function submit() {
               <select
                 v-model="resultType"
                 :disabled="!canSetResultType"
-                :title="
-                  canSetResultType ? undefined : 'Available once the match is under way.'
-                "
-                class="rounded-lg border border-border-strong bg-canvas px-3 py-1.5 text-sm text-fg focus:border-primary focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+                :title="canSetResultType ? undefined : 'Available once the match is under way.'"
+                class="rounded-lg border border-border-strong bg-canvas px-3 py-1.5 text-sm text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <option value="normal">Played out</option>
                 <option value="retired">Retired</option>
@@ -578,21 +576,11 @@ function submit() {
               <legend class="mb-1.5 text-xs text-fg-secondary">Who takes the win?</legend>
               <div class="flex flex-wrap gap-3">
                 <label class="flex items-center gap-1.5 text-sm text-fg">
-                  <input
-                    v-model="explicitWinner"
-                    type="radio"
-                    :value="1"
-                    class="accent-primary"
-                  />
+                  <input v-model="explicitWinner" type="radio" :value="1" class="accent-primary" />
                   {{ side1 }}
                 </label>
                 <label class="flex items-center gap-1.5 text-sm text-fg">
-                  <input
-                    v-model="explicitWinner"
-                    type="radio"
-                    :value="2"
-                    class="accent-primary"
-                  />
+                  <input v-model="explicitWinner" type="radio" :value="2" class="accent-primary" />
                   {{ side2 }}
                 </label>
               </div>
@@ -602,7 +590,10 @@ function submit() {
           <!-- What the chosen ending actually does to the result, so DQ and
                walkover are not two words an organiser has to tell apart from
                memory while a court is waiting. -->
-          <p v-if="resultReason" class="rounded-button bg-warning-soft px-3 py-1.5 text-xs text-warning">
+          <p
+            v-if="resultReason"
+            class="rounded-button bg-warning-soft px-3 py-1.5 text-xs text-warning"
+          >
             {{ resultReason }}
           </p>
 

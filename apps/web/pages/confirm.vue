@@ -47,7 +47,7 @@ onMounted(async () => {
             class="h-12 w-12 animate-spin rounded-full border-4 border-primary border-t-transparent"
           />
         </div>
-        <h1 class="text-xl font-semibold text-fg">Confirming your account</h1>
+        <h1 class="font-display text-heading-2 text-fg">Confirming your account</h1>
         <p class="mt-2 text-fg-muted">Please wait while we verify your email...</p>
       </template>
 
@@ -55,7 +55,7 @@ onMounted(async () => {
       <template v-else>
         <div class="mb-4 flex justify-center">
           <div
-            class="flex h-12 w-12 items-center justify-center rounded-full bg-red-500/20 text-red-400"
+            class="flex h-12 w-12 items-center justify-center rounded-full bg-danger-soft text-danger"
           >
             <svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path
@@ -67,8 +67,8 @@ onMounted(async () => {
             </svg>
           </div>
         </div>
-        <h1 class="text-xl font-semibold text-fg">Confirmation Failed</h1>
-        <p class="mt-2 text-red-400">{{ errorMessage }}</p>
+        <h1 class="font-display text-heading-2 text-fg">Confirmation Failed</h1>
+        <p class="mt-2 text-danger">{{ errorMessage }}</p>
         <NuxtLink
           to="/login"
           class="mt-6 inline-block rounded-lg bg-primary px-6 py-2 font-medium text-on-primary hover:bg-primary-hover"

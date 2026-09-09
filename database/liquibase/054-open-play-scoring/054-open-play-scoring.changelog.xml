@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- How long an open play game is.
+
+     046 gave tournament_categories target_points, win_by_two and games_default,
+     and utils/game-rules.ts has read them ever since. Open play never got the
+     same columns, so every court in the product was scored against the hard
+     constant in DEFAULT_GAME_RULES: one game, to 11, win by two. A club that
+     plays to 15 or a rally-scored 21 could not record a session at all - the
+     score sheet rejected 15-13 as an unfinished game, because 11 was the only
+     number the validator had.
+
+     The three columns mirror 046 exactly, on `events` rather than on a
+     category, because open play has no category: a court belongs to an event.
+     rulesForRound() already accepts this shape, so nothing downstream needs a
+     second code path - the event becomes another source of the same record.
+
+     round_game_rules is deliberately NOT copied. A per-round best-of is a draw
+     concept; open play has waves, not rounds with different stakes, and a
+     column nothing can write is worse than an absent one.
+
+     Defaults restate what every existing row was already played to, so this
+     migration changes no result that has been recorded. -->
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+    <changeSet id="054-add-target-points" author="claude">
+        <preConditions onFail="MARK_RAN">
+            <not><columnExists tableName="events" columnName="target_points"/></not>
+        </preConditions>
+        <addColumn tableName="events">
+            <!-- 11 is the pickleball default and what every existing session
+                 was implicitly played to. -->
+            <column name="target_points" type="integer" defaultValueNumeric="11">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+        <rollback>
+            <dropColumn tableName="events" columnName="target_points"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="054-add-win-by-two" author="claude">
+        <preConditions onFail="MARK_RAN">
+            <not><columnExists tableName="events" columnName="win_by_two"/></not>
+        </preConditions>
+        <addColumn tableName="events">
+            <!-- On by default: it is the standard rule, and it is what makes
+                 12-10 and 15-13 possible at all. -->
+            <column name="win_by_two" type="boolean" defaultValueBoolean="true">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+        <rollback>
+            <dropColumn tableName="events" columnName="win_by_two"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="054-add-games-default" author="claude">
+        <preConditions onFail="MARK_RAN">
+            <not><columnExists tableName="events" columnName="games_default"/></not>
+        </preConditions>
+        <addColumn tableName="events">
+            <!-- 1, not 3, for the same reason 046 chose 1: a single game per
+                 match is what every session in the table has actually been
+                 played to, because nothing could express anything else. -->
+            <column name="games_default" type="integer" defaultValueNumeric="1">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+        <rollback>
+            <dropColumn tableName="events" columnName="games_default"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="054-add-scoring-checks" author="claude">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">SELECT count(*) FROM pg_constraint WHERE conname = 'events_game_rules_valid'</sqlCheck>
+        </preConditions>
+        <!-- Same bounds as tournament_categories_game_rules_valid, so a game
+             cannot be legal in a draw and illegal in open play. games_default
+             is odd because a best-of has to be decidable. -->
+        <sql>ALTER TABLE events ADD CONSTRAINT events_game_rules_valid CHECK (games_default BETWEEN 1 AND 9 AND games_default % 2 = 1 AND target_points BETWEEN 1 AND 99)</sql>
+        <rollback>
+            <sql>ALTER TABLE events DROP CONSTRAINT events_game_rules_valid</sql>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="054-backfill-queue-courts" author="claude">
+        <preConditions onFail="MARK_RAN">
+            <columnExists tableName="events" columnName="queue_courts"/>
+        </preConditions>
+        <!-- queue_courts was only ever collected behind the "Match Queue"
+             toggle on the create form, so every session run without the queue
+             stored NULL and materialised exactly one court at start - see
+             event-court.service.openCourts, which floors a NULL at 1. The form
+             now asks for it on every session, and NULL would still read as one
+             court. Nothing is guessed here: rows that already have a value keep
+             it, and the rest take the 1 they were already behaving as. -->
+        <sql>UPDATE events SET queue_courts = 1 WHERE queue_courts IS NULL</sql>
+        <rollback>
+            <comment>Backfill of a value the application already defaulted to; nothing to undo.</comment>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

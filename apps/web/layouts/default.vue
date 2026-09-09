@@ -98,9 +98,7 @@ const { incomingCount: teamUpRequestCount } = useTeamUpRequestCount()
  * requests were counted before, which meant a team-up invitation arrived with
  * no sign of it anywhere in the nav.
  */
-const communityRequestCount = computed(
-  () => partnerRequestCount.value + teamUpRequestCount.value
-)
+const communityRequestCount = computed(() => partnerRequestCount.value + teamUpRequestCount.value)
 
 // Achievements is a switchable surface (feature_flags, 'achievements.enabled').
 // A nav item pointing at a feature the SuperAdmin turned off is a dead link.
@@ -465,8 +463,19 @@ async function handleLogout() {
       v-if="!showShell && !isChromelessRoute(route.path)"
       class="fixed left-0 right-0 top-0 z-30 flex h-14 items-center justify-between border-b border-border bg-canvas px-4 lg:px-8"
     >
-      <NuxtLink to="/" class="flex items-center gap-2">
-        <UiBrandMark />
+      <!-- The way back to the marketing site. This was a bare mark linking to
+           `/`: a logo is identity, and a visitor who followed Rankings or
+           Events off the landing page does not read it as the way back. The
+           arrow and the word make it a route rather than a decoration, and it
+           names a destination rather than a history step, because someone who
+           opened /rankings from a shared link has no Back to press. -->
+      <NuxtLink
+        to="/"
+        class="flex items-center gap-2 rounded-button py-1 text-body-2 font-medium text-fg-secondary transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+      >
+        <UiIcon name="arrow-left" size="h-4 w-4" :stroke-width="2" aria-hidden="true" />
+        <UiBrandMark :show-name="false" />
+        <span class="hidden sm:inline">Back to home</span>
       </NuxtLink>
       <div class="flex items-center gap-2">
         <UiThemeToggle size="sm" />

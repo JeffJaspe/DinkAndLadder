@@ -88,7 +88,7 @@ function onBlur(e: FocusEvent) {
       :disabled="loading"
       :aria-expanded="open"
       aria-haspopup="menu"
-      class="flex w-full items-center justify-between gap-2 rounded-lg border border-border-strong bg-surface px-3 py-2.5 text-left text-sm text-fg hover:bg-surface-2 focus:border-primary focus:outline-none disabled:opacity-50"
+      class="flex w-full items-center justify-between gap-2 rounded-lg border border-border-strong bg-surface px-3 py-2.5 text-left text-sm text-fg hover:bg-surface-2 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:opacity-50"
       @click="open = !open"
     >
       <span class="flex min-w-0 items-center gap-2">

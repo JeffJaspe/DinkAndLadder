@@ -346,10 +346,7 @@ export function minPlayersForMixup(format: 'singles' | 'doubles'): number {
  * Returns the sentence rather than a boolean: "not enough players" without a
  * number is the message that sent an organiser looking for a bug.
  */
-export function mixupShortfall(
-  playerCount: number,
-  format: 'singles' | 'doubles'
-): string | null {
+export function mixupShortfall(playerCount: number, format: 'singles' | 'doubles'): string | null {
   const needed = minPlayersForMixup(format)
   if (playerCount >= needed) return null
   const short = needed - playerCount

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { initialsFor } from '~/utils/initials'
 import type { ClubDto } from '~/server/domains/club/dto/club.dto'
 import type { ClubRole, RosterMemberDto } from '~/server/domains/club/dto/club-membership.dto'
 import type { PlayerProfileDto } from '~/server/domains/player/dto/player-profile.dto'
@@ -264,7 +265,9 @@ const { isClubMode, activeClubId } = useAccountMode()
  * someone acting as Club A administer Club B, which is incoherent even though
  * they must still be staff of B for anything to be offered.
  */
-const isActingAsThisClub = computed(() => isClubMode.value && activeClubId.value === resolvedClubId.value)
+const isActingAsThisClub = computed(
+  () => isClubMode.value && activeClubId.value === resolvedClubId.value
+)
 
 /**
  * Club administration, split the way the product decided (2026-08-23).
@@ -372,7 +375,10 @@ async function updateMember(playerId: string, body: { status?: string; role?: st
   memberActionError.value = ''
   memberBusyId.value = playerId
   try {
-    await $fetch(`/api/v1/clubs/${resolvedClubId.value}/members/${playerId}`, { method: 'PATCH', body })
+    await $fetch(`/api/v1/clubs/${resolvedClubId.value}/members/${playerId}`, {
+      method: 'PATCH',
+      body
+    })
     await loadRoster()
   } catch (err) {
     // Previously unhandled: a refused change left the row looking unchanged with
@@ -453,12 +459,16 @@ async function createAnnouncement() {
 }
 
 async function publishAnnouncement(id: string) {
-  await $fetch(`/api/v1/clubs/${resolvedClubId.value}/announcements/${id}/publish`, { method: 'POST' })
+  await $fetch(`/api/v1/clubs/${resolvedClubId.value}/announcements/${id}/publish`, {
+    method: 'POST'
+  })
   await loadAnnouncements()
 }
 
 async function archiveAnnouncement(id: string) {
-  await $fetch(`/api/v1/clubs/${resolvedClubId.value}/announcements/${id}/archive`, { method: 'POST' })
+  await $fetch(`/api/v1/clubs/${resolvedClubId.value}/announcements/${id}/archive`, {
+    method: 'POST'
+  })
   await loadAnnouncements()
 }
 
@@ -502,8 +512,8 @@ const { goBack } = useAppBack('/my-clubs')
       </div>
 
       <!-- Error -->
-      <div v-else-if="clubError" class="rounded-xl bg-red-500/10 p-6 text-center">
-        <p class="text-red-400">
+      <div v-else-if="clubError" class="rounded-xl bg-danger-soft p-6 text-center">
+        <p class="text-danger">
           {{
             clubError.statusCode === 404
               ? 'This club is private or does not exist.'
@@ -541,11 +551,11 @@ const { goBack } = useAppBack('/my-clubs')
               v-else
               class="-mt-8 flex h-16 w-16 flex-shrink-0 items-center justify-center rounded-xl border-4 border-surface bg-surface-2 text-2xl font-bold text-fg"
             >
-              {{ club.name.charAt(0).toUpperCase() }}
+              {{ initialsFor(club.name, 1) }}
             </div>
             <div class="flex-1 pt-4">
               <div class="flex items-center gap-2">
-                <h1 class="text-2xl font-bold text-fg">{{ club.name }}</h1>
+                <h1 class="font-display text-heading-1 text-fg">{{ club.name }}</h1>
                 <VerifiedBadge v-if="club.verification_status === 'verified'" />
                 <span
                   v-if="club.visibility === 'private'"
@@ -566,11 +576,19 @@ const { goBack } = useAppBack('/my-clubs')
                 v-if="club.court_name || club.court_address"
                 class="mt-3 rounded-lg bg-canvas p-3"
               >
-                <p v-if="club.court_name" class="text-sm font-medium text-fg">
-                  🏸 {{ club.court_name }}
+                <p
+                  v-if="club.court_name"
+                  class="flex items-center gap-2 text-body-2 font-medium text-fg"
+                >
+                  <UiIcon name="paddle" size="h-4 w-4" class="shrink-0 text-fg-muted" />
+                  {{ club.court_name }}
                 </p>
-                <p v-if="club.court_address" class="mt-1 text-xs text-fg-muted">
-                  📍 {{ club.court_address }}
+                <p
+                  v-if="club.court_address"
+                  class="mt-1 flex items-center gap-2 text-caption text-fg-muted"
+                >
+                  <UiIcon name="location" size="h-4 w-4" class="shrink-0" />
+                  {{ club.court_address }}
                 </p>
               </div>
 
@@ -578,7 +596,7 @@ const { goBack } = useAppBack('/my-clubs')
               <div v-if="canRequestVerification" class="mt-3">
                 <span
                   v-if="club.verification_status === 'pending'"
-                  class="inline-flex items-center gap-1.5 rounded-full bg-amber-500/10 px-3 py-1 text-xs text-amber-400"
+                  class="inline-flex items-center gap-1.5 rounded-full bg-warning-soft px-3 py-1 text-xs text-warning"
                 >
                   Verification requested — awaiting review
                 </span>
@@ -591,7 +609,7 @@ const { goBack } = useAppBack('/my-clubs')
                 >
                   {{ verificationLoading ? 'Requesting…' : 'Request Verification' }}
                 </button>
-                <p v-if="verificationError" class="mt-1 text-xs text-red-400">
+                <p v-if="verificationError" class="mt-1 text-xs text-danger">
                   {{ verificationError }}
                 </p>
               </div>
@@ -601,15 +619,31 @@ const { goBack } = useAppBack('/my-clubs')
 
         <!-- Club Stats -->
         <div v-if="roster" class="mb-6 rounded-xl bg-surface p-5 shadow-card">
-          <h2 class="mb-3 text-sm font-medium uppercase tracking-wider text-fg-muted">
+          <h2 class="mb-3 text-caption font-semibold uppercase tracking-widest text-fg-muted">
             Club Stats
           </h2>
           <div class="flex gap-6 text-fg-secondary">
-            <span>👥 {{ roster.filter((m) => m.status === 'active').length }} Members</span>
-            <span
-              >🎾 {{ clubMatches.length }}{{ clubMatches.length === 50 ? '+' : '' }} Matches</span
-            >
-            <span>📅 {{ upcomingClubEvents.length + previousClubEvents.length }} Events</span>
+            <span class="flex items-center gap-2">
+              <UiIcon name="players" size="h-4 w-4" class="shrink-0 text-fg-muted" />
+              <span class="tabular-nums">{{
+                roster.filter((m) => m.status === 'active').length
+              }}</span>
+              Members
+            </span>
+            <span class="flex items-center gap-2">
+              <UiIcon name="matches" size="h-4 w-4" class="shrink-0 text-fg-muted" />
+              <span class="tabular-nums"
+                >{{ clubMatches.length }}{{ clubMatches.length === 50 ? '+' : '' }}</span
+              >
+              Matches
+            </span>
+            <span class="flex items-center gap-2">
+              <UiIcon name="calendar" size="h-4 w-4" class="shrink-0 text-fg-muted" />
+              <span class="tabular-nums">{{
+                upcomingClubEvents.length + previousClubEvents.length
+              }}</span>
+              Events
+            </span>
           </div>
         </div>
 
@@ -622,7 +656,7 @@ const { goBack } = useAppBack('/my-clubs')
           class="mb-6 rounded-xl bg-surface p-5 shadow-card"
         >
           <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
-            <h2 class="font-semibold text-fg">Top Members</h2>
+            <h2 class="font-display text-heading-3 text-fg">Top Members</h2>
             <!-- Both ladders. The endpoint has always served doubles; the page
                  simply never asked, so half the answer was unreachable. -->
             <div class="flex rounded-pill bg-canvas p-0.5" role="tablist">
@@ -656,7 +690,7 @@ const { goBack } = useAppBack('/my-clubs')
 
         <!-- Recent Club Matches -->
         <div v-if="clubMatches.length > 0" class="mb-6 rounded-xl bg-surface p-5 shadow-card">
-          <h2 class="mb-4 font-semibold text-fg">Recent Club Matches</h2>
+          <h2 class="mb-4 font-display text-heading-3 text-fg">Recent Club Matches</h2>
           <div class="space-y-2">
             <NuxtLink
               v-for="match in clubMatches.slice(0, 5)"
@@ -692,7 +726,7 @@ const { goBack } = useAppBack('/my-clubs')
           v-if="upcomingClubEvents.length > 0"
           class="mb-6 rounded-xl bg-surface p-5 shadow-card"
         >
-          <h2 class="mb-4 font-semibold text-fg">Upcoming Events</h2>
+          <h2 class="mb-4 font-display text-heading-3 text-fg">Upcoming Events</h2>
           <div class="space-y-2">
             <NuxtLink
               v-for="e in upcomingClubEvents"
@@ -700,9 +734,10 @@ const { goBack } = useAppBack('/my-clubs')
               :to="`/events/${e.id}`"
               class="flex items-center justify-between rounded-lg bg-canvas p-3 hover:bg-surface-2"
             >
-              <span class="text-sm text-fg">
-                📅 {{ e.name }}
-                <span class="text-fg-muted">{{
+              <span class="flex min-w-0 items-center gap-2 text-body-2 text-fg">
+                <UiIcon name="calendar" size="h-4 w-4" class="shrink-0 text-fg-muted" />
+                {{ e.name }}
+                <span class="truncate text-fg-muted">{{
                   [e.venue, e.city].filter(Boolean).join(', ')
                 }}</span>
               </span>
@@ -716,7 +751,7 @@ const { goBack } = useAppBack('/my-clubs')
           v-if="previousClubEvents.length > 0"
           class="mb-6 rounded-xl bg-surface p-5 shadow-card"
         >
-          <h2 class="mb-4 font-semibold text-fg">Previous Events</h2>
+          <h2 class="mb-4 font-display text-heading-3 text-fg">Previous Events</h2>
           <div class="space-y-2">
             <NuxtLink
               v-for="e in previousClubEvents"
@@ -724,7 +759,10 @@ const { goBack } = useAppBack('/my-clubs')
               :to="`/events/${e.id}`"
               class="flex items-center justify-between rounded-lg bg-canvas p-3 hover:bg-surface-2"
             >
-              <span class="text-sm text-fg-secondary">📅 {{ e.name }}</span>
+              <span class="flex min-w-0 items-center gap-2 text-body-2 text-fg-secondary">
+                <UiIcon name="calendar" size="h-4 w-4" class="shrink-0 text-fg-muted" />
+                <span class="truncate">{{ e.name }}</span>
+              </span>
               <span class="text-xs text-fg-muted">{{ formatEventDate(e.start_date) }}</span>
             </NuxtLink>
           </div>
@@ -735,7 +773,7 @@ const { goBack } = useAppBack('/my-clubs')
           v-if="publishedAnnouncements.length > 0"
           class="mb-6 rounded-xl bg-surface p-5 shadow-card"
         >
-          <h2 class="mb-4 font-semibold text-fg">Announcements</h2>
+          <h2 class="mb-4 font-display text-heading-3 text-fg">Announcements</h2>
           <div class="space-y-3">
             <ClubAnnouncementCard
               v-for="ann in publishedAnnouncements"
@@ -756,7 +794,7 @@ const { goBack } = useAppBack('/my-clubs')
           v-if="canManageAnnouncements && draftAnnouncements.length > 0"
           class="mb-6 rounded-xl bg-surface p-5 shadow-card"
         >
-          <h2 class="mb-4 font-semibold text-fg-muted">Drafts</h2>
+          <h2 class="mb-4 font-display text-heading-3 text-fg-muted">Drafts</h2>
           <div class="space-y-3">
             <div
               v-for="ann in draftAnnouncements"
@@ -776,7 +814,7 @@ const { goBack } = useAppBack('/my-clubs')
                   Publish
                 </button>
                 <button
-                  class="text-xs text-red-400 hover:underline"
+                  class="text-xs text-danger hover:underline"
                   @click="archiveAnnouncement(ann.id)"
                 >
                   Delete
@@ -804,14 +842,14 @@ const { goBack } = useAppBack('/my-clubs')
             New Announcement
           </button>
           <div v-else class="rounded-xl bg-surface p-5 shadow-card">
-            <h3 class="mb-4 font-semibold text-fg">Create Announcement</h3>
+            <h3 class="mb-4 font-display text-heading-3 text-fg">Create Announcement</h3>
             <div class="mb-3">
               <label class="mb-1.5 block text-sm text-fg-secondary">Title</label>
               <input
                 v-model="newAnnouncement.title"
                 type="text"
                 placeholder="Announcement title"
-                class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none"
+                class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
               />
             </div>
             <div class="mb-3">
@@ -820,10 +858,10 @@ const { goBack } = useAppBack('/my-clubs')
                 v-model="newAnnouncement.body"
                 placeholder="Announcement content..."
                 rows="3"
-                class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none"
+                class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
               />
             </div>
-            <p v-if="announcementError" class="mb-3 text-sm text-red-400">
+            <p v-if="announcementError" class="mb-3 text-sm text-danger">
               {{ announcementError }}
             </p>
             <div class="flex gap-2">
@@ -878,7 +916,7 @@ const { goBack } = useAppBack('/my-clubs')
 
         <!-- Join CTA (Non-Members) -->
         <div v-if="notAMember" class="mb-6 rounded-xl bg-surface p-6 text-center shadow-card">
-          <h2 class="font-semibold text-fg">
+          <h2 class="font-display text-heading-3 text-fg">
             {{ club.visibility === 'private' ? 'Private Club' : 'Join This Club' }}
           </h2>
           <p class="mt-1 text-fg-muted">
@@ -892,7 +930,7 @@ const { goBack } = useAppBack('/my-clubs')
           <!-- Already has pending request -->
           <div
             v-if="hasPendingRequest"
-            class="mt-4 rounded-lg bg-amber-500/10 p-3 text-amber-400 ring-1 ring-amber-500/30"
+            class="mt-4 rounded-lg bg-warning-soft p-3 text-warning ring-1 ring-warning/30"
           >
             Your membership request is pending approval.
           </div>
@@ -900,7 +938,7 @@ const { goBack } = useAppBack('/my-clubs')
           <!-- Request was rejected -->
           <div
             v-else-if="membershipStatus === 'rejected'"
-            class="mt-4 rounded-lg bg-red-500/10 p-3 text-red-400 ring-1 ring-red-500/30"
+            class="mt-4 rounded-lg bg-danger-soft p-3 text-danger ring-1 ring-danger/30"
           >
             Your membership request was declined. You may request again.
           </div>
@@ -913,7 +951,7 @@ const { goBack } = useAppBack('/my-clubs')
             {{ joinMessage }}
           </div>
 
-          <p v-if="joinError" class="mt-4 text-sm text-red-400">{{ joinError }}</p>
+          <p v-if="joinError" class="mt-4 text-sm text-danger">{{ joinError }}</p>
 
           <!-- Already invited: answering is the action, not asking again.
                Without this the page offered "Request to Join" to somebody the
@@ -956,9 +994,9 @@ const { goBack } = useAppBack('/my-clubs')
         <!-- Pending Requests Section (Admins Only) -->
         <div
           v-if="roster && canReviewJoinRequests && pendingRequests.length > 0"
-          class="mb-6 rounded-xl bg-amber-500/10 p-5 ring-1 ring-amber-500/30"
+          class="mb-6 rounded-xl bg-warning-soft p-5 ring-1 ring-warning/30"
         >
-          <h2 class="mb-4 flex items-center gap-2 font-semibold text-amber-400">
+          <h2 class="mb-4 flex items-center gap-2 font-display text-heading-3 text-warning">
             <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path
                 stroke-linecap="round"
@@ -979,7 +1017,7 @@ const { goBack } = useAppBack('/my-clubs')
                 <div
                   class="flex h-8 w-8 items-center justify-center rounded-full bg-surface-2 text-sm font-bold text-fg-secondary"
                 >
-                  {{ member.display_name.charAt(0).toUpperCase() }}
+                  {{ initialsFor(member.display_name, 1) }}
                 </div>
                 <NuxtLink
                   :to="`/players/${member.player_id}`"
@@ -996,7 +1034,7 @@ const { goBack } = useAppBack('/my-clubs')
                   Approve
                 </button>
                 <button
-                  class="rounded-lg border border-red-400 px-3 py-1 text-xs font-medium text-red-400 hover:bg-red-400/10"
+                  class="rounded-lg border border-danger px-3 py-1 text-xs font-medium text-danger hover:bg-danger-soft"
                   @click="updateMember(member.player_id, { status: 'rejected' })"
                 >
                   Reject
@@ -1008,7 +1046,9 @@ const { goBack } = useAppBack('/my-clubs')
 
         <!-- Members List (Active Members Only) -->
         <div v-if="roster" class="mb-6 rounded-xl bg-surface p-5 shadow-card">
-          <h2 class="mb-4 font-semibold text-fg">Members ({{ activeMembers.length }})</h2>
+          <h2 class="mb-4 font-display text-heading-3 text-fg">
+            Members ({{ activeMembers.length }})
+          </h2>
 
           <!-- Staff on this page without its hat. Says why the controls are not
                here, rather than letting them silently not exist. -->
@@ -1038,7 +1078,7 @@ const { goBack } = useAppBack('/my-clubs')
                 <div
                   class="flex h-8 w-8 items-center justify-center rounded-full bg-surface-2 text-sm font-bold text-fg-secondary"
                 >
-                  {{ member.display_name.charAt(0).toUpperCase() }}
+                  {{ initialsFor(member.display_name, 1) }}
                 </div>
                 <NuxtLink
                   :to="`/players/${member.player_id}`"
@@ -1066,7 +1106,7 @@ const { goBack } = useAppBack('/my-clubs')
                   v-if="assignableRolesFor(member).length"
                   :value="member.role"
                   :disabled="memberBusyId === member.player_id"
-                  class="rounded-button border border-border-strong bg-surface px-2 py-1 text-xs text-fg focus:border-primary focus:outline-none disabled:opacity-50"
+                  class="rounded-button border border-border-strong bg-surface px-2 py-1 text-xs text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:opacity-50"
                   @change="changeRole(member, ($event.target as HTMLSelectElement).value)"
                 >
                   <option v-for="role in assignableRolesFor(member)" :key="role" :value="role">
@@ -1088,7 +1128,7 @@ const { goBack } = useAppBack('/my-clubs')
 
           <button
             v-if="myMembership && myMembership.role !== 'OWNER'"
-            class="mt-4 rounded-lg border border-red-400 px-4 py-2 text-sm font-medium text-red-400 hover:bg-red-400/10"
+            class="mt-4 rounded-lg border border-danger px-4 py-2 text-sm font-medium text-danger hover:bg-danger-soft"
             @click="handleLeave"
           >
             Leave Club

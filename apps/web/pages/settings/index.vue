@@ -47,7 +47,7 @@ const THEME_OPTIONS: { value: ThemePreference; label: string; icon: IconName; hi
       <h1 class="mb-6 font-display text-heading-1 text-fg">Settings</h1>
 
       <section class="mb-6">
-        <h2 class="mb-2 text-caption font-semibold uppercase tracking-wide text-fg-muted">
+        <h2 class="mb-2 text-caption font-semibold uppercase tracking-widest text-fg-muted">
           Appearance
         </h2>
 
@@ -81,7 +81,7 @@ const THEME_OPTIONS: { value: ThemePreference; label: string; icon: IconName; hi
       </section>
 
       <section>
-        <h2 class="mb-2 text-caption font-semibold uppercase tracking-wide text-fg-muted">
+        <h2 class="mb-2 text-caption font-semibold uppercase tracking-widest text-fg-muted">
           Account
         </h2>
 

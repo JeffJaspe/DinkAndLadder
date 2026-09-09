@@ -168,7 +168,6 @@ const decidingPhase = computed<BracketPhase | null>(() => {
   if (present.includes('winners')) return 'winners'
   return null
 })
-
 </script>
 
 <template>
@@ -397,10 +396,8 @@ const decidingPhase = computed<BracketPhase | null>(() => {
                 v-if="reg.partner_display_name"
               >
                 /
-                <UiPlayerLink
-                  :player-id="reg.partner_player_id"
-                  :name="reg.partner_display_name" /></template
-              >
+                <UiPlayerLink :player-id="reg.partner_player_id" :name="reg.partner_display_name"
+              /></template>
             </span>
             <UiRatingBadge
               v-if="reg.rating != null"

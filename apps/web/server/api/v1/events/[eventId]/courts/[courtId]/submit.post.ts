@@ -90,6 +90,9 @@ export default defineEventHandler(async (event) => {
       const matchService = createMatchService(createMatchRepository(serviceClient))
       const match = await matchService.submitMatch(profile.id, {
         event_id: eventId,
+        // The wave the court was playing, so the history groups the same way
+        // the live board does.
+        event_round: finished.round,
         match_type: team1.match_type,
         played_at: new Date().toISOString(),
         participants: participantsFor(team1, team2),

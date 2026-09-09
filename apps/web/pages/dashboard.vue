@@ -36,9 +36,22 @@ interface UpcomingEventEntry {
   registration_status: string
 }
 
+/**
+ * Mirrors `server/api/v1/players/me/pending-actions.get.ts` exactly.
+ *
+ * `pending_partner_requests` was missing from this interface and from the page,
+ * while `total` on the server has always summed all three lists — so a player
+ * with three duo requests and nothing else read "3 waiting on you" above an
+ * empty list. A count the page cannot account for is worse than no count.
+ */
 interface PendingActionsResponse {
   pending_verifications: Array<{ match_id: string; match_type: string; played_at: string }>
   pending_memberships: Array<{ club_id: string; club_name: string }>
+  pending_partner_requests: Array<{
+    request_id: string
+    from_player_id: string
+    created_at: string
+  }>
   total: number
 }
 
@@ -127,7 +140,10 @@ const moreMatches = ref<MatchSummary[]>([])
 const matchesEnd = ref(false)
 const loadingMatches = ref(false)
 
-const allRecentMatches = computed(() => [...(recentMatches.value?.data ?? []), ...moreMatches.value])
+const allRecentMatches = computed(() => [
+  ...(recentMatches.value?.data ?? []),
+  ...moreMatches.value
+])
 
 watch(
   recentMatches,
@@ -439,485 +455,560 @@ function formatRelativeTime(dateStr: string): string {
 function formatEventDate(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 }
+
+/**
+ * The NOW band's state. The count drives the weight of the rule that closes the
+ * band, so the page reports whether anything needs the reader before a word of
+ * it is read.
+ */
+const pendingTotal = computed(() => pendingActions.value?.data.total ?? 0)
+const hasPending = computed(() => pendingTotal.value > 0)
+
+/** Where else to go from here. No submit action: club owners record scores. */
+const dashboardLinks: ReadonlyArray<{ to: string; label: string; line: string }> = [
+  { to: '/events', label: 'Events', line: 'Open play and tournaments' },
+  { to: '/rankings', label: 'Rankings', line: 'Where the ladder stands' },
+  { to: '/my-clubs', label: 'My clubs', line: 'Membership and requests' },
+  { to: '/players', label: 'Players', line: 'Find someone to play' }
+]
 </script>
-
 <template>
-  <div class="min-h-screen bg-canvas p-4 lg:p-6">
-    <!-- Loading State -->
-    <div v-if="pending" class="space-y-4">
-      <div class="h-24 animate-pulse rounded-xl bg-surface" />
-      <div class="grid grid-cols-2 gap-4">
-        <div class="h-32 animate-pulse rounded-xl bg-surface" />
-        <div class="h-32 animate-pulse rounded-xl bg-surface" />
-      </div>
+  <div class="min-h-screen bg-canvas px-4 py-5 lg:px-6 lg:py-6">
+    <!--
+    Panels, not bare rules.
+
+    The first version of this page drew its structure entirely in lines on the
+    canvas: no surface, no elevation, hairlines everywhere. In dark mode that
+    works, because the theme's surfaces separate by lightness. In light mode it
+    does not: `canvas` #F7F9F8 against `surface` #FFFFFF is 1.06:1, and every
+    darker canvas that would make tone readable pushes `primary`, `warning` and
+    `fg-muted` under AA (measured). With tone unable to separate anything, the
+    lines had to carry the whole page alone — which read pale and skeletal, and
+    made the rules themselves feel noisy.
+
+    So separation goes back to where this design system already put it: a real
+    surface with a real shadow. Five panels rather than the ten this page used
+    to stack, ordered by time and with NOW dominant, so mass carries the
+    structure and the rules inside a panel can be quiet again.
+  -->
+    <div v-if="pending" class="page-shell space-y-5">
+      <div class="h-28 animate-pulse rounded-card bg-surface" />
+      <div class="h-40 animate-pulse rounded-card bg-surface" />
+      <div class="h-40 animate-pulse rounded-card bg-surface" />
     </div>
 
-    <!-- Error State -->
-    <div v-else-if="error" class="rounded-xl bg-red-500/10 p-6 text-center">
-      <p class="text-red-400">Could not load your profile. Please try again.</p>
-      <button class="mt-4 rounded-lg bg-primary px-4 py-2 text-on-primary" @click="$router.go(0)">
-        Retry
-      </button>
-    </div>
-
-    <!-- Content -->
-    <div v-else-if="currentUser" class="page-shell space-y-5">
-      <!-- Header -->
-      <div class="flex items-start justify-between">
-        <div>
-          <p class="text-sm text-fg-secondary">Welcome to the Dashboard,</p>
-          <h1 class="text-2xl font-bold text-fg">
-            {{ myProfile?.display_name || currentUser.email?.split('@')[0] }}! 👋
-          </h1>
-          <p class="mt-1 text-sm text-fg-muted">Let's climb the ladder today.</p>
-        </div>
+    <div v-else-if="error" class="page-shell">
+      <div class="rounded-card border border-border bg-surface p-6 shadow-card">
+        <h1 class="font-display text-heading-2 text-fg">Could not load your dashboard</h1>
+        <p class="mt-2 max-w-[52ch] text-body-2 text-fg-secondary">
+          Your profile did not come back from the server. Nothing is lost — reloading usually clears
+          it.
+        </p>
         <button
-          class="rounded-lg border border-border-strong px-3 py-1.5 text-xs text-fg-secondary hover:bg-surface-2"
-          @click="handleLogout"
+          class="mt-5 rounded-button bg-primary px-5 py-2.5 text-body-2 font-semibold text-on-primary transition-colors hover:bg-primary-hover"
+          @click="$router.go(0)"
         >
-          Log Out
+          Try again
         </button>
       </div>
+    </div>
 
-      <!-- Shout-out Section -->
-      <div class="rounded-xl bg-surface p-5 shadow-card">
-        <div class="mb-3 flex items-center justify-between">
-          <span class="text-xs font-medium uppercase tracking-wider text-fg-muted">SHOUT-OUT</span>
-          <button
-            v-if="myShoutout?.data && !shoutoutEditing"
-            class="text-xs text-primary hover:underline"
-            @click="startEditingShoutout"
-          >
-            Edit
-          </button>
-        </div>
-
-        <!-- Display current shout-out -->
-        <div v-if="myShoutout?.data && !shoutoutEditing" class="flex items-start gap-3">
-          <span class="text-2xl">📣</span>
-          <div class="flex-1">
-            <p class="text-fg">"{{ myShoutout.data.message }}"</p>
-            <div class="mt-1 flex items-center gap-3 text-xs text-fg-muted">
-              <span>Posted {{ formatRelativeTime(myShoutout.data.created_at) }}</span>
-              <span
-                v-if="shoutoutExpiresIn"
-                class="rounded-full bg-primary/10 px-2 py-0.5 text-primary"
-              >
-                {{ shoutoutExpiresIn }}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        <!-- Edit/Create shout-out -->
-        <div v-else-if="shoutoutEditing || !myShoutout?.data">
-          <div class="flex gap-2">
-            <input
-              v-model="shoutoutInput"
-              type="text"
-              placeholder="What's on your mind?"
-              maxlength="280"
-              class="flex-1 rounded-lg border border-border-strong bg-canvas px-3 py-2 text-sm text-fg placeholder:text-fg-muted focus:border-primary focus:outline-none"
-              @keyup.enter="saveShoutout"
-            />
-            <button
-              class="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-on-primary hover:bg-primary-hover disabled:opacity-50"
-              :disabled="shoutoutSaving || !shoutoutInput.trim()"
-              @click="saveShoutout"
-            >
-              {{ shoutoutSaving ? '...' : shoutoutEditing ? 'Update' : 'Post' }}
-            </button>
-            <button
-              v-if="shoutoutEditing"
-              class="rounded-lg border border-border-strong px-3 py-2 text-sm text-fg-secondary hover:bg-surface-2"
-              @click="shoutoutEditing = false"
-            >
-              Cancel
-            </button>
-          </div>
-          <div v-if="!myShoutout?.data" class="mt-3 flex flex-wrap gap-2">
-            <button
-              v-for="example in shoutoutExamples"
-              :key="example"
-              class="rounded-full border border-border-strong px-3 py-1 text-xs text-fg-muted hover:border-primary hover:text-fg"
-              @click="shoutoutInput = example"
-            >
-              {{ example }}
-            </button>
-          </div>
-          <!-- Optional event link. Only rendered when there is something to
-               attach — an empty select is just a puzzle. -->
-          <div v-if="linkableEvents.length" class="mt-3">
-            <label for="shoutout-event" class="mb-1 block text-xs text-fg-muted">
-              Link an event (optional)
-            </label>
-            <select
-              id="shoutout-event"
-              v-model="shoutoutEventId"
-              class="w-full rounded-lg border border-border-strong bg-canvas px-3 py-2 text-sm text-fg focus:border-primary focus:outline-none"
-            >
-              <option value="">No event</option>
-              <option v-for="ev in linkableEvents" :key="ev.id" :value="ev.id">
-                {{ ev.name ?? ev.title }}
-              </option>
-            </select>
-          </div>
-
-          <p
-            v-if="shoutoutError"
-            class="mt-2 rounded-lg bg-danger/10 px-3 py-2 text-xs text-danger"
-          >
-            {{ shoutoutError }}
-          </p>
-
-          <p class="mt-2 text-right text-xs text-fg-muted">{{ shoutoutInput.length }}/280</p>
-        </div>
-      </div>
-
-      <!-- Rating & Rank Row -->
-      <div class="grid gap-4 sm:grid-cols-2">
-        <!-- Rating Card -->
-        <div class="rounded-xl bg-surface p-5 shadow-card">
-          <div class="mb-3 flex items-center justify-between">
-            <span class="text-xs font-medium uppercase tracking-wider text-fg-muted">RATING</span>
-            <div class="flex gap-1">
-              <button
-                class="rounded-md px-3 py-1 text-xs font-medium"
-                :class="
-                  activeRatingType === 'singles'
-                    ? 'bg-primary/20 text-primary'
-                    : 'text-fg-muted hover:bg-surface-2'
-                "
-                @click="activeRatingType = 'singles'"
-              >
-                Singles
-              </button>
-              <button
-                class="rounded-md px-3 py-1 text-xs font-medium"
-                :class="
-                  activeRatingType === 'doubles'
-                    ? 'bg-primary/20 text-primary'
-                    : 'text-fg-muted hover:bg-surface-2'
-                "
-                @click="activeRatingType = 'doubles'"
-              >
-                Doubles
-              </button>
-            </div>
-          </div>
-          <div class="flex items-baseline gap-3">
-            <span class="text-5xl font-bold text-fg">
-              {{ displayRating > 0 ? displayRating.toFixed(2) : '—' }}
-            </span>
-            <span class="text-lg text-primary">{{ ratingTier }}</span>
-          </div>
-        </div>
-
-        <!-- Rank Card -->
-        <div class="rounded-xl bg-surface p-5 shadow-card">
-          <div class="mb-3">
-            <span class="text-xs font-medium uppercase tracking-wider text-fg-muted">RANK</span>
-          </div>
-          <div v-if="myRankEntry" class="flex items-baseline gap-3">
-            <span class="text-5xl font-bold text-fg">#{{ myRankEntry.rank }}</span>
-            <div>
-              <p class="text-sm text-fg-secondary">
-                {{ myProfile?.city || myProfile?.province || 'Overall' }}
-              </p>
-              <p class="text-xs text-primary">of top {{ rankingData?.data.length }} tracked</p>
-            </div>
-          </div>
-          <div v-else class="flex items-center gap-3">
-            <span class="text-3xl font-bold text-fg-muted">Unranked</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- Rating Progress -->
-      <div class="rounded-card border border-border bg-surface p-5 shadow-card">
-        <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
-          <span class="text-body-2 font-medium text-fg">Rating Progress</span>
-          <UiSegmented
-            v-model="chartRange"
-            size="sm"
-            label="Chart range"
-            :items="RANGES.map((r) => ({ value: r.value, label: r.label }))"
-          />
-        </div>
-        <UiLineChart
-          :points="chartPoints"
-          :label="`${activeRatingType} rating over the selected range`"
-          empty-message="No rating history yet — play a verified match to start tracking progress."
-        />
-      </div>
-
-      <!-- Pending Actions -->
-      <div v-if="pendingActions?.data.total" class="rounded-xl bg-surface p-5 shadow-card">
-        <span class="text-sm font-medium text-fg-secondary"
-          >Pending Actions ({{ pendingActions.data.total }})</span
-        >
-        <div class="mt-3 space-y-2">
-          <NuxtLink
-            v-for="v in pendingActions.data.pending_verifications"
-            :key="v.match_id"
-            :to="`/matches/${v.match_id}`"
-            class="flex items-center gap-3 rounded-lg bg-surface-2/50 p-3 hover:bg-surface-2"
-          >
-            <span class="text-base">⚠️</span>
-            <span class="flex-1 text-sm text-fg-secondary">
-              A {{ v.match_type }} match is waiting for your verification
-            </span>
-          </NuxtLink>
-          <NuxtLink
-            v-for="m in pendingActions.data.pending_memberships"
-            :key="m.club_id"
-            :to="`/clubs/${m.club_id}`"
-            class="flex items-center gap-3 rounded-lg bg-surface-2/50 p-3 hover:bg-surface-2"
-          >
-            <span class="text-base">📩</span>
-            <span class="flex-1 text-sm text-fg-secondary">
-              Your request to join {{ m.club_name }} is pending approval
-            </span>
-          </NuxtLink>
-        </div>
-      </div>
-
-      <!-- Recent Matches -->
-      <div class="rounded-xl bg-surface p-5 shadow-card">
-        <div class="mb-4 flex items-center justify-between">
-          <span class="text-sm font-medium text-fg-secondary">My Recent Matches</span>
-        </div>
-        <div v-if="!allRecentMatches.length" class="py-4 text-center text-sm text-fg-muted">
-          No matches yet —
-          <NuxtLink to="/events" class="text-primary hover:underline">find an event</NuxtLink> to
-          get started.
-        </div>
-        <div v-else class="space-y-2">
-          <NuxtLink
-            v-for="match in allRecentMatches"
-            :key="match.id"
-            :to="`/matches/${match.id}`"
-            class="flex items-center gap-3 rounded-lg bg-surface-2/50 p-3 hover:bg-surface-2"
-          >
-            <span class="text-base">
-              {{ didIWin(match) === true ? '🏆' : didIWin(match) === false ? '❌' : '🎾' }}
-            </span>
-            <span class="flex-1 text-sm text-fg-secondary">
-              {{ didIWin(match) === true ? 'Won' : didIWin(match) === false ? 'Lost' : 'Played' }}
-              vs {{ getOpponentNames(match) }}
-              <span class="text-fg-muted">{{ formatScore(match) }}</span>
-            </span>
-            <!-- What the match cost or earned. Green up, red down, and nothing
-                 at all for a match that did not affect rating — showing 0 there
-                 would say "you gained nothing", which is a different claim. -->
-            <span
-              v-if="match.rating_delta !== null && match.rating_delta !== undefined"
-              class="font-mono text-xs font-bold tabular-nums"
-              :class="match.rating_delta >= 0 ? 'text-success' : 'text-danger'"
-            >
-              {{ match.rating_delta >= 0 ? '+' : '' }}{{ match.rating_delta.toFixed(2) }}
-            </span>
-            <span class="text-xs text-fg-muted">{{ formatRelativeTime(match.played_at) }}</span>
-          </NuxtLink>
-
-          <button
-            v-if="!matchesEnd"
-            type="button"
-            class="w-full rounded-lg border border-border px-3 py-2 text-xs font-medium text-fg-secondary transition-colors hover:border-border-strong hover:text-fg disabled:opacity-60"
-            :disabled="loadingMatches"
-            @click="loadMoreMatches"
-          >
-            {{ loadingMatches ? 'Loading…' : 'Show more matches' }}
-          </button>
-        </div>
-      </div>
-
-      <!-- Upcoming Events -->
-      <div class="rounded-xl bg-surface p-5 shadow-card">
-        <div class="mb-4 flex items-center justify-between">
-          <span class="text-sm font-medium text-fg-secondary">My Upcoming Events</span>
-          <NuxtLink to="/events" class="text-xs text-primary hover:underline">Find more →</NuxtLink>
-        </div>
-        <div v-if="!allUpcomingEvents.length" class="py-4 text-center text-sm text-fg-muted">
-          You're not registered for any upcoming events.
-        </div>
-        <div v-else class="space-y-2">
-          <NuxtLink
-            v-for="entry in allUpcomingEvents"
-            :key="entry.event.id"
-            :to="`/events/${entry.event.id}`"
-            class="flex items-center gap-3 rounded-lg bg-surface-2/50 p-3 hover:bg-surface-2"
-          >
-            <span class="text-base">📅</span>
-            <span class="flex-1 text-sm text-fg-secondary">
-              {{ entry.event.name }}
-              <span class="text-fg-muted">{{
-                [entry.event.venue, entry.event.city].filter(Boolean).join(', ')
-              }}</span>
-            </span>
-            <span class="text-xs text-fg-muted">{{ formatEventDate(entry.event.start_date) }}</span>
-          </NuxtLink>
-
-          <button
-            v-if="!eventsEnd"
-            type="button"
-            class="w-full rounded-lg border border-border px-3 py-2 text-xs font-medium text-fg-secondary transition-colors hover:border-border-strong hover:text-fg disabled:opacity-60"
-            :disabled="loadingEvents"
-            @click="loadMoreEvents"
-          >
-            {{ loadingEvents ? 'Loading…' : 'Show more events' }}
-          </button>
-        </div>
-      </div>
-
-      <!-- My Clubs -->
-      <div class="rounded-xl bg-surface p-5 shadow-card">
-        <div class="mb-4 flex items-center justify-between">
-          <span class="text-sm font-medium text-fg-secondary">My Clubs</span>
-          <NuxtLink to="/my-clubs" class="text-xs text-primary hover:underline"
-            >View all →</NuxtLink
-          >
-        </div>
-        <div v-if="!myActiveClubs.length" class="py-4 text-center text-sm text-fg-muted">
-          You haven't joined a club yet.
-        </div>
-        <div v-else class="space-y-2">
-          <NuxtLink
-            v-for="membership in myActiveClubs"
-            :key="membership.club.id"
-            :to="`/clubs/${membership.club.id}`"
-            class="flex items-center gap-3 rounded-lg bg-surface-2/50 p-3 hover:bg-surface-2"
-          >
-            <span class="text-base">🏸</span>
-            <span class="flex-1 text-sm text-fg-secondary">{{ membership.club.name }}</span>
-            <span class="text-xs capitalize text-fg-muted">{{
-              membership.role.toLowerCase()
-            }}</span>
-          </NuxtLink>
-        </div>
-      </div>
-
-      <!-- Badge Showcase -->
-      <div class="rounded-xl bg-surface p-5 shadow-card">
-        <div class="mb-4 flex items-center justify-between">
-          <span class="text-sm font-medium text-fg-secondary">My Badge</span>
-          <button
-            class="text-xs text-primary hover:underline"
-            @click="badgeSelectorOpen = !badgeSelectorOpen"
-          >
-            {{ badgeSelectorOpen ? 'Cancel' : selectedBadge ? 'Change' : 'Select' }}
-          </button>
-        </div>
-
-        <!-- Current Badge Display -->
-        <div v-if="!badgeSelectorOpen && selectedBadge" class="flex items-center gap-4">
-          <span class="text-4xl">{{ selectedBadge.icon }}</span>
+    <div v-else-if="currentUser" class="page-shell space-y-5">
+      <!-- STANDING. Who you are and where you stand. -->
+      <section class="rounded-card border border-border bg-surface p-5 shadow-card sm:p-6">
+        <div class="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <p class="font-medium text-fg">{{ selectedBadge.name }}</p>
-            <p class="text-sm text-fg-muted">{{ selectedBadge.description }}</p>
+            <h1 class="font-display text-heading-3 text-fg">
+              {{ myProfile?.display_name || currentUser.email?.split('@')[0] }}
+            </h1>
+            <p class="mt-1 text-body-2 text-fg-secondary">
+              <template v-if="myRankEntry">
+                <span class="font-semibold tabular-nums text-fg">#{{ myRankEntry.rank }}</span>
+                in {{ myProfile?.city || myProfile?.province || 'the overall ladder' }}
+              </template>
+              <template v-else>Not ranked yet</template>
+            </p>
+          </div>
+          <div class="flex items-center gap-2">
+            <UiSegmented
+              v-model="activeRatingType"
+              size="sm"
+              label="Rating type"
+              :items="[
+                { value: 'singles', label: 'Singles' },
+                { value: 'doubles', label: 'Doubles' }
+              ]"
+            />
+            <button
+              class="rounded-button border border-border-strong px-3 py-2 text-body-2 font-medium text-fg-secondary transition-colors hover:bg-surface-2 hover:text-fg"
+              @click="handleLogout"
+            >
+              Log out
+            </button>
           </div>
         </div>
 
-        <!-- No Badge Selected -->
-        <div v-else-if="!badgeSelectorOpen" class="py-2 text-center text-sm text-fg-muted">
-          Select a badge to display on your profile.
+        <div class="mt-5 flex flex-wrap items-baseline gap-x-4 gap-y-1 border-t border-border pt-5">
+          <span class="text-stat-lg tabular-nums text-fg">{{
+            displayRating > 0 ? displayRating.toFixed(3) : '—'
+          }}</span>
+          <span class="text-heading-3 font-medium text-primary">{{ ratingTier }}</span>
+          <span class="text-body-2 text-fg-muted">{{ activeRatingType }} rating</span>
+        </div>
+      </section>
+
+      <!-- NOW. The only panel that asks for anything.
+
+           Signature: the panel itself reports the page's state. Anything
+           waiting and it takes the warning edge and a filled count; nothing
+           waiting and it is an ordinary panel saying so. State is carried by
+           the block, which light mode can actually render, rather than by a
+           rule weight, which it cannot. -->
+      <section
+        class="rounded-card border bg-surface p-5 shadow-card transition-colors duration-300 sm:p-6"
+        :class="hasPending ? 'border-warning' : 'border-border'"
+      >
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <h2 class="font-display text-heading-2 text-fg">Now</h2>
+          <span
+            v-if="hasPending"
+            class="rounded-pill bg-warning-soft px-3 py-1 text-body-2 font-semibold tabular-nums text-warning"
+            aria-live="polite"
+          >
+            {{ pendingTotal }} waiting on you
+          </span>
+          <span v-else class="text-body-2 text-fg-muted">Nothing waiting</span>
         </div>
 
-        <!-- Badge Selector -->
-        <div v-else class="space-y-2">
-          <button
-            v-if="selectedBadge"
-            class="flex w-full items-center gap-3 rounded-lg border border-dashed border-border-strong p-3 text-fg-muted hover:border-primary hover:text-fg"
-            :disabled="badgeSaving"
-            @click="selectBadge(null)"
+        <p v-if="!hasPending" class="mt-4 max-w-[56ch] text-body-1 text-fg-secondary">
+          You are all caught up. Results your opponents confirm show up here, and so does anything a
+          club or a partner needs you to answer.
+        </p>
+
+        <ul v-else class="mt-4">
+          <li v-for="v in pendingActions!.data.pending_verifications" :key="v.match_id">
+            <NuxtLink
+              :to="`/matches/${v.match_id}`"
+              class="group flex items-baseline gap-4 border-t border-border py-3.5 transition-colors first:border-t-0 first:pt-0 hover:text-primary"
+            >
+              <span
+                class="w-24 shrink-0 text-caption font-semibold uppercase tracking-wide text-warning"
+                >Verify</span
+              >
+              <span class="min-w-0 flex-1">
+                <span class="block text-body-1 font-medium text-fg group-hover:text-primary"
+                  >A {{ v.match_type }} match is waiting for your verification</span
+                >
+                <span class="block text-body-2 tabular-nums text-fg-muted">{{
+                  formatRelativeTime(v.played_at)
+                }}</span>
+              </span>
+              <UiIcon
+                name="chevron-right"
+                size="h-4 w-4"
+                :stroke-width="2"
+                class="shrink-0 text-fg-muted"
+                aria-hidden="true"
+              />
+            </NuxtLink>
+          </li>
+          <li v-for="m in pendingActions!.data.pending_memberships" :key="m.club_id">
+            <NuxtLink
+              :to="`/clubs/${m.club_id}`"
+              class="group flex items-baseline gap-4 border-t border-border py-3.5 transition-colors first:border-t-0 first:pt-0 hover:text-primary"
+            >
+              <span
+                class="w-24 shrink-0 text-caption font-semibold uppercase tracking-wide text-fg-muted"
+                >Club</span
+              >
+              <span class="min-w-0 flex-1">
+                <span class="block text-body-1 font-medium text-fg group-hover:text-primary"
+                  >Your request to join {{ m.club_name }} is pending approval</span
+                >
+                <span class="block text-body-2 text-fg-muted">Waiting on the club</span>
+              </span>
+              <UiIcon
+                name="chevron-right"
+                size="h-4 w-4"
+                :stroke-width="2"
+                class="shrink-0 text-fg-muted"
+                aria-hidden="true"
+              />
+            </NuxtLink>
+          </li>
+          <!-- Duo requests: the third list the server counts. They are answered
+               on the community page's partners tab. Omitting them here is what
+               produced a count with nothing under it. -->
+          <li v-for="r in pendingActions!.data.pending_partner_requests" :key="r.request_id">
+            <NuxtLink
+              to="/community?tab=partners"
+              class="group flex items-baseline gap-4 border-t border-border py-3.5 transition-colors first:border-t-0 first:pt-0 hover:text-primary"
+            >
+              <span
+                class="w-24 shrink-0 text-caption font-semibold uppercase tracking-wide text-warning"
+                >Duo</span
+              >
+              <span class="min-w-0 flex-1">
+                <span class="block text-body-1 font-medium text-fg group-hover:text-primary"
+                  >A player asked you to partner up</span
+                >
+                <span class="block text-body-2 tabular-nums text-fg-muted">{{
+                  formatRelativeTime(r.created_at)
+                }}</span>
+              </span>
+              <UiIcon
+                name="chevron-right"
+                size="h-4 w-4"
+                :stroke-width="2"
+                class="shrink-0 text-fg-muted"
+                aria-hidden="true"
+              />
+            </NuxtLink>
+          </li>
+        </ul>
+      </section>
+
+      <!-- NEXT. What you are registered for. -->
+      <section class="rounded-card border border-border bg-surface p-5 shadow-card sm:p-6">
+        <div class="flex items-baseline justify-between gap-4">
+          <h2 class="font-display text-heading-2 text-fg">Next</h2>
+          <NuxtLink
+            to="/events"
+            class="text-body-2 font-semibold text-fg underline decoration-border-strong underline-offset-4 transition-colors hover:text-primary hover:decoration-primary"
+            >Find play</NuxtLink
           >
-            <span class="text-lg">✕</span>
-            <span class="text-sm">Remove badge</span>
-          </button>
-          <button
-            v-for="badge in badgeData?.data?.availableBadges"
-            :key="badge.id"
-            class="flex w-full items-center gap-3 rounded-lg p-3 transition-colors"
-            :class="
-              badge.id === selectedBadge?.id
-                ? 'bg-primary/20 ring-1 ring-primary'
-                : 'bg-surface-2/50 hover:bg-surface-2'
-            "
-            :disabled="badgeSaving"
-            @click="selectBadge(badge.id)"
-          >
-            <span class="text-2xl">{{ badge.icon }}</span>
-            <div class="flex-1 text-left">
-              <p class="text-sm font-medium text-fg">{{ badge.name }}</p>
-              <p class="text-xs text-fg-muted">{{ badge.description }}</p>
+        </div>
+
+        <p v-if="!allUpcomingEvents.length" class="mt-4 max-w-[56ch] text-body-1 text-fg-secondary">
+          You are not registered for anything yet. Open play and tournaments your clubs publish are
+          listed under Events.
+        </p>
+
+        <ul v-else class="mt-4">
+          <li v-for="entry in allUpcomingEvents" :key="entry.event.id">
+            <NuxtLink
+              :to="`/events/${entry.event.id}`"
+              class="group flex items-baseline gap-4 border-t border-border py-3.5 transition-colors first:border-t-0 first:pt-0 hover:text-primary"
+            >
+              <span class="w-20 shrink-0 text-body-2 font-semibold tabular-nums text-fg">{{
+                formatEventDate(entry.event.start_date)
+              }}</span>
+              <span class="min-w-0 flex-1">
+                <span
+                  class="block truncate text-body-1 font-medium text-fg group-hover:text-primary"
+                  >{{ entry.event.name }}</span
+                >
+                <span class="block truncate text-body-2 text-fg-muted">{{
+                  [entry.event.venue, entry.event.city].filter(Boolean).join(', ') ||
+                  'Venue to be announced'
+                }}</span>
+              </span>
+              <span
+                class="hidden shrink-0 text-caption font-semibold uppercase tracking-wide text-fg-muted sm:block"
+                >{{ entry.registration_status }}</span
+              >
+            </NuxtLink>
+          </li>
+        </ul>
+
+        <button
+          v-if="allUpcomingEvents.length && !eventsEnd"
+          type="button"
+          class="mt-4 rounded-button border border-border-strong px-4 py-2 text-body-2 font-medium text-fg-secondary transition-colors hover:bg-surface-2 hover:text-fg disabled:opacity-60"
+          :disabled="loadingEvents"
+          @click="loadMoreEvents"
+        >
+          {{ loadingEvents ? 'Loading…' : 'Show more' }}
+        </button>
+      </section>
+
+      <!-- DONE. What happened, and what it did to the number. -->
+      <section class="rounded-card border border-border bg-surface p-5 shadow-card sm:p-6">
+        <h2 class="font-display text-heading-2 text-fg">Done</h2>
+
+        <div class="mt-4 lg:grid lg:grid-cols-12 lg:gap-8">
+          <div class="lg:col-span-7">
+            <h3 class="text-caption font-semibold uppercase tracking-widest text-fg-muted">
+              Recent matches
+            </h3>
+
+            <p v-if="!allRecentMatches.length" class="mt-3 text-body-1 text-fg-secondary">
+              No matches yet. Once a club records a result you played in, it lands here with what it
+              did to your rating.
+            </p>
+
+            <ul v-else class="mt-3">
+              <li v-for="match in allRecentMatches" :key="match.id">
+                <NuxtLink
+                  :to="`/matches/${match.id}`"
+                  class="group flex items-baseline gap-4 border-t border-border py-3.5 transition-colors first:border-t-0 first:pt-0 hover:text-primary"
+                >
+                  <span
+                    class="w-12 shrink-0 text-caption font-semibold uppercase tracking-wide"
+                    :class="didIWin(match) === true ? 'text-primary' : 'text-fg-muted'"
+                    >{{
+                      didIWin(match) === true ? 'Won' : didIWin(match) === false ? 'Lost' : 'Played'
+                    }}</span
+                  >
+                  <span class="min-w-0 flex-1">
+                    <span
+                      class="block truncate text-body-1 font-medium text-fg group-hover:text-primary"
+                      >{{ getOpponentNames(match) }}</span
+                    >
+                    <span class="block text-body-2 tabular-nums text-fg-muted"
+                      >{{ formatScore(match) }} · {{ formatRelativeTime(match.played_at) }}</span
+                    >
+                  </span>
+                  <!-- What the match cost or earned. Green up, red down, and
+                       nothing at all for a match that did not affect rating —
+                       showing 0 there would say "you gained nothing", which is a
+                       different claim. -->
+                  <span
+                    v-if="match.rating_delta !== null && match.rating_delta !== undefined"
+                    class="shrink-0 text-body-2 font-semibold tabular-nums"
+                    :class="match.rating_delta >= 0 ? 'text-success' : 'text-danger'"
+                  >
+                    {{ match.rating_delta >= 0 ? '+' : '' }}{{ match.rating_delta.toFixed(3) }}
+                  </span>
+                </NuxtLink>
+              </li>
+            </ul>
+
+            <button
+              v-if="allRecentMatches.length && !matchesEnd"
+              type="button"
+              class="mt-4 rounded-button border border-border-strong px-4 py-2 text-body-2 font-medium text-fg-secondary transition-colors hover:bg-surface-2 hover:text-fg disabled:opacity-60"
+              :disabled="loadingMatches"
+              @click="loadMoreMatches"
+            >
+              {{ loadingMatches ? 'Loading…' : 'Show more' }}
+            </button>
+          </div>
+
+          <div class="mt-6 lg:col-span-5 lg:mt-0">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <h3 class="text-caption font-semibold uppercase tracking-widest text-fg-muted">
+                Rating over time
+              </h3>
+              <UiSegmented
+                v-model="chartRange"
+                size="sm"
+                label="Chart range"
+                :items="RANGES.map((r) => ({ value: r.value, label: r.label }))"
+              />
             </div>
-            <span v-if="badge.id === selectedBadge?.id" class="text-primary">✓</span>
-          </button>
+            <div class="mt-3 rounded-card bg-surface-2 p-4">
+              <UiLineChart
+                :points="chartPoints"
+                :label="`${activeRatingType} rating over the selected range`"
+                empty-message="No rating history yet. Your first confirmed result starts the line."
+              />
+            </div>
+          </div>
         </div>
-      </div>
+      </section>
 
-      <!-- Quick Actions -->
-      <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <NuxtLink
-          to="/my-clubs"
-          class="flex items-center gap-3 rounded-xl bg-primary p-4 text-on-primary transition-colors hover:bg-primary-hover"
-        >
-          <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"
-            />
-          </svg>
-          <span class="text-sm font-medium">My Clubs</span>
-        </NuxtLink>
+      <!-- Identity rather than schedule, so it sits below the day. -->
+      <section class="rounded-card border border-border bg-surface p-5 shadow-card sm:p-6">
+        <div class="lg:grid lg:grid-cols-12 lg:gap-8">
+          <div class="lg:col-span-5">
+            <div class="flex items-baseline justify-between gap-4">
+              <h2 class="font-display text-heading-3 text-fg">My clubs</h2>
+              <NuxtLink
+                to="/my-clubs"
+                class="text-body-2 font-semibold text-fg underline decoration-border-strong underline-offset-4 transition-colors hover:text-primary hover:decoration-primary"
+                >All</NuxtLink
+              >
+            </div>
 
-        <NuxtLink
-          to="/rankings"
-          class="flex items-center gap-3 rounded-xl bg-surface p-4 transition-colors hover:bg-surface-2 shadow-card hover:shadow-card-hover"
-        >
-          <svg class="h-5 w-5 text-fg-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="1.5"
-              d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
-            />
-          </svg>
-          <span class="text-sm font-medium text-fg-secondary">Rankings</span>
-        </NuxtLink>
+            <p v-if="!myActiveClubs.length" class="mt-3 text-body-2 text-fg-secondary">
+              You have not joined a club yet. Clubs run the open play and tournaments you can enter.
+            </p>
 
-        <NuxtLink
-          to="/events"
-          class="flex items-center gap-3 rounded-xl bg-surface p-4 transition-colors hover:bg-surface-2 shadow-card hover:shadow-card-hover"
-        >
-          <svg class="h-5 w-5 text-fg-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="1.5"
-              d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
-            />
-          </svg>
-          <span class="text-sm font-medium text-fg-secondary">Events</span>
-        </NuxtLink>
+            <ul v-else class="mt-3">
+              <li v-for="membership in myActiveClubs" :key="membership.club.id">
+                <NuxtLink
+                  :to="`/clubs/${membership.club.id}`"
+                  class="group flex items-baseline gap-4 border-t border-border py-3 transition-colors first:border-t-0 first:pt-0 hover:text-primary"
+                >
+                  <span
+                    class="min-w-0 flex-1 truncate text-body-1 text-fg group-hover:text-primary"
+                    >{{ membership.club.name }}</span
+                  >
+                  <span
+                    class="shrink-0 text-caption font-semibold uppercase tracking-wide text-fg-muted"
+                    >{{ membership.role.toLowerCase() }}</span
+                  >
+                </NuxtLink>
+              </li>
+            </ul>
+          </div>
 
+          <div class="mt-8 lg:col-span-7 lg:mt-0">
+            <div class="flex items-baseline justify-between gap-4">
+              <h2 class="font-display text-heading-3 text-fg">Shout-out</h2>
+              <button
+                v-if="myShoutout?.data && !shoutoutEditing"
+                class="text-body-2 font-semibold text-fg underline decoration-border-strong underline-offset-4 transition-colors hover:text-primary hover:decoration-primary"
+                @click="startEditingShoutout"
+              >
+                Edit
+              </button>
+            </div>
+
+            <div
+              v-if="myShoutout?.data && !shoutoutEditing"
+              class="mt-3 rounded-card bg-surface-2 p-4"
+            >
+              <p class="text-body-1 text-fg">{{ myShoutout.data.message }}</p>
+              <p class="mt-2 flex flex-wrap items-center gap-x-3 text-body-2 text-fg-muted">
+                <span>Posted {{ formatRelativeTime(myShoutout.data.created_at) }}</span>
+                <span v-if="shoutoutExpiresIn" class="tabular-nums">{{ shoutoutExpiresIn }}</span>
+              </p>
+            </div>
+
+            <div v-else-if="shoutoutEditing || !myShoutout?.data" class="mt-3">
+              <label for="shoutout-message" class="sr-only">Your shout-out</label>
+              <div class="flex flex-wrap gap-2">
+                <input
+                  id="shoutout-message"
+                  v-model="shoutoutInput"
+                  type="text"
+                  placeholder="Looking for a game?"
+                  maxlength="280"
+                  class="min-w-0 flex-1 rounded-button border border-border-strong bg-surface px-3 py-2 text-body-2 text-fg placeholder:text-fg-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
+                  @keyup.enter="saveShoutout"
+                />
+                <button
+                  class="rounded-button bg-primary px-4 py-2 text-body-2 font-semibold text-on-primary transition-colors hover:bg-primary-hover disabled:opacity-50"
+                  :disabled="shoutoutSaving || !shoutoutInput.trim()"
+                  @click="saveShoutout"
+                >
+                  {{ shoutoutSaving ? 'Saving…' : shoutoutEditing ? 'Update' : 'Post' }}
+                </button>
+                <button
+                  v-if="shoutoutEditing"
+                  class="rounded-button border border-border-strong px-3 py-2 text-body-2 font-medium text-fg-secondary transition-colors hover:bg-surface-2 hover:text-fg"
+                  @click="shoutoutEditing = false"
+                >
+                  Cancel
+                </button>
+              </div>
+
+              <div v-if="!myShoutout?.data" class="mt-3 flex flex-wrap gap-2">
+                <button
+                  v-for="example in shoutoutExamples"
+                  :key="example"
+                  class="rounded-pill border border-border-strong px-3 py-1 text-caption text-fg-secondary transition-colors hover:border-primary hover:text-fg"
+                  @click="shoutoutInput = example"
+                >
+                  {{ example }}
+                </button>
+              </div>
+
+              <!-- Optional event link. Only rendered when there is something to
+                   attach — an empty select is just a puzzle. -->
+              <div v-if="linkableEvents.length" class="mt-3">
+                <label for="shoutout-event" class="mb-1 block text-caption text-fg-muted">
+                  Link an event (optional)
+                </label>
+                <select
+                  id="shoutout-event"
+                  v-model="shoutoutEventId"
+                  class="w-full rounded-button border border-border-strong bg-surface px-3 py-2 text-body-2 text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
+                >
+                  <option value="">No event</option>
+                  <option v-for="ev in linkableEvents" :key="ev.id" :value="ev.id">
+                    {{ ev.name ?? ev.title }}
+                  </option>
+                </select>
+              </div>
+
+              <p v-if="shoutoutError" class="mt-2 text-body-2 text-danger">{{ shoutoutError }}</p>
+
+              <p class="mt-2 text-right text-caption tabular-nums text-fg-muted">
+                {{ shoutoutInput.length }}/280
+              </p>
+            </div>
+
+            <div class="mt-6 flex items-baseline justify-between gap-4">
+              <h2 class="font-display text-heading-3 text-fg">My badge</h2>
+              <button
+                class="text-body-2 font-semibold text-fg underline decoration-border-strong underline-offset-4 transition-colors hover:text-primary hover:decoration-primary"
+                @click="badgeSelectorOpen = !badgeSelectorOpen"
+              >
+                {{ badgeSelectorOpen ? 'Cancel' : selectedBadge ? 'Change' : 'Select' }}
+              </button>
+            </div>
+
+            <div
+              v-if="!badgeSelectorOpen && selectedBadge"
+              class="mt-3 flex items-center gap-4 rounded-card bg-surface-2 p-4"
+            >
+              <!-- The glyph is the badge's own data, not an icon system. -->
+              <span class="text-3xl" aria-hidden="true">{{ selectedBadge.icon }}</span>
+              <div>
+                <p class="text-body-1 font-medium text-fg">{{ selectedBadge.name }}</p>
+                <p class="text-body-2 text-fg-secondary">{{ selectedBadge.description }}</p>
+              </div>
+            </div>
+
+            <p v-else-if="!badgeSelectorOpen" class="mt-3 text-body-2 text-fg-secondary">
+              Pick a badge to show on your profile.
+            </p>
+
+            <ul v-else class="mt-3">
+              <li v-if="selectedBadge">
+                <button
+                  class="flex w-full items-center gap-3 border-t border-border py-3 text-left text-body-2 text-fg-secondary transition-colors first:border-t-0 first:pt-0 hover:text-fg disabled:opacity-60"
+                  :disabled="badgeSaving"
+                  @click="selectBadge(null)"
+                >
+                  <UiIcon name="x" size="h-4 w-4" :stroke-width="2" aria-hidden="true" />
+                  Remove badge
+                </button>
+              </li>
+              <li v-for="badge in badgeData?.data?.availableBadges" :key="badge.id">
+                <button
+                  class="flex w-full items-center gap-3 border-t border-border py-3 text-left transition-colors first:border-t-0 first:pt-0 disabled:opacity-60"
+                  :disabled="badgeSaving"
+                  :aria-pressed="badge.id === selectedBadge?.id"
+                  @click="selectBadge(badge.id)"
+                >
+                  <span class="text-xl" aria-hidden="true">{{ badge.icon }}</span>
+                  <span class="min-w-0 flex-1">
+                    <span class="block text-body-2 font-medium text-fg">{{ badge.name }}</span>
+                    <span class="block text-caption text-fg-muted">{{ badge.description }}</span>
+                  </span>
+                  <UiIcon
+                    v-if="badge.id === selectedBadge?.id"
+                    name="check"
+                    size="h-4 w-4"
+                    :stroke-width="2.4"
+                    class="shrink-0 text-primary"
+                    aria-hidden="true"
+                  />
+                </button>
+              </li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <!-- Where else to go. -->
+      <nav aria-label="Go to" class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <NuxtLink
-          to="/players"
-          class="flex items-center gap-3 rounded-xl bg-surface p-4 transition-colors hover:bg-surface-2 shadow-card hover:shadow-card-hover"
+          v-for="item in dashboardLinks"
+          :key="item.to"
+          :to="item.to"
+          class="group rounded-card border border-border bg-surface p-4 shadow-card transition-shadow hover:shadow-card-hover"
         >
-          <svg class="h-5 w-5 text-fg-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="1.5"
-              d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-            />
-          </svg>
-          <span class="text-sm font-medium text-fg-secondary">Find Players</span>
+          <span class="block text-body-1 font-medium text-fg group-hover:text-primary">{{
+            item.label
+          }}</span>
+          <span class="mt-0.5 block text-body-2 text-fg-muted">{{ item.line }}</span>
         </NuxtLink>
-      </div>
+      </nav>
     </div>
   </div>
 </template>

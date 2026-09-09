@@ -1,10 +1,11 @@
 <script setup lang="ts">
+import { initialsFor } from '~/utils/initials'
 import type { PlayerProfileDto } from '~/server/domains/player/dto/player-profile.dto'
 import type { MatchDto } from '~/server/domains/match/dto/match.dto'
 import type { EventDto, EventRegistrationDto } from '~/server/domains/event/dto/event.dto'
 import type { PartnerDto } from '~/server/domains/partnership/dto/partnership.dto'
 import {
-  DEFAULT_GAME_RULES,
+  rulesForEvent,
   resolveResult,
   validateGames,
   type GameRules,
@@ -92,12 +93,20 @@ const team2Player2 = ref<RegisteredPlayer | null>(null)
 const games = ref<GameScore[]>([{ team1_score: null, team2_score: null }])
 
 /**
- * Open play is one game. A category can say otherwise once the event carries
- * game rules; until then the defaults are the rules every existing match was
- * played to anyway (to 11, win by 2).
+ * The rules the session is actually played to. See 054.
+ *
+ * This used to spread the built-in default, so a club playing to 15 had a
+ * legitimate 15-13 rejected by validateGames as an unfinished game. The event
+ * carries target_points, win_by_two and games_default now, and rulesForEvent
+ * falls back to exactly the old constants when it has no event to read - which
+ * is the standalone case, where there is no session to ask.
+ *
+ * bestOf still follows the sheet rather than the event: the organiser adds a
+ * game row when a game was played, and a sheet with two rows must not be told
+ * its second game could not have happened.
  */
 const rules = computed<GameRules>(() => ({
-  ...DEFAULT_GAME_RULES,
+  ...rulesForEvent(eventData.value),
   bestOf: games.value.length
 }))
 
@@ -322,7 +331,7 @@ const { goBack } = useAppBack('/events')
 
       <!-- Pick which event this match was played in -->
       <div v-if="!eventId" class="rounded-xl bg-surface p-6 shadow-card">
-        <h3 class="text-lg font-semibold text-fg">Which event was this?</h3>
+        <h3 class="font-display text-heading-3 text-fg">Which event was this?</h3>
         <p class="mt-1 text-sm text-fg-muted">
           Pick the event you played in. Only events you are registered for are listed.
         </p>
@@ -377,8 +386,8 @@ const { goBack } = useAppBack('/events')
       </div>
 
       <!-- Event Error -->
-      <div v-else-if="eventError" class="rounded-xl bg-red-500/10 p-8 text-center">
-        <p class="text-red-400">Could not load event.</p>
+      <div v-else-if="eventError" class="rounded-xl bg-danger-soft p-8 text-center">
+        <p class="text-danger">Could not load event.</p>
         <button
           type="button"
           class="mt-4 inline-block text-sm text-primary hover:underline"
@@ -394,7 +403,7 @@ const { goBack } = useAppBack('/events')
           <div class="flex items-center justify-between">
             <div>
               <p class="text-xs text-fg-muted">Submitting match for</p>
-              <h2 class="font-semibold text-fg">{{ eventData.name }}</h2>
+              <h2 class="font-display text-heading-3 text-fg">{{ eventData.name }}</h2>
               <p class="text-sm text-fg-secondary">
                 {{ registeredPlayers.length }} registered player(s)
               </p>
@@ -414,7 +423,7 @@ const { goBack } = useAppBack('/events')
         <form class="space-y-5" @submit.prevent="handleSubmit">
           <!-- Match Type -->
           <div class="rounded-xl bg-surface p-5 shadow-card">
-            <h2 class="mb-4 font-semibold text-fg">Match Type</h2>
+            <h2 class="mb-4 font-display text-heading-3 text-fg">Match Type</h2>
             <div class="flex gap-3">
               <button
                 type="button"
@@ -445,7 +454,7 @@ const { goBack } = useAppBack('/events')
 
           <!-- Match Details -->
           <div class="rounded-xl bg-surface p-5 shadow-card">
-            <h2 class="mb-4 font-semibold text-fg">Match Details</h2>
+            <h2 class="mb-4 font-display text-heading-3 text-fg">Match Details</h2>
             <div class="space-y-4">
               <div>
                 <label class="mb-1.5 block text-sm text-fg-secondary">Date & Time</label>
@@ -453,7 +462,7 @@ const { goBack } = useAppBack('/events')
                   v-model="playedAt"
                   type="datetime-local"
                   required
-                  class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg focus:border-primary focus:outline-none"
+                  class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
                 />
               </div>
               <div>
@@ -462,7 +471,7 @@ const { goBack } = useAppBack('/events')
                   v-model="venue"
                   type="text"
                   placeholder="Court name or number"
-                  class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none"
+                  class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
                 />
               </div>
             </div>
@@ -470,7 +479,7 @@ const { goBack } = useAppBack('/events')
 
           <!-- Players -->
           <div class="rounded-xl bg-surface p-5 shadow-card">
-            <h2 class="mb-4 font-semibold text-fg">Players</h2>
+            <h2 class="mb-4 font-display text-heading-3 text-fg">Players</h2>
             <p class="mb-4 text-sm text-fg-muted">Select from registered players only</p>
             <div class="space-y-4">
               <!-- Team 1 -->
@@ -488,7 +497,7 @@ const { goBack } = useAppBack('/events')
                         <div
                           class="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-sm font-bold text-on-primary"
                         >
-                          {{ team1Player1.display_name.charAt(0) }}
+                          {{ initialsFor(team1Player1.display_name, 1) }}
                         </div>
                         <div>
                           <span class="text-fg">{{ team1Player1.display_name }}</span>
@@ -499,7 +508,7 @@ const { goBack } = useAppBack('/events')
                       </div>
                       <button
                         type="button"
-                        class="text-fg-muted hover:text-red-400"
+                        class="text-fg-muted hover:text-danger"
                         @click="clearPlayer('team1Player1')"
                       >
                         <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -517,7 +526,7 @@ const { goBack } = useAppBack('/events')
                         v-model="searchQuery"
                         type="text"
                         placeholder="Search registered players..."
-                        class="w-full rounded-lg border border-border-strong bg-surface px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none"
+                        class="w-full rounded-lg border border-border-strong bg-surface px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
                         @focus="activeSearchField = 'team1Player1'"
                       />
                       <div
@@ -534,7 +543,7 @@ const { goBack } = useAppBack('/events')
                           <div
                             class="flex h-8 w-8 items-center justify-center rounded-full bg-surface-3 text-sm font-bold text-fg-secondary"
                           >
-                            {{ player.display_name.charAt(0) }}
+                            {{ initialsFor(player.display_name, 1) }}
                           </div>
                           <div>
                             <p class="text-sm font-medium text-fg">
@@ -565,7 +574,7 @@ const { goBack } = useAppBack('/events')
                         <div
                           class="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-sm font-bold text-on-primary"
                         >
-                          {{ team1Player2.display_name.charAt(0) }}
+                          {{ initialsFor(team1Player2.display_name, 1) }}
                         </div>
                         <div>
                           <span class="text-fg">{{ team1Player2.display_name }}</span>
@@ -576,7 +585,7 @@ const { goBack } = useAppBack('/events')
                       </div>
                       <button
                         type="button"
-                        class="text-fg-muted hover:text-red-400"
+                        class="text-fg-muted hover:text-danger"
                         @click="clearPlayer('team1Player2')"
                       >
                         <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -594,7 +603,7 @@ const { goBack } = useAppBack('/events')
                         v-model="searchQuery"
                         type="text"
                         placeholder="Search registered players..."
-                        class="w-full rounded-lg border border-border-strong bg-surface px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none"
+                        class="w-full rounded-lg border border-border-strong bg-surface px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
                         @focus="activeSearchField = 'team1Player2'"
                       />
                       <div
@@ -611,7 +620,7 @@ const { goBack } = useAppBack('/events')
                           <div
                             class="flex h-8 w-8 items-center justify-center rounded-full bg-surface-3 text-sm font-bold text-fg-secondary"
                           >
-                            {{ player.display_name.charAt(0) }}
+                            {{ initialsFor(player.display_name, 1) }}
                           </div>
                           <div>
                             <p class="text-sm font-medium text-fg">
@@ -635,7 +644,7 @@ const { goBack } = useAppBack('/events')
 
               <!-- Team 2 -->
               <div class="rounded-lg bg-canvas p-4">
-                <p class="mb-3 text-xs font-medium uppercase text-red-400">Team 2</p>
+                <p class="mb-3 text-xs font-medium uppercase text-danger">Team 2</p>
                 <div class="space-y-3">
                   <!-- Player 1 -->
                   <div class="relative">
@@ -646,9 +655,9 @@ const { goBack } = useAppBack('/events')
                     >
                       <div class="flex items-center gap-3">
                         <div
-                          class="flex h-8 w-8 items-center justify-center rounded-full bg-red-400/80 text-sm font-bold text-white"
+                          class="flex h-8 w-8 items-center justify-center rounded-full bg-danger/80 text-sm font-bold text-white"
                         >
-                          {{ team2Player1.display_name.charAt(0) }}
+                          {{ initialsFor(team2Player1.display_name, 1) }}
                         </div>
                         <div>
                           <span class="text-fg">{{ team2Player1.display_name }}</span>
@@ -659,7 +668,7 @@ const { goBack } = useAppBack('/events')
                       </div>
                       <button
                         type="button"
-                        class="text-fg-muted hover:text-red-400"
+                        class="text-fg-muted hover:text-danger"
                         @click="clearPlayer('team2Player1')"
                       >
                         <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -677,7 +686,7 @@ const { goBack } = useAppBack('/events')
                         v-model="searchQuery"
                         type="text"
                         placeholder="Search registered players..."
-                        class="w-full rounded-lg border border-border-strong bg-surface px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none"
+                        class="w-full rounded-lg border border-border-strong bg-surface px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
                         @focus="activeSearchField = 'team2Player1'"
                       />
                       <div
@@ -694,7 +703,7 @@ const { goBack } = useAppBack('/events')
                           <div
                             class="flex h-8 w-8 items-center justify-center rounded-full bg-surface-3 text-sm font-bold text-fg-secondary"
                           >
-                            {{ player.display_name.charAt(0) }}
+                            {{ initialsFor(player.display_name, 1) }}
                           </div>
                           <div>
                             <p class="text-sm font-medium text-fg">
@@ -723,9 +732,9 @@ const { goBack } = useAppBack('/events')
                     >
                       <div class="flex items-center gap-3">
                         <div
-                          class="flex h-8 w-8 items-center justify-center rounded-full bg-red-400/80 text-sm font-bold text-white"
+                          class="flex h-8 w-8 items-center justify-center rounded-full bg-danger/80 text-sm font-bold text-white"
                         >
-                          {{ team2Player2.display_name.charAt(0) }}
+                          {{ initialsFor(team2Player2.display_name, 1) }}
                         </div>
                         <div>
                           <span class="text-fg">{{ team2Player2.display_name }}</span>
@@ -736,7 +745,7 @@ const { goBack } = useAppBack('/events')
                       </div>
                       <button
                         type="button"
-                        class="text-fg-muted hover:text-red-400"
+                        class="text-fg-muted hover:text-danger"
                         @click="clearPlayer('team2Player2')"
                       >
                         <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -754,7 +763,7 @@ const { goBack } = useAppBack('/events')
                         v-model="searchQuery"
                         type="text"
                         placeholder="Search registered players..."
-                        class="w-full rounded-lg border border-border-strong bg-surface px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none"
+                        class="w-full rounded-lg border border-border-strong bg-surface px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
                         @focus="activeSearchField = 'team2Player2'"
                       />
                       <div
@@ -771,7 +780,7 @@ const { goBack } = useAppBack('/events')
                           <div
                             class="flex h-8 w-8 items-center justify-center rounded-full bg-surface-3 text-sm font-bold text-fg-secondary"
                           >
-                            {{ player.display_name.charAt(0) }}
+                            {{ initialsFor(player.display_name, 1) }}
                           </div>
                           <div>
                             <p class="text-sm font-medium text-fg">
@@ -798,7 +807,7 @@ const { goBack } = useAppBack('/events')
           <!-- Score -->
           <div class="rounded-xl bg-surface p-5 shadow-card">
             <div class="mb-4 flex items-center justify-between">
-              <h2 class="font-semibold text-fg">Score</h2>
+              <h2 class="font-display text-heading-3 text-fg">Score</h2>
               <button
                 v-if="games.length < 5"
                 type="button"
@@ -825,7 +834,7 @@ const { goBack } = useAppBack('/events')
                 <span class="text-xs text-fg-secondary">How did it end?</span>
                 <select
                   v-model="resultType"
-                  class="rounded-lg border border-border-strong bg-canvas px-3 py-2 text-sm text-fg focus:border-primary focus:outline-none"
+                  class="rounded-lg border border-border-strong bg-canvas px-3 py-2 text-sm text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
                 >
                   <option value="normal">Played out</option>
                   <option value="retired">Retired</option>
@@ -840,7 +849,7 @@ const { goBack } = useAppBack('/events')
                 <span class="text-xs text-fg-secondary">Which side advances?</span>
                 <select
                   v-model="explicitWinner"
-                  class="rounded-lg border border-border-strong bg-canvas px-3 py-2 text-sm text-fg focus:border-primary focus:outline-none"
+                  class="rounded-lg border border-border-strong bg-canvas px-3 py-2 text-sm text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
                 >
                   <option :value="null">From the score</option>
                   <option :value="1">Team 1</option>
@@ -873,7 +882,7 @@ const { goBack } = useAppBack('/events')
           </div>
 
           <!-- Error -->
-          <div v-if="errorMessage" class="rounded-xl bg-red-500/10 p-4 text-red-400">
+          <div v-if="errorMessage" class="rounded-xl bg-danger-soft p-4 text-danger">
             {{ errorMessage }}
           </div>
 

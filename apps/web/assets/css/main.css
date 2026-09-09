@@ -148,3 +148,118 @@ body {
     transition: none;
   }
 }
+
+/*
+ * ── Shared response vocabulary ──────────────────────────────────────────────
+ *
+ * The app's answer to a pointer, in the one material the design system is
+ * built from: a rule. Nothing lifts, nothing glows. Authored for the landing
+ * page and lifted here when the feed needed the same vocabulary - two copies of
+ * an interaction language is how two surfaces start drifting apart.
+ */
+
+/* Every pressable control. 1px down and a whisper of scale reads as contact on
+   a touch screen and stays invisible as an effect. The doubled selector
+   outranks Tailwind's `transition-colors`, which would otherwise drop transform
+   from the property list and leave the release snapping back. */
+.dnl-press.dnl-press {
+  transition-property:
+    color, background-color, border-color, text-decoration-color, opacity, transform, box-shadow;
+  transition-duration: 140ms;
+  transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.dnl-press.dnl-press:active {
+  transform: translateY(1px) scale(0.985);
+  /* In fast, out settled: contact should feel immediate, release should not. */
+  transition-duration: 60ms;
+}
+
+/* The browser's own grey flash on tap belongs to no design system, and it fires
+   on top of the response above. */
+a,
+button {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/*
+ * A ruled row answering the pointer: the rule beneath it is redrawn, left to
+ * right, in the one colour that means actionable. It lands on the hairline the
+ * row already owns rather than beside it, so the row gains weight instead of
+ * gaining a second line.
+ */
+.dnl-row {
+  position: relative;
+}
+
+.dnl-row::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  bottom: -1px;
+  left: 0;
+  height: 2px;
+  background-color: rgb(var(--dnl-primary));
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition: transform 280ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.dnl-row:hover::after,
+.dnl-row:focus-visible::after {
+  transform: scaleX(1);
+}
+
+/* A keyboard visitor gets the same rule and a real ring as well - these rows
+   are too wide for the drawn line alone to say which one is selected. */
+.dnl-row:focus-visible {
+  outline: 2px solid rgb(var(--dnl-primary));
+  outline-offset: 4px;
+  border-radius: 2px;
+}
+
+/* The row's text leans toward the reader by the width of the rule it drew.
+   Only where the whole cell can travel; a row with a fixed leading column stays
+   put and answers with the rule and its ink alone. */
+.dnl-row-shift {
+  transition: transform 280ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.dnl-row:hover .dnl-row-shift,
+.dnl-row:focus-visible .dnl-row-shift {
+  transform: translateX(3px);
+}
+
+/* An inline link's chevron takes the step the link is describing. */
+.dnl-step-chevron {
+  transition: transform 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.dnl-step:hover .dnl-step-chevron,
+.dnl-step:focus-visible .dnl-step-chevron {
+  transform: translateX(3px);
+}
+
+/*
+ * Reduced motion keeps every one of these responses and removes only their
+ * travel. Someone who asked for less movement still needs to see which row is
+ * under their finger, so the rule still appears and the ink still changes.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .dnl-press.dnl-press:active {
+    transform: none;
+  }
+
+  .dnl-row::after,
+  .dnl-row-shift,
+  .dnl-step-chevron {
+    transition: none;
+  }
+
+  .dnl-row:hover .dnl-row-shift,
+  .dnl-row:focus-visible .dnl-row-shift,
+  .dnl-step:hover .dnl-step-chevron,
+  .dnl-step:focus-visible .dnl-step-chevron {
+    transform: none;
+  }
+}

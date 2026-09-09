@@ -106,9 +106,7 @@ export function createEventRegistrationRepository(
         throw new Error(`Failed to find registrations: ${error.message}`)
       }
 
-      return new Map(
-        ((data ?? []) as EventRegistrationRecord[]).map((row) => [row.player_id, row])
-      )
+      return new Map(((data ?? []) as EventRegistrationRecord[]).map((row) => [row.player_id, row]))
     },
 
     async findByEvent(eventId, status) {

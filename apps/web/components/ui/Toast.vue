@@ -26,11 +26,11 @@ const variantClasses = computed(() => {
     case 'success':
       return 'border-primary/40 bg-surface text-primary-hover'
     case 'warning':
-      return 'border-amber-500/40 bg-amber-950/90 text-amber-300'
+      return 'border-warning/40 bg-warning-soft text-warning'
     case 'info':
-      return 'border-sky-500/40 bg-sky-950/90 text-sky-300'
+      return 'border-info/40 bg-info-soft text-info'
     default:
-      return 'border-red-500/40 bg-red-950/90 text-red-300'
+      return 'border-danger/40 bg-danger-soft text-danger'
   }
 })
 </script>

@@ -11,6 +11,8 @@ import type {
   TeamNumber,
   VerificationStatus
 } from '../dto/match.dto'
+// PENDING-052: see utils/pending-052.ts. Delete with the migration.
+import { ROUNDS_MIGRATION_PENDING } from '~/utils/pending-052'
 
 const MATCH_SELECT =
   'id, match_type, status, submitted_by_player_id, event_id, affects_rating, venue, played_at, submitted_at, verified_at, created_at, ' +
@@ -127,6 +129,8 @@ export function createMatchRepository(client: SupabaseClient): MatchRepository {
         .insert({
           match_type: input.match_type,
           event_id: input.event_id,
+          // PENDING-052: dropped until matches.event_round exists.
+          ...(ROUNDS_MIGRATION_PENDING ? {} : { event_round: input.event_round ?? null }),
           venue: input.venue ?? null,
           played_at: input.played_at,
           submitted_by_player_id: submittedByPlayerId,

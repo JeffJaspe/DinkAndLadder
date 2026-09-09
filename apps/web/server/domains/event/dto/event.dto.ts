@@ -124,6 +124,17 @@ export interface EventRecord {
   queue_courts: number
   /** Singles or doubles for open play. See 041-open-play-live. */
   match_format: 'singles' | 'doubles'
+  /**
+   * How long a game is, for open play. See 054.
+   *
+   * Mirrors the same three columns on tournament_categories (046) so
+   * `rulesForRound` reads one shape whichever record it is handed. A court
+   * belongs to an event and not to a category, so without these every open
+   * play game was scored against the constant in DEFAULT_GAME_RULES.
+   */
+  target_points: number
+  win_by_two: boolean
+  games_default: number
   queue_mode: QueueMode
   /** Override for the floor. Null means derive it from match_format — see 045. */
   min_players_to_start: number | null
@@ -135,6 +146,13 @@ export interface EventRecord {
   fee_payer: EventFeePayer
   organizer_fee_amount: number | null
   queue_skip_timeout_seconds: number
+  /**
+   * The wave the session is on. See 052.
+   *
+   * Session state, not configuration: it moves as courts are restarted and is
+   * meaningless before an event is running.
+   */
+  current_round: number
   created_by_player_id: string
   created_at: string
   updated_at: string
@@ -190,6 +208,17 @@ export interface EventDto {
   queue_courts: number
   /** Singles or doubles for open play. See 041-open-play-live. */
   match_format: 'singles' | 'doubles'
+  /**
+   * How long a game is, for open play. See 054.
+   *
+   * Mirrors the same three columns on tournament_categories (046) so
+   * `rulesForRound` reads one shape whichever record it is handed. A court
+   * belongs to an event and not to a category, so without these every open
+   * play game was scored against the constant in DEFAULT_GAME_RULES.
+   */
+  target_points: number
+  win_by_two: boolean
+  games_default: number
   queue_mode: QueueMode
   min_players_to_start: number | null
   /** The floor actually in force, so a client never re-derives it. */
@@ -201,6 +230,8 @@ export interface EventDto {
   fee_payer: EventFeePayer
   organizer_fee_amount: number | null
   affects_rating: boolean
+  /** The wave the session is on. 1 for anything that predates 052. */
+  current_round: number
   created_by_player_id: string
   created_at: string
 }
@@ -232,6 +263,13 @@ export function toEventDto(record: EventRecord): EventDto {
     // Defaulted rather than passed through: every event created before 041
     // predates the question, and doubles is what those sessions were.
     match_format: record.match_format ?? 'doubles',
+    // Defaulted for the same reason match_format is: every event created
+    // before 054 was scored against DEFAULT_GAME_RULES, which is exactly
+    // one game to 11, win by two. Reading a null as anything else would
+    // restate a finished session's rules after the fact.
+    target_points: record.target_points ?? 11,
+    win_by_two: record.win_by_two ?? true,
+    games_default: record.games_default ?? 1,
     queue_mode: record.queue_mode,
     min_players_to_start: record.min_players_to_start ?? null,
     effective_min_players_to_start: effectiveMinPlayersToStart(record),
@@ -245,6 +283,9 @@ export function toEventDto(record: EventRecord): EventDto {
     fee_payer: record.fee_payer ?? 'player',
     organizer_fee_amount: record.organizer_fee_amount ?? null,
     affects_rating: affectsRating,
+    // Every event created before 052 has never counted a round; it has not
+    // finished round one rather than being on round zero.
+    current_round: record.current_round ?? 1,
     created_by_player_id: record.created_by_player_id,
     created_at: record.created_at
   }
@@ -271,6 +312,10 @@ export interface CreateEventInput {
   queue_enabled?: boolean
   queue_courts?: number
   match_format?: 'singles' | 'doubles'
+  /** Game length for open play. See 054; validated in the service. */
+  target_points?: number
+  win_by_two?: boolean
+  games_default?: number
   queue_mode?: QueueMode
   min_players_to_start?: number | null
   close_policy?: EventClosePolicy
@@ -315,6 +360,10 @@ export interface UpdateEventInput {
   queue_enabled?: boolean
   queue_courts?: number
   match_format?: 'singles' | 'doubles'
+  /** Game length for open play. See 054; validated in the service. */
+  target_points?: number
+  win_by_two?: boolean
+  games_default?: number
   queue_mode?: QueueMode
   min_players_to_start?: number | null
   close_policy?: EventClosePolicy
@@ -491,6 +540,13 @@ export interface EventCourtRecord {
   team1_queue_id: string | null
   team2_queue_id: string | null
   live_score_updated_at: string | null
+  /**
+   * The wave of the last game STARTED on this court. See 052.
+   *
+   * Survives the game finishing on purpose: it is what tells the next start
+   * whether this court has already had its turn in the current wave.
+   */
+  round_number: number | null
 }
 
 export interface EventCourtDto {
@@ -508,6 +564,8 @@ export interface EventCourtDto {
   team2: CourtSideDto | null
   /** The next queued entries for this court, in order. */
   up_next: CourtSideDto[]
+  /** The wave this court is playing, or last played. Null before it has run. */
+  round_number: number | null
 }
 
 /** One side of a court: a single player, or a pair. */
@@ -527,6 +585,7 @@ export function toEventCourtDto(record: EventCourtRecord): EventCourtDto {
     match_started_at: record.match_started_at,
     live_score: record.live_score,
     live_score_updated_at: record.live_score_updated_at,
+    round_number: record.round_number ?? null,
     // Filled in by the read path, which has the queue and profiles to hand.
     team1: null,
     team2: null,

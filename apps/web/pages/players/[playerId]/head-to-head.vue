@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { initialsFor } from '~/utils/initials'
 interface HeadToHeadMatch {
   match_id: string
   match_type: 'singles' | 'doubles'
@@ -60,7 +61,7 @@ function formatDate(dateStr: string): string {
 
       <!-- Error -->
       <div v-else-if="error" class="mt-6 rounded-xl bg-surface p-8 text-center shadow-card">
-        <p class="text-red-400">Could not load head-to-head stats.</p>
+        <p class="text-danger">Could not load head-to-head stats.</p>
         <NuxtLink
           :to="`/players/${playerId}`"
           class="mt-4 inline-block text-sm text-primary hover:underline"
@@ -77,13 +78,13 @@ function formatDate(dateStr: string): string {
             <div
               class="flex h-16 w-16 items-center justify-center rounded-full bg-surface-2 text-2xl font-bold text-fg-secondary"
             >
-              {{ stats.opponent.display_name.charAt(0).toUpperCase() }}
+              {{ initialsFor(stats.opponent.display_name, 1) }}
             </div>
             <div>
               <p class="text-sm text-fg-muted">Head-to-Head vs</p>
               <NuxtLink
                 :to="`/players/${stats.opponent.id}`"
-                class="text-xl font-bold text-fg hover:text-primary"
+                class="font-display text-heading-3 text-fg hover:text-primary"
               >
                 {{ stats.opponent.display_name }}
               </NuxtLink>
@@ -93,15 +94,15 @@ function formatDate(dateStr: string): string {
           <!-- Record Summary -->
           <div class="mt-6 grid grid-cols-3 gap-4 border-t border-border-strong pt-6">
             <div class="text-center">
-              <p class="text-3xl font-bold text-primary">{{ stats.wins }}</p>
+              <p class="font-display text-stat-md tabular-nums text-primary">{{ stats.wins }}</p>
               <p class="text-xs text-fg-muted">Wins</p>
             </div>
             <div class="text-center">
-              <p class="text-3xl font-bold text-fg-muted">{{ stats.draws }}</p>
+              <p class="font-display text-stat-md tabular-nums text-fg-muted">{{ stats.draws }}</p>
               <p class="text-xs text-fg-muted">Draws</p>
             </div>
             <div class="text-center">
-              <p class="text-3xl font-bold text-red-400">{{ stats.losses }}</p>
+              <p class="font-display text-stat-md tabular-nums text-danger">{{ stats.losses }}</p>
               <p class="text-xs text-fg-muted">Losses</p>
             </div>
           </div>
@@ -109,7 +110,7 @@ function formatDate(dateStr: string): string {
 
         <!-- Match History -->
         <div class="rounded-xl bg-surface p-5 shadow-card">
-          <h3 class="mb-4 text-sm font-medium text-fg-secondary">Match History</h3>
+          <h3 class="mb-4 text-body-2 font-medium text-fg-secondary">Match History</h3>
 
           <div v-if="stats.matches.length === 0" class="py-6 text-center text-sm text-fg-muted">
             No matches found.
@@ -128,7 +129,7 @@ function formatDate(dateStr: string): string {
                     class="rounded-md px-2 py-0.5 text-xs font-medium"
                     :class="{
                       'bg-primary/20 text-primary': match.result === 'win',
-                      'bg-red-500/20 text-red-400': match.result === 'loss',
+                      'bg-danger-soft text-danger': match.result === 'loss',
                       'bg-surface-2 text-fg-secondary': match.result === 'draw'
                     }"
                   >

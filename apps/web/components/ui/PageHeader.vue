@@ -38,7 +38,7 @@ const { goBack } = useAppBack(props.to)
   <div class="mb-4">
     <button
       type="button"
-      class="-ml-2 inline-flex items-center gap-1.5 rounded-button px-2 py-1.5 text-body-2 text-fg-secondary transition-colors hover:bg-surface-2 hover:text-fg"
+      class="-ml-2 inline-flex min-h-11 items-center gap-1.5 rounded-button px-2 text-body-2 text-fg-secondary transition-colors hover:bg-surface-2 hover:text-fg"
       @click="goBack"
     >
       <UiIcon name="arrow-left" size="h-4 w-4" :stroke-width="2" />
@@ -47,7 +47,7 @@ const { goBack } = useAppBack(props.to)
 
     <div v-if="title || $slots.actions" class="mt-2 flex items-start justify-between gap-4">
       <div v-if="title" class="min-w-0">
-        <h1 class="truncate text-xl font-bold text-fg lg:text-2xl">{{ title }}</h1>
+        <h1 class="truncate font-display text-heading-1 text-fg">{{ title }}</h1>
         <p v-if="subtitle" class="mt-1 text-body-2 text-fg-muted">{{ subtitle }}</p>
       </div>
       <div v-if="$slots.actions" class="shrink-0">

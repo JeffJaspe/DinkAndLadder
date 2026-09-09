@@ -175,9 +175,7 @@ const { courts, hasLiveCourt, refresh: refreshCourts } = useLiveScores(eventId)
 
 /** The courts belonging to this event that are actually in play, first. */
 const orderedCourts = computed(() =>
-  [...courts.value].sort(
-    (a, b) => Number(b.status === 'playing') - Number(a.status === 'playing')
-  )
+  [...courts.value].sort((a, b) => Number(b.status === 'playing') - Number(a.status === 'playing'))
 )
 
 const recordingId = ref<string | null>(null)
@@ -276,7 +274,7 @@ useHead({
     <header class="mb-6 flex flex-wrap items-start justify-between gap-4">
       <div class="min-w-0">
         <UiPageHeader :to="`/events/${eventId}`" back-label="Back to the event" />
-        <h1 class="mt-1 truncate text-2xl font-bold text-fg lg:text-3xl">
+        <h1 class="mt-1 truncate font-display text-heading-1 text-fg">
           {{ activeCategory?.name ?? event?.name ?? 'Matches' }}
         </h1>
         <p class="text-body-2 text-fg-muted">{{ event?.name }}</p>
@@ -328,7 +326,7 @@ useHead({
            the screen the room is looking at. Scoring is here rather than only
            on the event page, so the desk can run the session from this screen. -->
       <section v-if="orderedCourts.length" class="mb-6">
-        <h2 class="mb-2 text-caption font-semibold uppercase tracking-wide text-fg-muted">
+        <h2 class="mb-2 text-caption font-semibold uppercase tracking-widest text-fg-muted">
           Courts
         </h2>
         <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
@@ -358,7 +356,7 @@ useHead({
                it listed the matches and never showed the bracket, which is the
                thing a screen at the desk exists to display. -->
           <section class="overflow-x-auto rounded-card bg-surface p-4 shadow-card lg:p-6">
-            <h2 class="mb-4 text-caption font-semibold uppercase tracking-wide text-fg-muted">
+            <h2 class="mb-4 text-caption font-semibold uppercase tracking-widest text-fg-muted">
               Draw
             </h2>
             <TournamentBracketTree
@@ -374,7 +372,7 @@ useHead({
                score". Read-only here — approving an entry is the event page's
                job, not a wall screen's. -->
           <section class="rounded-card bg-surface p-4 shadow-card lg:p-6">
-            <h2 class="mb-4 text-caption font-semibold uppercase tracking-wide text-fg-muted">
+            <h2 class="mb-4 text-caption font-semibold uppercase tracking-widest text-fg-muted">
               Players
             </h2>
             <TournamentCategoryPlayers
@@ -390,7 +388,7 @@ useHead({
         <!-- The same rows the category card uses, in the order the desk works
              through them: playable first, then waiting, then done. -->
         <section class="rounded-card bg-surface p-4 shadow-card lg:p-6">
-          <h2 class="mb-4 text-caption font-semibold uppercase tracking-wide text-fg-muted">
+          <h2 class="mb-4 text-caption font-semibold uppercase tracking-widest text-fg-muted">
             Order of play
           </h2>
           <TournamentCategoryMatches

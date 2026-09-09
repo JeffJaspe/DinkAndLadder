@@ -50,7 +50,6 @@ function parseDecisionInput(body: unknown): RecordVerificationDecisionInput {
   }
 }
 
-
 /**
  * Records one verifier's decision. Same service-role rationale as the rest of the match
  * domain's writes — MatchService checks the caller is a designated, not-yet-responded verifier

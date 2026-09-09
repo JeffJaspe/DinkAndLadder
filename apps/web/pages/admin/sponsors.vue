@@ -111,7 +111,7 @@ async function removeSponsor(id: string) {
 <template>
   <div class="min-h-screen bg-canvas p-4 lg:p-6">
     <div class="page-shell">
-      <h1 class="text-2xl font-bold text-fg">Sponsors</h1>
+      <h1 class="font-display text-heading-1 text-fg">Sponsors</h1>
       <p class="mt-1 text-sm text-fg-muted">
         Super admin only. These appear on the public landing page, in the order below. A sponsor
         that is switched off keeps its logo but is hidden.
@@ -119,7 +119,7 @@ async function removeSponsor(id: string) {
 
       <!-- Add -->
       <section class="mt-6 rounded-card bg-surface p-5 shadow-card">
-        <h2 class="font-semibold text-fg">Add a sponsor</h2>
+        <h2 class="font-display text-heading-3 text-fg">Add a sponsor</h2>
         <div class="mt-3 grid gap-3 sm:grid-cols-[1fr_1fr_auto]">
           <div>
             <label for="sponsor-label" class="mb-1 block text-caption text-fg-secondary">
@@ -131,7 +131,7 @@ async function removeSponsor(id: string) {
               type="text"
               maxlength="80"
               placeholder="Acme Sports"
-              class="w-full rounded-button border border-border-strong bg-canvas px-3 py-2 text-body-2 text-fg focus:border-primary focus:outline-none"
+              class="w-full rounded-button border border-border-strong bg-canvas px-3 py-2 text-body-2 text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
             />
           </div>
           <div>
@@ -143,7 +143,7 @@ async function removeSponsor(id: string) {
               v-model="newLink"
               type="url"
               placeholder="https://example.com"
-              class="w-full rounded-button border border-border-strong bg-canvas px-3 py-2 text-body-2 text-fg focus:border-primary focus:outline-none"
+              class="w-full rounded-button border border-border-strong bg-canvas px-3 py-2 text-body-2 text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
             />
           </div>
           <div class="flex items-end">

@@ -1,9 +1,14 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { EventCourtRecord, CourtStatus, LiveGameScore } from '../dto/event.dto'
+// PENDING-052: see utils/pending-052.ts. Delete with the migration.
+import { withoutPendingColumns, withoutPendingWrites } from '~/utils/pending-052'
 
-const COURT_COLUMNS =
+const COURT_COLUMNS = withoutPendingColumns(
   'id, event_id, court_number, court_name, status, current_match_id, match_started_at, ' +
-  'live_score, team1_queue_id, team2_queue_id, live_score_updated_at'
+    'live_score, team1_queue_id, team2_queue_id, live_score_updated_at, round_number',
+  // PENDING-052
+  ['round_number']
+)
 
 export interface EventCourtRepository {
   listByEvent(eventId: string): Promise<EventCourtRecord[]>
@@ -19,6 +24,8 @@ export interface EventCourtRepository {
   update(
     courtId: string,
     patch: {
+      /** Renaming a court. See renameCourt in the service. */
+      court_name?: string | null
       status?: CourtStatus
       current_match_id?: string | null
       match_started_at?: string | null
@@ -26,6 +33,7 @@ export interface EventCourtRepository {
       team1_queue_id?: string | null
       team2_queue_id?: string | null
       live_score_updated_at?: string | null
+      round_number?: number | null
     }
   ): Promise<EventCourtRecord>
 }
@@ -78,7 +86,8 @@ export function createEventCourtRepository(client: SupabaseClient): EventCourtRe
     async update(courtId, patch) {
       const { data, error } = await client
         .from('event_courts')
-        .update(patch)
+        // PENDING-052: round_number is stripped until the column exists.
+        .update(withoutPendingWrites(patch, ['round_number']))
         .eq('id', courtId)
         .select(COURT_COLUMNS)
         .single()

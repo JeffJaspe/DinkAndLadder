@@ -21,6 +21,8 @@ export interface ResolvedPlayerLine {
 /** Normalises a side so a template never has to branch on the shape. */
 export function playerLines(entries: readonly PlayerLine[]): ResolvedPlayerLine[] {
   return entries.map((entry) =>
-    typeof entry === 'string' ? { name: entry, playerId: null } : { ...entry, playerId: entry.playerId ?? null }
+    typeof entry === 'string'
+      ? { name: entry, playerId: null }
+      : { ...entry, playerId: entry.playerId ?? null }
   )
 }

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { initialsFor } from '~/utils/initials'
 interface FollowRelation {
   player_id: string
   display_name: string
@@ -43,7 +44,7 @@ async function unfollow(playerId: string) {
 
       <!-- Header -->
       <div class="mb-6">
-        <h1 class="text-2xl font-bold text-fg">Social</h1>
+        <h1 class="font-display text-heading-1 text-fg">Social</h1>
         <p class="mt-1 text-sm text-fg-muted">Manage your connections</p>
       </div>
 
@@ -84,7 +85,7 @@ async function unfollow(playerId: string) {
         class="rounded-xl bg-surface p-12 text-center shadow-card"
       >
         <p class="text-4xl">{{ activeTab === 'following' ? '👤' : '🤝' }}</p>
-        <h3 class="mt-4 text-lg font-semibold text-fg">
+        <h3 class="mt-4 font-display text-heading-3 text-fg">
           {{ activeTab === 'following' ? 'Not following anyone' : 'No followers yet' }}
         </h3>
         <p class="mt-2 text-sm text-fg-muted">
@@ -114,7 +115,7 @@ async function unfollow(playerId: string) {
             <div
               class="flex h-10 w-10 items-center justify-center rounded-full bg-surface-2 text-sm font-bold text-fg-secondary"
             >
-              {{ relation.display_name.charAt(0).toUpperCase() }}
+              {{ initialsFor(relation.display_name, 1) }}
             </div>
             <span class="font-medium text-fg hover:text-primary">
               {{ relation.display_name }}
@@ -122,7 +123,7 @@ async function unfollow(playerId: string) {
           </NuxtLink>
           <button
             v-if="activeTab === 'following'"
-            class="rounded-lg border border-border-strong px-4 py-1.5 text-sm font-medium text-fg-secondary hover:border-red-400 hover:text-red-400"
+            class="rounded-lg border border-border-strong px-4 py-1.5 text-sm font-medium text-fg-secondary hover:border-danger hover:text-danger"
             @click="unfollow(relation.player_id)"
           >
             Unfollow

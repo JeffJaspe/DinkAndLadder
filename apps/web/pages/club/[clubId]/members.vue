@@ -244,7 +244,7 @@ const activeList = computed(() => {
            a deep link. -->
       <UiPageHeader :to="`/clubs/${clubId}`" :back-label="club?.name ?? 'Back to the club'" />
 
-      <h1 class="mt-1 text-2xl font-bold text-fg">Members</h1>
+      <h1 class="mt-1 font-display text-heading-1 text-fg">Members</h1>
       <p class="mt-1 text-sm text-fg-muted">
         Everyone in the club, the requests waiting on you, and the players you have invited.
       </p>

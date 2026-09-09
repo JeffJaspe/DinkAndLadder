@@ -140,6 +140,18 @@ function relative(iso: string): string {
   if (days < 30) return `${days}d ago`
   return new Date(iso).toLocaleDateString()
 }
+
+/**
+ * A named handler rather than two statements in the template.
+ * `@click="fromDate = ''; toDate = ''"` is valid only while it stays on one
+ * line: the formatter is entitled to break it across lines, and Vue's
+ * expression parser rejects the multi-line form outright — the whole page
+ * stopped compiling.
+ */
+function clearDates() {
+  fromDate.value = ''
+  toDate.value = ''
+}
 </script>
 
 <template>
@@ -169,7 +181,7 @@ function relative(iso: string): string {
         <input
           v-model="fromDate"
           type="date"
-          class="rounded-button border border-border-strong bg-surface px-3 py-1.5 text-body-2 text-fg focus:border-primary focus:outline-none"
+          class="rounded-button border border-border-strong bg-surface px-3 py-1.5 text-body-2 text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
         />
       </label>
       <label class="flex flex-col gap-1">
@@ -177,14 +189,14 @@ function relative(iso: string): string {
         <input
           v-model="toDate"
           type="date"
-          class="rounded-button border border-border-strong bg-surface px-3 py-1.5 text-body-2 text-fg focus:border-primary focus:outline-none"
+          class="rounded-button border border-border-strong bg-surface px-3 py-1.5 text-body-2 text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
         />
       </label>
       <button
         v-if="fromDate || toDate"
         type="button"
         class="pb-1.5 text-body-2 text-primary hover:underline"
-        @click="fromDate = ''; toDate = ''"
+        @click="clearDates"
       >
         Clear dates
       </button>

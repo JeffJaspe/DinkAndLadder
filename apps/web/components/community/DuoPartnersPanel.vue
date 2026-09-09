@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { initialsFor } from '~/utils/initials'
 /**
  * Duo partners — formal partnerships, their requests, and the duo star.
  *
@@ -235,7 +236,7 @@ const sectionItems = computed(() => [
             <div
               class="flex h-12 w-12 items-center justify-center rounded-full bg-surface-2 text-lg font-bold text-fg-secondary"
             >
-              {{ partner.display_name.charAt(0).toUpperCase() }}
+              {{ initialsFor(partner.display_name, 1) }}
             </div>
             <div>
               <p class="flex items-center gap-2 font-medium text-fg hover:text-primary">
@@ -286,7 +287,7 @@ const sectionItems = computed(() => [
             </button>
             <button
               :disabled="removingPartner === partner.player_id"
-              class="rounded-lg border border-red-400 px-3 py-1.5 text-sm font-medium text-red-400 hover:bg-red-400/10 disabled:opacity-50"
+              class="rounded-lg border border-danger px-3 py-1.5 text-sm font-medium text-danger hover:bg-danger-soft disabled:opacity-50"
               @click="removePartner(partner.player_id)"
             >
               {{ removingPartner === partner.player_id ? 'Removing...' : 'Remove' }}
@@ -316,7 +317,7 @@ const sectionItems = computed(() => [
               <div
                 class="flex h-12 w-12 items-center justify-center rounded-full bg-surface-2 text-lg font-bold text-fg-secondary"
               >
-                {{ request.player?.display_name?.charAt(0).toUpperCase() ?? '?' }}
+                {{ initialsFor(request.player?.display_name, 1) }}
               </div>
               <div>
                 <p class="font-medium text-fg hover:text-primary">
@@ -379,7 +380,7 @@ const sectionItems = computed(() => [
             <div
               class="flex h-12 w-12 items-center justify-center rounded-full bg-surface-2 text-lg font-bold text-fg-secondary"
             >
-              {{ request.player?.display_name?.charAt(0).toUpperCase() ?? '?' }}
+              {{ initialsFor(request.player?.display_name, 1) }}
             </div>
             <div>
               <p class="font-medium text-fg hover:text-primary">
@@ -394,7 +395,7 @@ const sectionItems = computed(() => [
           </NuxtLink>
           <button
             :disabled="cancellingRequest === request.id"
-            class="rounded-lg border border-red-400 px-3 py-1.5 text-sm font-medium text-red-400 hover:bg-red-400/10 disabled:opacity-50"
+            class="rounded-lg border border-danger px-3 py-1.5 text-sm font-medium text-danger hover:bg-danger-soft disabled:opacity-50"
             @click="cancelRequest(request.id)"
           >
             {{ cancellingRequest === request.id ? 'Cancelling...' : 'Cancel' }}

@@ -101,7 +101,7 @@ function formatDate(iso: string): string {
 <template>
   <div class="min-h-screen bg-canvas p-4 lg:p-6">
     <div class="page-shell">
-      <h1 class="text-2xl font-bold text-fg">Reports</h1>
+      <h1 class="font-display text-heading-1 text-fg">Reports</h1>
       <p class="mt-1 text-sm text-fg-muted">
         Super admin only. The reported player is never told who reported them — a warning names the
         reason and nothing else.
@@ -160,7 +160,7 @@ function formatDate(iso: string): string {
         >
           <div class="flex flex-wrap items-start justify-between gap-3">
             <div class="min-w-0">
-              <p class="text-body font-semibold text-fg">
+              <p class="text-body-1 font-medium text-fg">
                 <NuxtLink
                   :to="`/players/${report.reported.id}`"
                   class="text-primary hover:underline"
@@ -205,7 +205,7 @@ function formatDate(iso: string): string {
               rows="2"
               maxlength="500"
               placeholder="Optional note. Included in the warning, so keep it about the behaviour."
-              class="mt-3 w-full rounded-button border border-border-strong bg-canvas px-3 py-2 text-body-2 text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+              class="mt-3 w-full rounded-button border border-border-strong bg-canvas px-3 py-2 text-body-2 text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
             />
 
             <div class="mt-3 flex flex-wrap justify-end gap-2">

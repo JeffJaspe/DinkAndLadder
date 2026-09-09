@@ -33,7 +33,7 @@ const email = computed(() => (typeof route.query.email === 'string' ? route.quer
             </svg>
           </div>
         </div>
-        <h1 class="text-xl font-semibold text-fg">Verification sent</h1>
+        <h1 class="font-display text-heading-2 text-fg">Verification sent</h1>
         <p class="mt-2 text-fg-secondary">
           Check your email<span v-if="email"
             >, <span class="text-fg">{{ email }}</span></span

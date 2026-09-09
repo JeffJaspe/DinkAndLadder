@@ -1,5 +1,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { attachLinkedEvents, type LinkedEvent } from '~/server/domains/activity/services/linked-event'
+import {
+  attachLinkedEvents,
+  type LinkedEvent
+} from '~/server/domains/activity/services/linked-event'
 import { serverSupabaseClient } from '#supabase/server'
 import { createActivityRepository } from '~/server/domains/activity/repositories/activity.repository'
 import { createRelationshipRepository } from '~/server/domains/social/repositories/relationship.repository'

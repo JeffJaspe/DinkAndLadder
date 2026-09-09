@@ -76,9 +76,14 @@ function parseSubmitInput(body: unknown): SubmitMatchInput {
 
   const resultType = record.result_type ?? 'normal'
   if (!['normal', 'retired', 'dq', 'walkover'].includes(resultType as string)) {
-    throw apiError(400, 'VALIDATION_ERROR', "result_type must be normal, retired, dq or walkover.")
+    throw apiError(400, 'VALIDATION_ERROR', 'result_type must be normal, retired, dq or walkover.')
   }
-  if (record.winner_team !== undefined && record.winner_team !== null && record.winner_team !== 1 && record.winner_team !== 2) {
+  if (
+    record.winner_team !== undefined &&
+    record.winner_team !== null &&
+    record.winner_team !== 1 &&
+    record.winner_team !== 2
+  ) {
     throw apiError(400, 'VALIDATION_ERROR', 'winner_team must be 1, 2 or null.')
   }
 

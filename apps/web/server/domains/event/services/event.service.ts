@@ -9,6 +9,7 @@ import type {
   EventDto,
   EventRecord,
   EventSearchQuery,
+  QueueMode,
   UpdateEventInput
 } from '../dto/event.dto'
 import {
@@ -37,6 +38,9 @@ import {
   toTournamentDto,
   toTournamentRegistrationDto
 } from '../dto/tournament.dto'
+
+/** The stored pairing modes. Named for players in `utils/queue-mode.ts`. */
+const QUEUE_MODES: QueueMode[] = ['first_come', 'rating_based', 'random']
 
 /** `HH:MM` or `HH:MM:SS` on a 24-hour clock — what an <input type="time"> emits. */
 const TIME_PATTERN = /^([01][0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?$/
@@ -444,6 +448,63 @@ export function createEventService(
   }
 
   /**
+   * The game rules an organiser set, checked before Postgres sees them.
+   *
+   * events_game_rules_valid (054) enforces the same bounds, but a check
+   * constraint answers with a 500 and a constraint name. An organiser typing
+   * 210 instead of 21 into "points to win" deserves the sentence, not the
+   * stack trace. Bounds are deliberately identical to the ones 046 put on
+   * tournament_categories, so a game cannot be legal in a draw and illegal in
+   * open play.
+   */
+  function assertGameRules(input: { target_points?: number; games_default?: number }) {
+    const target = input.target_points
+    if (target !== undefined) {
+      if (!Number.isInteger(target) || target < 1 || target > 99) {
+        throw new EventServiceError(
+          400,
+          'VALIDATION_ERROR',
+          'Points to win must be a whole number between 1 and 99.'
+        )
+      }
+    }
+
+    const games = input.games_default
+    if (games !== undefined) {
+      // Odd, because a best-of has to be decidable: best of 2 can end 1-1.
+      if (!Number.isInteger(games) || games < 1 || games > 9 || games % 2 === 0) {
+        throw new EventServiceError(
+          400,
+          'VALIDATION_ERROR',
+          'Games per match must be an odd number between 1 and 9 — a best-of has to be decidable.'
+        )
+      }
+    }
+  }
+
+  /**
+   * How many courts the session runs on.
+   *
+   * This used to be collected only behind the "Match Queue" toggle, so a
+   * four-court session run without the queue stored null and materialised one
+   * court at start (see event-court.service.openCourts, which floors null at
+   * 1). It is a fact about the venue, not about the pairing mode, so the form
+   * now always asks and the service always checks. 24 is well past any real
+   * club and still stops a typed 400 from creating four hundred rows.
+   */
+  function assertCourtCount(input: { queue_courts?: number }) {
+    const courts = input.queue_courts
+    if (courts === undefined) return
+    if (!Number.isInteger(courts) || courts < 1 || courts > 24) {
+      throw new EventServiceError(
+        400,
+        'VALIDATION_ERROR',
+        'Number of courts must be a whole number between 1 and 24.'
+      )
+    }
+  }
+
+  /**
    * A tournament event has exactly one tournament, created with the event.
    *
    * The middle level used to be built by hand through an "Add Tournament"
@@ -504,6 +565,8 @@ export function createEventService(
       }
 
       assertTimesOrdered(input.start_date, input.end_date, input.start_time, input.end_time)
+      assertGameRules(input)
+      assertCourtCount(input)
 
       const event = await events.create(input, playerId)
       await ensureTournament(event, input)
@@ -531,12 +594,27 @@ export function createEventService(
         }
       }
 
+      // queue_mode became organiser-editable when the pairing control moved to
+      // the Queue tab. Checked here rather than left to the column constraint,
+      // so a bad value is a 400 saying which values are allowed instead of a
+      // 500 from Postgres.
+      if (input.queue_mode !== undefined && !QUEUE_MODES.includes(input.queue_mode)) {
+        throw new EventServiceError(
+          400,
+          'VALIDATION_ERROR',
+          `queue_mode must be one of: ${QUEUE_MODES.join(', ')}.`
+        )
+      }
+
       assertTimesOrdered(
         input.start_date ?? existingEvent.start_date,
         input.end_date ?? existingEvent.end_date,
         input.start_time !== undefined ? input.start_time : existingEvent.start_time,
         input.end_time !== undefined ? input.end_time : existingEvent.end_time
       )
+
+      assertGameRules(input)
+      assertCourtCount(input)
 
       const event = await events.update(eventId, input)
       // Covers an organiser switching an existing event over to a tournament

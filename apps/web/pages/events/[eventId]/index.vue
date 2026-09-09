@@ -1,20 +1,21 @@
 <script setup lang="ts">
+import { initialsFor } from '~/utils/initials'
 import type {
   EventDto,
   EventQueueDto,
-  EventRegistrationDto
+  EventRegistrationDto,
+  QueueMode
 } from '~/server/domains/event/dto/event.dto'
 import type { TournamentDto } from '~/server/domains/event/dto/tournament.dto'
-import type {
-  MatchListItemDto,
-  MatchListParticipantDto
-} from '~/server/domains/match/dto/match-join-row.dto'
+import type { MatchListItemDto } from '~/server/domains/match/dto/match-join-row.dto'
 import type { PartnerDto } from '~/server/domains/partnership/dto/partnership.dto'
 import type { BoxScoreMatch } from '~/components/match/BoxScore.vue'
 import type { PlayerProfileDto } from '~/server/domains/player/dto/player-profile.dto'
+// PENDING-052: see utils/pending-052.ts. Delete both with the migration.
+import { ROUNDS_MIGRATION_PENDING, deriveDisplayRounds } from '~/utils/pending-052'
 import { apiErrorMessage } from '~/utils/api-error-message'
 import { championOf, stageLabels } from '~/utils/bracket-rounds'
-import { rulesForRound } from '~/utils/game-rules'
+import { rulesForEvent, rulesForRound } from '~/utils/game-rules'
 import type { BracketDto, BracketMatchDto } from '~/server/domains/event/dto/bracket.dto'
 import type { TournamentCategoryDto } from '~/server/domains/event/dto/tournament-category.dto'
 import type { PlatformFeeRule } from '~/utils/convenience-fee'
@@ -38,7 +39,15 @@ const { isClubMode } = useAccountMode()
  * condition, so a plain published event opened on a blank panel. Who is playing
  * is what people come to a public event page to see.
  */
-const activeTab = ref<'info' | 'matches' | 'courts' | 'players' | 'rankings' | 'queue'>('players')
+type EventTab = 'info' | 'matches' | 'players' | 'rankings' | 'queue'
+
+/**
+ * Opens on the live board rather than the roster.
+ *
+ * "What is happening on court" is the question this page is opened to answer
+ * during a session, and it was previously two clicks away behind Players.
+ */
+const activeTab = ref<EventTab>('matches')
 
 interface EventRankingEntry {
   rank: number
@@ -518,30 +527,126 @@ const myRegistration = computed(() => {
  * temporal dead zone and threw `Cannot access 'courts' before initialization`,
  * taking the whole event page down on open.
  */
-const visibleTabs = computed(() => {
-  const tabs: Array<'info' | 'matches' | 'courts' | 'players' | 'rankings' | 'queue'> = [
-    'info',
-    'matches'
+/**
+ * The two tabs the session is actually run from.
+ *
+ * Matches is the live board — courts in play and games already finished, in
+ * one scroll. It absorbed the old Courts tab, which existed only because live
+ * play and finished play were drawn by different code; splitting the same
+ * evening across two tabs meant nobody could follow a match from "on court" to
+ * "final" without changing tabs mid-game.
+ */
+const primaryTabs: { id: EventTab; label: string }[] = [
+  { id: 'matches', label: 'Matches' },
+  { id: 'rankings', label: 'Scoreboard' }
+]
+
+/**
+ * Everything you set up or look up rather than watch.
+ *
+ * Demoted rather than removed: an organiser needs all of it, but not while a
+ * game is on, and putting five peers in one row made the two that matter
+ * during a session no easier to hit than the three that do not.
+ */
+const moreTabs = computed<{ id: EventTab; label: string }[]>(() => {
+  const tabs: { id: EventTab; label: string }[] = [
+    { id: 'info', label: 'Info' },
+    { id: 'players', label: 'Players' }
   ]
-  if (courts.value.length > 0) tabs.push('courts')
-  tabs.push('players', 'rankings')
 
   // The queue is a live control surface. On a finished or cancelled event it
   // can only offer actions that cannot do anything, so it is withheld rather
   // than shown empty — the roster stays reachable under Players.
   const over = event.value?.status === 'completed' || event.value?.status === 'cancelled'
-  if (!over) tabs.push('queue')
+  if (!over) tabs.push({ id: 'queue', label: 'Queue' })
 
   return tabs
 })
 
+const visibleTabs = computed<EventTab[]>(() => [
+  ...primaryTabs.map((t) => t.id),
+  ...moreTabs.value.map((t) => t.id)
+])
+
 // A tab can disappear underneath the reader — finishing an event while sitting
 // on Queue, for instance — so fall back rather than render nothing.
 watch(visibleTabs, (tabs) => {
-  if (!tabs.includes(activeTab.value)) activeTab.value = 'info'
+  if (!tabs.includes(activeTab.value)) activeTab.value = 'matches'
+})
+
+/**
+ * The round shown in the sticky strip.
+ *
+ * PENDING-052: derived the same way the board derives it, so the two do not
+ * disagree while the migration is outstanding. Once 052 lands, delete the
+ * import and this becomes `event.current_round` outright.
+ */
+const sessionRound = computed(() => {
+  if (!event.value) return 1
+  if (!ROUNDS_MIGRATION_PENDING) return event.value.current_round
+  return deriveDisplayRounds(matchesData.value?.data ?? [], event.value.queue_courts).currentRound
+})
+
+/**
+ * The scoring rules this session is played to. See 054.
+ *
+ * Open play could not express anything but one game to 11, so the board, the
+ * confirm dialog and the deuce note all read a constant. They read the event
+ * now, and this is the single place that resolves it.
+ */
+const sessionRules = computed(() => rulesForEvent(event.value))
+
+/** The rule as a sentence, for the Info tab and the queue panel. */
+const scoringSummary = computed(() => {
+  const rules = sessionRules.value
+  const games = rules.bestOf === 1 ? 'One game' : `Best of ${rules.bestOf}`
+  return `${games} to ${rules.targetPoints}${rules.winByTwo ? ', win by 2' : ' — first to the number takes it'}`
 })
 
 const courtBusyId = ref('')
+
+/**
+ * Renaming a court.
+ *
+ * `event_courts.court_name` has been rendered since 017 as
+ * `court_name || \`Court ${court_number}\``, but nothing could write it — so
+ * the number was the only label the product could produce, and a venue whose
+ * courts are signposted "Center" or "A" was sending players to a name that
+ * matched nothing on the fence.
+ */
+const renamingCourtId = ref('')
+const courtNameDraft = ref('')
+const savingCourtName = ref(false)
+
+function startRenameCourt(court: { id: string; court_name: string | null }) {
+  renamingCourtId.value = court.id
+  courtNameDraft.value = court.court_name ?? ''
+}
+
+function cancelRenameCourt() {
+  renamingCourtId.value = ''
+  courtNameDraft.value = ''
+}
+
+async function saveCourtName() {
+  if (savingCourtName.value || !renamingCourtId.value) return
+  savingCourtName.value = true
+  try {
+    await $fetch(`/api/v1/events/${eventId}/courts/${renamingCourtId.value}`, {
+      method: 'PATCH',
+      // Blank clears the name and restores "Court N" — the way back from a
+      // rename somebody regrets.
+      body: { court_name: courtNameDraft.value.trim() || null }
+    })
+    await refreshCourts()
+    cancelRenameCourt()
+    useToast().success('Court renamed.')
+  } catch (err) {
+    useToast().error(apiErrorMessage(err, 'Could not rename the court.'))
+  } finally {
+    savingCourtName.value = false
+  }
+}
 
 /**
  * Starting a game on a specific court.
@@ -564,7 +669,36 @@ const courtBusyId = ref('')
  * pairings committed at 7pm is a liability by 8. Courts are still started one
  * at a time; the schedule tells the desk who to put on.
  */
-const pairingMode = ref<'queue' | 'mixup'>('queue')
+/**
+ * How the queue pairs people, as a stored setting rather than a local toggle.
+ *
+ * There used to be a `pairingMode` ref here with two values ("queue" and
+ * "mixup") driving a pair of radios labelled "How to pair players". It looked
+ * like a setting and was not one: it persisted nothing, reset on reload, and
+ * had no relationship to `events.queue_mode` — which was displayed as a
+ * heading immediately above it and editable nowhere. An organiser could
+ * therefore be shown "Mix & Match" and "queue" selected at the same time.
+ *
+ * The three values are the stored enum, named by `utils/queue-mode.ts` so the
+ * words match wherever a mode is shown.
+ */
+const QUEUE_MODES: QueueMode[] = ['first_come', 'random', 'rating_based']
+
+const savingQueueMode = ref(false)
+
+async function setQueueMode(mode: QueueMode) {
+  if (savingQueueMode.value || event.value?.queue_mode === mode) return
+  savingQueueMode.value = true
+  try {
+    await $fetch(`/api/v1/events/${eventId}`, { method: 'PATCH', body: { queue_mode: mode } })
+    await refreshEvent()
+    toast.success(`Pairing set to ${queueModeLabel(mode)}.`)
+  } catch (err) {
+    toast.error(apiErrorMessage(err, 'Could not change how players are paired.'))
+  } finally {
+    savingQueueMode.value = false
+  }
+}
 const mixupRounds = ref(6)
 const mixupSchedule = ref<MixupSchedule | null>(null)
 const generatingMixup = ref(false)
@@ -623,6 +757,22 @@ function queueEntryLabel(entry: EventQueueDto): string {
   const names = [entry.player?.display_name, entry.partner?.display_name].filter(Boolean)
   return names.length ? names.join(' & ') : 'Unknown player'
 }
+
+/**
+ * Which court is being filled.
+ *
+ * The dialog used to be titled "Start a game" and name no court at all, so an
+ * organiser with three courts free clicked Start on court 3 and then picked two
+ * sides with nothing on screen saying where those people were being sent. In
+ * open play that is the whole of the decision - a court is the unit, sides are
+ * drawn fresh for each one - so it belongs in the title, not left to be
+ * remembered from the button that was clicked a second ago.
+ */
+const startCourtLabel = computed(() => {
+  const court = courts.value.find((c) => c.id === startCourtId.value)
+  if (!court) return null
+  return court.court_name || `Court ${court.court_number}`
+})
 
 async function confirmStartCourt() {
   if (!startTeam1.value || !startTeam2.value || startTeam1.value === startTeam2.value) return
@@ -710,7 +860,24 @@ const activeEntries = computed(
   () => queueData.value?.data.filter((q) => q.status !== 'waiting') ?? []
 )
 
-const joinMatchType = ref<'singles' | 'doubles'>('singles')
+/**
+ * Singles or doubles, for the queue entry.
+ *
+ * Seeded from the event rather than hard-coded. It defaulted to 'singles' on
+ * every session, including the doubles ones that are the overwhelming majority
+ * — and `nextPair` only ever pairs two waiting entries of the SAME format, so
+ * a doubles session whose players took the default filled up with singles
+ * entries the organiser could not put on a court.
+ */
+const joinMatchType = ref<'singles' | 'doubles'>('doubles')
+
+watch(
+  () => event.value?.match_format,
+  (format) => {
+    if (format) joinMatchType.value = format
+  },
+  { immediate: true }
+)
 const joinPartnerId = ref('')
 const joiningQueue = ref(false)
 const leavingQueue = ref(false)
@@ -870,10 +1037,56 @@ onMounted(() => {
   onBeforeUnmount(() => window.clearInterval(timer))
 })
 
+/**
+ * The courts a pair can be sent to, and which are free.
+ *
+ * This was a free-text number box. Nothing stopped an organiser typing the
+ * number of a court already in play - or one that does not exist - and the
+ * mistake only surfaced as an error from the server after the fact. Starting a
+ * game in open play is a decision about a court, so the courts are the choices.
+ *
+ * Falls back to the configured count when no court rows exist yet, because an
+ * event that has not been started has a court count but no courts.
+ */
+const courtChoices = computed(() => {
+  if (courts.value.length) {
+    return courts.value.map((court) => ({
+      value: String(court.court_number),
+      label: `${court.court_name || `Court ${court.court_number}`}${
+        court.status === 'playing' ? ' — in play' : ' — free'
+      }`
+    }))
+  }
+
+  return Array.from({ length: Math.max(1, event.value?.queue_courts ?? 1) }, (_, i) => ({
+    value: String(i + 1),
+    label: `Court ${i + 1}`
+  }))
+})
+
+/**
+ * Keeps the picker on a court that can actually be started.
+ *
+ * Re-seeds whenever the current choice is gone or has gone into play, which is
+ * exactly what happens the moment a pair is sent to it - leaving the selection
+ * sitting on a busy court would make the next press fail for a reason the
+ * organiser never chose.
+ */
+watch(
+  courtChoices,
+  (choices) => {
+    const current = choices.find((c) => c.value === matchCourtNumber.value)
+    if (current && !current.label.includes('in play')) return
+    matchCourtNumber.value =
+      (choices.find((c) => !c.label.includes('in play')) ?? choices[0])?.value ?? ''
+  },
+  { immediate: true }
+)
+
 async function handleMatchNextPair() {
   queueError.value = ''
   if (!matchCourtNumber.value) {
-    queueError.value = 'Choose a court number first.'
+    queueError.value = 'Choose a court first.'
     return
   }
   matchingQueue.value = true
@@ -894,7 +1107,7 @@ async function handleMatchNextPair() {
 async function handleMatchEntries() {
   queueError.value = ''
   if (!selectedEntry1.value || !selectedEntry2.value || !matchCourtNumber.value) {
-    queueError.value = 'Select two waiting players and a court number.'
+    queueError.value = 'Select two waiting players and a court.'
     return
   }
   matchingQueue.value = true
@@ -1026,7 +1239,7 @@ const statusConfig: Record<string, { bg: string; text: string }> = {
   open: { bg: 'bg-primary/20', text: 'text-primary' },
   in_progress: { bg: 'bg-primary/20', text: 'text-primary' },
   completed: { bg: 'bg-accent/20', text: 'text-accent' },
-  cancelled: { bg: 'bg-red-500/20', text: 'text-red-400' }
+  cancelled: { bg: 'bg-danger-soft', text: 'text-danger' }
 }
 
 const eventTypeLabels: Record<string, string> = {
@@ -1060,10 +1273,6 @@ function formatDateRange(start: string, end: string): string {
     return endStr
   }
   return `${startStr} - ${endStr}`
-}
-
-function formatScore(scores: { team1_score: number; team2_score: number }[]): string {
-  return scores.map((s) => `${s.team1_score}-${s.team2_score}`).join(', ')
 }
 
 /**
@@ -1239,8 +1448,8 @@ const { goBack } = useAppBack('/events')
       </div>
 
       <!-- Error -->
-      <div v-else-if="eventError" class="rounded-xl bg-red-500/10 p-6 text-center">
-        <p class="text-red-400">Could not load event.</p>
+      <div v-else-if="eventError" class="rounded-xl bg-danger-soft p-6 text-center">
+        <p class="text-danger">Could not load event.</p>
         <button
           type="button"
           class="mt-4 inline-block text-sm text-primary hover:underline"
@@ -1257,7 +1466,7 @@ const { goBack } = useAppBack('/events')
         v-else-if="draftHiddenFromPlayer"
         class="rounded-xl bg-surface p-8 text-center shadow-card"
       >
-        <h1 class="text-lg font-semibold text-fg">This event is still a draft</h1>
+        <h1 class="font-display text-heading-2 text-fg">This event is still a draft</h1>
         <p class="mx-auto mt-2 max-w-md text-sm text-fg-muted">
           Drafts live in club mode. Switch to the club that owns this event to finish setting it up
           and make it visible to players.
@@ -1273,9 +1482,13 @@ const { goBack } = useAppBack('/events')
 
       <template v-else-if="event">
         <!-- Event Header -->
-        <div class="mb-6 rounded-xl bg-surface p-6 shadow-card">
-          <div class="flex items-start justify-between gap-4">
-            <div class="flex-1">
+        <div class="mb-6 rounded-xl bg-surface p-4 shadow-card sm:p-6">
+          <!-- Stacked below `sm`. The actions used to sit in a fixed right-hand
+               column at every width, so on a phone "Close to new players" alone
+               took most of the row and the event name was left wrapping down a
+               140px gutter beside it. -->
+          <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div class="min-w-0 flex-1">
               <!-- What kind of event this is, before its name. Nothing on the
                    page said so at a glance, so a tournament and an open play
                    session were indistinguishable until you read the body. -->
@@ -1286,7 +1499,7 @@ const { goBack } = useAppBack('/events')
                 {{ eventKindLabel(event.event_type) }}
               </p>
               <div class="flex flex-wrap items-center gap-2">
-                <h1 class="text-2xl font-bold text-fg">{{ event.name }}</h1>
+                <h1 class="font-display text-heading-1 text-fg">{{ event.name }}</h1>
                 <span
                   class="rounded-md px-2 py-0.5 text-xs font-medium"
                   :class="
@@ -1355,9 +1568,14 @@ const { goBack } = useAppBack('/events')
                 </span>
               </div>
             </div>
-            <div class="flex flex-col items-end gap-2">
+            <!-- Full-width stacked buttons on a phone, a right-aligned column
+                 from `sm`. Every control in here is a real thumb target either
+                 way; none of them is a 140px sliver any more. -->
+            <div
+              class="flex shrink-0 flex-col gap-2 border-t border-border pt-4 sm:items-end sm:border-0 sm:pt-0"
+            >
               <span
-                class="rounded-md px-3 py-1 text-xs font-medium capitalize"
+                class="self-start rounded-md px-3 py-1 text-xs font-medium capitalize sm:self-auto"
                 :class="statusConfig[event.status]?.bg + ' ' + statusConfig[event.status]?.text"
               >
                 {{ event.status.replace('_', ' ') }}
@@ -1368,11 +1586,11 @@ const { goBack } = useAppBack('/events')
               <!-- Disabled with its reason, never absent. An organiser who
                    cannot start needs to know what is missing; a button that
                    simply is not there reads as a broken page. -->
-              <div v-if="canManageEvent && event.status === 'published'" class="text-right">
+              <div v-if="canManageEvent && event.status === 'published'" class="sm:text-right">
                 <button
                   :disabled="startingEvent || startBlockedReason !== null"
                   :title="startBlockedReason ?? undefined"
-                  class="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-on-primary hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-50"
+                  class="min-h-11 w-full rounded-lg bg-primary px-4 py-2 text-sm font-medium text-on-primary hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
                   @click="startEvent"
                 >
                   {{ startingEvent ? 'Starting…' : 'Start Event' }}
@@ -1393,7 +1611,7 @@ const { goBack } = useAppBack('/events')
                   (event.status === 'published' || event.status === 'active')
                 "
                 :disabled="closingSession"
-                class="rounded-lg border border-border-strong px-4 py-2 text-sm font-medium text-fg-secondary hover:bg-surface-2 disabled:opacity-50"
+                class="min-h-11 w-full rounded-lg border border-border-strong px-4 py-2 text-sm font-medium text-fg-secondary hover:bg-surface-2 disabled:opacity-50 sm:w-auto"
                 @click="closeSession"
               >
                 {{ closingSession ? 'Closing…' : 'Close to new players' }}
@@ -1402,7 +1620,7 @@ const { goBack } = useAppBack('/events')
               <button
                 v-if="canManageEvent && event.status === 'active'"
                 :disabled="startingEvent"
-                class="rounded-lg border border-border-strong px-4 py-2 text-sm font-medium text-fg-secondary hover:bg-surface-2 disabled:opacity-50"
+                class="min-h-11 w-full rounded-lg border border-border-strong px-4 py-2 text-sm font-medium text-fg-secondary hover:bg-surface-2 disabled:opacity-50 sm:w-auto"
                 @click="completeEvent"
               >
                 {{ startingEvent ? 'Ending…' : 'End Event' }}
@@ -1414,7 +1632,7 @@ const { goBack } = useAppBack('/events')
               <NuxtLink
                 v-if="canManageEvent && event.status === 'draft'"
                 :to="`/create-event?edit=${event.id}`"
-                class="rounded-lg border border-border-strong px-4 py-2 text-sm font-medium text-fg-secondary hover:bg-surface-2"
+                class="flex min-h-11 w-full items-center justify-center rounded-lg border border-border-strong px-4 py-2 text-sm font-medium text-fg-secondary hover:bg-surface-2 sm:w-auto"
               >
                 Edit event
               </NuxtLink>
@@ -1423,7 +1641,7 @@ const { goBack } = useAppBack('/events')
               <button
                 v-if="canManageEvent && event.status === 'draft'"
                 :disabled="publishing"
-                class="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-on-primary hover:bg-primary-hover disabled:opacity-50"
+                class="min-h-11 w-full rounded-lg bg-primary px-4 py-2 text-sm font-medium text-on-primary hover:bg-primary-hover disabled:opacity-50 sm:w-auto"
                 @click="publishOpen = true"
               >
                 {{ publishing ? 'Publishing...' : 'Publish Event' }}
@@ -1434,7 +1652,7 @@ const { goBack } = useAppBack('/events')
               <button
                 v-if="canManageEvent && event.status === 'draft'"
                 :disabled="deleting"
-                class="rounded-lg border border-red-500/40 px-4 py-2 text-sm font-medium text-red-400 hover:bg-red-500/10 disabled:opacity-50"
+                class="min-h-11 w-full rounded-lg border border-danger/40 px-4 py-2 text-sm font-medium text-danger hover:bg-danger-soft disabled:opacity-50 sm:w-auto"
                 @click="deleteOpen = true"
               >
                 {{ deleting ? 'Deleting...' : 'Delete Draft' }}
@@ -1451,7 +1669,7 @@ const { goBack } = useAppBack('/events')
               >
                 <button
                   v-if="!isRegistered"
-                  class="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-on-primary hover:bg-primary-hover disabled:opacity-50"
+                  class="min-h-11 w-full rounded-lg bg-primary px-4 py-2 text-sm font-medium text-on-primary hover:bg-primary-hover disabled:opacity-50 sm:w-auto"
                   :disabled="registering"
                   @click="openRegister"
                 >
@@ -1463,7 +1681,7 @@ const { goBack } = useAppBack('/events')
                   </span>
                   <button
                     v-if="myRegistration?.status === 'registered' && event.status === 'active'"
-                    class="rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-on-primary hover:bg-primary-hover disabled:opacity-50"
+                    class="min-h-11 w-full rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-on-primary hover:bg-primary-hover disabled:opacity-50 sm:w-auto"
                     :disabled="checkingIn"
                     @click="handleCheckIn"
                   >
@@ -1477,7 +1695,7 @@ const { goBack } = useAppBack('/events')
                        where the entry actually lives. -->
                   <button
                     v-if="!isTournament"
-                    class="text-xs text-fg-muted hover:text-danger"
+                    class="min-h-11 rounded-lg px-3 text-sm text-fg-muted transition-colors hover:bg-surface-2 hover:text-danger disabled:opacity-50"
                     :disabled="withdrawing"
                     @click="withdrawOpen = true"
                   >
@@ -1501,7 +1719,13 @@ const { goBack } = useAppBack('/events')
           The same grid as the score sheet and the match view, so a result reads
           identically wherever it is seen.
         -->
-        <section v-if="hasScores" class="mb-6">
+        <!-- Tournaments only, now. On an open play event this listed exactly
+             the matches the Matches tab lists, one scroll above them, so the
+             same result appeared on the page twice — and the copy up here was
+             the worse of the two, with no rounds and no sort. A tournament is
+             a different question (every category at once, which no single tab
+             answers) so it keeps its panel. -->
+        <section v-if="hasScores && isTournament" class="mb-6">
           <h2 class="mb-2 font-display text-heading-3 text-fg">Scores</h2>
           <div class="space-y-4">
             <MatchScoreSection
@@ -1538,37 +1762,102 @@ const { goBack } = useAppBack('/events')
         </template>
 
         <template v-else>
-          <!-- Tabs -->
-          <div class="mb-4 flex gap-1 rounded-lg bg-surface p-1">
-            <button
-              v-for="tab in visibleTabs"
-              :key="tab"
-              class="flex-1 rounded-md px-4 py-2 text-sm font-medium capitalize transition-colors"
-              :class="
-                activeTab === tab
-                  ? 'bg-primary text-on-primary'
-                  : 'text-fg-muted hover:bg-surface-2 hover:text-fg'
-              "
-              @click="activeTab = tab"
+          <!-- The session strip and the tabs, pinned together.
+
+               The page header carries everything about the event - fee, venue,
+               capacity, organiser controls - and scrolls away within a screen
+               of the board. During a session that is the wrong trade: the one
+               fact worth keeping on screen is that a game is on, and the tabs
+               have to stay reachable while somebody scrolls a long evening.
+
+               `top-14` clears the layout's fixed mobile bar; the desktop shell
+               puts its navigation down the left, so there is nothing to clear. -->
+          <div class="sticky top-14 z-20 -mx-4 mb-4 bg-canvas px-4 pt-2 lg:top-0">
+            <div
+              v-if="event.status === 'active'"
+              class="mb-2 flex items-center justify-between gap-3 rounded-lg bg-surface px-3 py-2"
             >
-              {{ tab }}
+              <div class="min-w-0">
+                <p class="truncate text-body-2 font-bold text-fg">{{ event.name }}</p>
+                <p class="truncate text-caption text-fg-muted">
+                  {{ formatDateRange(event.start_date, event.end_date) }}
+                  <span v-if="hasLiveCourt"> · Round {{ sessionRound }}</span>
+                </p>
+              </div>
+
               <span
-                v-if="tab === 'players' && registrationsData?.data"
-                class="ml-1 text-xs opacity-75"
+                v-if="hasLiveCourt"
+                class="inline-flex shrink-0 items-center gap-1.5 rounded-pill bg-danger-soft px-2.5 py-1 text-caption font-bold uppercase tracking-wide text-danger"
               >
-                ({{ registrationsData.data.length }})
+                <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-danger" aria-hidden="true" />
+                Live
               </span>
-              <span v-if="tab === 'matches' && matchesData?.data" class="ml-1 text-xs opacity-75">
-                ({{ matchesData.data.length }})
-              </span>
-              <!-- The red LIVE dot: a player scanning the tab bar should be
-                   able to tell a game is on without opening anything. -->
-              <span
-                v-if="(tab === 'matches' || tab === 'courts') && hasLiveCourt"
-                class="ml-1.5 inline-flex h-1.5 w-1.5 animate-pulse rounded-full bg-danger align-middle"
-                aria-label="A game is live"
-              />
-            </button>
+            </div>
+
+            <!-- Tabs.
+
+               Two primary tabs sized to be hit, and the rest folded behind
+               "More". The five peers this replaced all looked equally
+               important, which made the live board - the only one anybody
+               opens mid-session - no easier to reach than the entry fee. -->
+            <!-- Scrolls rather than overflows. The five tabs need roughly
+                 450px of minimum content and a 360px phone has 328px, so the
+                 row used to push the whole page sideways. The two primary tabs
+                 stay put and hold their share; only "More" scrolls away. -->
+            <div
+              class="flex items-center gap-2 overflow-x-auto pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            >
+              <div class="flex shrink-0 gap-1 rounded-lg bg-surface p-1 sm:min-w-0 sm:flex-1">
+                <button
+                  v-for="tab in primaryTabs"
+                  :key="tab.id"
+                  class="min-h-11 shrink-0 whitespace-nowrap rounded-md px-4 text-sm font-semibold transition-colors sm:min-w-0 sm:flex-1 sm:truncate"
+                  :class="
+                    activeTab === tab.id
+                      ? 'bg-primary text-on-primary'
+                      : 'text-fg-muted hover:bg-surface-2 hover:text-fg'
+                  "
+                  @click="activeTab = tab.id"
+                >
+                  {{ tab.label }}
+                  <span
+                    v-if="tab.id === 'matches' && matchesData?.data"
+                    class="ml-1 text-xs opacity-75"
+                  >
+                    ({{ matchesData.data.length }})
+                  </span>
+                  <!-- The red LIVE dot: a player scanning the tab bar should be
+                     able to tell a game is on without opening anything. -->
+                  <span
+                    v-if="tab.id === 'matches' && hasLiveCourt"
+                    class="ml-1.5 inline-flex h-1.5 w-1.5 animate-pulse rounded-full bg-danger align-middle"
+                    aria-label="A game is live"
+                  />
+                </button>
+              </div>
+
+              <div class="flex shrink-0 gap-1 rounded-lg bg-surface p-1">
+                <button
+                  v-for="tab in moreTabs"
+                  :key="tab.id"
+                  class="min-h-11 whitespace-nowrap rounded-md px-3 text-sm font-medium transition-colors"
+                  :class="
+                    activeTab === tab.id
+                      ? 'bg-surface-3 text-fg'
+                      : 'text-fg-muted hover:bg-surface-2 hover:text-fg'
+                  "
+                  @click="activeTab = tab.id"
+                >
+                  {{ tab.label }}
+                  <span
+                    v-if="tab.id === 'players' && registrationsData?.data"
+                    class="ml-1 text-xs opacity-75"
+                  >
+                    ({{ registrationsData.data.length }})
+                  </span>
+                </button>
+              </div>
+            </div>
           </div>
 
           <!-- Tab Content: Info -->
@@ -1578,7 +1867,7 @@ const { goBack } = useAppBack('/events')
                tab, so it lives here and organisers can change it in place. -->
             <div class="rounded-xl bg-surface p-6 shadow-card">
               <div class="mb-3 flex items-center justify-between gap-3">
-                <h2 class="text-lg font-semibold text-fg">About this event</h2>
+                <h2 class="font-display text-heading-3 text-fg">About this event</h2>
                 <button
                   v-if="canManageEvent && !editingDescription"
                   type="button"
@@ -1596,9 +1885,9 @@ const { goBack } = useAppBack('/events')
                   rows="5"
                   maxlength="2000"
                   placeholder="What should players know about this event? Format, skill level, what to bring…"
-                  class="w-full rounded-lg border border-border-strong bg-canvas px-3 py-2 text-fg placeholder-fg-muted focus:border-primary focus:outline-none"
+                  class="w-full rounded-lg border border-border-strong bg-canvas px-3 py-2 text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
                 />
-                <p v-if="descriptionError" class="text-sm text-red-400">{{ descriptionError }}</p>
+                <p v-if="descriptionError" class="text-sm text-danger">{{ descriptionError }}</p>
                 <div class="flex items-center gap-2">
                   <button
                     type="button"
@@ -1685,6 +1974,19 @@ const { goBack } = useAppBack('/events')
                     <template v-else>registered</template>
                   </dd>
                 </div>
+                <!-- Nothing on this page ever said how long a game is. It
+                     could not: until 054 the answer was a constant. -->
+                <div v-if="!isTournament && event.event_type !== 'coaching'">
+                  <dt class="text-xs uppercase tracking-wide text-fg-muted">Scoring</dt>
+                  <dd class="mt-0.5 text-sm tabular-nums text-fg">{{ scoringSummary }}</dd>
+                </div>
+                <div v-if="!isTournament">
+                  <dt class="text-xs uppercase tracking-wide text-fg-muted">Courts</dt>
+                  <dd class="mt-0.5 text-sm tabular-nums text-fg">
+                    {{ event.queue_courts }}
+                    {{ event.queue_courts === 1 ? 'court' : 'courts' }}
+                  </dd>
+                </div>
                 <div v-if="event.registration_closes">
                   <dt class="text-xs uppercase tracking-wide text-fg-muted">Registration closes</dt>
                   <dd class="mt-0.5 text-sm text-fg">
@@ -1709,169 +2011,126 @@ const { goBack } = useAppBack('/events')
 
             <!-- Queue Settings Info -->
             <div v-if="event.queue_enabled" class="rounded-xl bg-surface p-6 shadow-card">
-              <h2 class="mb-3 text-lg font-semibold text-fg">
+              <h2 class="mb-3 font-display text-heading-3 text-fg">
                 {{ queueModeLabel(event.queue_mode) }}
               </h2>
               <p class="text-fg-secondary">
                 {{ queueModeDescription(event.queue_mode) }}
               </p>
               <p class="mt-1 text-sm text-fg-muted">
-                {{ event.queue_courts }} court(s) in rotation.
+                {{ event.queue_courts }}
+                {{ event.queue_courts === 1 ? 'court' : 'courts' }} in rotation.
               </p>
-
-              <!-- How the next match gets picked. -->
-              <div v-if="canManageEvent" class="mt-4 border-t border-border pt-4">
-                <p class="mb-2 text-sm font-medium text-fg-secondary">How to pair players</p>
-                <div class="flex gap-2">
-                  <label
-                    v-for="mode in ['queue', 'mixup'] as const"
-                    :key="mode"
-                    class="flex flex-1 cursor-pointer items-start gap-2 rounded-lg border-2 p-3 text-sm transition-all"
-                    :class="
-                      pairingMode === mode
-                        ? 'border-primary bg-primary/5'
-                        : 'border-border-strong hover:border-primary/40'
-                    "
-                  >
-                    <input
-                      v-model="pairingMode"
-                      type="radio"
-                      :value="mode"
-                      class="mt-1 accent-primary"
-                    />
-                    <span>
-                      <span class="block font-medium capitalize text-fg">{{ mode }}</span>
-                      <span class="block text-xs text-fg-muted">
-                        {{
-                          mode === 'queue'
-                            ? 'First come, first served. Longest wait plays next.'
-                            : 'Rotate partners and opponents so everyone plays with everyone.'
-                        }}
-                      </span>
-                    </span>
-                  </label>
-                </div>
-
-                <div v-if="pairingMode === 'mixup'" class="mt-4">
-                  <div class="flex flex-wrap items-end gap-3">
-                    <div>
-                      <label for="mixup-rounds" class="mb-1 block text-xs text-fg-secondary">
-                        Rounds
-                      </label>
-                      <input
-                        id="mixup-rounds"
-                        v-model.number="mixupRounds"
-                        type="number"
-                        min="1"
-                        max="20"
-                        class="w-24 rounded-lg border border-border-strong bg-canvas px-3 py-2 text-sm text-fg focus:border-primary focus:outline-none"
-                      />
-                    </div>
-                    <UiButton :disabled="generatingMixup" @click="generateMixup">
-                      {{ generatingMixup ? 'Generating…' : 'Generate rotation' }}
-                    </UiButton>
-                  </div>
-
-                  <p class="mt-2 text-xs text-fg-muted">
-                    A preview — nothing is saved. Courts are still started one at a time, so
-                    latecomers and early leavers do not break the evening.
-                  </p>
-
-                  <!-- The generated rounds -->
-                  <div v-if="mixupSchedule?.rounds.length" class="mt-4 space-y-3">
-                    <div
-                      v-for="round in mixupSchedule.rounds"
-                      :key="round.round_number"
-                      class="rounded-lg bg-canvas p-3"
-                    >
-                      <p class="text-xs font-semibold uppercase tracking-wide text-fg-muted">
-                        Round {{ round.round_number }}
-                      </p>
-                      <ul class="mt-2 space-y-1">
-                        <li
-                          v-for="match in round.matches"
-                          :key="match.court_number"
-                          class="flex flex-wrap items-baseline gap-2 text-sm text-fg-secondary"
-                        >
-                          <span class="text-xs text-fg-muted">Court {{ match.court_number }}</span>
-                          <span class="text-fg">{{ sideNames(match.team1) }}</span>
-                          <span class="text-fg-muted">vs</span>
-                          <span class="text-fg">{{ sideNames(match.team2) }}</span>
-                        </li>
-                      </ul>
-                      <p v-if="round.sitting_out.length" class="mt-1.5 text-xs text-fg-muted">
-                        Sitting out:
-                        {{ round.sitting_out.map((p) => sideNames({ players: [p] })).join(', ') }}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
             </div>
           </div>
 
-          <!-- Tab Content: Matches -->
-          <div v-if="activeTab === 'matches'" class="rounded-xl bg-surface p-6 shadow-card">
-            <div v-if="matchesPending" class="space-y-3">
-              <div v-for="i in 5" :key="i" class="h-16 animate-pulse rounded-lg bg-canvas" />
+          <!-- Tab Content: Matches — the live board.
+
+               Courts in play and games already finished, grouped by round in
+               one scroll. See EventLiveBoard for why these stopped being two
+               tabs. -->
+          <div v-if="activeTab === 'matches'" class="space-y-4">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <p class="text-caption text-fg-muted">
+                <span v-if="courtsUpdatedAt">
+                  Updated {{ courtsUpdatedAt.toLocaleTimeString() }} · refreshes every few seconds
+                </span>
+                <span v-else>Live scores refresh automatically.</span>
+              </p>
+              <UiButton variant="ghost" class="min-h-11" @click="refreshCourts">Refresh</UiButton>
             </div>
-            <div v-else-if="!matchesData?.data.length" class="text-center py-8">
-              <p class="text-fg-muted">No matches recorded yet.</p>
-            </div>
-            <div v-else class="space-y-3">
-              <NuxtLink
-                v-for="match in matchesData.data"
-                :key="match.id"
-                :to="`/matches/${match.id}`"
-                class="block rounded-lg bg-canvas p-4 transition-all hover:bg-surface-2"
+
+            <!-- Court labels.
+
+                 `event_courts.court_name` has been rendered everywhere since
+                 017 as `court_name || \`Court ${court_number}\``, and nothing
+                 could ever write it — so a venue whose courts are signposted
+                 "Center" or "A" through "D" was sending players to numbers
+                 that matched nothing on the fence. Organiser-only, and folded
+                 away, because it is setup rather than something to read
+                 mid-session. -->
+            <details
+              v-if="canManageEvent && courts.length"
+              class="rounded-xl bg-surface shadow-card"
+            >
+              <summary
+                class="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 rounded-xl px-4 py-3 text-body-2 font-medium text-fg-secondary transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
               >
-                <div class="flex items-center justify-between">
-                  <div>
-                    <div class="flex items-center gap-2">
-                      <span class="text-sm capitalize text-fg-muted">{{ match.match_type }}</span>
+                Name your courts
+                <span class="text-caption text-fg-muted">
+                  {{ courts.length }} {{ courts.length === 1 ? 'court' : 'courts' }}
+                </span>
+              </summary>
+
+              <div class="space-y-2 border-t border-border px-4 py-3">
+                <p class="text-caption text-fg-muted">
+                  Match the signs at the venue. Leave one blank to go back to its number.
+                </p>
+
+                <div
+                  v-for="court in courts"
+                  :key="court.id"
+                  class="flex flex-wrap items-center gap-2 rounded-lg bg-canvas p-3"
+                >
+                  <template v-if="renamingCourtId === court.id">
+                    <label :for="`court-name-${court.id}`" class="sr-only">
+                      Name for court {{ court.court_number }}
+                    </label>
+                    <input
+                      :id="`court-name-${court.id}`"
+                      v-model="courtNameDraft"
+                      type="text"
+                      maxlength="40"
+                      :placeholder="`Court ${court.court_number}`"
+                      class="min-h-11 min-w-0 flex-1 rounded-lg border border-border-strong bg-surface px-3 text-body-2 text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
+                      @keyup.enter="saveCourtName"
+                      @keyup.esc="cancelRenameCourt"
+                    />
+                    <UiButton size="sm" :disabled="savingCourtName" @click="saveCourtName">
+                      {{ savingCourtName ? 'Saving…' : 'Save' }}
+                    </UiButton>
+                    <UiButton
+                      variant="ghost"
+                      size="sm"
+                      :disabled="savingCourtName"
+                      @click="cancelRenameCourt"
+                    >
+                      Cancel
+                    </UiButton>
+                  </template>
+
+                  <template v-else>
+                    <span class="min-w-0 flex-1 truncate text-body-2 text-fg">
+                      {{ court.court_name || `Court ${court.court_number}` }}
                       <span
-                        class="rounded px-2 py-0.5 text-xs"
-                        :class="
-                          statusConfig[match.status]?.bg + ' ' + statusConfig[match.status]?.text
-                        "
+                        v-if="court.court_name"
+                        class="ml-1 text-caption tabular-nums text-fg-muted"
                       >
-                        {{ match.status }}
+                        · court {{ court.court_number }}
                       </span>
-                    </div>
-                    <div class="mt-1 text-fg">
-                      <span
-                        v-for="(p, i) in match.participants.filter(
-                          (pp: MatchListParticipantDto) => pp.team_number === 1
-                        )"
-                        :key="p.player_id"
-                      >
-                        {{ Number(i) > 0 ? ' & ' : '' }}{{ p.display_name }}
-                      </span>
-                      <span class="mx-2 text-fg-muted">vs</span>
-                      <span
-                        v-for="(p, i) in match.participants.filter(
-                          (pp: MatchListParticipantDto) => pp.team_number === 2
-                        )"
-                        :key="p.player_id"
-                      >
-                        {{ Number(i) > 0 ? ' & ' : '' }}{{ p.display_name }}
-                      </span>
-                    </div>
-                    <div class="mt-1 text-sm text-primary">
-                      {{ formatScore(match.scores) }}
-                    </div>
-                  </div>
-                  <div class="text-right text-sm text-fg-muted">
-                    {{
-                      new Date(match.played_at).toLocaleTimeString([], {
-                        hour: '2-digit',
-                        minute: '2-digit'
-                      })
-                    }}
-                  </div>
+                    </span>
+                    <UiButton variant="ghost" size="sm" @click="startRenameCourt(court)">
+                      Rename
+                    </UiButton>
+                  </template>
                 </div>
-              </NuxtLink>
-            </div>
+              </div>
+            </details>
+
+            <EventLiveBoard
+              :event-id="eventId"
+              :courts="courts"
+              :matches="matchesData?.data ?? []"
+              :current-round="sessionRound"
+              :court-count="event.queue_courts"
+              :rules="sessionRules"
+              :can-manage="canManageEvent"
+              :busy-court-id="courtBusyId"
+              :loading="matchesPending && !matchesData"
+              @score="updateCourtScore"
+              @submit="submitCourtScore"
+              @start="openStartCourt"
+            />
           </div>
 
           <!-- Tab Content: Players -->
@@ -1912,7 +2171,7 @@ const { goBack } = useAppBack('/events')
                   <div
                     class="flex h-10 w-10 items-center justify-center rounded-full bg-surface-2 text-sm font-medium text-fg"
                   >
-                    {{ reg.player?.display_name?.charAt(0) || '?' }}
+                    {{ initialsFor(reg.player?.display_name, 1) }}
                   </div>
                   <div>
                     <NuxtLink
@@ -1948,34 +2207,6 @@ const { goBack } = useAppBack('/events')
              matches and deliberately carries no rating delta (rating_transactions
              is select-own under RLS, so a shared leaderboard cannot show another
              player's movement without a service-role bypass). -->
-          <!-- Tab Content: Courts -->
-          <div v-if="activeTab === 'courts'" class="space-y-4">
-            <div class="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <h2 class="font-semibold text-fg">Courts</h2>
-                <p class="text-caption text-fg-muted">
-                  <span v-if="courtsUpdatedAt">
-                    Updated {{ courtsUpdatedAt.toLocaleTimeString() }} · refreshes every few seconds
-                  </span>
-                  <span v-else>Live scores refresh automatically.</span>
-                </p>
-              </div>
-              <UiButton variant="ghost" size="sm" @click="refreshCourts">Refresh</UiButton>
-            </div>
-
-            <div class="grid gap-4 sm:grid-cols-2">
-              <EventCourtCard
-                v-for="court in courts"
-                :key="court.id"
-                :court="court"
-                :can-manage="canManageEvent"
-                :busy="courtBusyId === court.id"
-                @score="updateCourtScore(court.id, $event)"
-                @submit="submitCourtScore(court.id)"
-                @start="openStartCourt(court.id)"
-              />
-            </div>
-          </div>
 
           <div v-if="activeTab === 'rankings'">
             <RankingBoard
@@ -1995,12 +2226,106 @@ const { goBack } = useAppBack('/events')
             <template v-if="event.queue_enabled">
               <div class="rounded-xl bg-surface p-6 shadow-card">
                 <p class="text-sm text-fg-muted">
-                  {{ event.queue_courts }} court(s) · {{ queueModeLabel(event.queue_mode) }}
+                  {{ event.queue_courts }}
+                  {{ event.queue_courts === 1 ? 'court' : 'courts' }} ·
+                  {{ queueModeLabel(event.queue_mode) }} · {{ scoringSummary }}
                 </p>
+
+                <!-- Pairing, where the queue is actually run.
+
+                     This used to be a pair of radios on the Info tab bound to a
+                     local ref, so it looked like a setting, changed nothing,
+                     and reset on reload — while the real `queue_mode` was
+                     printed as a heading directly above it with no way to
+                     change it. The two could disagree on screen. One control
+                     now, writing the stored field, in the words the rest of the
+                     app already uses for it. -->
+                <div v-if="canManageEvent" class="mt-4 border-t border-border pt-4">
+                  <p class="mb-2 text-sm font-medium text-fg-secondary">How to pair players</p>
+                  <div class="grid gap-2 sm:grid-cols-3">
+                    <button
+                      v-for="mode in QUEUE_MODES"
+                      :key="mode"
+                      type="button"
+                      :disabled="savingQueueMode"
+                      class="rounded-lg border-2 p-3 text-left text-sm transition-all disabled:opacity-60"
+                      :class="
+                        event.queue_mode === mode
+                          ? 'border-primary bg-primary/5'
+                          : 'border-border-strong hover:border-primary/40'
+                      "
+                      @click="setQueueMode(mode)"
+                    >
+                      <span class="block font-medium text-fg">{{ queueModeLabel(mode) }}</span>
+                      <span class="mt-0.5 block text-xs text-fg-muted">
+                        {{ queueModeDescription(mode) }}
+                      </span>
+                    </button>
+                  </div>
+
+                  <!-- The rotation preview belongs to Mix & Match and nothing
+                       else: it exists to show that nobody repeats a partner. -->
+                  <div v-if="event.queue_mode === 'random'" class="mt-4">
+                    <div class="flex flex-wrap items-end gap-3">
+                      <div>
+                        <label for="mixup-rounds" class="mb-1 block text-xs text-fg-secondary">
+                          Rounds
+                        </label>
+                        <input
+                          id="mixup-rounds"
+                          v-model.number="mixupRounds"
+                          type="number"
+                          min="1"
+                          max="20"
+                          class="w-24 rounded-lg border border-border-strong bg-canvas px-3 py-2 text-sm text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
+                        />
+                      </div>
+                      <UiButton :disabled="generatingMixup" @click="generateMixup">
+                        {{ generatingMixup ? 'Generating…' : 'Generate rotation' }}
+                      </UiButton>
+                    </div>
+
+                    <p class="mt-2 text-xs text-fg-muted">
+                      A preview — nothing is saved. Courts are still started one at a time, so
+                      latecomers and early leavers do not break the evening.
+                    </p>
+
+                    <!-- The generated rounds -->
+                    <div v-if="mixupSchedule?.rounds.length" class="mt-4 space-y-3">
+                      <div
+                        v-for="round in mixupSchedule.rounds"
+                        :key="round.round_number"
+                        class="rounded-lg bg-canvas p-3"
+                      >
+                        <p class="text-xs font-semibold uppercase tracking-wide text-fg-muted">
+                          Round {{ round.round_number }}
+                        </p>
+                        <ul class="mt-2 space-y-1">
+                          <li
+                            v-for="match in round.matches"
+                            :key="match.court_number"
+                            class="flex flex-wrap items-baseline gap-2 text-sm text-fg-secondary"
+                          >
+                            <span class="text-xs text-fg-muted"
+                              >Court {{ match.court_number }}</span
+                            >
+                            <span class="text-fg">{{ sideNames(match.team1) }}</span>
+                            <span class="text-fg-muted">vs</span>
+                            <span class="text-fg">{{ sideNames(match.team2) }}</span>
+                          </li>
+                        </ul>
+                        <p v-if="round.sitting_out.length" class="mt-1.5 text-xs text-fg-muted">
+                          Sitting out:
+                          {{ round.sitting_out.map((p) => sideNames({ players: [p] })).join(', ') }}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
 
                 <div
                   v-if="queueError"
-                  class="mt-4 rounded-lg bg-red-500/10 p-3 text-sm text-red-400"
+                  class="mt-4 rounded-lg bg-danger-soft p-3 text-sm text-danger"
                 >
                   {{ queueError }}
                 </div>
@@ -2023,7 +2348,7 @@ const { goBack } = useAppBack('/events')
                     <button
                       v-if="myQueueEntry.status === 'waiting'"
                       :disabled="leavingQueue"
-                      class="rounded-lg border border-red-400 px-4 py-2 text-sm font-medium text-red-400 hover:bg-red-400/10 disabled:opacity-50"
+                      class="rounded-lg border border-danger px-4 py-2 text-sm font-medium text-danger hover:bg-danger-soft disabled:opacity-50"
                       @click="handleLeaveQueue"
                     >
                       {{ leavingQueue ? 'Leaving...' : 'Leave Queue' }}
@@ -2031,10 +2356,13 @@ const { goBack } = useAppBack('/events')
                   </div>
                   <div v-else class="flex flex-wrap items-end gap-3 rounded-lg bg-canvas p-4">
                     <div>
-                      <label class="mb-1.5 block text-xs text-fg-secondary">Match Type</label>
+                      <label for="queue-match-type" class="mb-1.5 block text-xs text-fg-secondary">
+                        Match Type
+                      </label>
                       <select
+                        id="queue-match-type"
                         v-model="joinMatchType"
-                        class="rounded-lg border border-border-strong bg-surface px-3 py-2 text-sm text-fg focus:border-primary focus:outline-none"
+                        class="rounded-lg border border-border-strong bg-surface px-3 py-2 text-sm text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
                       >
                         <option value="singles">Singles</option>
                         <option value="doubles">Doubles</option>
@@ -2043,10 +2371,13 @@ const { goBack } = useAppBack('/events')
                     <!-- Hidden in Mix & Match: the rotation pairs you, so
                          there is nothing to choose. -->
                     <div v-if="joinMatchType === 'doubles' && !queuePairsForYou">
-                      <label class="mb-1.5 block text-xs text-fg-secondary">Partner</label>
+                      <label for="queue-partner" class="mb-1.5 block text-xs text-fg-secondary">
+                        Partner
+                      </label>
                       <select
+                        id="queue-partner"
                         v-model="joinPartnerId"
-                        class="rounded-lg border border-border-strong bg-surface px-3 py-2 text-sm text-fg focus:border-primary focus:outline-none"
+                        class="rounded-lg border border-border-strong bg-surface px-3 py-2 text-sm text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
                       >
                         <option value="" disabled>Select partner</option>
                         <option
@@ -2074,8 +2405,13 @@ const { goBack } = useAppBack('/events')
 
                 <!-- Organizer: put the next pair on a court -->
                 <div v-if="canManageEvent" class="mt-4 rounded-lg bg-canvas p-4">
-                  <h3 class="mb-1 text-sm font-semibold text-fg">Next on court</h3>
-                  <p class="mb-3 text-xs text-fg-muted">First come, first served.</p>
+                  <h3 class="mb-1 text-body-2 font-medium text-fg">Next on court</h3>
+                  <!-- Said "First come, first served." on every session, so a
+                       Rating Based or Mix &amp; Match organiser was told the
+                       opposite of what the server does. -->
+                  <p class="mb-3 text-xs text-fg-muted">
+                    {{ queueModeDescription(event.queue_mode) }}
+                  </p>
 
                   <div v-if="!nextPair" class="text-sm text-fg-muted">
                     Two waiting entries of the same format are needed before a match can start.
@@ -2089,14 +2425,11 @@ const { goBack } = useAppBack('/events')
                         · {{ nextPair.first.match_type }}
                       </span>
                     </p>
-                    <input
+                    <UiSelect
                       v-model="matchCourtNumber"
-                      type="number"
-                      min="1"
-                      :max="event.queue_courts"
-                      placeholder="Court #"
-                      aria-label="Court number"
-                      class="w-24 rounded-lg border border-border-strong bg-surface px-3 py-2 text-sm text-fg placeholder-fg-muted focus:border-primary focus:outline-none"
+                      :options="courtChoices"
+                      aria-label="Court to start on"
+                      size="sm"
                     />
                     <button
                       type="button"
@@ -2126,7 +2459,7 @@ const { goBack } = useAppBack('/events')
                   >
                     <select
                       v-model="selectedEntry1"
-                      class="rounded-lg border border-border-strong bg-surface px-3 py-2 text-sm text-fg focus:border-primary focus:outline-none"
+                      class="rounded-lg border border-border-strong bg-surface px-3 py-2 text-sm text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
                     >
                       <option value="" disabled>Player/Pair 1</option>
                       <option v-for="e in waitingEntries" :key="e.id" :value="e.id">
@@ -2136,7 +2469,7 @@ const { goBack } = useAppBack('/events')
                     </select>
                     <select
                       v-model="selectedEntry2"
-                      class="rounded-lg border border-border-strong bg-surface px-3 py-2 text-sm text-fg focus:border-primary focus:outline-none"
+                      class="rounded-lg border border-border-strong bg-surface px-3 py-2 text-sm text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
                     >
                       <option value="" disabled>Player/Pair 2</option>
                       <option v-for="e in waitingEntries" :key="e.id" :value="e.id">
@@ -2151,7 +2484,7 @@ const { goBack } = useAppBack('/events')
                       :max="event.queue_courts"
                       placeholder="Court #"
                       aria-label="Court number for the manual pick"
-                      class="w-24 rounded-lg border border-border-strong bg-surface px-3 py-2 text-sm text-fg placeholder-fg-muted focus:border-primary focus:outline-none"
+                      class="w-24 rounded-lg border border-border-strong bg-surface px-3 py-2 text-sm text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
                     />
                     <button
                       type="button"
@@ -2167,7 +2500,9 @@ const { goBack } = useAppBack('/events')
 
               <!-- Queue List -->
               <div class="rounded-xl bg-surface p-6 shadow-card">
-                <h3 class="mb-1 font-semibold text-fg">Waiting ({{ waitingEntries.length }})</h3>
+                <h3 class="mb-1 text-body-1 font-medium text-fg">
+                  Waiting ({{ waitingEntries.length }})
+                </h3>
                 <p class="mb-4 text-xs text-fg-muted">First come, first served.</p>
                 <div v-if="queuePending" class="space-y-3">
                   <div v-for="i in 3" :key="i" class="h-14 animate-pulse rounded-lg bg-canvas" />
@@ -2206,7 +2541,8 @@ const { goBack } = useAppBack('/events')
                     </div>
                     <button
                       v-if="canManageEvent"
-                      class="text-xs text-fg-muted hover:text-red-400"
+                      class="min-h-11 shrink-0 rounded-lg px-3 text-sm text-fg-muted transition-colors hover:bg-surface-2 hover:text-danger"
+                      :aria-label="`Skip ${entryLabel(e)}`"
                       @click="handleSkipEntry(e.id)"
                     >
                       Skip
@@ -2215,7 +2551,7 @@ const { goBack } = useAppBack('/events')
                 </div>
 
                 <div v-if="activeEntries.length > 0" class="mt-6">
-                  <h3 class="mb-3 font-semibold text-fg">On Court</h3>
+                  <h3 class="mb-3 font-display text-heading-3 text-fg">On Court</h3>
                   <div class="space-y-2">
                     <div
                       v-for="e in activeEntries"
@@ -2244,7 +2580,11 @@ const { goBack } = useAppBack('/events')
 
         <!-- Back Link -->
         <div class="mt-6 text-center">
-          <button type="button" class="text-sm text-primary hover:underline" @click="goBack">
+          <button
+            type="button"
+            class="min-h-11 rounded-button px-3 text-sm text-primary transition-colors hover:bg-surface-2 hover:underline"
+            @click="goBack"
+          >
             Back
           </button>
         </div>
@@ -2304,7 +2644,7 @@ const { goBack } = useAppBack('/events')
          two different sides are chosen, which the built-in row cannot express. -->
     <UiModal
       v-model="startCourtOpen"
-      title="Start a game"
+      :title="startCourtLabel ? `Start a game on ${startCourtLabel}` : 'Start a game'"
       description="Pick the two sides from the players waiting."
       hide-actions
     >
@@ -2323,7 +2663,7 @@ const { goBack } = useAppBack('/events')
             <select
               id="court-team1"
               v-model="startTeam1"
-              class="w-full rounded-button border border-border-strong bg-canvas px-3 py-2 text-body-2 text-fg focus:border-primary focus:outline-none"
+              class="w-full rounded-button border border-border-strong bg-canvas px-3 py-2 text-body-2 text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
             >
               <option v-for="entry in waitingEntries" :key="entry.id" :value="entry.id">
                 {{ queueEntryLabel(entry) }}
@@ -2338,7 +2678,7 @@ const { goBack } = useAppBack('/events')
             <select
               id="court-team2"
               v-model="startTeam2"
-              class="w-full rounded-button border border-border-strong bg-canvas px-3 py-2 text-body-2 text-fg focus:border-primary focus:outline-none"
+              class="w-full rounded-button border border-border-strong bg-canvas px-3 py-2 text-body-2 text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
             >
               <option v-for="entry in waitingEntries" :key="entry.id" :value="entry.id">
                 {{ queueEntryLabel(entry) }}

@@ -190,19 +190,16 @@ async function goToDashboard() {
   await navigateTo(redirectAfter.value)
 }
 
-const tierEmoji = computed(() => {
-  if (!ratingResult.value) return '🏓'
-  const name = ratingResult.value.tier.name.toLowerCase()
-  if (name === 'champion') return '👑'
-  if (name === 'elite') return '🌟'
-  if (name === 'pro') return '🔥'
-  if (name === 'expert') return '💪'
-  if (name === 'skilled') return '🎯'
-  if (name === 'advanced') return '⚡'
-  if (name === 'intermediate') return '📈'
-  if (name === 'novice') return '🌱'
-  return '🏓'
-})
+/**
+ * The tier's *tokens*, not the raw hex the API sends alongside its name.
+ * `tier.color` is a fixed literal: it stays the same value in dark mode, and
+ * the celebration was painting `text-fg` on top of it without anyone having
+ * measured the pair. `tierForRating` is the same ladder the rating badge,
+ * the rankings board and the profile header already draw from.
+ */
+const tierTokens = computed(() =>
+  ratingResult.value ? tierForRating(ratingResult.value.rating) : null
+)
 
 const categoryLabel = (category: string) => {
   const labels: Record<string, string> = {
@@ -227,7 +224,7 @@ const categoryLabel = (category: string) => {
       <!-- Step: Account Type Selection -->
       <div v-if="step === 'type'" class="space-y-6">
         <div class="text-center">
-          <h1 class="text-2xl font-bold text-fg">Welcome to {{ appName }}!</h1>
+          <h1 class="font-display text-heading-1 text-fg">Welcome to {{ appName }}!</h1>
           <p class="mt-2 text-fg-muted">First, what should we call you?</p>
         </div>
 
@@ -240,10 +237,10 @@ const categoryLabel = (category: string) => {
             maxlength="50"
             autocomplete="nickname"
             placeholder="e.g. Jeff J."
-            class="mt-2 w-full rounded-lg border border-border-strong bg-canvas px-3 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none"
+            class="mt-2 w-full rounded-lg border border-border-strong bg-canvas px-3 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
             @input="displayNameError = ''"
           />
-          <p v-if="displayNameError" class="mt-2 text-sm text-red-400">
+          <p v-if="displayNameError" class="mt-2 text-sm text-danger">
             {{ displayNameError }}
           </p>
           <p v-else class="mt-2 text-xs text-fg-muted">
@@ -266,7 +263,7 @@ const categoryLabel = (category: string) => {
             >
               🏓
             </div>
-            <h3 class="text-lg font-semibold text-fg">I'm a Player</h3>
+            <h3 class="font-display text-heading-3 text-fg">I'm a Player</h3>
             <p class="mt-2 text-sm text-fg-muted">
               Track your matches, build your rating, join clubs and compete in tournaments.
             </p>
@@ -282,7 +279,7 @@ const categoryLabel = (category: string) => {
             >
               🏆
             </div>
-            <h3 class="text-lg font-semibold text-fg">I'm a Club Organizer</h3>
+            <h3 class="font-display text-heading-3 text-fg">I'm a Club Organizer</h3>
             <p class="mt-2 text-sm text-fg-muted">
               Create your club, organize open play sessions and tournaments, manage members.
             </p>
@@ -316,7 +313,7 @@ const categoryLabel = (category: string) => {
 
         <!-- Question Card -->
         <div class="rounded-xl bg-surface p-6 shadow-card">
-          <h2 class="mb-6 text-lg font-semibold text-fg">
+          <h2 class="mb-6 font-display text-heading-3 text-fg">
             {{ currentQuestion.question }}
           </h2>
 
@@ -361,24 +358,20 @@ const categoryLabel = (category: string) => {
 
           <!-- Rating Badge -->
           <div
-            class="relative mx-auto mb-6 flex h-32 w-32 items-center justify-center rounded-full"
-            :class="{ 'animate-bounce-in': showCelebration }"
-            :style="{ backgroundColor: `${ratingResult.tier.color}20` }"
+            class="relative mx-auto mb-6 flex h-32 w-32 items-center justify-center rounded-pill"
+            :class="[tierTokens?.softClass, { 'animate-badge-in': showCelebration }]"
           >
             <div
-              class="flex h-28 w-28 flex-col items-center justify-center rounded-full"
-              :style="{
-                backgroundColor: `${ratingResult.tier.color}30`,
-                border: `3px solid ${ratingResult.tier.color}`
-              }"
+              class="flex h-28 w-28 items-center justify-center rounded-pill border-2 border-current"
+              :class="[tierTokens?.softClass, tierTokens?.textClass]"
             >
-              <span class="text-4xl">{{ tierEmoji }}</span>
+              <UiIcon name="trophy" size="h-12 w-12" :stroke-width="1.5" />
             </div>
           </div>
 
           <!-- Congratulations Text -->
           <h1
-            class="mb-2 text-2xl font-bold text-fg"
+            class="mb-2 font-display text-heading-1 text-fg"
             :class="{ 'animate-fade-in': showCelebration }"
           >
             Congratulations!
@@ -390,12 +383,12 @@ const categoryLabel = (category: string) => {
 
           <!-- Rating Display -->
           <div class="mb-4 space-y-2" :class="{ 'animate-scale-in': showCelebration }">
-            <div class="text-6xl font-bold" :style="{ color: ratingResult.tier.color }">
+            <div class="font-display text-stat-xl tabular-nums" :class="tierTokens?.textClass">
               {{ ratingResult.rating.toFixed(2) }}
             </div>
             <div
-              class="inline-block rounded-full px-4 py-1 text-lg font-semibold text-fg"
-              :style="{ backgroundColor: ratingResult.tier.color }"
+              class="inline-block rounded-pill px-4 py-1 font-display text-heading-3"
+              :class="[tierTokens?.softClass, tierTokens?.textClass]"
             >
               {{ ratingResult.tier.name }}
             </div>
@@ -416,7 +409,7 @@ const categoryLabel = (category: string) => {
               class="relative h-3 overflow-hidden rounded-full bg-gradient-to-r from-fg-muted via-primary to-warning-fill"
             >
               <div
-                class="absolute top-0 h-full w-1 bg-white shadow-lg"
+                class="absolute top-0 h-full w-1 rounded-pill bg-fg ring-2 ring-surface"
                 :style="{ left: `${((ratingResult.rating - 2) / 6) * 100}%` }"
               />
             </div>
@@ -440,7 +433,7 @@ const categoryLabel = (category: string) => {
       <!-- Step: Club Creation Prompt -->
       <div v-else-if="step === 'club'" class="space-y-6">
         <div class="text-center">
-          <h1 class="text-2xl font-bold text-fg">Create Your Club</h1>
+          <h1 class="font-display text-heading-1 text-fg">Create Your Club</h1>
           <p class="mt-2 text-fg-muted">Set up your club and start organizing events</p>
         </div>
 
@@ -511,13 +504,10 @@ const categoryLabel = (category: string) => {
 </template>
 
 <style scoped>
-@keyframes bounce-in {
+@keyframes badge-in {
   0% {
-    transform: scale(0);
+    transform: scale(0.86);
     opacity: 0;
-  }
-  50% {
-    transform: scale(1.2);
   }
   100% {
     transform: scale(1);
@@ -559,8 +549,8 @@ const categoryLabel = (category: string) => {
   }
 }
 
-.animate-bounce-in {
-  animation: bounce-in 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+.animate-badge-in {
+  animation: badge-in 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 .animate-fade-in {
@@ -592,17 +582,46 @@ const categoryLabel = (category: string) => {
   pointer-events: none;
 }
 
+/* Confetti in the product's own inks rather than a 360-degree hue sweep.
+   A rainbow here was the one place the app spent colour it does not own, and
+   it read as a stock celebration bolted onto a green system. Three tokens,
+   cycled, so the piece follows the theme like everything else on the page. */
 .confetti {
   position: absolute;
   width: 10px;
   height: 10px;
   top: -10px;
   left: calc(var(--i) * 2%);
-  background: hsl(calc(var(--i) * 7.2), 80%, 60%);
+  background: rgb(var(--dnl-primary));
+  /* A 10px chip: 2px is the shape at this size, not a scale step.
+     impeccable-disable-next-line design-system-radius -- confetti particle */
   border-radius: 2px;
   animation: confetti-fall 3s ease-out forwards;
   animation-delay: calc(var(--i) * 0.02s);
   transform: rotate(calc(var(--i) * 10deg));
+}
+
+.confetti:nth-child(3n + 2) {
+  background: rgb(var(--dnl-accent));
+}
+
+.confetti:nth-child(3n + 3) {
+  background: rgb(var(--dnl-rating-gold));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .confetti-container {
+    display: none;
+  }
+
+  .animate-badge-in,
+  .animate-fade-in,
+  .animate-fade-in-delay,
+  .animate-scale-in,
+  .animate-celebration {
+    animation: none;
+    opacity: 1;
+  }
 }
 
 @keyframes confetti-fall {
