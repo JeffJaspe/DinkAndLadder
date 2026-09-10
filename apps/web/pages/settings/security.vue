@@ -96,7 +96,7 @@ async function handleSubmit() {
               <span
                 class="flex h-10 w-10 shrink-0 items-center justify-center rounded-button bg-surface-2 text-fg-secondary"
               >
-                <UiIcon name="settings" />
+                <UiIcon name="lock" />
               </span>
               <span class="flex-1">
                 <span class="block font-medium text-fg">Email and password</span>
@@ -123,7 +123,8 @@ async function handleSubmit() {
 
           <div
             v-if="successMessage"
-            class="mb-4 rounded-button bg-primary/10 px-4 py-3 text-body-2 text-primary"
+            role="status"
+            class="mb-4 rounded-button bg-primary-soft px-4 py-3 text-body-2 text-primary"
           >
             {{ successMessage }}
           </div>
@@ -168,6 +169,7 @@ async function handleSubmit() {
 
             <div
               v-if="errorMessage"
+              role="alert"
               class="rounded-button bg-danger-soft px-4 py-3 text-body-2 text-danger"
             >
               {{ errorMessage }}

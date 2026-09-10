@@ -66,6 +66,8 @@ export default {
         'on-scrim': token('on-scrim'),
         'on-art': token('on-art'),
         'on-art-muted': token('on-art-muted'),
+        // Ground for a partner mark that must not be recoloured. See tokens.css.
+        'mark-plate': token('mark-plate'),
 
         // Status
         success: {

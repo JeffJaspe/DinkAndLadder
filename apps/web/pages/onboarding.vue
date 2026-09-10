@@ -175,7 +175,7 @@ async function continueToClubCreation() {
   try {
     await $fetch('/api/v1/players/me/onboarding', {
       method: 'POST',
-      body: { account_type: 'club', display_name: displayName.value.trim() }
+      body: { display_name: displayName.value.trim() }
     })
     await navigateTo('/create-club')
   } finally {

@@ -3,6 +3,7 @@ import { createBadgeRepository } from '~/server/domains/badge/repositories/badge
 import { createBadgeService } from '~/server/domains/badge/services/badge.service'
 import { getBadgeById } from '~/server/domains/badge/dto/badge.dto'
 import { requireFeature, FEATURE_ACHIEVEMENTS } from '~/server/utils/require-feature'
+import { apiError } from '~/server/utils/api-error'
 
 export default defineEventHandler(async (event) => {
   // Off means gone, not hidden: the client gate only stops this app
@@ -11,7 +12,7 @@ export default defineEventHandler(async (event) => {
 
   const playerId = getRouterParam(event, 'playerId')
   if (!playerId) {
-    throw createError({ statusCode: 400, statusMessage: 'Player ID required' })
+    throw apiError(400, 'INVALID_INPUT', 'Player ID required.')
   }
 
   const supabase = await serverSupabaseServiceRole(event)

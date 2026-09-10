@@ -7,6 +7,7 @@ import { EventServiceError } from '~/server/domains/event/services/event.service
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
 import type { TournamentFormat } from '~/server/domains/event/dto/tournament.dto'
 import { getOptionalUser } from '~/server/utils/optional-user'
+import { apiError } from '~/server/utils/api-error'
 
 interface CreateCategoryBody {
   template_id?: string
@@ -40,19 +41,17 @@ function readGameRules(body: CreateCategoryBody) {
     Number.isInteger(value) && value >= 1 && value <= 9 && value % 2 === 1
 
   if (body.games_default != null && !oddInRange(body.games_default)) {
-    throw createError({
-      statusCode: 400,
-      statusMessage: 'games_default must be an odd number of games between 1 and 9.'
-    })
+    throw apiError(
+      400,
+      'INVALID_INPUT',
+      'games_default must be an odd number of games between 1 and 9.'
+    )
   }
 
   if (body.target_points != null) {
     const points = body.target_points
     if (!Number.isInteger(points) || points < 1 || points > 99) {
-      throw createError({
-        statusCode: 400,
-        statusMessage: 'target_points must be a whole number between 1 and 99.'
-      })
+      throw apiError(400, 'INVALID_INPUT', 'target_points must be a whole number between 1 and 99.')
     }
   }
 
@@ -60,10 +59,11 @@ function readGameRules(body: CreateCategoryBody) {
   if (rounds != null) {
     for (const [round, games] of Object.entries(rounds)) {
       if (!/^\d+$/.test(round) || !oddInRange(games)) {
-        throw createError({
-          statusCode: 400,
-          statusMessage: `round_game_rules must map a round number to an odd game count (got ${round}: ${games}).`
-        })
+        throw apiError(
+          400,
+          'INVALID_INPUT',
+          `round_game_rules must map a round number to an odd game count (got ${round}: ${games}).`
+        )
       }
     }
   }
@@ -79,18 +79,18 @@ function readGameRules(body: CreateCategoryBody) {
 export default defineEventHandler(async (event) => {
   const user = await getOptionalUser(event)
   if (!user) {
-    throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
+    throw apiError(401, 'AUTH_REQUIRED', 'Sign in to continue.')
   }
 
   const tournamentId = getRouterParam(event, 'tournamentId')
   if (!tournamentId) {
-    throw createError({ statusCode: 400, statusMessage: 'tournamentId is required.' })
+    throw apiError(400, 'MISSING_PARAMETER', 'tournamentId is required.')
   }
 
   const client = await serverSupabaseClient(event)
   const profile = await createPlayerProfileRepository(client).findByUserId(user.sub)
   if (!profile) {
-    throw createError({ statusCode: 403, statusMessage: 'Player profile required.' })
+    throw apiError(403, 'PROFILE_REQUIRED', 'Create your player profile first.')
   }
 
   const body = await readBody<CreateCategoryBody>(event)
@@ -117,10 +117,7 @@ export default defineEventHandler(async (event) => {
     }
 
     if (!body?.name) {
-      throw createError({
-        statusCode: 400,
-        statusMessage: 'Provide either template_id or a custom name.'
-      })
+      throw apiError(400, 'INVALID_INPUT', 'Provide either template_id or a custom name.')
     }
 
     const category = await service.createCustom(profile.id, tournamentId, {
@@ -136,7 +133,7 @@ export default defineEventHandler(async (event) => {
     return category
   } catch (err) {
     if (err instanceof EventServiceError) {
-      throw createError({ statusCode: err.status, statusMessage: err.message })
+      throw apiError(err.status, err.code, err.message)
     }
     throw err
   }

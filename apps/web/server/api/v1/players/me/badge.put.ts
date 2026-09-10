@@ -4,6 +4,7 @@ import { createBadgeRepository } from '~/server/domains/badge/repositories/badge
 import { createBadgeService } from '~/server/domains/badge/services/badge.service'
 import { requireFeature, FEATURE_ACHIEVEMENTS } from '~/server/utils/require-feature'
 import { getOptionalUser } from '~/server/utils/optional-user'
+import { apiError } from '~/server/utils/api-error'
 
 interface SetBadgeBody {
   badge_id: string | null
@@ -16,7 +17,7 @@ export default defineEventHandler(async (event) => {
 
   const user = await getOptionalUser(event)
   if (!user) {
-    throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
+    throw apiError(401, 'AUTH_REQUIRED', 'Sign in to continue.')
   }
 
   const body = await readBody<SetBadgeBody>(event)
@@ -28,7 +29,7 @@ export default defineEventHandler(async (event) => {
 
   const profile = await playerRepo.findByUserId(user.sub)
   if (!profile) {
-    throw createError({ statusCode: 404, statusMessage: 'Player profile not found' })
+    throw apiError(404, 'NOT_FOUND', 'Player profile not found.')
   }
 
   try {
@@ -36,7 +37,7 @@ export default defineEventHandler(async (event) => {
     return { data: showcase }
   } catch (err) {
     if (err instanceof Error && err.message.includes('Invalid badge ID')) {
-      throw createError({ statusCode: 400, statusMessage: err.message })
+      throw apiError(400, 'INVALID_INPUT', err.message)
     }
     throw err
   }

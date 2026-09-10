@@ -11,6 +11,7 @@ import {
 } from '~/server/domains/event/services/event.service'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
 import { getOptionalUser } from '~/server/utils/optional-user'
+import { apiError } from '~/server/utils/api-error'
 
 interface UpdateRegistrationStatusInput {
   status: 'confirmed' | 'rejected' | 'waitlisted'
@@ -19,12 +20,12 @@ interface UpdateRegistrationStatusInput {
 export default defineEventHandler(async (event) => {
   const user = await getOptionalUser(event)
   if (!user) {
-    throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
+    throw apiError(401, 'AUTH_REQUIRED', 'Sign in to continue.')
   }
 
   const registrationId = getRouterParam(event, 'registrationId')
   if (!registrationId) {
-    throw createError({ statusCode: 400, statusMessage: 'registrationId is required.' })
+    throw apiError(400, 'MISSING_PARAMETER', 'registrationId is required.')
   }
 
   const client = await serverSupabaseClient(event)
@@ -32,15 +33,12 @@ export default defineEventHandler(async (event) => {
   const playerRepo = createPlayerProfileRepository(client)
   const profile = await playerRepo.findByUserId(user.sub)
   if (!profile) {
-    throw createError({ statusCode: 403, statusMessage: 'Player profile required.' })
+    throw apiError(403, 'PROFILE_REQUIRED', 'Create your player profile first.')
   }
 
   const body = await readBody<UpdateRegistrationStatusInput>(event)
   if (!body.status || !['confirmed', 'rejected', 'waitlisted'].includes(body.status)) {
-    throw createError({
-      statusCode: 400,
-      statusMessage: 'status must be one of: confirmed, rejected, waitlisted'
-    })
+    throw apiError(400, 'INVALID_INPUT', 'status must be one of: confirmed, rejected, waitlisted.')
   }
 
   const serviceClient = serverSupabaseServiceRole(event)
@@ -62,7 +60,7 @@ export default defineEventHandler(async (event) => {
     return registration
   } catch (err) {
     if (err instanceof EventServiceError) {
-      throw createError({ statusCode: err.status, statusMessage: err.message })
+      throw apiError(err.status, err.code, err.message)
     }
     throw err
   }

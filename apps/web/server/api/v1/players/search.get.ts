@@ -1,9 +1,10 @@
-import { serverSupabaseClient } from '#supabase/server'
+import { serverSupabaseClient, serverSupabaseServiceRole } from '#supabase/server'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
 import {
   toPlayerSearchResultDto,
   type PlayerSearchQuery
 } from '~/server/domains/player/dto/player-profile.dto'
+import { createBrandingAssetRepository } from '~/server/domains/platform/repositories/branding-asset.repository'
 import { apiError } from '~/server/utils/api-error'
 
 const DEFAULT_LIMIT = 20
@@ -48,8 +49,25 @@ export default defineEventHandler(async (event) => {
 
   try {
     const rows = await repository.search(query)
+
+    // Signed avatar URLs, resolved once for the whole page and in parallel.
+    // Serially signing a page of a hundred players would put a hundred round
+    // trips on the directory's critical path; rows with no photo cost nothing.
+    const assets = createBrandingAssetRepository(serverSupabaseServiceRole(event))
+    const withPhotos = rows.filter((row) => row.avatar_path)
+    const urls = new Map(
+      await Promise.all(
+        withPhotos.map(
+          async (row) => [row.id, await assets.resolveUrl(row.avatar_path!)] as const
+        )
+      )
+    )
+
     return {
-      data: rows.map(toPlayerSearchResultDto),
+      data: rows.map((row) => ({
+        ...toPlayerSearchResultDto(row),
+        avatar_url: urls.get(row.id) ?? null
+      })),
       request_id: crypto.randomUUID()
     }
   } catch (err) {

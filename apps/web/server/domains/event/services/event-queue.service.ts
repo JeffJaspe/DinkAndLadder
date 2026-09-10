@@ -15,10 +15,27 @@ export class EventQueueServiceError extends Error {
 
 export interface EventQueueService {
   listQueue(eventId: string): Promise<EventQueueRecord[]>
+  /**
+   * Puts a player in the queue.
+   *
+   * `requestedMatchType` is a cross-check, not a choice. An event declares one
+   * `match_format` and every game in the session is played to it, so the format
+   * of a queue entry is a fact about the event rather than a preference of the
+   * person joining. It used to be taken straight from the request body and
+   * never compared to anything, which meant a player could enter a doubles
+   * session as a singles entry — and `matchNextPair` only ever pairs two
+   * entries of the SAME type, so one stray entry at the head of the queue
+   * stopped the whole session from being paired.
+   *
+   * Absent means "use the session's format", which is what a current client
+   * sends. A disagreeing value is a 400 rather than a silent correction: a
+   * client that thinks the session is singles is out of date, and quietly
+   * enqueueing them as doubles would be a different bug.
+   */
   joinQueue(
     eventId: string,
     playerId: string,
-    matchType: 'singles' | 'doubles',
+    requestedMatchType: 'singles' | 'doubles' | null | undefined,
     partnerId?: string | null
   ): Promise<EventQueueRecord>
   leaveQueue(eventId: string, playerId: string): Promise<void>
@@ -89,7 +106,7 @@ export function createEventQueueService(
       return queue.findByEvent(eventId)
     },
 
-    async joinQueue(eventId, playerId, matchType, partnerId) {
+    async joinQueue(eventId, playerId, requestedMatchType, partnerId) {
       await assertRegistered(registrations, eventId, playerId)
 
       const existing = await queue.findByEventAndPlayer(eventId, playerId)
@@ -109,7 +126,25 @@ export function createEventQueueService(
        * one by pairing whoever is next is a scheduling rule nobody has decided.
        */
       const eventRecord = await events.findById(eventId)
-      const pairsAutomatically = eventRecord?.queue_mode === 'random'
+      if (!eventRecord) {
+        throw new EventQueueServiceError(404, 'NOT_FOUND', 'Event not found.')
+      }
+      const pairsAutomatically = eventRecord.queue_mode === 'random'
+
+      /**
+       * The session's format decides the entry's, full stop. Defaulted the same
+       * way `toEventDto` defaults it, so an event created before 041 — which
+       * predates the column — still resolves to the doubles it was played as.
+       */
+      const matchType = eventRecord.match_format ?? 'doubles'
+
+      if (requestedMatchType != null && requestedMatchType !== matchType) {
+        throw new EventQueueServiceError(
+          409,
+          'FORMAT_MISMATCH',
+          `This session is ${matchType}. Reload the event and try again.`
+        )
+      }
 
       if (matchType === 'doubles' && !pairsAutomatically) {
         if (!partnerId) {
@@ -203,11 +238,23 @@ export function createEventQueueService(
     },
 
     async matchNextPair(actingPlayerId, eventId, courtNumber, matchType) {
-      await assertOrganizer(events, eventId, actingPlayerId)
+      const eventRecord = await assertOrganizer(events, eventId, actingPlayerId)
+
+      /**
+       * Unfiltered, this took whatever sat at the head of the queue and then
+       * refused to pair it against a different format — so a single off-format
+       * entry (which the join flow used to allow) blocked every other waiting
+       * side behind it. Defaulting to the session's own format means the queue
+       * is read as the session that is actually being played.
+       *
+       * An explicit `matchType` still wins: it is how an organiser reaches a
+       * legacy entry left over from before the format was enforced.
+       */
+      const format = matchType ?? eventRecord.match_format ?? 'doubles'
 
       // `findWaiting` already orders by joined_at ascending, so the head of this
       // list is first come, first served — the fairness the UI now claims.
-      const waiting = await queue.findWaiting(eventId, matchType)
+      const waiting = await queue.findWaiting(eventId, format)
 
       // Singles cannot be paired against doubles. With no match type given, the
       // longest wait decides which format goes on next, and the pair is taken

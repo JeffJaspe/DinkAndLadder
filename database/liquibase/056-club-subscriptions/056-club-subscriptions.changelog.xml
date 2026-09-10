@@ -1,0 +1,658 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Club subscriptions.
+
+     013-payment built four tables and seeded five plans, and then nothing was
+     ever written to them. The reason is visible in the type:
+     CreateClubSubscriptionInput requires stripe_subscription_id as a
+     non-optional string, so a non-Stripe flow could not satisfy it and no write
+     path was ever built. This changelog removes the Stripe assumption from the
+     schema, gives plans typed entitlements instead of an untyped `features`
+     blob, and gives the SuperAdmin somewhere to put the marketing copy.
+
+     THREE THINGS THIS DELIBERATELY DOES NOT DO:
+
+     1. It does not publish a price. `is_public` defaults to FALSE on every new
+        column and 0009 leaves Club Premium unpublished, because the 99900 in
+        the 013 seed is a placeholder somebody typed, not a decision anybody
+        made. docs/36 and CLAUDE.md section 7 both forbid rendering an
+        unresolved business figure as fact. Publishing a priced plan is a
+        SuperAdmin action after ADR-007 closes, not a migration.
+
+     2. It does not grant the verified badge. The column is named
+        `verified_badge_eligible`, not `grants_verified_badge`: paying enters
+        the verification queue, and the SuperAdmin still approves. The badge
+        keeps meaning "we checked this is a real organisation" (docs/36).
+
+     3. It does not change any limit. 0009 writes the free plan's entitlements
+        as EXACTLY the limits event.service.ts already hardcodes (one draft, one
+        live tournament, one live open play, unlimited members), so applying
+        this changelog moves those numbers out of a literal and into a row
+        without altering what any club can do today.
+
+     `club_subscriptions` has ZERO rows, in dev and in prod. Every constraint
+     change below is therefore a free widening with no backfill to argue about,
+     and 0004 in particular could not have been done cheaply later.
+
+     NULL MEANS UNLIMITED in every entitlement column, not -1. NULL already
+     means "no ceiling" in SQL, cannot be mistaken for a count, and lets
+     CHECK (col IS NULL OR col >= 0) actually mean something. The -1 convention
+     inside `features` is the reason canClubAddMember() is unsafe and why
+     nothing in the product calls it. -->
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+    <!-- ================================================================
+         0001 — Marketing columns on subscription_plans
+
+         Nothing on a pricing surface may be hardcoded in a template, so every
+         visible string and figure needs a column. Five bullet_1..5 columns
+         would cap the admin arbitrarily, hence jsonb arrays.
+
+         `features jsonb` is KEPT AND FROZEN as legacy: /subscriptions/me and
+         the player DTO still read it, and breaking them buys nothing. Nothing
+         added from here on reads `features`.
+         ================================================================ -->
+    <changeSet id="056-0001-plan-marketing-columns" author="claude">
+        <preConditions onFail="MARK_RAN">
+            <not><columnExists tableName="subscription_plans" columnName="is_public"/></not>
+        </preConditions>
+
+        <addColumn tableName="subscription_plans">
+            <!-- `description` is prose; a card needs a short line as well. -->
+            <column name="tagline" type="text"/>
+
+            <!-- The feature list on the card. -->
+            <column name="marketing_bullets" type="jsonb" defaultValue="[]">
+                <constraints nullable="false"/>
+            </column>
+
+            <!-- Array of {value, label}. FREE TEXT, NOT COMPUTED: "3x more
+                 reach" is a claim the SuperAdmin chooses to make, and the
+                 platform must never dress a claim as a derived fact. -->
+            <column name="headline_figures" type="jsonb" defaultValue="[]">
+                <constraints nullable="false"/>
+            </column>
+
+            <!-- The ribbon and the button copy. -->
+            <column name="badge_label" type="text"/>
+            <column name="cta_label" type="text"/>
+
+            <!-- Nullable OVERRIDE ONLY. The annual saving is computed from the
+                 two prices so it can never disagree with them; the admin UI
+                 shows the computed value as this field's placeholder. -->
+            <column name="savings_label" type="text"/>
+
+            <!-- Ties a monthly plan to its yearly twin. Nothing links them
+                 today, so the interval toggle has nothing to toggle. -->
+            <column name="plan_group" type="text"/>
+
+            <!-- Distinct from is_active, which means "renewable / holdable".
+                 is_public means "offered for sale right now". Splitting them
+                 lets a plan be drafted, and lets the player plans retire
+                 without breaking a club sitting on a legacy plan.
+
+                 DEFAULTS FALSE so that applying this changeset cannot possibly
+                 put a price in front of anyone. -->
+            <column name="is_public" type="boolean" defaultValueBoolean="false">
+                <constraints nullable="false"/>
+            </column>
+
+            <column name="is_featured" type="boolean" defaultValueBoolean="false">
+                <constraints nullable="false"/>
+            </column>
+
+            <!-- What a club with no subscription row resolves to. -->
+            <column name="is_default_free" type="boolean" defaultValueBoolean="false">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+
+        <sql>
+            ALTER TABLE subscription_plans
+                ADD CONSTRAINT ck_subscription_plans_bullets_array
+                CHECK (jsonb_typeof(marketing_bullets) = 'array');
+            ALTER TABLE subscription_plans
+                ADD CONSTRAINT ck_subscription_plans_figures_array
+                CHECK (jsonb_typeof(headline_figures) = 'array');
+        </sql>
+
+        <createIndex tableName="subscription_plans" indexName="idx_subscription_plans_group">
+            <column name="plan_group"/>
+        </createIndex>
+
+        <!-- Exactly one default free plan, enforced by the database rather than
+             by whichever service happens to look. -->
+        <sql>
+            CREATE UNIQUE INDEX ux_subscription_plans_one_default_free
+                ON subscription_plans (is_default_free) WHERE is_default_free;
+        </sql>
+
+        <rollback>
+            <sql>
+                DROP INDEX IF EXISTS ux_subscription_plans_one_default_free;
+                ALTER TABLE subscription_plans DROP CONSTRAINT IF EXISTS ck_subscription_plans_bullets_array;
+                ALTER TABLE subscription_plans DROP CONSTRAINT IF EXISTS ck_subscription_plans_figures_array;
+            </sql>
+            <dropIndex tableName="subscription_plans" indexName="idx_subscription_plans_group"/>
+            <dropColumn tableName="subscription_plans" columnName="tagline"/>
+            <dropColumn tableName="subscription_plans" columnName="marketing_bullets"/>
+            <dropColumn tableName="subscription_plans" columnName="headline_figures"/>
+            <dropColumn tableName="subscription_plans" columnName="badge_label"/>
+            <dropColumn tableName="subscription_plans" columnName="cta_label"/>
+            <dropColumn tableName="subscription_plans" columnName="savings_label"/>
+            <dropColumn tableName="subscription_plans" columnName="plan_group"/>
+            <dropColumn tableName="subscription_plans" columnName="is_public"/>
+            <dropColumn tableName="subscription_plans" columnName="is_featured"/>
+            <dropColumn tableName="subscription_plans" columnName="is_default_free"/>
+        </rollback>
+    </changeSet>
+
+    <!-- ================================================================
+         0002 — Typed entitlement columns on subscription_plans
+
+         What a plan actually buys, as columns a query can filter on and a
+         CHECK can police, instead of keys in a jsonb blob nobody validates.
+
+         NULL = unlimited. See the file header for why not -1.
+
+         Note `verified_badge_eligible`: eligible, not granted. Paying queues
+         the club for review; it does not verify it.
+         ================================================================ -->
+    <changeSet id="056-0002-plan-entitlement-columns" author="claude">
+        <preConditions onFail="MARK_RAN">
+            <not><columnExists tableName="subscription_plans" columnName="max_draft_events"/></not>
+        </preConditions>
+
+        <addColumn tableName="subscription_plans">
+            <column name="max_draft_events" type="integer"/>
+            <column name="max_live_tournaments" type="integer"/>
+            <column name="max_live_open_play" type="integer"/>
+            <column name="max_members" type="integer"/>
+            <column name="online_fee_collection" type="boolean" defaultValueBoolean="false">
+                <constraints nullable="false"/>
+            </column>
+            <column name="verified_badge_eligible" type="boolean" defaultValueBoolean="false">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+
+        <sql>
+            ALTER TABLE subscription_plans
+                ADD CONSTRAINT ck_subscription_plans_max_draft_events
+                CHECK (max_draft_events IS NULL OR max_draft_events >= 0);
+            ALTER TABLE subscription_plans
+                ADD CONSTRAINT ck_subscription_plans_max_live_tournaments
+                CHECK (max_live_tournaments IS NULL OR max_live_tournaments >= 0);
+            ALTER TABLE subscription_plans
+                ADD CONSTRAINT ck_subscription_plans_max_live_open_play
+                CHECK (max_live_open_play IS NULL OR max_live_open_play >= 0);
+            ALTER TABLE subscription_plans
+                ADD CONSTRAINT ck_subscription_plans_max_members
+                CHECK (max_members IS NULL OR max_members >= 0);
+        </sql>
+
+        <rollback>
+            <sql>
+                ALTER TABLE subscription_plans DROP CONSTRAINT IF EXISTS ck_subscription_plans_max_draft_events;
+                ALTER TABLE subscription_plans DROP CONSTRAINT IF EXISTS ck_subscription_plans_max_live_tournaments;
+                ALTER TABLE subscription_plans DROP CONSTRAINT IF EXISTS ck_subscription_plans_max_live_open_play;
+                ALTER TABLE subscription_plans DROP CONSTRAINT IF EXISTS ck_subscription_plans_max_members;
+            </sql>
+            <dropColumn tableName="subscription_plans" columnName="max_draft_events"/>
+            <dropColumn tableName="subscription_plans" columnName="max_live_tournaments"/>
+            <dropColumn tableName="subscription_plans" columnName="max_live_open_play"/>
+            <dropColumn tableName="subscription_plans" columnName="max_members"/>
+            <dropColumn tableName="subscription_plans" columnName="online_fee_collection"/>
+            <dropColumn tableName="subscription_plans" columnName="verified_badge_eligible"/>
+        </rollback>
+    </changeSet>
+
+    <!-- ================================================================
+         0003 — Provider-agnostic identity on club_subscriptions
+
+         The actual blocker. `stripe_subscription_id` is required by
+         CreateClubSubscriptionInput, so no non-Stripe subscription could ever
+         be written. Provider identity becomes nullable and generic, and the
+         row records HOW it came to exist.
+
+         The stripe_* columns stay in place, unused. Dropping them is a
+         destructive change for no benefit (CLAUDE.md section 3), and there are
+         no rows to clean up anyway.
+         ================================================================ -->
+    <changeSet id="056-0003-club-subscription-provider" author="claude">
+        <preConditions onFail="MARK_RAN">
+            <not><columnExists tableName="club_subscriptions" columnName="provider"/></not>
+        </preConditions>
+
+        <addColumn tableName="club_subscriptions">
+            <column name="provider" type="text" defaultValue="manual">
+                <constraints nullable="false"/>
+            </column>
+            <!-- Nullable, which is the entire point of this changeset. -->
+            <column name="provider_subscription_id" type="text"/>
+            <column name="provider_customer_id" type="text"/>
+
+            <column name="source" type="text" defaultValue="self_serve">
+                <constraints nullable="false"/>
+            </column>
+
+            <!-- A manual grant with no record of who granted it is an audit
+                 hole. Nullable because a self-serve row has no granter. -->
+            <column name="granted_by_user_id" type="uuid">
+                <constraints nullable="true"
+                             foreignKeyName="fk_club_subscriptions_granted_by"
+                             references="users(id)"/>
+            </column>
+            <column name="notes" type="text"/>
+
+            <!-- canceled_at is when the club asked; ended_at is when access
+                 actually stopped. They are not the same day when a
+                 cancellation runs to the end of a paid period. -->
+            <column name="canceled_at" type="timestamptz"/>
+            <column name="ended_at" type="timestamptz"/>
+        </addColumn>
+
+        <sql>
+            ALTER TABLE club_subscriptions
+                ADD CONSTRAINT ck_club_subscriptions_provider
+                CHECK (provider IN ('manual', 'simulated', 'stripe', 'paymongo'));
+            ALTER TABLE club_subscriptions
+                ADD CONSTRAINT ck_club_subscriptions_source
+                CHECK (source IN ('self_serve', 'admin_grant', 'simulated_checkout'));
+        </sql>
+
+        <rollback>
+            <sql>
+                ALTER TABLE club_subscriptions DROP CONSTRAINT IF EXISTS ck_club_subscriptions_provider;
+                ALTER TABLE club_subscriptions DROP CONSTRAINT IF EXISTS ck_club_subscriptions_source;
+            </sql>
+            <dropColumn tableName="club_subscriptions" columnName="provider"/>
+            <dropColumn tableName="club_subscriptions" columnName="provider_subscription_id"/>
+            <dropColumn tableName="club_subscriptions" columnName="provider_customer_id"/>
+            <dropColumn tableName="club_subscriptions" columnName="source"/>
+            <dropColumn tableName="club_subscriptions" columnName="granted_by_user_id"/>
+            <dropColumn tableName="club_subscriptions" columnName="notes"/>
+            <dropColumn tableName="club_subscriptions" columnName="canceled_at"/>
+            <dropColumn tableName="club_subscriptions" columnName="ended_at"/>
+        </rollback>
+    </changeSet>
+
+    <!-- ================================================================
+         0004 — The constraints 013 should have had
+
+         Two real defects, both free to fix while the table is empty:
+
+         - club_subscriptions' status CHECK omits 'paused', which
+           player_subscriptions allows and the shared TypeScript
+           SubscriptionStatus union declares. A service writing a legal TS
+           value would hit a constraint violation.
+
+         - getClubSubscription() calls .maybeSingle(), which is a promise that
+           at most one live subscription exists per club. Nothing enforced it.
+           A double-submitted checkout would have made that call start throwing.
+         ================================================================ -->
+    <changeSet id="056-0004-club-subscription-constraints" author="claude">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <indexExists tableName="club_subscriptions" indexName="ux_club_subscriptions_one_live"/>
+            </not>
+        </preConditions>
+
+        <sql>
+            ALTER TABLE club_subscriptions
+                DROP CONSTRAINT IF EXISTS club_subscriptions_status_check;
+            ALTER TABLE club_subscriptions
+                ADD CONSTRAINT club_subscriptions_status_check
+                CHECK (status IN ('active', 'canceled', 'past_due', 'trialing', 'paused', 'incomplete'));
+
+            CREATE UNIQUE INDEX ux_club_subscriptions_one_live
+                ON club_subscriptions (club_id)
+                WHERE status IN ('active', 'trialing', 'past_due');
+
+            CREATE INDEX idx_club_subscriptions_provider_sub
+                ON club_subscriptions (provider, provider_subscription_id)
+                WHERE provider_subscription_id IS NOT NULL;
+        </sql>
+
+        <rollback>
+            <sql>
+                DROP INDEX IF EXISTS idx_club_subscriptions_provider_sub;
+                DROP INDEX IF EXISTS ux_club_subscriptions_one_live;
+                ALTER TABLE club_subscriptions
+                    DROP CONSTRAINT IF EXISTS club_subscriptions_status_check;
+                ALTER TABLE club_subscriptions
+                    ADD CONSTRAINT club_subscriptions_status_check
+                    CHECK (status IN ('active', 'canceled', 'past_due', 'trialing', 'incomplete'));
+            </sql>
+        </rollback>
+    </changeSet>
+
+    <!-- ================================================================
+         0005 — Idempotency and test-marking on payment_transactions
+
+         The unique index is the webhook idempotency guarantee, written NOW so
+         that whoever writes the real handler inherits it rather than
+         improvising it under deadline. A gateway that retries a webhook is
+         normal; charging twice because of it is not.
+
+         The CHECK makes it structurally impossible to record a simulated
+         charge as real money or as a non-zero amount. While billing is
+         simulated that is the single most important property in this file.
+         ================================================================ -->
+    <changeSet id="056-0005-payment-transaction-idempotency" author="claude">
+        <preConditions onFail="MARK_RAN">
+            <not><columnExists tableName="payment_transactions" columnName="provider"/></not>
+        </preConditions>
+
+        <addColumn tableName="payment_transactions">
+            <column name="provider" type="text" defaultValue="manual">
+                <constraints nullable="false"/>
+            </column>
+            <!-- The gateway's own id for this charge. Nullable: a manual or
+                 admin-granted row has no gateway reference. -->
+            <column name="provider_reference" type="text"/>
+            <column name="is_test" type="boolean" defaultValueBoolean="false">
+                <constraints nullable="false"/>
+            </column>
+            <!-- The FK is added in the SQL block below rather than here,
+                 because it needs ON DELETE SET NULL: a payment record must
+                 outlive the subscription it paid for. -->
+            <column name="subscription_id" type="uuid"/>
+        </addColumn>
+
+        <sql>
+            ALTER TABLE payment_transactions
+                ADD CONSTRAINT fk_payment_transactions_subscription
+                FOREIGN KEY (subscription_id) REFERENCES club_subscriptions(id) ON DELETE SET NULL;
+
+            ALTER TABLE payment_transactions
+                ADD CONSTRAINT ck_payment_transactions_provider
+                CHECK (provider IN ('manual', 'simulated', 'stripe', 'paymongo'));
+
+            ALTER TABLE payment_transactions
+                ADD CONSTRAINT ck_payment_transactions_simulated_is_test
+                CHECK (provider &lt;&gt; 'simulated' OR (is_test = true AND amount_cents = 0));
+
+            CREATE UNIQUE INDEX ux_payment_transactions_provider_ref
+                ON payment_transactions (provider, provider_reference)
+                WHERE provider_reference IS NOT NULL;
+        </sql>
+
+        <rollback>
+            <sql>
+                DROP INDEX IF EXISTS ux_payment_transactions_provider_ref;
+                ALTER TABLE payment_transactions DROP CONSTRAINT IF EXISTS ck_payment_transactions_simulated_is_test;
+                ALTER TABLE payment_transactions DROP CONSTRAINT IF EXISTS ck_payment_transactions_provider;
+                ALTER TABLE payment_transactions DROP CONSTRAINT IF EXISTS fk_payment_transactions_subscription;
+            </sql>
+            <dropColumn tableName="payment_transactions" columnName="provider"/>
+            <dropColumn tableName="payment_transactions" columnName="provider_reference"/>
+            <dropColumn tableName="payment_transactions" columnName="is_test"/>
+            <dropColumn tableName="payment_transactions" columnName="subscription_id"/>
+        </rollback>
+    </changeSet>
+
+    <!-- ================================================================
+         0006 — Billing mode on platform_config
+
+         DELIBERATELY NOT A FEATURE FLAG. server/utils/feature-flags.ts says in
+         its own docstring that its 30-second cache "must never stand in for an
+         authorization check", and whether real money can move is exactly that.
+         The show/hide job a flag would do is covered by is_public on plans.
+
+         billing_notice is the test-mode copy. Even the sentence that tells a
+         club "no card will be charged" is SuperAdmin-owned rather than
+         hardcoded, for the same reason every other figure on the page is.
+         ================================================================ -->
+    <changeSet id="056-0006-platform-billing-mode" author="claude">
+        <preConditions onFail="MARK_RAN">
+            <not><columnExists tableName="platform_config" columnName="billing_mode"/></not>
+        </preConditions>
+
+        <addColumn tableName="platform_config">
+            <column name="billing_mode" type="text" defaultValue="simulated">
+                <constraints nullable="false"/>
+            </column>
+            <column name="billing_notice" type="text"/>
+            <!-- How long a lapsed subscription keeps its entitlements before
+                 the club drops to free. -->
+            <column name="subscription_grace_days" type="integer" defaultValueNumeric="7">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+
+        <sql>
+            ALTER TABLE platform_config
+                ADD CONSTRAINT ck_platform_config_billing_mode
+                CHECK (billing_mode IN ('off', 'simulated', 'live'));
+            ALTER TABLE platform_config
+                ADD CONSTRAINT ck_platform_config_grace_days
+                CHECK (subscription_grace_days >= 0);
+        </sql>
+
+        <rollback>
+            <sql>
+                ALTER TABLE platform_config DROP CONSTRAINT IF EXISTS ck_platform_config_billing_mode;
+                ALTER TABLE platform_config DROP CONSTRAINT IF EXISTS ck_platform_config_grace_days;
+            </sql>
+            <dropColumn tableName="platform_config" columnName="billing_mode"/>
+            <dropColumn tableName="platform_config" columnName="billing_notice"/>
+            <dropColumn tableName="platform_config" columnName="subscription_grace_days"/>
+        </rollback>
+    </changeSet>
+
+    <!-- ================================================================
+         0007 — Verification provenance, and restricting an event
+
+         verification_source answers a question the badge cannot answer on its
+         own once paying can queue a club for review: did a human check this
+         club, or did a payment put it in the queue? The backfill is a
+         statement of fact, not a guess — every currently-verified club got
+         there through the admin review flow, which is the only flow that
+         exists today.
+
+         restricted_at is DELIBERATELY NOT a new events.status value. `status`
+         is the event's own lifecycle (draft, published, active, completed) and
+         is read in a dozen places including three feed changesets; a billing
+         state pushed into it would leak into every one of them. A separate
+         nullable timestamp is additive, ignorable by every existing query, and
+         clears to NULL on resubscribe.
+
+         On lapse the oldest unfinished event of each type STAYS LIVE and the
+         rest are restricted — restricted, not cancelled. Cancelling an event
+         people have registered for because a card expired would be the
+         platform breaking a promise the club made.
+         ================================================================ -->
+    <changeSet id="056-0007-verification-source-and-event-restriction" author="claude">
+        <preConditions onFail="MARK_RAN">
+            <not><columnExists tableName="clubs" columnName="verification_source"/></not>
+        </preConditions>
+
+        <addColumn tableName="clubs">
+            <column name="verification_source" type="text" defaultValue="none">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+
+        <addColumn tableName="events">
+            <column name="restricted_at" type="timestamptz"/>
+            <column name="restricted_reason" type="text"/>
+        </addColumn>
+
+        <sql>
+            ALTER TABLE clubs
+                ADD CONSTRAINT ck_clubs_verification_source
+                CHECK (verification_source IN ('none', 'admin_review', 'subscription'));
+
+            UPDATE clubs
+                SET verification_source = 'admin_review'
+                WHERE verification_status = 'verified';
+
+            ALTER TABLE events
+                ADD CONSTRAINT ck_events_restricted_reason
+                CHECK (restricted_reason IS NULL OR restricted_reason IN ('plan_downgrade'));
+
+            CREATE INDEX idx_events_restricted
+                ON events (club_id)
+                WHERE restricted_at IS NOT NULL;
+        </sql>
+
+        <rollback>
+            <sql>
+                DROP INDEX IF EXISTS idx_events_restricted;
+                ALTER TABLE events DROP CONSTRAINT IF EXISTS ck_events_restricted_reason;
+                ALTER TABLE clubs DROP CONSTRAINT IF EXISTS ck_clubs_verification_source;
+            </sql>
+            <dropColumn tableName="events" columnName="restricted_at"/>
+            <dropColumn tableName="events" columnName="restricted_reason"/>
+            <dropColumn tableName="clubs" columnName="verification_source"/>
+        </rollback>
+    </changeSet>
+
+    <!-- ================================================================
+         0008 — RLS
+
+         The read policy moves from is_active to is_public, because those two
+         now mean different things: is_active is "renewable/holdable",
+         is_public is "on sale". A drafted plan must not be readable, or a
+         price nobody has approved becomes visible to anybody who reads the
+         API.
+
+         WRITES GET NO POLICY AT ALL. That is not an omission — it is the same
+         shape platform_fee_rules and platform_config already use. With RLS
+         enabled and no write policy, every write is refused for every ordinary
+         caller, and every legitimate admin write goes through
+         serverSupabaseServiceRole with the SuperAdmin check made in the
+         service layer. This comment exists so that a reader who finds no write
+         policy finds the reason next to the absence.
+
+         Consequence handled in application code: a club sitting on a
+         non-public plan must still see its own plan's name and entitlements,
+         so its billing endpoint reads the plan through the service role.
+         club_subscriptions' existing OWNER/ADMIN select policy is unchanged.
+         ================================================================ -->
+    <changeSet id="056-0008-subscription-plan-public-rls" author="claude">
+        <sql>
+            DROP POLICY IF EXISTS subscription_plans_select_active ON subscription_plans;
+            CREATE POLICY subscription_plans_select_public ON subscription_plans
+                FOR SELECT
+                USING (is_public = true);
+        </sql>
+        <rollback>
+            <sql>
+                DROP POLICY IF EXISTS subscription_plans_select_public ON subscription_plans;
+                CREATE POLICY subscription_plans_select_active ON subscription_plans
+                    FOR SELECT
+                    USING (is_active = true);
+            </sql>
+        </rollback>
+    </changeSet>
+
+    <!-- ================================================================
+         0009 — Rewriting the seeded rows
+
+         The 013 seed describes a product nobody agreed to: three player plans
+         at invented prices, and two club plans whose `features` keys
+         (max_members: 50, tournaments: false) contradict what the code
+         actually enforces.
+
+         The player plans are DEACTIVATED, NOT DELETED —
+         player_subscriptions.plan_id is a foreign key, and deleting a plan
+         somebody might hold is how a billing history loses its meaning.
+
+         Club Basic becomes the free default, with entitlements set to exactly
+         the limits event.service.ts already hardcodes. This asserts nothing
+         new about the product; it moves three literals into a row.
+
+         Club Premium stays UNPUBLISHED with its placeholder price. Its
+         entitlements are filled in because those follow from the decision to
+         have a paid tier at all; its price does not, and ADR-007 is still
+         open.
+
+         NO YEARLY TWIN IS SEEDED. Seeding one would mean inventing a second
+         price. The admin UI gets a "create yearly twin" action that copies
+         entitlements and marketing and leaves the price blank.
+         ================================================================ -->
+    <changeSet id="056-0009-reseed-plans" author="claude">
+        <sql>
+            -- Player plans retire. Rows kept: player_subscriptions.plan_id
+            -- points at them.
+            UPDATE subscription_plans
+                SET is_active = false,
+                    is_public = false
+                WHERE plan_type = 'player';
+
+            -- Club Basic becomes the free default every club resolves to.
+            UPDATE subscription_plans
+                SET name = 'Free',
+                    description = 'Everything a club needs to run its first event.',
+                    price_cents = 0,
+                    is_active = true,
+                    is_public = true,
+                    is_default_free = true,
+                    plan_group = 'club-free',
+                    sort_order = 0,
+                    -- EXACTLY the limits event.service.ts already enforces for
+                    -- an unverified club. Nothing here is a new restriction.
+                    max_draft_events = 1,
+                    max_live_tournaments = 1,
+                    max_live_open_play = 1,
+                    max_members = NULL,
+                    online_fee_collection = false,
+                    verified_badge_eligible = false
+                WHERE plan_type = 'club' AND name = 'Club Basic';
+
+            -- Club Premium: entitlements yes, price no. price_cents is left at
+            -- the 013 placeholder and is_public stays false, so it cannot
+            -- reach a pricing page until a SuperAdmin publishes it.
+            UPDATE subscription_plans
+                SET description = 'Unlimited events, online entry fees, and eligibility for the verified badge.',
+                    is_active = false,
+                    is_public = false,
+                    is_default_free = false,
+                    plan_group = 'club-premium',
+                    sort_order = 10,
+                    max_draft_events = NULL,
+                    max_live_tournaments = NULL,
+                    max_live_open_play = NULL,
+                    max_members = NULL,
+                    online_fee_collection = true,
+                    verified_badge_eligible = true
+                WHERE plan_type = 'club' AND name = 'Club Premium';
+        </sql>
+
+        <rollback>
+            <sql>
+                UPDATE subscription_plans
+                    SET is_active = true, is_public = false
+                    WHERE plan_type = 'player';
+
+                UPDATE subscription_plans
+                    SET name = 'Club Basic',
+                        description = 'Free club features',
+                        is_default_free = false,
+                        plan_group = NULL,
+                        sort_order = 10,
+                        max_draft_events = NULL,
+                        max_live_tournaments = NULL,
+                        max_live_open_play = NULL,
+                        online_fee_collection = false,
+                        verified_badge_eligible = false
+                    WHERE plan_type = 'club' AND name = 'Free';
+
+                UPDATE subscription_plans
+                    SET description = 'Full club management features',
+                        is_active = true,
+                        plan_group = NULL,
+                        sort_order = 11,
+                        online_fee_collection = false,
+                        verified_badge_eligible = false
+                    WHERE plan_type = 'club' AND name = 'Club Premium';
+            </sql>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

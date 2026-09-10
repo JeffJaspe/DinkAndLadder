@@ -169,31 +169,58 @@ const navItems = computed(() =>
   accountMode.value === 'club' ? clubNavItems.value : playerNavItems.value
 )
 
-// Settings is ordinary per-user configuration and is shown to everyone. The
-// super-admin flag gates the one genuinely platform-wide screen instead.
+// Settings and notifications are ordinary per-user configuration and are shown
+// to everyone.
 //
 // "Messages" from the mockup is deliberately absent: messaging is outside MVP
 // scope (docs/03), and a nav item that goes nowhere is worse than none.
-const bottomNavItems = computed<NavItem[]>(() => {
+const accountNavItems = computed<NavItem[]>(() => [
+  { name: 'Notifications', href: '/notifications', icon: 'bell', badge: unreadCount.value },
+  { name: 'Settings', href: '/settings', icon: 'settings' }
+])
+
+/**
+ * Platform administration.
+ *
+ * These used to sit in the same list as Notifications and Settings, separated
+ * by nothing, so "Sponsors" and "Platform Theme" read as ordinary account
+ * settings that every player simply happened not to have. They are not: each
+ * one changes the product for everybody. They now live in their own labelled
+ * block, drawn on a distinct ground, that says who can see it.
+ *
+ * /admin/fees was missing from this list entirely — the page and its
+ * super-admin middleware both exist, and there was no way to reach it from
+ * anywhere in the app.
+ */
+const adminNavItems = computed<NavItem[]>(() => {
+  if (!isSuperAdmin.value) return []
   const items: NavItem[] = [
-    { name: 'Notifications', href: '/notifications', icon: 'bell', badge: unreadCount.value },
-    { name: 'Settings', href: '/settings', icon: 'settings' }
+    { name: 'Reports', href: '/admin/reports', icon: 'alert' },
+    { name: 'Club verification', href: '/admin/clubs/verification', icon: 'verified' },
+    { name: 'Feature flags', href: '/admin/features', icon: 'settings' },
+    { name: 'Fees & payments', href: '/admin/fees', icon: 'stats' },
+    { name: 'Theme', href: '/admin/theme', icon: 'sun' },
+    { name: 'Branding', href: '/admin/branding', icon: 'image' },
+    { name: 'Sponsors', href: '/admin/sponsors', icon: 'star' }
   ]
-  if (isSuperAdmin.value) {
-    items.push({ name: 'Reports', href: '/admin/reports', icon: 'alert' })
-    items.push({ name: 'Club Verification', href: '/admin/clubs/verification', icon: 'verified' })
-    items.push({ name: 'Platform Features', href: '/admin/features', icon: 'settings' })
-    items.push({ name: 'Platform Theme', href: '/admin/theme', icon: 'star' })
-    items.push({ name: 'Platform Branding', href: '/admin/branding', icon: 'edit' })
-    items.push({ name: 'Sponsors', href: '/admin/sponsors', icon: 'star' })
-    // Development only — the backfill endpoint refuses to run anywhere else,
-    // so on production this would be a button that can only return 403.
-    if (import.meta.dev) {
-      items.push({ name: 'Ratings', href: '/admin/ratings', icon: 'rankings' })
-    }
+  // Development only — the backfill endpoint refuses to run anywhere else, so
+  // in production this would be a button that can only return 403.
+  if (import.meta.dev) {
+    items.push({ name: 'Rating tools', href: '/admin/ratings', icon: 'rankings' })
   }
   return items
 })
+
+/** True on any platform-admin screen, in either account mode. */
+const onAdminRoute = computed(() => route.path.startsWith('/admin'))
+
+/**
+ * The admin block is eight items long and is used rarely. It opens when you are
+ * already on an admin screen — so the group you are inside is never collapsed
+ * under you — and stays wherever you last put it after that.
+ */
+const adminOpen = ref(false)
+watch(onAdminRoute, (value) => { if (value) adminOpen.value = true }, { immediate: true })
 
 // The bottom bar keeps its five slots and its centred raised action: the duo
 // badge rides the drawer and the desktop sidebar instead of displacing one of
@@ -255,7 +282,7 @@ async function handleLogout() {
           <div class="my-2 border-t border-border" />
 
           <NuxtLink
-            v-for="item in bottomNavItems"
+            v-for="item in accountNavItems"
             :key="item.href"
             :to="item.href"
             class="flex items-center gap-3 rounded-button px-3 py-2 text-body-2 transition-colors"
@@ -275,6 +302,13 @@ async function handleLogout() {
               >{{ item.badge }}</span
             >
           </NuxtLink>
+
+          <AdminNavGroup
+            v-if="adminNavItems.length"
+            v-model:open="adminOpen"
+            :items="adminNavItems"
+            :is-active="isActive"
+          />
         </nav>
 
         <!-- Account switcher — the only way into club mode.
@@ -295,7 +329,7 @@ async function handleLogout() {
             to="/profile/edit"
             class="flex items-center gap-3 rounded-button p-2 transition-colors hover:bg-surface-2"
           >
-            <UiAvatar :name="displayName" size="md" highlighted />
+            <UiAvatar :name="displayName" :src="myProfile?.avatar_url ?? null" size="md" highlighted />
             <span class="min-w-0 flex-1">
               <span class="block truncate text-body-2 font-medium text-fg">{{ displayName }}</span>
               <span v-if="singlesRating !== null" class="flex items-baseline gap-1.5">
@@ -342,7 +376,7 @@ async function handleLogout() {
 
           <nav class="flex-1 space-y-0.5 overflow-y-auto p-2">
             <NuxtLink
-              v-for="item in [...navItems, ...bottomNavItems]"
+              v-for="item in [...navItems, ...accountNavItems]"
               :key="item.href"
               :to="item.href"
               class="flex items-center gap-3 rounded-button px-3 py-2.5 text-body-2 transition-colors"
@@ -362,6 +396,14 @@ async function handleLogout() {
                 >{{ item.badge }}</span
               >
             </NuxtLink>
+
+            <AdminNavGroup
+              v-if="adminNavItems.length"
+              v-model:open="adminOpen"
+              :items="adminNavItems"
+              :is-active="isActive"
+              dense
+            />
           </nav>
 
           <!-- Account switcher, mobile. The desktop sidebar is not a fallback
@@ -491,6 +533,29 @@ async function handleLogout() {
         'pb-20 lg:pb-0': showShell
       }"
     >
+      <!-- Platform-admin context bar.
+           Eight admin screens each carried their own heading and nothing said
+           they were platform-wide, so a settings page that changes the product
+           for every user looked exactly like one that changes a preference for
+           you. One strip at the top of the content area states it on all of
+           them, and gives the way back out. -->
+      <div
+        v-if="showShell && onAdminRoute && isSuperAdmin"
+        class="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border-strong bg-surface-2 px-4 py-2 lg:px-6"
+      >
+        <UiIcon name="shield" size="h-4 w-4" class="shrink-0 text-fg-secondary" />
+        <span class="text-caption font-semibold uppercase tracking-widest text-fg-secondary">
+          Platform admin
+        </span>
+        <span class="text-caption text-fg-muted">Changes here affect everyone on DinkAndLadder</span>
+        <NuxtLink
+          to="/dashboard"
+          class="ml-auto rounded-button px-2 py-1 text-caption text-primary transition-colors hover:bg-primary-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+        >
+          Leave admin
+        </NuxtLink>
+      </div>
+
       <slot />
     </main>
 

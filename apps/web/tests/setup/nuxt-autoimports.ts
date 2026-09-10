@@ -27,6 +27,8 @@ for (const name of [
   'onBeforeUnmount',
   'onUnmounted',
   'nextTick',
+  // Vue 3.5's own useId; Nuxt re-exports it, so components call it unimported.
+  'useId',
   'toRef',
   'toRefs',
   'useSlots',

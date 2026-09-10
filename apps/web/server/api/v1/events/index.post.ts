@@ -13,11 +13,12 @@ import { createPlayerProfileRepository } from '~/server/domains/player/repositor
 import { createClubMembershipRepository } from '~/server/domains/club/repositories/club-membership.repository'
 import { createClubRepository } from '~/server/domains/club/repositories/club.repository'
 import { getOptionalUser } from '~/server/utils/optional-user'
+import { apiError } from '~/server/utils/api-error'
 
 export default defineEventHandler(async (event) => {
   const user = await getOptionalUser(event)
   if (!user) {
-    throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
+    throw apiError(401, 'AUTH_REQUIRED', 'Sign in to continue.')
   }
 
   const client = await serverSupabaseClient(event)
@@ -25,15 +26,16 @@ export default defineEventHandler(async (event) => {
   const playerRepo = createPlayerProfileRepository(client)
   const profile = await playerRepo.findByUserId(user.sub)
   if (!profile) {
-    throw createError({ statusCode: 403, statusMessage: 'Player profile required.' })
+    throw apiError(403, 'PROFILE_REQUIRED', 'Create your player profile first.')
   }
 
   const input = await readBody<CreateEventInput>(event)
   if (!input.club_id || !input.name || !input.start_date || !input.end_date || !input.event_type) {
-    throw createError({
-      statusCode: 400,
-      statusMessage: 'club_id, name, start_date, end_date, and event_type are required.'
-    })
+    throw apiError(
+      400,
+      'MISSING_PARAMETER',
+      'club_id, name, start_date, end_date, and event_type are required.'
+    )
   }
 
   const serviceClient = serverSupabaseServiceRole(event)
@@ -60,7 +62,7 @@ export default defineEventHandler(async (event) => {
     return createdEvent
   } catch (err) {
     if (err instanceof EventServiceError) {
-      throw createError({ statusCode: err.status, statusMessage: err.message })
+      throw apiError(err.status, err.code, err.message)
     }
     throw err
   }

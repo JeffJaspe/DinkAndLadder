@@ -1,5 +1,9 @@
 import type { PlayerProfileRepository } from '../repositories/player-profile.repository'
-import type { PlayerProfileDto, UpdatePlayerProfileInput } from '../dto/player-profile.dto'
+import type {
+  PlayerProfileDto,
+  PlayerProfileRecord,
+  UpdatePlayerProfileInput
+} from '../dto/player-profile.dto'
 import { PlayerProfileValidationError, toPlayerProfileDto } from '../dto/player-profile.dto'
 
 export interface PlayerProfileService {
@@ -16,29 +20,48 @@ export interface PlayerProfileService {
   ensureProfile(userId: string, displayName?: string | null): Promise<PlayerProfileDto>
 }
 
+/**
+ * Turns a stored avatar object path into a URL a browser can load.
+ *
+ * Injected rather than imported so this service stays free of Storage: the
+ * bucket is private, so signing needs the service-role client, and only the API
+ * layer has one. A caller that passes nothing gets `avatar_url: null`, which is
+ * the initials avatar — a complete design, not a broken image.
+ */
+export interface AvatarUrlResolver {
+  resolveUrl(path: string): Promise<string | null>
+}
+
 export function createPlayerProfileService(
-  repository: PlayerProfileRepository
+  repository: PlayerProfileRepository,
+  avatars?: AvatarUrlResolver
 ): PlayerProfileService {
+  async function toDto(profile: PlayerProfileRecord): Promise<PlayerProfileDto> {
+    const dto = toPlayerProfileDto(profile)
+    if (!avatars || !profile.avatar_path) return dto
+    return { ...dto, avatar_url: await avatars.resolveUrl(profile.avatar_path) }
+  }
+
   return {
     async getById(profileId) {
       const profile = await repository.findById(profileId)
-      return profile ? toPlayerProfileDto(profile) : null
+      return profile ? await toDto(profile) : null
     },
 
     async getOwnProfile(userId) {
       const profile = await repository.findByUserId(userId)
-      return profile ? toPlayerProfileDto(profile) : null
+      return profile ? await toDto(profile) : null
     },
 
     async saveOwnProfile(userId, input) {
       const profile = await repository.upsertOwnProfile(userId, input)
-      return toPlayerProfileDto(profile)
+      return await toDto(profile)
     },
 
     async ensureProfile(userId, displayName) {
       const existing = await repository.findByUserId(userId)
       if (existing) {
-        return toPlayerProfileDto(existing)
+        return await toDto(existing)
       }
 
       const trimmed = typeof displayName === 'string' ? displayName.trim() : ''
@@ -54,7 +77,7 @@ export function createPlayerProfileService(
       }
 
       const profile = await repository.upsertOwnProfile(userId, { display_name: trimmed })
-      return toPlayerProfileDto(profile)
+      return await toDto(profile)
     }
   }
 }

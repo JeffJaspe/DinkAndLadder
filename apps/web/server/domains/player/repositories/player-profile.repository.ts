@@ -9,7 +9,7 @@ import type {
 
 const PROFILE_COLUMNS =
   'id, user_id, display_name, first_name, last_name, bio, province, city, barangay, ' +
-  'dominant_hand, preferred_position, profile_visibility, created_at, updated_at'
+  'dominant_hand, preferred_position, profile_visibility, avatar_path, created_at, updated_at'
 
 export interface PlayerProfileRepository {
   findById(profileId: string): Promise<PlayerProfileRecord | null>
@@ -17,6 +17,13 @@ export interface PlayerProfileRepository {
   /** Bulk name lookup — avoids N round trips when resolving a list of player ids. */
   findByIds(profileIds: string[]): Promise<PlayerProfileRecord[]>
   upsertOwnProfile(userId: string, input: UpdatePlayerProfileInput): Promise<PlayerProfileRecord>
+  /**
+   * Point the profile at a stored avatar object, or clear it. Separate from
+   * upsertOwnProfile because the photo arrives on its own multipart request and
+   * must not be able to blank the rest of the profile if that request is the
+   * only one that lands.
+   */
+  updateAvatarPath(profileId: string, avatarPath: string | null): Promise<PlayerProfileRecord>
   search(query: PlayerSearchQuery): Promise<PlayerSearchResultRow[]>
 }
 
@@ -90,10 +97,22 @@ export function createPlayerProfileRepository(client: SupabaseClient): PlayerPro
       return data as unknown as PlayerProfileRecord
     },
 
+    async updateAvatarPath(profileId, avatarPath) {
+      const { data, error } = await client
+        .from('player_profiles')
+        .update({ avatar_path: avatarPath, updated_at: new Date().toISOString() })
+        .eq('id', profileId)
+        .select(PROFILE_COLUMNS)
+        .single()
+
+      if (error) throw error
+      return data as unknown as PlayerProfileRecord
+    },
+
     async search(query) {
       let builder = client
         .from('player_profiles')
-        .select('id, display_name, province, city, barangay, profile_visibility')
+        .select('id, display_name, province, city, barangay, profile_visibility, avatar_path')
         .eq('profile_visibility', 'public')
 
       if (query.q) {
@@ -173,6 +192,7 @@ export function createPlayerProfileRepository(client: SupabaseClient): PlayerPro
           dominant_hand: null,
           preferred_position: null,
           profile_visibility: row.profile_visibility as 'public' | 'private',
+          avatar_path: (row.avatar_path as string | null) ?? null,
           created_at: '',
           updated_at: '',
           singles_rating: ratings?.singles ?? null,

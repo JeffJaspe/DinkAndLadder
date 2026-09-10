@@ -3,6 +3,7 @@ import { createEventRepository } from '~/server/domains/event/repositories/event
 import { createTournamentRepository } from '~/server/domains/event/repositories/tournament.repository'
 import { createTournamentCategoryRepository } from '~/server/domains/event/repositories/tournament-category.repository'
 import { createTournamentCategoryService } from '~/server/domains/event/services/tournament-category.service'
+import { apiError } from '~/server/utils/api-error'
 
 /**
  * No auth required — categories inherit the tournament/event's own visibility (RLS on
@@ -11,7 +12,7 @@ import { createTournamentCategoryService } from '~/server/domains/event/services
 export default defineEventHandler(async (event) => {
   const tournamentId = getRouterParam(event, 'tournamentId')
   if (!tournamentId) {
-    throw createError({ statusCode: 400, statusMessage: 'tournamentId is required.' })
+    throw apiError(400, 'MISSING_PARAMETER', 'tournamentId is required.')
   }
 
   const client = await serverSupabaseClient(event)

@@ -59,5 +59,7 @@
     <include file="052-open-play-rounds/052-open-play-rounds.changelog.xml" relativeToChangelogFile="true"/>
     <include file="053-feed-scope-enforcement/053-feed-scope-enforcement.changelog.xml" relativeToChangelogFile="true"/>
     <include file="054-open-play-scoring/054-open-play-scoring.changelog.xml" relativeToChangelogFile="true"/>
+    <include file="055-player-avatar/055-player-avatar.changelog.xml" relativeToChangelogFile="true"/>
+    <include file="056-club-subscriptions/056-club-subscriptions.changelog.xml" relativeToChangelogFile="true"/>
 
 </databaseChangeLog>

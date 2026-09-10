@@ -13,6 +13,7 @@ import {
 } from '~/server/domains/event/services/bracket.service'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
 import { getOptionalUser } from '~/server/utils/optional-user'
+import { apiError } from '~/server/utils/api-error'
 
 /**
  * Freeze a draw, or reopen it.
@@ -27,18 +28,18 @@ import { getOptionalUser } from '~/server/utils/optional-user'
 export default defineEventHandler(async (event) => {
   const user = await getOptionalUser(event)
   if (!user) {
-    throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
+    throw apiError(401, 'AUTH_REQUIRED', 'Sign in to continue.')
   }
 
   const tournamentId = getRouterParam(event, 'tournamentId')
   if (!tournamentId) {
-    throw createError({ statusCode: 400, statusMessage: 'tournamentId is required.' })
+    throw apiError(400, 'MISSING_PARAMETER', 'tournamentId is required.')
   }
 
   const client = await serverSupabaseClient(event)
   const profile = await createPlayerProfileRepository(client).findByUserId(user.sub)
   if (!profile) {
-    throw createError({ statusCode: 403, statusMessage: 'Player profile required.' })
+    throw apiError(403, 'PROFILE_REQUIRED', 'Create your player profile first.')
   }
 
   const serviceClient = serverSupabaseServiceRole(event)
@@ -63,7 +64,7 @@ export default defineEventHandler(async (event) => {
       : await service.unlockBracket(profile.id, tournamentId, body?.category_id)
   } catch (err) {
     if (err instanceof BracketServiceError) {
-      throw createError({ statusCode: err.status, statusMessage: err.message })
+      throw apiError(err.status, err.code, err.message)
     }
     throw err
   }

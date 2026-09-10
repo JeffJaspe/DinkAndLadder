@@ -13,11 +13,12 @@ import {
 } from '~/server/domains/event/services/bracket.service'
 import { createMatchRepository } from '~/server/domains/match/repositories/match.repository'
 import { getOptionalUser } from '~/server/utils/optional-user'
+import { apiError } from '~/server/utils/api-error'
 
 export default defineEventHandler(async (event) => {
   const tournamentId = getRouterParam(event, 'tournamentId')
   if (!tournamentId) {
-    throw createError({ statusCode: 400, statusMessage: 'tournamentId is required.' })
+    throw apiError(400, 'MISSING_PARAMETER', 'tournamentId is required.')
   }
 
   const client = await serverSupabaseClient(event)
@@ -62,7 +63,7 @@ export default defineEventHandler(async (event) => {
     return bracket
   } catch (err) {
     if (err instanceof BracketServiceError) {
-      throw createError({ statusCode: err.status, statusMessage: err.message })
+      throw apiError(err.status, err.code, err.message)
     }
     throw err
   }

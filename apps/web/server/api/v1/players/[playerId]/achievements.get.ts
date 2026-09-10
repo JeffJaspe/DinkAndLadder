@@ -2,6 +2,7 @@ import { serverSupabaseClient } from '#supabase/server'
 import { createAchievementRepository } from '~/server/domains/achievement/repositories/achievement.repository'
 import { createAchievementService } from '~/server/domains/achievement/services/achievement.service'
 import { requireFeature, FEATURE_ACHIEVEMENTS } from '~/server/utils/require-feature'
+import { apiError } from '~/server/utils/api-error'
 
 export default defineEventHandler(async (event) => {
   // Off means gone, not hidden: the client gate only stops this app
@@ -10,7 +11,7 @@ export default defineEventHandler(async (event) => {
 
   const playerId = getRouterParam(event, 'playerId')
   if (!playerId) {
-    throw createError({ statusCode: 400, statusMessage: 'playerId is required.' })
+    throw apiError(400, 'MISSING_PARAMETER', 'playerId is required.')
   }
 
   const client = await serverSupabaseClient(event)

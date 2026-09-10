@@ -4,6 +4,7 @@ import { createAchievementService } from '~/server/domains/achievement/services/
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
 import { requireFeature, FEATURE_ACHIEVEMENTS } from '~/server/utils/require-feature'
 import { getOptionalUser } from '~/server/utils/optional-user'
+import { apiError } from '~/server/utils/api-error'
 
 export default defineEventHandler(async (event) => {
   // Off means gone, not hidden: the client gate only stops this app
@@ -12,7 +13,7 @@ export default defineEventHandler(async (event) => {
 
   const user = await getOptionalUser(event)
   if (!user) {
-    throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
+    throw apiError(401, 'AUTH_REQUIRED', 'Sign in to continue.')
   }
 
   const client = await serverSupabaseClient(event)
@@ -20,7 +21,7 @@ export default defineEventHandler(async (event) => {
   const playerRepo = createPlayerProfileRepository(client)
   const profile = await playerRepo.findByUserId(user.sub)
   if (!profile) {
-    throw createError({ statusCode: 403, statusMessage: 'Player profile required.' })
+    throw apiError(403, 'PROFILE_REQUIRED', 'Create your player profile first.')
   }
 
   const achievementRepo = createAchievementRepository(client)

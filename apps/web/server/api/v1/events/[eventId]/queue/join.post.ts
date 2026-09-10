@@ -22,7 +22,24 @@ export default defineEventHandler(async (event) => {
   }
 
   const body = await readBody<{ match_type?: string; partner_id?: string | null }>(event)
-  if (body?.match_type !== 'singles' && body?.match_type !== 'doubles') {
+
+  /**
+   * `match_type` is optional now, and only a cross-check when sent.
+   *
+   * It used to be required and was written straight to the row without ever
+   * being compared to the event's own `match_format` — so a client could put a
+   * singles entry in a doubles session, and the pairing step, which only ever
+   * matches two entries of the same type, then had a queue it could not pair.
+   * The service derives the format from the event and rejects a value that
+   * disagrees. Kept optional rather than removed so the Flutter client and any
+   * older web build keep working against the same contract.
+   */
+  if (
+    body?.match_type !== undefined &&
+    body?.match_type !== null &&
+    body?.match_type !== 'singles' &&
+    body?.match_type !== 'doubles'
+  ) {
     throw apiError(400, 'VALIDATION_ERROR', "match_type must be 'singles' or 'doubles'.")
   }
 
@@ -47,7 +64,7 @@ export default defineEventHandler(async (event) => {
     const entry = await service.joinQueue(
       eventId,
       playerProfile.id,
-      body.match_type,
+      body.match_type ?? null,
       body.partner_id ?? null
     )
     return { data: entry, message: 'Joined the queue', request_id: crypto.randomUUID() }

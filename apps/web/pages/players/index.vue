@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { initialsFor } from '~/utils/initials'
 import type { PlayerSearchResultDto } from '~/server/domains/player/dto/player-profile.dto'
 import { formatRating } from '~/utils/rating-tiers'
 
@@ -193,11 +192,15 @@ function clearFilters() {
         :to="`/players/${player.id}`"
         class="flex items-center gap-4 rounded-xl bg-surface p-4 transition-all hover:bg-surface-2 shadow-card hover:shadow-card-hover"
       >
-        <div
-          class="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-surface-2 text-lg font-bold text-fg-secondary"
-        >
-          {{ initialsFor(player.display_name, 1) }}
-        </div>
+        <!-- UiAvatar rather than a hand-rolled initials circle: it carries the
+             photo when there is one, the per-name tint when there is not, and
+             the broken-image fallback. The local circle had none of those. -->
+        <UiAvatar
+          :name="player.display_name"
+          :src="player.avatar_url"
+          size="lg"
+          class="h-12 w-12 text-lg"
+        />
         <div class="min-w-0 flex-1">
           <h2 class="text-body-1 font-medium text-fg">{{ player.display_name }}</h2>
           <p v-if="player.city || player.province" class="text-sm text-fg-muted">

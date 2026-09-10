@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { createRelationshipRepository } from '../../social/repositories/relationship.repository'
+import { pickPeakRating } from './peak-rating'
 import type {
   PlayerStatsDto,
   RatingHistoryPointDto,
@@ -31,6 +32,70 @@ export function createAnalyticsService(client: SupabaseClient): AnalyticsService
     const date = new Date()
     date.setDate(date.getDate() - d)
     return date.toISOString()
+  }
+
+  /**
+   * The highest rating this player has ever held, for one rating type.
+   *
+   * This used to be the *current* rating under a different name (F-26), so a
+   * player who peaked at 4.2 and slid to 3.8 was told their best ever was 3.8 —
+   * the one number on a profile whose entire job is to remember a better day.
+   *
+   * Two queries rather than one, because a rating held is not the same as a
+   * rating reached:
+   *
+   * - `new_rating` covers every rating the player moved *to*.
+   * - `old_rating` covers the one rating that is never anybody's `new_rating`:
+   *   the value they started from, before the first match ever moved it. A
+   *   player seeded at 3.5 who has only ever lost peaked at 3.5, and reading
+   *   `new_rating` alone would report the loss.
+   *
+   * Both are `limit(1)` on an ordered index scan, not a scan of the player's
+   * whole history — a 500-match player costs the same as a 5-match one.
+   *
+   * pickPeakRating() owns the rule itself, and is tested on its own.
+   */
+  async function findPeakRating(
+    playerId: string,
+    ratingType: 'singles' | 'doubles',
+    currentRating: number | null
+  ): Promise<number | null> {
+    const [reached, started] = await Promise.all([
+      client
+        .from('rating_transactions')
+        .select('new_rating')
+        .eq('player_id', playerId)
+        .eq('rating_type', ratingType)
+        .not('new_rating', 'is', null)
+        .order('new_rating', { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      client
+        .from('rating_transactions')
+        .select('old_rating')
+        .eq('player_id', playerId)
+        .eq('rating_type', ratingType)
+        .not('old_rating', 'is', null)
+        .order('old_rating', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+    ])
+
+    for (const [label, result] of [
+      ['peak new_rating', reached],
+      ['peak old_rating', started]
+    ] as const) {
+      if (result.error) {
+        console.error(`[analytics] findPeakRating: ${label} query failed:`, result.error)
+        throw result.error
+      }
+    }
+
+    return pickPeakRating(
+      currentRating,
+      (reached.data as { new_rating: number | null } | null)?.new_rating ?? null,
+      (started.data as { old_rating: number | null } | null)?.old_rating ?? null
+    )
   }
 
   return {
@@ -96,6 +161,13 @@ export function createAnalyticsService(client: SupabaseClient): AnalyticsService
         else if (latest < earlier - 0.05) trend = 'falling'
       }
 
+      // After the ratings query, because the peak must never be reported below
+      // the current value sitting next to it on the same card.
+      const [peakSingles, peakDoubles] = await Promise.all([
+        findPeakRating(playerId, 'singles', singlesRating),
+        findPeakRating(playerId, 'doubles', doublesRating)
+      ])
+
       const achievementRows = achievements.data ?? []
       const totalPoints = achievementRows.reduce((sum, a) => {
         const pts =
@@ -122,8 +194,8 @@ export function createAnalyticsService(client: SupabaseClient): AnalyticsService
         win_rate: stats?.total_matches ? Math.round((stats.wins / stats.total_matches) * 100) : 0,
         current_singles_rating: singlesRating,
         current_doubles_rating: doublesRating,
-        highest_singles_rating: singlesRating,
-        highest_doubles_rating: doublesRating,
+        highest_singles_rating: peakSingles,
+        highest_doubles_rating: peakDoubles,
         rating_trend: trend,
         matches_this_month: stats?.matches_this_month ?? 0,
         clubs_count: memberships.data?.length ?? 0,

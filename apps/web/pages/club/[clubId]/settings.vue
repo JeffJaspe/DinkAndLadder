@@ -37,11 +37,12 @@ const {
   refresh
 } = await useFetch<ClubDto>(() => `/api/v1/clubs/${clubId.value}`)
 
-const { data: myProfile } = useFetch<{ id: string } | null>('/api/v1/players/me', {
-  server: false
-})
+const { data: myProfile, pending: profilePending } = useFetch<{ id: string } | null>(
+  '/api/v1/players/me',
+  { server: false }
+)
 
-const { data: rosterData } = useFetch<{ items: RosterMemberDto[] }>(
+const { data: rosterData, pending: rosterPending } = useFetch<{ items: RosterMemberDto[] }>(
   () => `/api/v1/clubs/${clubId.value}/members`,
   { server: false }
 )
@@ -50,6 +51,15 @@ const myRole = computed(
   () => rosterData.value?.items.find((m) => m.player_id === myProfile.value?.id)?.role ?? null
 )
 const canEdit = computed(() => myRole.value === 'OWNER' || myRole.value === 'ADMIN')
+
+/**
+ * The role check needs the roster *and* the caller's own profile, both fetched
+ * client-side. Until both land, `canEdit` is false — which used to render "Only
+ * the club owner or an admin can change these settings" for a beat in front of
+ * the owner, every single time the page loaded. Skeletons hold that space
+ * instead, and the refusal is only shown once we actually know.
+ */
+const roleUnknown = computed(() => rosterPending.value || profilePending.value)
 
 // --- Details ----------------------------------------------------------------
 const form = reactive({
@@ -74,6 +84,24 @@ watch(
   },
   { immediate: true }
 )
+
+/**
+ * Save was live from the moment the page rendered, so the primary action on the
+ * commonest visit — open settings, read them, leave — wrote the same values
+ * back and reported success. It now means "there is something to save", and the
+ * guard below can ask about edits that would otherwise vanish on a back tap.
+ */
+const detailsDirty = computed(() => {
+  const value = club.value
+  if (!value) return false
+  return (
+    form.name.trim() !== value.name ||
+    form.description.trim() !== (value.description ?? '') ||
+    form.court_name.trim() !== (value.court_name ?? '') ||
+    form.court_address.trim() !== (value.court_address ?? '') ||
+    form.visibility !== value.visibility
+  )
+})
 
 async function saveDetails() {
   savingDetails.value = true
@@ -140,10 +168,31 @@ async function saveSlug() {
 // --- Images -----------------------------------------------------------------
 const uploadingSlot = ref<'cover' | 'logo' | ''>('')
 
+/**
+ * Mirrors the server's allow-list (branding.dto.ts). The bucket's own ceiling
+ * is 50 MB, but a club admin picking a 30 MB camera original would previously
+ * watch a silent progress-free upload crawl and then succeed — this rejects it
+ * before it leaves the machine, and says why.
+ */
+const ACCEPTED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/jpg']
+const SOFT_MAX_IMAGE_BYTES = 8 * 1024 * 1024
+
 async function uploadImage(slot: 'cover' | 'logo', event: Event) {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
+  // Cleared up front so re-picking the same file fires change again, including
+  // after a rejection.
+  input.value = ''
   if (!file) return
+
+  if (!ACCEPTED_IMAGE_TYPES.includes(file.type)) {
+    toast.error('That file is not a PNG or JPEG. Pick an image in one of those formats.')
+    return
+  }
+  if (file.size > SOFT_MAX_IMAGE_BYTES) {
+    toast.error('That image is over 8 MB. Pick a smaller one, or crop it first.')
+    return
+  }
 
   uploadingSlot.value = slot
   try {
@@ -156,12 +205,32 @@ async function uploadImage(slot: 'cover' | 'logo', event: Event) {
     toast.error(apiErrorMessage(err, 'Could not upload the image.'))
   } finally {
     uploadingSlot.value = ''
-    // Clear the input so re-picking the same file fires change again.
-    input.value = ''
   }
 }
 
+/**
+ * Removing a club's cover or logo deletes the stored object — the file is gone,
+ * not unlinked — so it gets the same confirmation every other irreversible
+ * action in the product gets (docs/33 §7). It used to happen on one tap.
+ */
+const pendingClear = ref<'cover' | 'logo' | null>(null)
+
+const clearCopy = computed(() =>
+  pendingClear.value === 'logo'
+    ? {
+        title: 'Remove the logo?',
+        description:
+          "The club goes back to the initial mark generated from its name. The uploaded file is deleted and cannot be recovered."
+      }
+    : {
+        title: 'Remove the cover photo?',
+        description:
+          'The club goes back to its generated cover art. The uploaded file is deleted and cannot be recovered.'
+      }
+)
+
 async function clearImage(slot: 'cover' | 'logo') {
+  pendingClear.value = null
   uploadingSlot.value = slot
   try {
     await $fetch(`/api/v1/clubs/${clubId.value}/images/${slot}`, { method: 'DELETE' })
@@ -180,6 +249,17 @@ async function clearImage(slot: 'cover' | 'logo') {
 // `clubId` is a computed: interpolating the ref itself put "[object Object]"
 // in the URL, so a deep link into settings had no working way back.
 const { goBack } = useAppBack(`/clubs/${clubId.value}`)
+
+/**
+ * Same guard as the player profile editor, for the same reason: club settings
+ * is reachable from the mobile drawer, and a mistaken tap elsewhere in the nav
+ * silently discarded a half-written description. `window.confirm` because the
+ * router needs a synchronous answer.
+ */
+onBeforeRouteLeave(() => {
+  if (!detailsDirty.value || savingDetails.value) return true
+  return window.confirm('You have unsaved club details. Leave without saving?')
+})
 </script>
 
 <template>
@@ -192,7 +272,7 @@ const { goBack } = useAppBack(`/clubs/${clubId.value}`)
         subtitle="Only the club owner and admins can change these."
       />
 
-      <div v-if="pending" class="space-y-4">
+      <div v-if="pending || roleUnknown" class="space-y-4">
         <div v-for="i in 3" :key="i" class="h-40 animate-pulse rounded-card bg-surface" />
       </div>
 
@@ -249,7 +329,7 @@ const { goBack } = useAppBack(`/clubs/${clubId.value}`)
                 type="button"
                 class="text-caption text-danger hover:underline"
                 :disabled="uploadingSlot !== ''"
-                @click="clearImage('cover')"
+                @click="pendingClear = 'cover'"
               >
                 Remove
               </button>
@@ -290,7 +370,7 @@ const { goBack } = useAppBack(`/clubs/${clubId.value}`)
                   type="button"
                   class="text-caption text-danger hover:underline"
                   :disabled="uploadingSlot !== ''"
-                  @click="clearImage('logo')"
+                  @click="pendingClear = 'logo'"
                 >
                   Remove
                 </button>
@@ -307,18 +387,32 @@ const { goBack } = useAppBack(`/clubs/${clubId.value}`)
             links — the ID address keeps working.
           </p>
 
+          <label for="club-slug" class="sr-only">Club URL</label>
           <div class="mt-4 flex flex-wrap items-center gap-2">
-            <span class="text-body-2 text-fg-muted">/clubs/</span>
+            <span class="text-body-2 text-fg-muted" aria-hidden="true">/clubs/</span>
             <input
+              id="club-slug"
               v-model="slugInput"
               type="text"
+              inputmode="url"
+              autocapitalize="none"
+              autocorrect="off"
+              spellcheck="false"
               :minlength="MIN_SLUG_LENGTH"
               :maxlength="MAX_SLUG_LENGTH"
-              class="min-w-0 flex-1 rounded-button border border-border-strong bg-canvas px-3 py-2 text-body-2 text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
+              :aria-invalid="slugProblem !== null || undefined"
+              :aria-describedby="slugProblem ? 'club-slug-error' : undefined"
+              class="min-w-0 flex-1 rounded-button border bg-canvas px-3 py-2 text-body-1 text-fg focus:outline-none focus:ring-2 sm:text-body-2"
+              :class="
+                slugProblem
+                  ? 'border-danger focus:border-danger focus:ring-danger/40'
+                  : 'border-border-strong focus:border-primary focus:ring-primary/40'
+              "
               @input="slugInput = slugInput.toLowerCase()"
             />
             <UiButton
               size="sm"
+              :loading="savingSlug"
               :disabled="savingSlug || !slugChanged || slugProblem !== null"
               @click="saveSlug"
             >
@@ -326,7 +420,7 @@ const { goBack } = useAppBack(`/clubs/${clubId.value}`)
             </UiButton>
           </div>
 
-          <p v-if="slugProblem" class="mt-2 text-caption text-danger">
+          <p v-if="slugProblem" id="club-slug-error" role="alert" class="mt-2 text-caption text-danger">
             {{ slugProblemMessage(slugProblem) }}
           </p>
         </section>
@@ -344,7 +438,7 @@ const { goBack } = useAppBack(`/clubs/${clubId.value}`)
                 id="club-name"
                 v-model="form.name"
                 type="text"
-                class="w-full rounded-button border border-border-strong bg-canvas px-3 py-2 text-body-2 text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
+                class="w-full rounded-button border border-border-strong bg-canvas px-3 py-2 text-body-1 text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40 sm:text-body-2"
               />
             </div>
 
@@ -356,7 +450,7 @@ const { goBack } = useAppBack(`/clubs/${clubId.value}`)
                 id="club-desc"
                 v-model="form.description"
                 rows="3"
-                class="w-full rounded-button border border-border-strong bg-canvas px-3 py-2 text-body-2 text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
+                class="w-full rounded-button border border-border-strong bg-canvas px-3 py-2 text-body-1 text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40 sm:text-body-2"
               />
             </div>
 
@@ -372,7 +466,7 @@ const { goBack } = useAppBack(`/clubs/${clubId.value}`)
                   id="club-court"
                   v-model="form.court_name"
                   type="text"
-                  class="w-full rounded-button border border-border-strong bg-canvas px-3 py-2 text-body-2 text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
+                  class="w-full rounded-button border border-border-strong bg-canvas px-3 py-2 text-body-1 text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40 sm:text-body-2"
                 />
               </div>
               <div>
@@ -386,7 +480,7 @@ const { goBack } = useAppBack(`/clubs/${clubId.value}`)
                   id="club-court-address"
                   v-model="form.court_address"
                   type="text"
-                  class="w-full rounded-button border border-border-strong bg-canvas px-3 py-2 text-body-2 text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
+                  class="w-full rounded-button border border-border-strong bg-canvas px-3 py-2 text-body-1 text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40 sm:text-body-2"
                 />
               </div>
             </div>
@@ -401,7 +495,7 @@ const { goBack } = useAppBack(`/clubs/${clubId.value}`)
               <select
                 id="club-visibility"
                 v-model="form.visibility"
-                class="w-full rounded-button border border-border-strong bg-canvas px-3 py-2 text-body-2 text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
+                class="w-full rounded-button border border-border-strong bg-canvas px-3 py-2 text-body-1 text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40 sm:text-body-2"
               >
                 <option value="public">Public — anyone can find this club</option>
                 <option value="private">Private — only members can see it</option>
@@ -409,13 +503,27 @@ const { goBack } = useAppBack(`/clubs/${clubId.value}`)
             </div>
 
             <div class="flex justify-end">
-              <UiButton :disabled="savingDetails || !form.name.trim()" @click="saveDetails">
-                {{ savingDetails ? 'Saving…' : 'Save details' }}
+              <UiButton
+                :loading="savingDetails"
+                :disabled="savingDetails || !detailsDirty || !form.name.trim()"
+                @click="saveDetails"
+              >
+                {{ savingDetails ? 'Saving…' : detailsDirty ? 'Save details' : 'Saved' }}
               </UiButton>
             </div>
           </div>
         </section>
       </div>
     </div>
+
+    <UiModal
+      :model-value="pendingClear !== null"
+      :title="clearCopy.title"
+      :description="clearCopy.description"
+      confirm-label="Remove"
+      destructive
+      @update:model-value="(value: boolean) => !value && (pendingClear = null)"
+      @confirm="pendingClear && clearImage(pendingClear)"
+    />
   </div>
 </template>

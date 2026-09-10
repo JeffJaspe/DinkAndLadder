@@ -1,6 +1,7 @@
-import { serverSupabaseClient } from '#supabase/server'
+import { serverSupabaseClient, serverSupabaseServiceRole } from '#supabase/server'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
 import { createPlayerProfileService } from '~/server/domains/player/services/player-profile.service'
+import { createBrandingAssetRepository } from '~/server/domains/platform/repositories/branding-asset.repository'
 import { apiError } from '~/server/utils/api-error'
 import { getOptionalUser } from '~/server/utils/optional-user'
 
@@ -11,7 +12,13 @@ export default defineEventHandler(async (event) => {
   }
 
   const client = await serverSupabaseClient(event)
-  const service = createPlayerProfileService(createPlayerProfileRepository(client))
+  // The profile itself is read with the caller's own client so RLS still
+  // applies; only signing the avatar URL needs the service role, because the
+  // Storage bucket has no anon read access while it is private.
+  const service = createPlayerProfileService(
+    createPlayerProfileRepository(client),
+    createBrandingAssetRepository(serverSupabaseServiceRole(event))
+  )
   const profile = await service.getOwnProfile(claims.sub)
 
   if (!profile) {

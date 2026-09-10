@@ -5,6 +5,7 @@ import { createBadgeService } from '~/server/domains/badge/services/badge.servic
 import { AVAILABLE_BADGES } from '~/server/domains/badge/dto/badge.dto'
 import { requireFeature, FEATURE_ACHIEVEMENTS } from '~/server/utils/require-feature'
 import { getOptionalUser } from '~/server/utils/optional-user'
+import { apiError } from '~/server/utils/api-error'
 
 export default defineEventHandler(async (event) => {
   // Off means gone, not hidden: the client gate only stops this app
@@ -13,7 +14,7 @@ export default defineEventHandler(async (event) => {
 
   const user = await getOptionalUser(event)
   if (!user) {
-    throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
+    throw apiError(401, 'AUTH_REQUIRED', 'Sign in to continue.')
   }
 
   const supabase = await serverSupabaseServiceRole(event)
@@ -23,7 +24,7 @@ export default defineEventHandler(async (event) => {
 
   const profile = await playerRepo.findByUserId(user.sub)
   if (!profile) {
-    throw createError({ statusCode: 404, statusMessage: 'Player profile not found' })
+    throw apiError(404, 'NOT_FOUND', 'Player profile not found.')
   }
 
   const showcase = await badgeService.getShowcase(profile.id)

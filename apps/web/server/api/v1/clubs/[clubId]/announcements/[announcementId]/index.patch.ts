@@ -8,16 +8,17 @@ import { createClubMembershipRepository } from '~/server/domains/club/repositori
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
 import type { UpdateAnnouncementInput } from '~/server/domains/announcement/dto/announcement.dto'
 import { getOptionalUser } from '~/server/utils/optional-user'
+import { apiError } from '~/server/utils/api-error'
 
 export default defineEventHandler(async (event) => {
   const user = await getOptionalUser(event)
   if (!user) {
-    throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
+    throw apiError(401, 'AUTH_REQUIRED', 'Sign in to continue.')
   }
 
   const announcementId = getRouterParam(event, 'announcementId')
   if (!announcementId) {
-    throw createError({ statusCode: 400, statusMessage: 'announcementId is required.' })
+    throw apiError(400, 'MISSING_PARAMETER', 'announcementId is required.')
   }
 
   const client = await serverSupabaseClient(event)
@@ -25,7 +26,7 @@ export default defineEventHandler(async (event) => {
   const playerRepo = createPlayerProfileRepository(client)
   const profile = await playerRepo.findByUserId(user.sub)
   if (!profile) {
-    throw createError({ statusCode: 403, statusMessage: 'Player profile required.' })
+    throw apiError(403, 'PROFILE_REQUIRED', 'Create your player profile first.')
   }
 
   const input = await readBody<UpdateAnnouncementInput>(event)
@@ -39,7 +40,7 @@ export default defineEventHandler(async (event) => {
     return announcement
   } catch (err) {
     if (err instanceof AnnouncementServiceError) {
-      throw createError({ statusCode: err.status, statusMessage: err.message })
+      throw apiError(err.status, err.code, err.message)
     }
     throw err
   }

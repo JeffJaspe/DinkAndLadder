@@ -682,13 +682,15 @@ function formatActivityText(activity: ProfileActivity): string {
         <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <!-- Avatar & Info -->
           <div class="flex items-start gap-4">
-            <div class="relative">
-              <div
-                class="flex h-20 w-20 flex-shrink-0 items-center justify-center rounded-full bg-surface-2 text-3xl font-bold text-fg ring-4 ring-primary"
-              >
-                {{ initialsFor(profile.display_name, 1) }}
-              </div>
-            </div>
+            <!-- UiAvatar rather than a hand-rolled initials circle: it carries
+                 the uploaded photo when there is one, the per-name tint when
+                 there is not, and the broken-image fallback. -->
+            <UiAvatar
+              :name="profile.display_name"
+              :src="profile.avatar_url"
+              size="xl"
+              class="h-20 w-20 text-3xl ring-4 ring-primary"
+            />
             <div>
               <div class="flex items-center gap-2">
                 <h1 class="font-display text-heading-1 text-fg">{{ profile.display_name }}</h1>

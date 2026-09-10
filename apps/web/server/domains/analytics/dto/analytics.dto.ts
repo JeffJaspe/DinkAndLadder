@@ -42,14 +42,6 @@ export interface ClubStatsDto {
   avg_rating: number | null
 }
 
-export interface PlatformStatsDto {
-  total_players: number
-  total_clubs: number
-  total_matches: number
-  matches_this_week: number
-  active_players_this_month: number
-}
-
 export interface PlayerInsightsDto {
   stats: PlayerStatsDto
   rank_singles: number | null

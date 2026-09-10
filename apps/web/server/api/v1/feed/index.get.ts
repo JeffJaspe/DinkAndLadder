@@ -9,10 +9,10 @@ import { createRelationshipRepository } from '~/server/domains/social/repositori
 import { createActivityService } from '~/server/domains/activity/services/activity.service'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
 import { createClubRepository } from '~/server/domains/club/repositories/club.repository'
-import type {
-  ActivityDto,
-  ActivityType,
-  FeedQuery
+import type { ActivityDto, FeedQuery } from '~/server/domains/activity/dto/activity.dto'
+import {
+  FeedQueryValidationError,
+  parseFeedQuery
 } from '~/server/domains/activity/dto/activity.dto'
 import { apiError } from '~/server/utils/api-error'
 import { getOptionalUser } from '~/server/utils/optional-user'
@@ -50,16 +50,23 @@ async function enrichWithDisplayNames(
 export default defineEventHandler(async (event) => {
   const user = await getOptionalUser(event)
 
-  const rawQuery = getQuery(event)
-  const query: FeedQuery = {
-    limit: Math.min(parseInt(rawQuery.limit as string) || 20, 50),
-    offset: parseInt(rawQuery.offset as string) || 0,
-    types: rawQuery.types ? ((rawQuery.types as string).split(',') as ActivityType[]) : undefined,
-    since: rawQuery.since as string | undefined,
-    // Not client-selectable. The scope is a product rule, not a preference, and
-    // accepting `?scope=geo` from the browser would hand any caller the whole
-    // public firehose the community scope exists to replace.
-    scope: 'community'
+  let query: FeedQuery
+  try {
+    query = {
+      ...parseFeedQuery(getQuery(event)),
+      // Not client-selectable. The scope is a product rule, not a preference,
+      // and accepting `?scope=geo` from the browser would hand any caller the
+      // whole public firehose the community scope exists to replace.
+      scope: 'community'
+    }
+  } catch (err) {
+    // A bad query string is the caller's mistake, and it has to be answered
+    // before the try/catch further down turns everything into a 500 — an
+    // unparseable `since` reached Postgres and came back as exactly that.
+    if (err instanceof FeedQueryValidationError) {
+      throw apiError(400, 'INVALID_QUERY', err.message, { field: err.field })
+    }
+    throw err
   }
 
   const client = await serverSupabaseClient(event)

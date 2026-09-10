@@ -861,23 +861,24 @@ const activeEntries = computed(
 )
 
 /**
- * Singles or doubles, for the queue entry.
+ * Singles or doubles for the queue entry — read from the event, never chosen.
  *
- * Seeded from the event rather than hard-coded. It defaulted to 'singles' on
- * every session, including the doubles ones that are the overwhelming majority
- * — and `nextPair` only ever pairs two waiting entries of the SAME format, so
- * a doubles session whose players took the default filled up with singles
- * entries the organiser could not put on a court.
+ * This was a `<select>` in the join panel, which asked the player a question
+ * the event had already answered: an event carries one `match_format` and
+ * every game in the session is played to it. Worse than redundant, it was
+ * answerable wrongly — `matchNextPair` only pairs two entries of the SAME
+ * type, so one player picking singles in a doubles session left an entry at
+ * the head of the queue that could not be paired with anything behind it, and
+ * the organiser saw "only one singles entry is waiting" while four people
+ * stood on court waiting for a game.
+ *
+ * A computed, not a ref: there is nothing here for a person to set. The
+ * service derives the same value from the same column and rejects a request
+ * that disagrees, so this is the display half of one rule rather than a second
+ * source of it.
  */
-const joinMatchType = ref<'singles' | 'doubles'>('doubles')
+const joinMatchType = computed<'singles' | 'doubles'>(() => event.value?.match_format ?? 'doubles')
 
-watch(
-  () => event.value?.match_format,
-  (format) => {
-    if (format) joinMatchType.value = format
-  },
-  { immediate: true }
-)
 const joinPartnerId = ref('')
 const joiningQueue = ref(false)
 const leavingQueue = ref(false)
@@ -932,6 +933,14 @@ watch(
  */
 const queuePairsForYou = computed(() => queuePairsAutomatically(event.value?.queue_mode))
 
+/** What joining actually commits you to, in the words the session uses. */
+const joinFormatNote = computed(() => {
+  if (joinMatchType.value === 'singles') return 'One against one.'
+  return queuePairsForYou.value
+    ? 'Two a side. The rotation picks your partner.'
+    : 'Two a side. Bring a partner from the registered players.'
+})
+
 async function handleJoinQueue() {
   queueError.value = ''
   if (joinMatchType.value === 'doubles' && !queuePairsForYou.value && !joinPartnerId.value) {
@@ -943,7 +952,8 @@ async function handleJoinQueue() {
     await $fetch(`/api/v1/events/${eventId}/queue/join`, {
       method: 'POST',
       body: {
-        match_type: joinMatchType.value,
+        // Deliberately not sent: the service reads the format off the event,
+        // which is the only place it is decided. See joinQueue.
         partner_id:
           joinMatchType.value === 'doubles' && !queuePairsForYou.value ? joinPartnerId.value : null
       }
@@ -2354,49 +2364,53 @@ const { goBack } = useAppBack('/events')
                       {{ leavingQueue ? 'Leaving...' : 'Leave Queue' }}
                     </button>
                   </div>
-                  <div v-else class="flex flex-wrap items-end gap-3 rounded-lg bg-canvas p-4">
-                    <div>
-                      <label for="queue-match-type" class="mb-1.5 block text-xs text-fg-secondary">
-                        Match Type
-                      </label>
-                      <select
-                        id="queue-match-type"
-                        v-model="joinMatchType"
-                        class="rounded-lg border border-border-strong bg-surface px-3 py-2 text-sm text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
-                      >
-                        <option value="singles">Singles</option>
-                        <option value="doubles">Doubles</option>
-                      </select>
-                    </div>
-                    <!-- Hidden in Mix & Match: the rotation pairs you, so
-                         there is nothing to choose. -->
-                    <div v-if="joinMatchType === 'doubles' && !queuePairsForYou">
-                      <label for="queue-partner" class="mb-1.5 block text-xs text-fg-secondary">
-                        Partner
-                      </label>
-                      <select
-                        id="queue-partner"
-                        v-model="joinPartnerId"
-                        class="rounded-lg border border-border-strong bg-surface px-3 py-2 text-sm text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
-                      >
-                        <option value="" disabled>Select partner</option>
-                        <option
-                          v-for="p in availablePartners"
-                          :key="p.player_id"
-                          :value="p.player_id"
+                  <!-- The format is stated, not asked. It is a property of the
+                       session, and the only thing left for the player to decide
+                       is who they are playing with. -->
+                  <div v-else class="rounded-lg bg-canvas p-4">
+                    <p class="text-sm text-fg">
+                      <span class="font-medium capitalize">{{ joinMatchType }}</span>
+                      <span class="text-fg-muted"> · {{ joinFormatNote }}</span>
+                    </p>
+
+                    <div class="mt-3 flex flex-wrap items-end gap-3">
+                      <!-- Absent in Mix & Match: the rotation pairs you, so
+                           there is nothing to choose. -->
+                      <div v-if="joinMatchType === 'doubles' && !queuePairsForYou" class="min-w-0">
+                        <label for="queue-partner" class="mb-1.5 block text-xs text-fg-secondary">
+                          Partner
+                        </label>
+                        <select
+                          id="queue-partner"
+                          v-model="joinPartnerId"
+                          class="min-h-11 w-full rounded-lg border border-border-strong bg-surface px-3 py-2 text-sm text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40 sm:w-56"
                         >
-                          {{ p.player?.display_name || 'Unknown'
-                          }}{{ p.player_id === defaultPartnerId ? ' ★ your duo' : '' }}
-                        </option>
-                      </select>
+                          <option value="" disabled>Select partner</option>
+                          <option
+                            v-for="p in availablePartners"
+                            :key="p.player_id"
+                            :value="p.player_id"
+                          >
+                            {{ p.player?.display_name || 'Unknown'
+                            }}{{ p.player_id === defaultPartnerId ? ' ★ your duo' : '' }}
+                          </option>
+                        </select>
+                        <!-- Nobody to pair with is a state, not an error: a
+                             session with one registered player has no partner
+                             to offer and the button below would fail with a
+                             message that sounds like the player's fault. -->
+                        <p v-if="!availablePartners.length" class="mt-1 text-caption text-fg-muted">
+                          Nobody else is registered yet.
+                        </p>
+                      </div>
+                      <button
+                        :disabled="joiningQueue"
+                        class="min-h-11 w-full rounded-lg bg-primary px-4 py-2 text-sm font-medium text-on-primary hover:bg-primary-hover disabled:opacity-50 sm:w-auto"
+                        @click="handleJoinQueue"
+                      >
+                        {{ joiningQueue ? 'Joining…' : 'Join queue' }}
+                      </button>
                     </div>
-                    <button
-                      :disabled="joiningQueue"
-                      class="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-on-primary hover:bg-primary-hover disabled:opacity-50"
-                      @click="handleJoinQueue"
-                    >
-                      {{ joiningQueue ? 'Joining...' : 'Join Queue' }}
-                    </button>
                   </div>
                 </div>
                 <p v-else-if="!canManageEvent" class="mt-4 text-sm text-fg-muted">
@@ -2503,7 +2517,12 @@ const { goBack } = useAppBack('/events')
                 <h3 class="mb-1 text-body-1 font-medium text-fg">
                   Waiting ({{ waitingEntries.length }})
                 </h3>
-                <p class="mb-4 text-xs text-fg-muted">First come, first served.</p>
+                <!-- The second place this sentence was hardcoded. On a Rating
+                     Based or Mix & Match session it described the opposite of
+                     what the server does. -->
+                <p class="mb-4 text-xs text-fg-muted">
+                  {{ queueModeDescription(event.queue_mode) }}
+                </p>
                 <div v-if="queuePending" class="space-y-3">
                   <div v-for="i in 3" :key="i" class="h-14 animate-pulse rounded-lg bg-canvas" />
                 </div>

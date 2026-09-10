@@ -6783,3 +6783,433 @@ rally-scored 21, best-of-3, court renaming) and the service's game-rule and
 court-count bounds. Beyond the suite, the surfaces were driven in a real browser
 at both viewports: overflow, every control's hit box, label association, and the
 create form's POST body end to end.
+
+---
+
+## The queue asked a question the event had already answered
+
+Reported as: joining open play asks singles or doubles when the event already
+says which. It was not only redundant — it was answerable wrongly, and a wrong
+answer stalled the session.
+
+### What was actually broken
+
+An event carries one `match_format` and every game in the session is played to
+it. The queue join panel put that up as a `<select>` anyway, the request body
+carried whatever it was set to, and `joinQueue` wrote it to the row **without
+ever comparing it to the event**. The service read the event record two lines
+earlier — for `queue_mode` — and never looked at the format sitting next to it.
+
+The consequence is downstream, in `matchNextPair`: it takes the longest-waiting
+entry and then pairs it only against another entry of the **same** match type.
+So one player joining a doubles session as singles put an unpairable entry at
+the head of the queue, and every doubles side behind it waited while the
+organiser was told *"Only one singles entry is waiting; two are needed for a
+match."* Four people on court, nothing the organiser could do but skip.
+
+A previous pass seeded the picker's default from `event.match_format`, which
+made the common case right and left the defect intact.
+
+### The fix
+
+- **The format is stated, not asked.** The panel now reads
+  "Doubles · Two a side. Bring a partner from the registered players." and the
+  only control left is the partner — the one thing the player actually decides.
+  `joinMatchType` became a `computed` off the event; there is nothing for a
+  person to set.
+- **The service derives it.** `joinQueue` takes the format from
+  `event.match_format` (defaulted to doubles for events predating 041, the same
+  way `toEventDto` defaults it). A caller that sends a *disagreeing* value gets
+  a 409 `FORMAT_MISMATCH` naming the session's format rather than a silent
+  correction — a client that thinks the session is singles is out of date, and
+  quietly enqueueing them as doubles would be a different bug.
+- **`match_type` is now optional on the endpoint**, not removed: the planned
+  Flutter client and any older web build keep working against the same contract.
+  The web client stops sending it, because it was only ever echoing back a value
+  it read from the same event.
+- **`matchNextPair` defaults to the session's format**, so a legacy off-format
+  row left over from before the rule cannot block the head of the queue. An
+  explicit `match_type` still wins — that is how an organiser reaches one.
+- **Second hardcoded pairing line fixed.** The waiting list said "First come,
+  first served." on every session, including Rating Based and Mix & Match. It
+  now reads `queueModeDescription`, like the panel above it.
+
+### Validation
+
+`typecheck` clean, `lint` 0 errors, `check:tokens` clean, design detector clean,
+**1256 tests pass (84 files)** — 4 new on the rule itself: the format is taken
+from the event, a disagreeing caller is refused before anything is written, a
+null format reads as doubles, and a missing event 404s.
+
+Beyond the suite, the panel was rendered in a browser across all three real
+combinations at both viewports — doubles/first-come, doubles/Mix & Match, and
+singles. The match-type select is gone in all three; the partner select appears
+only for doubles outside Mix & Match; no horizontal overflow and no control
+under 44px in any of them.
+
+---
+
+## Settings, profile photos and the SuperAdmin boundary
+
+An audit pass over the player and club settings surfaces, the account switcher
+and the app nav, plus the one thing they all wanted and did not have: a profile
+photo.
+
+### Player profile photos (new)
+
+`components/ui/Avatar.vue` has accepted a `src` since Phase 2 and nothing in the
+product could supply one — `player_profiles` had no image column, so every
+avatar in the app was tinted initials whether the player wanted that or not.
+
+- **`055-player-avatar`** adds `player_profiles.avatar_path`, nullable, storing
+  a bucket-relative path rather than a URL, for the reason 025 and 040 already
+  document: whether the bucket is public decides the URL shape, and that is a
+  deployment decision, not a property of the row.
+- **`PlayerAvatarService`** reuses the platform `BrandingAssetRepository` — the
+  same `Images` bucket, the same public-vs-signed logic — exactly as
+  `ClubBrandingService` does, rather than growing a second storage path that
+  would drift. It resolves the acting profile from the *session's* user id, so
+  it cannot be pointed at another player's row; the object path is timestamped
+  so a replacement is not served from CDN cache under the old key; and the
+  previous object is deleted only after the row points at the new one.
+- **`POST` / `DELETE /api/v1/players/me/avatar`.** Multipart through the server,
+  not browser-to-Storage: the bucket has no anon write access, and handing a
+  browser a write-capable credential to save one hop is a far bigger hole than
+  the endpoint is a cost. The profile row is still read and written with the
+  caller's own client, so RLS applies; only signing needs the service role.
+- **`avatar_url` on the read path.** `PlayerProfileService` now takes an
+  optional URL resolver, so `players/me`, `players/[playerId]` and
+  `players/search` fill it. Search resolves the whole page in parallel — a
+  hundred serial signings on the directory's critical path would not have been
+  acceptable.
+- **The initials avatar is unchanged and is still the default.** Null means "use
+  the initials", which is a finished design, not a placeholder.
+- The player directory and the public profile page both dropped their
+  hand-rolled initials circles for `UiAvatar`, which they should have been using
+  already: those local copies had no photo support, no per-name tint and no
+  broken-image fallback.
+
+### The SuperAdmin boundary
+
+Seven platform-admin destinations sat in the same flat list as Notifications and
+Settings, styled identically, separated by nothing — so "Sponsors" and "Theme"
+read as ordinary account settings that other players simply happened not to
+have. They are not: each one changes the product for everybody.
+
+- **`AdminNavGroup`** draws them as a collapsible block on its own `surface-2`
+  ground inside a `border-strong` outline, under a shield-marked heading that
+  says *Platform admin — only you can see this*. The separation is structural,
+  not chromatic: Court Green stays reserved for the primary action and confirmed
+  state, so nothing here borrows it beyond the ordinary active-item treatment.
+  It opens automatically whenever the current route is already inside it.
+- **`/admin/fees` was unreachable.** The page and its `super-admin` middleware
+  both exist and nothing in the app linked to it.
+- **A context bar** now heads every `/admin/*` screen — one strip in the layout
+  rather than eight page edits — stating that changes there affect everyone, and
+  offering the way out.
+- Settings carries the same block, for the same reason.
+
+### Switching account mode now asks
+
+Switching between player and club mode is not a navigation: it changes the whole
+sidebar, what the feed scopes to, and whose name every action is taken under. It
+happened on a single tap of a menu row — on a phone, in a drawer footer, next to
+Log out — with no sign afterwards of what had changed. It now confirms, with
+copy that says what is about to be true and what is *not* changing.
+
+The switcher also dropped its emoji paddle and trophy for real icons from the
+registry (DESIGN.md: no glyph or emoji standing in for an icon), and grew a mode
+label, a checked state on the current mode, and Escape-to-close.
+
+### Settings audit
+
+**Player**
+
+- The profile editor was 455 lines of `rounded-xl`/`text-sm` predating the token
+  pass; it now uses the ramp and `rounded-card`, and sits on `page-shell`.
+- **Every field was label-less** — nine `<label>` elements with no `for` and nine
+  inputs with no `id`. Fixed, with `autocomplete` on the name fields.
+- **Save was live from first render**, so the commonest visit — open, read,
+  leave — offered a primary action that rewrote identical values. It is now
+  dirty-gated, and leaving with edits asks first. That guard matters most on the
+  mobile tab bar, where one mistaken tap on Home was the whole edit gone.
+- **No length limits existed on either side**: `text` columns, a parser that
+  only checked types, no `maxlength`. A display name renders inside fixed-width
+  rows everywhere, so an unbounded one is a layout break on every surface that
+  shows it. `MAX_DISPLAY_NAME_LENGTH` 40 / `MAX_NAME_LENGTH` 60 /
+  `MAX_BIO_LENGTH` 280 are enforced in `parseUpdatePlayerProfileInput` and
+  counted down to in the fields.
+- Save and error messages became live regions; the 404 "no profile yet" case is
+  no longer treated as a load failure.
+- Settings gained **your public profile** (there was no route to it from
+  anywhere a player owns — the sidebar card and the mobile tab both go to the
+  *editor*) and **sign out**, which was reachable only from the sidebar footer
+  and the mobile drawer.
+- Sign-in methods: the email/password row was marked with a gear; it now has a
+  lock, and its messages announce.
+
+**Club**
+
+- **The owner was told they were not the owner.** `canEdit` needs the roster and
+  the caller's profile, both client-side; until both landed it was false, so
+  "Only the club owner or an admin can change these settings" flashed in front
+  of the owner on every single load. Skeletons hold that space now.
+- Save details is dirty-gated, with the same leave guard.
+- **Removing a cover or logo deletes the stored object** and happened on one
+  tap. It now confirms, like every other irreversible action (docs/33 section 7).
+- Uploads validate type and size client-side rather than sending a 30 MB camera
+  original up a mobile connection to be rejected at the far end.
+- The URL field had no label, no error wiring and no invalid state.
+
+### Mobile
+
+- **Every text input on both settings pages was 14px**, which makes iOS Safari
+  zoom the viewport on focus. They are 16px below `sm` and 14px above.
+- `UiModal` — which now carries four new confirmations — was a bottom sheet with
+  no safe-area padding, no height cap and two small buttons in a corner. It
+  clears the home indicator, scrolls inside itself at `85dvh` (a short landscape
+  viewport, or one with the keyboard up, pushed its own actions off-screen), and
+  stacks its actions full-width with the confirm nearest the thumb.
+- The admin block renders in the mobile drawer too, at a denser row height.
+
+### Validation
+
+`typecheck` clean, `lint` 0 errors, **1269 tests pass (86 files)** — 13 new: nine
+on `PlayerAvatarService` (path shape, replacement ordering, delete-after-update
+ordering, type/size/empty refusals, no-profile refusal, clear) and four on
+`AdminNavGroup` (it names who can see it, the collapsed state matches
+`aria-expanded`, every destination is present, `aria-current` on the active one).
+
+**`055-player-avatar` lands on the next push to `main`**, which is what
+`db-migrate.yml` is for. Until it does, every route that reads a player profile
+fails with `column player_profiles.avatar_path does not exist` — confirmed live
+against dev while this was being built, which is the expected state for a
+changeset written ahead of its deploy.
+
+Not verified in a browser: these are all authenticated surfaces and the dev
+database does not have the column yet, so the visual pass is still owed once the
+changeset has run.
+
+## F-27 — feed query parameters are validated (2026-09-10)
+
+The feed's query string was read straight off the wire: `parseInt(x) || 20` for
+`limit` and `offset`, and `types` split on commas and *cast* to `ActivityType[]`
+with no membership check. Four separate ways for a caller to get a 500 or a
+silently wrong page out of it:
+
+- **A malformed `since` reached Postgres**, which rejected it, which the
+  endpoint's own catch-all turned into "Could not load the feed." The caller was
+  never told which parameter was wrong.
+- **A negative `offset` became a negative SQL `OFFSET`** (and, on the two
+  builder-based paths, `.range(-5, 14)`). Also a 500.
+- **`20abc` read as 20**, and junk silently swapped in the default — a client
+  paging by a bad value got a page that looked fine and was not the one it asked
+  for.
+- **`?types=match.deleted` was passed through** to `.in('activity_type', …)` and
+  `p_types`, so an unknown type quietly returned an empty feed rather than a
+  bad request. Not an injection — both paths are parameterised — but the caller
+  could not tell an empty feed from a typo.
+
+`parseFeedQuery` and `parsePagination` now live in `activity.dto.ts` (the DTO
+layer owns the contract, and the parser throws a framework-free
+`FeedQueryValidationError` so `server/domains` keeps its rule of never importing
+`server/utils`). The API layer maps it onto `apiError(400, 'INVALID_QUERY', …)`
+with the offending field in `details`.
+
+Two decisions worth recording:
+
+- **`limit=200` is a 400, not a silent clamp to 50.** `Math.min(200, 50)` served
+  a page of 50 to a caller that asked for 200 — so a client paging by 200 would
+  have had every page overlap the last by 150 rows and never known.
+- **`?types=` means "no filter", not "match nothing."** An empty `.in()` list
+  returns an empty page, which reads as a broken feed rather than as an unset
+  filter.
+
+`ACTIVITY_TYPE_MAP` is a `Record<ActivityType, true>` rather than a hand-written
+array, the same guard `UPDATABLE_TEXT_FIELD_MAP` uses: adding a type to the union
+without listing it here is a compile error, not a filter that rejects the new
+type as unknown.
+
+`GET /api/v1/players/{playerId}/activities` had the same `parseInt` pagination
+and now shares `parsePagination`; its raw `createError` became `apiError` while
+the import was there (a piece of F-35).
+
+**The `getCirclePlayerIds` half of F-27 is obsolete.** The unbounded `.in()` it
+described went away with `049-feed-community-scope`, when the feed moved to
+`fn_feed_for_player` — the community set is computed in SQL and never travels in
+a request URL. Noted in the backlog rather than silently dropped.
+
+### Validation
+
+`typecheck` clean, `lint` 0 errors, `prettier --check` clean on the four changed
+files, **1293 tests pass (87 files)** — 24 new on the parser. No database
+change: this is entirely input validation.
+
+## Backlog sweep: F-26, F-31, F-33, F-35 (2026-09-10)
+
+Four findings closed in one pass, none of which needed a schema change.
+
+### F-26 — the "highest rating" was the current rating
+
+`highest_singles_rating` and `highest_doubles_rating` were `singlesRating` and
+`doublesRating` under a different name. A player who peaked at 4.2 and slid to
+3.8 was told their best ever was 3.8 — the one number on a profile whose entire
+job is to remember a better day.
+
+A peak is the maximum of **three** numbers, not one:
+
+- the largest `new_rating` in `rating_transactions` — every rating moved *to*;
+- the largest `old_rating` — which only ever contributes the value the player
+  *started* from, since every other `old_rating` is some earlier `new_rating`. A
+  player seeded at 3.5 who has only ever lost peaked at 3.5, and reading
+  `new_rating` alone would report the loss;
+- the current rating, because `player_ratings` can hold a value no transaction
+  produced (a directly-seeded rating, or a future admin adjustment) and a peak
+  shown below the current rating printed next to it would be an obvious lie.
+
+Both queries are `limit(1)` on an ordered index scan rather than a scan of the
+player's whole history, so a 500-match player costs the same as a 5-match one.
+The rule itself is pure and separately tested — `pickPeakRating()` in
+`analytics/services/peak-rating.ts`, 9 tests including the NaN/Infinity guard
+(`Math.max(4.2, NaN)` is `NaN`, which would have rendered as "NaN" on a profile).
+
+### F-31 — `account_type` was required, then thrown away
+
+Onboarding rejected a request with a 400 unless it carried `account_type`, and
+then never read it. No column backs it, both branches of the chooser create the
+same `player_profiles` row, and mode is a client-side navigation concept
+(`composables/useAccountMode.ts`).
+
+Dropped rather than persisted: persisting needs a column and a changeset, and
+nothing in the product reads the choice. Not a breaking change — `readBody`
+ignores unknown fields, so a client still sending it is fine — and the body is
+now optional entirely, since an empty POST is a valid "make sure I have a
+profile" call. The comment says where to put it back if the choice ever needs
+recording.
+
+### F-33 — an orphaned component and a lying DTO
+
+The finding was half stale: `components/ui/EmptyState.vue` is **not** unused, it
+is the one in ~25 places. `components/EmptyState.vue` was the orphan, and also
+the worse of the two — it took `icon` as a string and rendered it at `text-5xl`,
+i.e. an emoji standing in for an icon, which DESIGN.md forbids. Deleted.
+
+`PlatformStatsDto` deleted too. It described a shape no endpoint returns —
+`/stats/public` returns `players`/`matches`/`clubs`/`events`, not
+`total_players`/`total_clubs`/… — so it was not merely unused but actively
+misleading to anyone typing against it.
+
+### F-35 — zero raw `createError` calls remain under `server/api`
+
+52 files converted. The worst of it was the service-error mapping:
+
+```ts
+throw createError({ statusCode: err.status, statusMessage: err.message })
+```
+
+in ~13 handlers, which **dropped `err.code` entirely**. Every `*ServiceError` in
+this codebase carries `(status, code, message)`; this threw the code away, so a
+typed error arrived at the browser with nothing machine-readable and a body the
+app-wide `fetchError.data?.message` convention could not read.
+
+Codes are assigned by status: `AUTH_REQUIRED` (401), `PROFILE_REQUIRED` /
+`FORBIDDEN` (403), `MISSING_PARAMETER` / `INVALID_INPUT` (400), `NOT_FOUND`
+(404). Two bare HTTP words became sentences a person can act on:
+`'Unauthorized'` → "Sign in to continue.", `'Player profile required.'` →
+"Create your player profile first."
+
+Done as a scripted rewrite with the residue checked by hand, and `prettier`
+applied **only to the three files whose lines it actually re-wrapped** — the repo
+is red under `prettier --check` on `main`, and a broad `--write` would bury the
+diff.
+
+### Validation
+
+`typecheck` clean, `lint` 0 errors, **1302 tests pass (88 files)** — 33 new since
+the last entry (24 on the feed query parser, 9 on `pickPeakRating`). No database
+change in any of the four.
+
+## Club subscriptions, step 1 of 9 — schema (2026-09-10)
+
+`database/liquibase/056-club-subscriptions`, changesets 0001–0009, registered
+after the `055-player-avatar` include. This is step 1 of the execution order in
+the club-subscriptions plan; steps 2–9 (DTOs, repositories, entitlements service,
+gateway and write services, controllers, SuperAdmin UI, club UI, security review)
+are not started.
+
+**Why there was no write path before.** 013-payment built four tables and seeded
+five plans, and nothing was ever written to any of them. The reason is visible in
+the type: `CreateClubSubscriptionInput` requires `stripe_subscription_id` as a
+non-optional `string`, so a non-Stripe flow could not satisfy it. 0003 makes
+provider identity nullable and generic (`provider`, `provider_subscription_id`,
+`provider_customer_id`, plus `source` and `granted_by_user_id` — a manual grant
+with no record of who granted it is an audit hole). The `stripe_*` columns stay
+in place, unused: dropping them is destructive for no benefit (CLAUDE.md §3).
+
+**What it deliberately does not do:**
+
+- **It does not publish a price.** `is_public` defaults to `false` on every new
+  column, and 0009 leaves Club Premium unpublished with its placeholder
+  `price_cents`. The `99900` in the 013 seed is a number somebody typed, not a
+  decision anybody made, and ADR-007 is open.
+- **It does not grant the verified badge.** The column is
+  `verified_badge_eligible`, not `grants_verified_badge`. Paying enters the
+  queue; the SuperAdmin still approves, and the badge keeps meaning "we checked
+  this is a real organisation."
+- **It does not change any limit.** 0009 writes the free plan's entitlements as
+  exactly the numbers `event.service.ts` already hardcodes — one draft, one live
+  tournament, one live open play, unlimited members — so applying this moves
+  three `>= 1` literals into a row without altering what any club can do.
+
+**Three decisions worth recording:**
+
+- **`NULL` means unlimited, never `-1`.** `NULL` already means "no ceiling" in
+  SQL, cannot be mistaken for a count, and lets `CHECK (col IS NULL OR col >= 0)`
+  actually mean something. The `-1` convention inside `features` is precisely why
+  `canClubAddMember()` is unsafe and why nothing calls it. `features` itself is
+  kept and frozen — `/subscriptions/me` and the player DTO still read it — and
+  nothing added from here on touches it.
+- **`restricted_at` is not a new `events.status` value.** `status` is the event's
+  own lifecycle and is read in a dozen places including three feed changesets; a
+  billing state pushed into it would leak into every one of them. A nullable
+  timestamp is additive, ignorable by every existing query, and clears on
+  resubscribe. It is *restricted*, not cancelled — cancelling an event people
+  have registered for because a card expired would be the platform breaking a
+  promise the club made.
+- **`billing_mode` is on `platform_config`, not a feature flag.**
+  `server/utils/feature-flags.ts` says in its own docstring that its 30-second
+  cache "must never stand in for an authorization check", and whether real money
+  can move is exactly that.
+
+0004 fixes two defects 013 left behind, both free to fix because
+`club_subscriptions` has **zero rows**: the status `CHECK` omitted `'paused'`,
+which `player_subscriptions` allows and the shared TypeScript `SubscriptionStatus`
+union declares, so a service writing a legal TS value would have hit a constraint
+violation; and `getClubSubscription()` calls `.maybeSingle()`, a promise that at
+most one live subscription exists per club, which nothing enforced —
+`ux_club_subscriptions_one_live` now does. 0005 adds the webhook idempotency
+index now, so the future handler inherits it rather than improvising it under
+deadline, plus a `CHECK` making it structurally impossible to record a simulated
+charge as real or non-zero.
+
+0008 moves the read policy from `is_active` to `is_public`, because those now
+mean different things (holdable vs on sale) — a drafted plan must not be
+readable, or an unapproved price is visible to anyone who reads the API. Writes
+get **no policy at all**, the same shape `platform_fee_rules` and
+`platform_config` use; the reason is written next to the absence so a reader who
+finds no write policy finds why.
+
+### Validation
+
+XML well-formed, 9 changesets, no duplicate ids, **every changeset has an
+explicit `<rollback>`**, and each is guarded by `preConditions onFail="MARK_RAN"`.
+Not applied to any database — Liquibase is not installed in this environment, and
+this lands on the next push to `main` like every other changeset.
+
+Two SQL details were corrected after the first draft: the "exactly one default
+free plan" index was written as a constant expression (`ON subscription_plans
+((true))`), which Postgres rejects — it now indexes the flag column under the
+same partial predicate, the standard idiom; and the `subscription_id` foreign key
+was being declared on the column and then dropped and recreated in the same
+changeset to get `ON DELETE SET NULL`, which read as a mistake being corrected
+mid-changeset. It is declared once, in SQL.

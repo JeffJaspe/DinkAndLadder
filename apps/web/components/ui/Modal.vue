@@ -121,10 +121,15 @@ onBeforeUnmount(() => {
     >
       <div
         v-if="modelValue"
-        class="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-4 sm:items-center"
+        class="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:items-center sm:pb-4"
         @click.self="close"
         @keydown="onKeydown"
       >
+        <!-- max-h + overflow: on a phone in landscape, or with the keyboard up,
+             the viewport is short enough that a dialog with a description and
+             two buttons pushed its own actions off-screen with no way to reach
+             them. The panel scrolls instead of the page behind it, which is
+             locked while this is open. -->
         <div
           ref="panel"
           role="dialog"
@@ -132,7 +137,7 @@ onBeforeUnmount(() => {
           :aria-labelledby="titleId"
           :aria-describedby="description ? descId : undefined"
           tabindex="-1"
-          class="w-full max-w-md rounded-card border border-border bg-surface p-5 shadow-card-hover focus:outline-none"
+          class="max-h-[85dvh] w-full max-w-md overflow-y-auto overscroll-contain rounded-card border border-border bg-surface p-5 shadow-card-hover focus:outline-none"
         >
           <div class="flex items-start justify-between gap-4">
             <h2 :id="titleId" class="font-display text-heading-3 text-fg">{{ title }}</h2>
@@ -154,13 +159,26 @@ onBeforeUnmount(() => {
             <slot />
           </div>
 
-          <div v-if="!hideActions" class="mt-5 flex justify-end gap-2">
-            <UiButton variant="secondary" :disabled="loading" @click="close">
+          <!-- Reversed and full-width below `sm`: the confirm sits nearest the
+               thumb on a phone, where this renders as a bottom sheet, and both
+               targets are the full width of the sheet rather than two small
+               buttons crowded into a corner. -->
+          <div
+            v-if="!hideActions"
+            class="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end"
+          >
+            <UiButton
+              variant="secondary"
+              :disabled="loading"
+              class="justify-center"
+              @click="close"
+            >
               {{ cancelLabel }}
             </UiButton>
             <UiButton
               :variant="destructive ? 'danger' : 'primary'"
               :loading="loading"
+              class="justify-center"
               @click="emit('confirm')"
             >
               {{ confirmLabel }}

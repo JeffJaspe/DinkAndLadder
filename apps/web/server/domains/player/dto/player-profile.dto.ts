@@ -13,6 +13,8 @@ export interface PlayerProfileRecord {
   dominant_hand: string | null
   preferred_position: string | null
   profile_visibility: ProfileVisibility
+  /** Bucket-relative object path, not a URL. See 055-player-avatar. */
+  avatar_path: string | null
   created_at: string
   updated_at: string
 }
@@ -29,6 +31,13 @@ export interface PlayerProfileDto {
   dominant_hand: string | null
   preferred_position: string | null
   profile_visibility: ProfileVisibility
+  /**
+   * A URL the browser can load, resolved from avatar_path by the API layer
+   * (the bucket has no anon read access while it is private, so signing needs
+   * the service role). Null means the initials avatar, which is the design's
+   * default rather than a placeholder.
+   */
+  avatar_url: string | null
   created_at: string
 }
 
@@ -58,6 +67,9 @@ export function toPlayerProfileDto(profile: PlayerProfileRecord): PlayerProfileD
     dominant_hand: profile.dominant_hand,
     preferred_position: profile.preferred_position,
     profile_visibility: profile.profile_visibility,
+    // Resolved by the API layer via withAvatarUrl(); the DTO carries the shape
+    // so no caller has to know whether a photo exists.
+    avatar_url: null,
     created_at: profile.created_at
   }
 }
@@ -79,6 +91,7 @@ export interface PlayerSearchResultRow extends PlayerProfileRecord {
 export interface PlayerSearchResultDto {
   id: string
   display_name: string
+  avatar_url: string | null
   province: string | null
   city: string | null
   barangay: string | null
@@ -90,6 +103,7 @@ export function toPlayerSearchResultDto(row: PlayerSearchResultRow): PlayerSearc
   return {
     id: row.id,
     display_name: row.display_name,
+    avatar_url: null,
     province: row.province,
     city: row.city,
     barangay: row.barangay,
@@ -144,6 +158,26 @@ const UPDATABLE_TEXT_FIELD_MAP: Record<OptionalTextField, true> = {
 export const UPDATABLE_TEXT_FIELDS = Object.keys(UPDATABLE_TEXT_FIELD_MAP) as OptionalTextField[]
 
 /**
+ * Length ceilings.
+ *
+ * There were none, on either side: the columns are `text`, the parser only
+ * checked types, and the editor set no `maxlength`. A display name is rendered
+ * inside fixed-width rows — a sidebar card, a ranking row, a bracket seat — so
+ * an unbounded one is a layout break on every surface that shows it, and a bio
+ * of arbitrary size is a payload nobody validated. The numbers match what the
+ * editor counts down to, so the field and the API agree on the limit.
+ */
+export const MAX_DISPLAY_NAME_LENGTH = 40
+export const MAX_NAME_LENGTH = 60
+export const MAX_BIO_LENGTH = 280
+
+const TEXT_FIELD_LIMITS: Partial<Record<OptionalTextField, number>> = {
+  first_name: MAX_NAME_LENGTH,
+  last_name: MAX_NAME_LENGTH,
+  bio: MAX_BIO_LENGTH
+}
+
+/**
  * Parses an untrusted request body into an UpdatePlayerProfileInput.
  * Extracted from the PATCH handler so it can be unit-tested directly.
  */
@@ -158,13 +192,25 @@ export function parseUpdatePlayerProfileInput(body: unknown): UpdatePlayerProfil
     throw new PlayerProfileValidationError('display_name', 'display_name is required.')
   }
 
-  const input: UpdatePlayerProfileInput = { display_name: record.display_name.trim() }
+  const displayName = record.display_name.trim()
+  if (displayName.length > MAX_DISPLAY_NAME_LENGTH) {
+    throw new PlayerProfileValidationError(
+      'display_name',
+      `display_name must be ${MAX_DISPLAY_NAME_LENGTH} characters or fewer.`
+    )
+  }
+
+  const input: UpdatePlayerProfileInput = { display_name: displayName }
 
   for (const field of UPDATABLE_TEXT_FIELDS) {
     const value = record[field]
     if (value === undefined) continue
     if (value !== null && typeof value !== 'string') {
       throw new PlayerProfileValidationError(field, `${field} must be a string or null.`)
+    }
+    const limit = TEXT_FIELD_LIMITS[field]
+    if (limit !== undefined && value !== null && value.length > limit) {
+      throw new PlayerProfileValidationError(field, `${field} must be ${limit} characters or fewer.`)
     }
     input[field] = value
   }

@@ -41,11 +41,24 @@ function createFakePlayerProfileRepository(
         dominant_hand: input.dominant_hand ?? existing?.dominant_hand ?? null,
         preferred_position: input.preferred_position ?? existing?.preferred_position ?? null,
         profile_visibility: input.profile_visibility ?? existing?.profile_visibility ?? 'public',
+        avatar_path: existing?.avatar_path ?? null,
         created_at: existing?.created_at ?? now,
         updated_at: now
       }
       rowsByUserId.set(userId, row)
       rowsById.set(row.id, row)
+      return row
+    },
+    async updateAvatarPath(profileId, avatarPath) {
+      const existing = rowsById.get(profileId)
+      if (!existing) throw new Error('no such profile')
+      const row: PlayerProfileRecord = {
+        ...existing,
+        avatar_path: avatarPath,
+        updated_at: new Date().toISOString()
+      }
+      rowsById.set(row.id, row)
+      rowsByUserId.set(row.user_id, row)
       return row
     },
     async search() {

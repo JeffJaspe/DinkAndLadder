@@ -8,11 +8,12 @@ import { createEventService } from '~/server/domains/event/services/event.servic
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
 import { resolveFeeWaiver } from '~/server/domains/event/services/registration-fee'
 import { getOptionalUser } from '~/server/utils/optional-user'
+import { apiError } from '~/server/utils/api-error'
 
 export default defineEventHandler(async (event) => {
   const eventId = getRouterParam(event, 'eventId')
   if (!eventId) {
-    throw createError({ statusCode: 400, statusMessage: 'eventId is required.' })
+    throw apiError(400, 'MISSING_PARAMETER', 'eventId is required.')
   }
 
   const client = await serverSupabaseClient(event)
@@ -23,7 +24,7 @@ export default defineEventHandler(async (event) => {
 
   const eventDto = await service.getEvent(eventId)
   if (!eventDto) {
-    throw createError({ statusCode: 404, statusMessage: 'Event not found.' })
+    throw apiError(404, 'NOT_FOUND', 'Event not found.')
   }
 
   // Whether THIS caller pays. Computed here rather than in the browser: a

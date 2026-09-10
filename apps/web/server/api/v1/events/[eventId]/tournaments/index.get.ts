@@ -5,11 +5,12 @@ import {
   createTournamentRegistrationRepository
 } from '~/server/domains/event/repositories/tournament.repository'
 import { createEventService } from '~/server/domains/event/services/event.service'
+import { apiError } from '~/server/utils/api-error'
 
 export default defineEventHandler(async (event) => {
   const eventId = getRouterParam(event, 'eventId')
   if (!eventId) {
-    throw createError({ statusCode: 400, statusMessage: 'eventId is required.' })
+    throw apiError(400, 'MISSING_PARAMETER', 'eventId is required.')
   }
 
   const client = await serverSupabaseClient(event)

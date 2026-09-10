@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Player profile photo.
+
+     player_profiles had no image column at all, so components/ui/Avatar.vue -
+     which already accepts a `src` and falls back to tinted initials - was
+     rendered with `name` only on every surface in the app. The initials
+     fallback stays exactly as it is; it is a complete design, and most profiles
+     will never upload a photo.
+
+     Stored as a bucket-relative PATH rather than a URL, for the reason
+     025-platform-branding and 040-club-branding already document: whether the
+     bucket is public decides the URL shape, and that is a deployment decision,
+     not a property of the row. -->
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+    <changeSet id="055-add-player-avatar-path" author="claude">
+        <preConditions onFail="MARK_RAN">
+            <not><columnExists tableName="player_profiles" columnName="avatar_path"/></not>
+        </preConditions>
+        <addColumn tableName="player_profiles">
+            <!-- Nullable: NULL means "use the initials avatar", which is what
+                 every existing row has. A default would make "never set"
+                 indistinguishable from "deliberately set to the same thing". -->
+            <column name="avatar_path" type="text">
+                <constraints nullable="true"/>
+            </column>
+        </addColumn>
+        <rollback>
+            <dropColumn tableName="player_profiles" columnName="avatar_path"/>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

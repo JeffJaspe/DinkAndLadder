@@ -3,16 +3,30 @@ import { createActivityRepository } from '~/server/domains/activity/repositories
 import { createRelationshipRepository } from '~/server/domains/social/repositories/relationship.repository'
 import { createActivityService } from '~/server/domains/activity/services/activity.service'
 import { attachLinkedEvents } from '~/server/domains/activity/services/linked-event'
+import {
+  FeedQueryValidationError,
+  parsePagination
+} from '~/server/domains/activity/dto/activity.dto'
+import { apiError } from '~/server/utils/api-error'
 
 export default defineEventHandler(async (event) => {
   const playerId = getRouterParam(event, 'playerId')
   if (!playerId) {
-    throw createError({ statusCode: 400, statusMessage: 'playerId is required.' })
+    throw apiError(400, 'INVALID_QUERY', 'playerId is required.', { field: 'playerId' })
   }
 
-  const rawQuery = getQuery(event)
-  const limit = Math.min(parseInt(rawQuery.limit as string) || 20, 50)
-  const offset = parseInt(rawQuery.offset as string) || 0
+  // Same validation the feed does: a negative offset became a negative SQL
+  // OFFSET and a 500, and "20abc" was silently read as 20.
+  let limit: number
+  let offset: number
+  try {
+    ;({ limit, offset } = parsePagination(getQuery(event)))
+  } catch (err) {
+    if (err instanceof FeedQueryValidationError) {
+      throw apiError(400, 'INVALID_QUERY', err.message, { field: err.field })
+    }
+    throw err
+  }
 
   const client = await serverSupabaseClient(event)
   const activityRepo = createActivityRepository(client)

@@ -155,7 +155,9 @@ describe('EventQueueService', () => {
       const service = createEventQueueService(
         queueRepo,
         createFakeRegistrationRepository(),
-        createFakeEventRepository()
+        createFakeEventRepository({
+          findById: vi.fn().mockResolvedValue(makeEventRecord({ match_format: 'singles' }))
+        })
       )
 
       const entry = await service.joinQueue('event-1', 'player-1', 'singles')
@@ -214,7 +216,7 @@ describe('EventQueueService', () => {
         createFakeEventRepository()
       )
 
-      await expect(service.joinQueue('event-1', 'player-1', 'singles')).rejects.toMatchObject({
+      await expect(service.joinQueue('event-1', 'player-1', null)).rejects.toMatchObject({
         code: 'NOT_REGISTERED'
       })
     })
@@ -228,7 +230,7 @@ describe('EventQueueService', () => {
         createFakeEventRepository()
       )
 
-      await expect(service.joinQueue('event-1', 'player-1', 'singles')).rejects.toMatchObject({
+      await expect(service.joinQueue('event-1', 'player-1', null)).rejects.toMatchObject({
         code: 'ALREADY_QUEUED'
       })
     })
@@ -261,6 +263,89 @@ describe('EventQueueService', () => {
       await expect(
         service.joinQueue('event-1', 'player-1', 'doubles', 'player-2')
       ).rejects.toMatchObject({ code: 'NOT_REGISTERED' })
+    })
+
+    /**
+     * The defect this replaces: `match_type` came straight off the request
+     * body and was never compared to the event's own `match_format`. A player
+     * could enter a doubles session as a singles entry, and `matchNextPair`
+     * only ever pairs two entries of the SAME type — so that one entry sat at
+     * the head of the queue unpairable, and every doubles side behind it
+     * waited while the organiser was told "only one singles entry is waiting".
+     */
+    describe('the format comes from the event', () => {
+      it('uses the session format when the caller sends none', async () => {
+        const queueRepo = createFakeQueueRepository({
+          create: vi.fn().mockResolvedValue(makeQueueEntry())
+        })
+        const service = createEventQueueService(
+          queueRepo,
+          createFakeRegistrationRepository(),
+          createFakeEventRepository({
+            findById: vi.fn().mockResolvedValue(makeEventRecord({ match_format: 'singles' }))
+          })
+        )
+
+        await service.joinQueue('event-1', 'player-1', null)
+
+        expect(queueRepo.create).toHaveBeenCalledWith(
+          expect.objectContaining({ match_type: 'singles' })
+        )
+      })
+
+      it('refuses a caller that disagrees with the session', async () => {
+        const queueRepo = createFakeQueueRepository()
+        const service = createEventQueueService(
+          queueRepo,
+          createFakeRegistrationRepository(),
+          createFakeEventRepository({
+            findById: vi.fn().mockResolvedValue(makeEventRecord({ match_format: 'doubles' }))
+          })
+        )
+
+        await expect(service.joinQueue('event-1', 'player-1', 'singles')).rejects.toMatchObject({
+          code: 'FORMAT_MISMATCH'
+        })
+        expect(queueRepo.create).not.toHaveBeenCalled()
+      })
+
+      // An event created before 041 predates the column entirely, and every
+      // one of those sessions was played as doubles.
+      it('reads a null format as doubles', async () => {
+        const queueRepo = createFakeQueueRepository({
+          create: vi.fn().mockResolvedValue(makeQueueEntry())
+        })
+        const service = createEventQueueService(
+          queueRepo,
+          createFakeRegistrationRepository(),
+          createFakeEventRepository({
+            findById: vi.fn().mockResolvedValue(
+              makeEventRecord({
+                match_format: null as unknown as 'doubles',
+                queue_mode: 'random'
+              })
+            )
+          })
+        )
+
+        await service.joinQueue('event-1', 'player-1', null)
+
+        expect(queueRepo.create).toHaveBeenCalledWith(
+          expect.objectContaining({ match_type: 'doubles' })
+        )
+      })
+
+      it('404s when the event is gone', async () => {
+        const service = createEventQueueService(
+          createFakeQueueRepository(),
+          createFakeRegistrationRepository(),
+          createFakeEventRepository({ findById: vi.fn().mockResolvedValue(null) })
+        )
+
+        await expect(service.joinQueue('event-1', 'player-1', null)).rejects.toMatchObject({
+          status: 404
+        })
+      })
     })
   })
 

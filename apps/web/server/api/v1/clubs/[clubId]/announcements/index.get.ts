@@ -4,11 +4,12 @@ import { createAnnouncementService } from '~/server/domains/announcement/service
 import { createClubMembershipRepository } from '~/server/domains/club/repositories/club-membership.repository'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
 import { getOptionalUser } from '~/server/utils/optional-user'
+import { apiError } from '~/server/utils/api-error'
 
 export default defineEventHandler(async (event) => {
   const clubId = getRouterParam(event, 'clubId')
   if (!clubId) {
-    throw createError({ statusCode: 400, statusMessage: 'clubId is required.' })
+    throw apiError(400, 'MISSING_PARAMETER', 'clubId is required.')
   }
 
   const client = await serverSupabaseClient(event)

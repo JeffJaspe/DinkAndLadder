@@ -11,16 +11,17 @@ import {
 import type { CreateTournamentInput } from '~/server/domains/event/dto/tournament.dto'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
 import { getOptionalUser } from '~/server/utils/optional-user'
+import { apiError } from '~/server/utils/api-error'
 
 export default defineEventHandler(async (event) => {
   const user = await getOptionalUser(event)
   if (!user) {
-    throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
+    throw apiError(401, 'AUTH_REQUIRED', 'Sign in to continue.')
   }
 
   const eventId = getRouterParam(event, 'eventId')
   if (!eventId) {
-    throw createError({ statusCode: 400, statusMessage: 'eventId is required.' })
+    throw apiError(400, 'MISSING_PARAMETER', 'eventId is required.')
   }
 
   const client = await serverSupabaseClient(event)
@@ -28,17 +29,14 @@ export default defineEventHandler(async (event) => {
   const playerRepo = createPlayerProfileRepository(client)
   const profile = await playerRepo.findByUserId(user.sub)
   if (!profile) {
-    throw createError({ statusCode: 403, statusMessage: 'Player profile required.' })
+    throw apiError(403, 'PROFILE_REQUIRED', 'Create your player profile first.')
   }
 
   const body = await readBody<Omit<CreateTournamentInput, 'event_id'> & { auto_join?: boolean }>(
     event
   )
   if (!body.name || !body.match_type) {
-    throw createError({
-      statusCode: 400,
-      statusMessage: 'name and match_type are required.'
-    })
+    throw apiError(400, 'MISSING_PARAMETER', 'name and match_type are required.')
   }
 
   const { auto_join, ...tournamentData } = body
@@ -64,7 +62,7 @@ export default defineEventHandler(async (event) => {
     return tournament
   } catch (err) {
     if (err instanceof EventServiceError) {
-      throw createError({ statusCode: err.status, statusMessage: err.message })
+      throw apiError(err.status, err.code, err.message)
     }
     throw err
   }

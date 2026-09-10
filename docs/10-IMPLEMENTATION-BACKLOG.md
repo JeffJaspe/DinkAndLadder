@@ -282,12 +282,34 @@ deferred — none block the MVP. IDs match the audit report.
       Original note:  `recordVerificationDecision` recomputes
       match status from an in-memory snapshot, so two simultaneous confirmations
       can leave a match `pending_verification` — and it never gets rated.
-- [ ] F-26 — `highest_singles_rating` / `highest_doubles_rating` return the
-      *current* rating. Compute from `rating_transactions`.
-- [ ] F-27 — Feed params unvalidated: `types` is cast without a membership
-      check, a malformed `since` 500s instead of 400ing, `offset` accepts
-      negatives, and `getCirclePlayerIds` builds an unbounded `.in()` that will
-      eventually exceed the request URL limit.
+- [x] F-26 — DONE (2026-09-10): computed from `rating_transactions`. A peak is
+      the maximum of three numbers, not one: the largest `new_rating` (every
+      rating moved *to*), the largest `old_rating` (which only ever adds the
+      value started from — every other `old_rating` is some earlier
+      `new_rating`), and the current rating (`player_ratings` can hold a value no
+      transaction produced, and a peak below the current rating printed beside it
+      would be an obvious lie). Both queries are `limit(1)` on an ordered index
+      scan, so a 500-match player costs the same as a 5-match one. The rule
+      itself is the pure `pickPeakRating()` in
+      `analytics/services/peak-rating.ts`, 9 tests. Original note:
+      `highest_singles_rating` / `highest_doubles_rating` return the *current*
+      rating. Compute from `rating_transactions`.
+- [x] F-27 — DONE (2026-09-10): `parseFeedQuery` / `parsePagination` in
+      `activity.dto.ts` validate the feed's query string and answer a bad one
+      with a 400 `INVALID_QUERY` naming the field. `types` is checked against
+      `ACTIVITY_TYPE_MAP` (a Record keyed by `ActivityType`, so a new type is a
+      compile error rather than a silent rejection); `since` must parse and is
+      normalised to ISO; `limit`/`offset` must be whole numbers in range, so a
+      negative offset is a 400 rather than a negative SQL OFFSET and a 500, and
+      "20abc" no longer reads as 20. `GET /api/v1/players/{id}/activities` uses
+      the same `parsePagination` (and its raw `createError` became `apiError`,
+      part of F-35). 24 tests. The `getCirclePlayerIds` clause of this finding
+      is obsolete — the unbounded `.in()` went away with 049, when the feed
+      moved to `fn_feed_for_player`. Original note:  Feed params unvalidated:
+      `types` is cast without a membership check, a malformed `since` 500s
+      instead of 400ing, `offset` accepts negatives, and `getCirclePlayerIds`
+      builds an unbounded `.in()` that will eventually exceed the request URL
+      limit.
 - [x] F-28 — DONE (2026-08-22): the query is skipped for a memberless club instead of sending 'none'; the error is now checked. Original note:  `getClubStats` sends the literal `'none'` where a uuid is expected
       when a club has no members; the error is swallowed. Skip the query instead.
 - [ ] F-29 — `events_select_public` uses `status != 'draft'`, which is NULL-unsafe.
@@ -313,13 +335,40 @@ deferred — none block the MVP. IDs match the audit report.
       and club search repositories.
 
 ### Hygiene
-- [ ] F-31 — Onboarding validates `account_type` and then ignores it (no column
-      backs it). Either persist the choice or drop the parameter.
-- [ ] F-33 — `components/EmptyState.vue` and `components/ui/EmptyState.vue` are
-      two different unused implementations. `PlatformStatsDto` is now unreferenced
+- [x] F-31 — DONE (2026-09-10): dropped the parameter. Persisting it needs a
+      column and a changeset, and nothing in the product reads the choice — both
+      branches of the chooser create the same `player_profiles` row, and mode is
+      a client-side navigation concept (`composables/useAccountMode.ts`).
+      Requiring it meant a 400 over a value that could not change the outcome,
+      which is a trap for the Flutter client that has yet to be written. Not a
+      breaking change: `readBody` ignores unknown fields, so a caller still
+      sending it is fine, and the body is now optional entirely. Original note:
+      Onboarding validates `account_type` and then ignores it (no column backs
+      it). Either persist the choice or drop the parameter.
+- [x] F-33 — DONE (2026-09-10): `components/EmptyState.vue` deleted. The
+      finding was half stale — `components/ui/EmptyState.vue` is *not* unused, it
+      is the one in ~25 places — so this was a straight orphan removal, and the
+      orphan was also the worse of the two: it took `icon` as a string and
+      rendered it at `text-5xl`, i.e. an emoji standing in for an icon, which
+      DESIGN.md forbids. `PlatformStatsDto` deleted too; it described a shape no
+      endpoint returns (`/stats/public` returns players/matches/clubs/events),
+      so it was not merely unused but misleading. Original note:
+      `components/EmptyState.vue` and `components/ui/EmptyState.vue` are two
+      different unused implementations. `PlatformStatsDto` is now unreferenced
       after the platform endpoint was deleted.
-- [ ] F-35 — Three error conventions coexist. Remaining raw `createError` callers
-      return a body the app-wide `fetchError.data?.message` convention cannot read.
+- [x] F-35 — DONE (2026-09-10): **zero raw `createError` calls remain under
+      `server/api`** — 52 files converted to `apiError()`. The worst of it was the
+      service-error mapping: `createError({ statusCode: err.status, statusMessage:
+      err.message })` appeared in ~13 handlers and **dropped `err.code` entirely**,
+      so a typed service error arrived at the browser with no machine-readable
+      code and a message the `fetchError.data?.message` convention could not read.
+      Codes assigned by status: `AUTH_REQUIRED` (401), `PROFILE_REQUIRED` /
+      `FORBIDDEN` (403), `MISSING_PARAMETER` / `INVALID_INPUT` (400), `NOT_FOUND`
+      (404). Two bare HTTP words became sentences a user can read —
+      `'Unauthorized'` → "Sign in to continue.", `'Player profile required.'` →
+      "Create your player profile first." Original note: Three error conventions
+      coexist. Remaining raw `createError` callers return a body the app-wide
+      `fetchError.data?.message` convention cannot read.
 - [ ] F-36 — `serverSupabaseUser`'s result is named `claims` in most handlers and
       `user` in others. The `user` naming is what invited F-24.
 - [x] F-37 — DONE (2026-08-22): all 52 `no-explicit-any` and 12 unused vars cleared; PSGC console.logs removed; shared `utils/api-error-message.ts` and typed Supabase join rows introduced. Original note:  `catch (e: any)` and `data: any[]` across pages despite

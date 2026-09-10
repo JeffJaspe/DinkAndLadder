@@ -3,11 +3,20 @@ import type {
   PlayerProfileDto,
   ProfileVisibility
 } from '~/server/domains/player/dto/player-profile.dto'
+import {
+  MAX_BIO_LENGTH,
+  MAX_DISPLAY_NAME_LENGTH,
+  MAX_NAME_LENGTH
+} from '~/server/domains/player/dto/player-profile.dto'
+import { apiErrorMessage } from '~/utils/api-error-message'
+
+useHead({ title: 'Edit profile' })
 
 const {
   data: existingProfile,
   pending,
-  error
+  error,
+  refresh
 } = await useFetch<PlayerProfileDto>('/api/v1/players/me')
 
 const {
@@ -62,6 +71,19 @@ const form = reactive({
   profile_visibility: 'public' as ProfileVisibility
 })
 
+/**
+ * A snapshot of the form as last loaded or saved.
+ *
+ * Save used to be enabled from the moment the page rendered, so the commonest
+ * visit to this screen — open it, read it, leave — offered a primary action
+ * that would write the same values back. Comparing against the snapshot makes
+ * Save mean "there is something to save", and gives the leave guard below
+ * something to ask about.
+ */
+const baseline = ref('')
+const snapshot = () => JSON.stringify(form)
+const dirty = computed(() => baseline.value !== '' && snapshot() !== baseline.value)
+
 function onProvinceChange(code: string) {
   const promise = selectProvince(code)
   form.province = code ? (provinces.value.find((p) => p.code === code)?.name ?? '') : ''
@@ -97,6 +119,7 @@ watch(
     form.province = profile.province ?? ''
     form.city = profile.city ?? ''
     form.barangay = profile.barangay ?? ''
+    baseline.value = snapshot()
 
     // Resolve the saved names back to PSGC codes so the dropdowns show the
     // current selection. Each step awaits the list it depends on rather than
@@ -127,6 +150,108 @@ watch(
   { immediate: true }
 )
 
+/**
+ * Re-baseline after the PSGC round trip.
+ *
+ * Resolving the saved names back to codes rewrites form.province/city/barangay
+ * with the *same* names, but only after the snapshot above was taken — which
+ * would otherwise leave the page permanently dirty on load and put an "unsaved
+ * changes" prompt in front of someone who changed nothing.
+ */
+watch([() => form.province, () => form.city, () => form.barangay], () => {
+  const profile = existingProfile.value
+  if (!profile || !dirty.value) return
+  const locationUntouched =
+    form.province === (profile.province ?? '') &&
+    form.city === (profile.city ?? '') &&
+    form.barangay === (profile.barangay ?? '')
+  if (locationUntouched) baseline.value = snapshot()
+})
+
+// --- Photo ------------------------------------------------------------------
+const photoInput = ref<HTMLInputElement | null>(null)
+const uploadingPhoto = ref(false)
+const removingPhoto = ref(false)
+const photoError = ref('')
+/** Shown the instant a file is picked, so the swap is not a blank second. */
+const localPreview = ref<string | null>(null)
+const confirmRemovePhoto = ref(false)
+
+const avatarSrc = computed(() => localPreview.value ?? existingProfile.value?.avatar_url ?? null)
+const photoBusy = computed(() => uploadingPhoto.value || removingPhoto.value)
+
+/**
+ * Mirrors the server's allow-list (branding.dto.ts). The bucket's own ceiling
+ * is 50 MB, but a phone camera JPEG is a few MB and anything far past that is a
+ * mistake worth catching here rather than after it has crawled up a mobile
+ * connection — this page is used courtside.
+ */
+const ACCEPTED_TYPES = ['image/png', 'image/jpeg', 'image/jpg']
+const SOFT_MAX_BYTES = 8 * 1024 * 1024
+
+async function onPhotoPicked(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  // Cleared immediately so re-picking the same file fires change again.
+  input.value = ''
+  if (!file) return
+
+  photoError.value = ''
+  if (!ACCEPTED_TYPES.includes(file.type)) {
+    photoError.value = 'That file is not a PNG or JPEG. Pick a photo in one of those formats.'
+    return
+  }
+  if (file.size > SOFT_MAX_BYTES) {
+    photoError.value = 'That photo is over 8 MB. Pick a smaller one, or crop it first.'
+    return
+  }
+
+  if (localPreview.value) URL.revokeObjectURL(localPreview.value)
+  localPreview.value = URL.createObjectURL(file)
+  uploadingPhoto.value = true
+  try {
+    const body = new FormData()
+    body.append('file', file)
+    await $fetch('/api/v1/players/me/avatar', { method: 'POST', body })
+    await refresh()
+    // Hand back to the stored URL now that there is one. Holding the blob would
+    // show a photo the rest of the app cannot see, and keep bytes alive that
+    // the browser has no other way to reclaim.
+    if (localPreview.value) URL.revokeObjectURL(localPreview.value)
+    localPreview.value = null
+  } catch (err) {
+    photoError.value = apiErrorMessage(err, 'Could not upload the photo.')
+    // Drop the optimistic preview: leaving it up would show a photo that is
+    // not actually saved anywhere.
+    if (localPreview.value) URL.revokeObjectURL(localPreview.value)
+    localPreview.value = null
+  } finally {
+    uploadingPhoto.value = false
+  }
+}
+
+async function removePhoto() {
+  confirmRemovePhoto.value = false
+  photoError.value = ''
+  removingPhoto.value = true
+  try {
+    await $fetch('/api/v1/players/me/avatar', { method: 'DELETE' })
+    if (localPreview.value) URL.revokeObjectURL(localPreview.value)
+    localPreview.value = null
+    await refresh()
+  } catch (err) {
+    photoError.value = apiErrorMessage(err, 'Could not remove the photo.')
+  } finally {
+    removingPhoto.value = false
+  }
+}
+
+// A blob URL held past the page's life is memory the browser cannot reclaim.
+onBeforeUnmount(() => {
+  if (localPreview.value) URL.revokeObjectURL(localPreview.value)
+})
+
+// --- Saving -----------------------------------------------------------------
 const saving = ref(false)
 const errorMessage = ref('')
 const savedMessage = ref('')
@@ -139,10 +264,10 @@ async function handleSave() {
     await $fetch('/api/v1/players/me', {
       method: 'PATCH',
       body: {
-        display_name: form.display_name,
-        first_name: form.first_name || null,
-        last_name: form.last_name || null,
-        bio: form.bio || null,
+        display_name: form.display_name.trim(),
+        first_name: form.first_name.trim() || null,
+        last_name: form.last_name.trim() || null,
+        bio: form.bio.trim() || null,
         province: form.province || null,
         city: form.city || null,
         barangay: form.barangay || null,
@@ -151,170 +276,284 @@ async function handleSave() {
         profile_visibility: form.profile_visibility
       }
     })
-    savedMessage.value = 'Profile saved successfully!'
+    baseline.value = snapshot()
+    savedMessage.value = 'Profile saved.'
     setTimeout(() => {
       savedMessage.value = ''
     }, 3000)
   } catch (err) {
-    const fetchError = err as { data?: { message?: string } }
-    errorMessage.value = fetchError.data?.message ?? 'Could not save your profile.'
+    errorMessage.value = apiErrorMessage(err, 'Could not save your profile.')
   } finally {
     saving.value = false
   }
 }
+
+/**
+ * Leaving with edits still in the form loses them silently, and this page sits
+ * on the mobile tab bar — one mistaken tap on Home was the whole edit gone.
+ * `window.confirm` rather than UiModal because the guard has to answer the
+ * router synchronously, and the browser's own prompt is the only thing that can.
+ */
+onBeforeRouteLeave(() => {
+  if (!dirty.value || saving.value) return true
+  return window.confirm('You have unsaved changes to your profile. Leave without saving?')
+})
+
+const VISIBILITY_OPTIONS = [
+  {
+    value: 'public' as const,
+    title: 'Public profile',
+    hint: 'Anyone can view your profile, your rating and your match history.'
+  },
+  {
+    value: 'private' as const,
+    title: 'Private profile',
+    hint: 'Only your followers can view your profile. You still appear in match records.'
+  }
+]
+
+/**
+ * 16px on mobile, 14px from `sm`. Anything under 16px makes iOS Safari zoom the
+ * viewport the moment a field takes focus, and this form is nine fields long.
+ */
+const fieldClass =
+  'w-full rounded-button border border-border-strong bg-canvas px-4 py-2.5 text-body-1 text-fg placeholder-fg-muted transition-colors focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40 sm:text-body-2'
 </script>
 
 <template>
-  <div class="min-h-screen bg-canvas p-4 lg:p-6">
+  <div class="page-shell px-4 py-6 lg:px-6">
     <div class="mx-auto max-w-2xl">
-      <UiPageHeader to="/settings" />
+      <UiPageHeader to="/settings" back-label="Settings" />
 
-      <!-- Header -->
       <div class="mb-6">
-        <h1 class="font-display text-heading-1 text-fg">Edit Profile</h1>
-        <p class="mt-1 text-sm text-fg-muted">Update your player information</p>
+        <h1 class="font-display text-heading-1 text-fg">Edit profile</h1>
+        <p class="mt-1 text-body-2 text-fg-muted">
+          What other players see on your profile, in the rankings and beside your matches.
+        </p>
       </div>
 
       <!-- Loading -->
       <div v-if="pending" class="space-y-4">
-        <div class="h-48 animate-pulse rounded-xl bg-surface" />
-        <div class="h-32 animate-pulse rounded-xl bg-surface" />
+        <div class="h-32 animate-pulse rounded-card bg-surface" />
+        <div class="h-48 animate-pulse rounded-card bg-surface" />
+        <div class="h-32 animate-pulse rounded-card bg-surface" />
       </div>
 
-      <!-- Error -->
-      <div
+      <!-- Error. 404 is not one: it means "no profile saved yet", and the
+           empty form below is exactly the right thing to show for that. -->
+      <UiErrorState
         v-else-if="error && error.statusCode !== 404"
-        class="rounded-xl bg-danger-soft p-6 text-center"
-      >
-        <p class="text-danger">Could not load your profile.</p>
-      </div>
+        title="Could not load your profile"
+        message="Your profile could not be read just now."
+        @retry="refresh()"
+      />
 
       <!-- Form -->
       <form v-else class="space-y-6" @submit.prevent="handleSave">
-        <!-- Account Info -->
-        <div class="rounded-xl bg-surface p-5 shadow-card">
-          <h2 class="mb-4 font-display text-heading-3 text-fg">Account</h2>
-          <div class="flex items-center gap-3">
-            <div
-              class="flex h-10 w-10 items-center justify-center rounded-lg"
-              :class="authInfo?.provider === 'google' ? 'bg-white' : 'bg-primary'"
-            >
-              <svg v-if="authInfo?.provider === 'google'" class="h-5 w-5" viewBox="0 0 24 24">
-                <path
-                  fill="#4285F4"
-                  d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                />
-                <path
-                  fill="#34A853"
-                  d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                />
-                <path
-                  fill="#FBBC05"
-                  d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
-                />
-                <path
-                  fill="#EA4335"
-                  d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
-                />
-              </svg>
-              <svg
-                v-else
-                class="h-5 w-5 text-fg"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
+        <!-- Photo -->
+        <section class="rounded-card bg-surface p-5 shadow-card">
+          <h2 class="font-display text-heading-3 text-fg">Photo</h2>
+          <p class="mt-1 text-caption text-fg-muted">
+            Leave this blank and your initials are used — a finished look on their own.
+          </p>
+
+          <div class="mt-4 flex flex-col gap-4 sm:flex-row sm:items-center">
+            <div class="relative shrink-0 self-start sm:self-auto">
+              <UiAvatar :name="form.display_name" :src="avatarSrc" size="xl" />
+              <span
+                v-if="photoBusy"
+                class="absolute inset-0 flex items-center justify-center rounded-full bg-canvas/80"
               >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
-                />
-              </svg>
+                <UiIcon name="refresh" size="h-6 w-6" class="animate-spin text-primary" />
+              </span>
             </div>
-            <div>
-              <p class="text-sm font-medium text-fg">{{ authMethodLabel }}</p>
-              <p v-if="authInfo?.created_at" class="text-xs text-fg-muted">
-                Member since {{ new Date(authInfo.created_at).toLocaleDateString() }}
+
+            <div class="min-w-0 flex-1">
+              <div class="flex flex-wrap items-center gap-2">
+                <UiButton
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  :disabled="photoBusy"
+                  @click="photoInput?.click()"
+                >
+                  <UiIcon name="camera" size="h-4 w-4" />
+                  {{ uploadingPhoto ? 'Uploading…' : avatarSrc ? 'Replace photo' : 'Upload photo' }}
+                </UiButton>
+                <UiButton
+                  v-if="existingProfile?.avatar_url"
+                  type="button"
+                  variant="danger"
+                  size="sm"
+                  :disabled="photoBusy"
+                  @click="confirmRemovePhoto = true"
+                >
+                  <UiIcon name="trash" size="h-4 w-4" />
+                  {{ removingPhoto ? 'Removing…' : 'Remove' }}
+                </UiButton>
+              </div>
+              <p class="mt-2 text-caption text-fg-muted">PNG or JPEG, up to 8 MB.</p>
+              <p v-if="photoError" role="alert" class="mt-2 text-caption text-danger">
+                {{ photoError }}
               </p>
             </div>
           </div>
-        </div>
 
-        <!-- Basic Info -->
-        <div class="rounded-xl bg-surface p-5 shadow-card">
-          <h2 class="mb-4 font-display text-heading-3 text-fg">Basic Information</h2>
-          <div class="space-y-4">
+          <!-- Driven by the button above rather than wrapped in a styled label:
+               a label wrapping a hidden input cannot show a disabled or busy
+               state, and this control has both. -->
+          <input
+            ref="photoInput"
+            type="file"
+            accept="image/png,image/jpeg"
+            class="sr-only"
+            tabindex="-1"
+            aria-hidden="true"
+            @change="onPhotoPicked"
+          />
+        </section>
+
+        <!-- Account -->
+        <section class="rounded-card bg-surface p-5 shadow-card">
+          <h2 class="font-display text-heading-3 text-fg">Account</h2>
+          <div class="mt-4 flex items-center gap-3">
+            <span
+              class="flex h-10 w-10 shrink-0 items-center justify-center rounded-button bg-surface-2 text-fg-secondary"
+            >
+              <UiIcon :name="authInfo?.provider === 'google' ? 'verified' : 'user'" />
+            </span>
+            <div class="min-w-0">
+              <p class="truncate text-body-2 font-medium text-fg">{{ authMethodLabel }}</p>
+              <p v-if="authInfo?.created_at" class="text-caption tabular-nums text-fg-muted">
+                Member since {{ new Date(authInfo.created_at).toLocaleDateString() }}
+              </p>
+            </div>
+            <NuxtLink
+              to="/settings/security"
+              class="ml-auto shrink-0 rounded-button px-2 py-1.5 text-caption text-primary transition-colors hover:bg-primary-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            >
+              Manage
+            </NuxtLink>
+          </div>
+        </section>
+
+        <!-- Basic information -->
+        <section class="rounded-card bg-surface p-5 shadow-card">
+          <h2 class="font-display text-heading-3 text-fg">Basic information</h2>
+          <div class="mt-4 space-y-4">
             <div>
-              <label class="mb-1.5 block text-sm text-fg-secondary">Display Name</label>
+              <label
+                for="display-name"
+                class="mb-1.5 block text-body-2 font-medium text-fg-secondary"
+              >
+                Display name <span class="text-danger" aria-hidden="true">*</span>
+              </label>
               <input
+                id="display-name"
                 v-model="form.display_name"
                 type="text"
                 required
+                autocomplete="nickname"
+                :maxlength="MAX_DISPLAY_NAME_LENGTH"
                 placeholder="Your public name"
-                class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
+                :class="fieldClass"
               />
+              <p class="mt-1.5 flex justify-between gap-3 text-caption text-fg-muted">
+                <span>Shown everywhere in the app.</span>
+                <span class="tabular-nums"
+                  >{{ form.display_name.length }}/{{ MAX_DISPLAY_NAME_LENGTH }}</span
+                >
+              </p>
             </div>
             <div class="grid gap-4 sm:grid-cols-2">
               <div>
-                <label class="mb-1.5 block text-sm text-fg-secondary">First Name</label>
+                <label
+                  for="first-name"
+                  class="mb-1.5 block text-body-2 font-medium text-fg-secondary"
+                >
+                  First name
+                </label>
                 <input
+                  id="first-name"
                   v-model="form.first_name"
                   type="text"
+                  autocomplete="given-name"
+                  :maxlength="MAX_NAME_LENGTH"
                   placeholder="First name"
-                  class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
+                  :class="fieldClass"
                 />
               </div>
               <div>
-                <label class="mb-1.5 block text-sm text-fg-secondary">Last Name</label>
+                <label for="last-name" class="mb-1.5 block text-body-2 font-medium text-fg-secondary">
+                  Last name
+                </label>
                 <input
+                  id="last-name"
                   v-model="form.last_name"
                   type="text"
+                  autocomplete="family-name"
+                  :maxlength="MAX_NAME_LENGTH"
                   placeholder="Last name"
-                  class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
+                  :class="fieldClass"
                 />
               </div>
             </div>
             <div>
-              <label class="mb-1.5 block text-sm text-fg-secondary">Bio</label>
+              <label for="bio" class="mb-1.5 block text-body-2 font-medium text-fg-secondary">
+                Bio
+              </label>
               <textarea
+                id="bio"
                 v-model="form.bio"
                 rows="3"
-                placeholder="Tell others about yourself..."
-                class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
+                :maxlength="MAX_BIO_LENGTH"
+                placeholder="How you play, where you play, who you play with."
+                :class="fieldClass"
               />
+              <p class="mt-1.5 text-right text-caption tabular-nums text-fg-muted">
+                {{ form.bio.length }}/{{ MAX_BIO_LENGTH }}
+              </p>
             </div>
           </div>
-        </div>
+        </section>
 
         <!-- Location -->
-        <div class="rounded-xl bg-surface p-5 shadow-card">
-          <h2 class="mb-4 font-display text-heading-3 text-fg">Location</h2>
-          <div class="grid gap-4 sm:grid-cols-3">
+        <section class="rounded-card bg-surface p-5 shadow-card">
+          <h2 class="font-display text-heading-3 text-fg">Location</h2>
+          <p class="mt-1 text-caption text-fg-muted">
+            Used to put nearby open play and nearby players in front of you.
+          </p>
+          <div class="mt-4 grid gap-4 sm:grid-cols-3">
             <div>
-              <label class="mb-1.5 block text-sm text-fg-secondary">Province</label>
+              <label for="province" class="mb-1.5 block text-body-2 font-medium text-fg-secondary">
+                Province
+              </label>
               <select
+                id="province"
                 :value="selectedProvince"
                 :disabled="loadingProvinces"
-                class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:opacity-50"
+                :class="[fieldClass, 'disabled:opacity-50']"
                 @change="onProvinceChange(($event.target as HTMLSelectElement).value)"
               >
-                <option value="">{{ loadingProvinces ? 'Loading...' : 'Select province' }}</option>
+                <option value="">{{ loadingProvinces ? 'Loading…' : 'Select province' }}</option>
                 <option v-for="p in provinces" :key="p.code" :value="p.code">{{ p.name }}</option>
               </select>
             </div>
             <div>
-              <label class="mb-1.5 block text-sm text-fg-secondary">City / Municipality</label>
+              <label for="city" class="mb-1.5 block text-body-2 font-medium text-fg-secondary">
+                City / municipality
+              </label>
               <select
+                id="city"
                 :value="selectedCity"
                 :disabled="!selectedProvince || loadingCities"
-                class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:opacity-50"
+                :class="[fieldClass, 'disabled:opacity-50']"
                 @change="onCityChange(($event.target as HTMLSelectElement).value)"
               >
                 <option value="">
                   {{
                     loadingCities
-                      ? 'Loading...'
+                      ? 'Loading…'
                       : selectedProvince
                         ? 'Select city'
                         : 'Select province first'
@@ -324,17 +563,20 @@ async function handleSave() {
               </select>
             </div>
             <div>
-              <label class="mb-1.5 block text-sm text-fg-secondary">Barangay</label>
+              <label for="barangay" class="mb-1.5 block text-body-2 font-medium text-fg-secondary">
+                Barangay
+              </label>
               <select
+                id="barangay"
                 :value="selectedBarangay"
                 :disabled="!selectedCity || loadingBarangays"
-                class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:opacity-50"
+                :class="[fieldClass, 'disabled:opacity-50']"
                 @change="onBarangayChange(($event.target as HTMLSelectElement).value)"
               >
                 <option value="">
                   {{
                     loadingBarangays
-                      ? 'Loading...'
+                      ? 'Loading…'
                       : selectedCity
                         ? 'Select barangay'
                         : 'Select city first'
@@ -344,18 +586,20 @@ async function handleSave() {
               </select>
             </div>
           </div>
-        </div>
+        </section>
 
-        <!-- Play Style -->
-        <div class="rounded-xl bg-surface p-5 shadow-card">
-          <h2 class="mb-4 font-display text-heading-3 text-fg">Play Style</h2>
-          <div class="grid gap-4 sm:grid-cols-2">
+        <!-- Play style -->
+        <section class="rounded-card bg-surface p-5 shadow-card">
+          <h2 class="font-display text-heading-3 text-fg">Play style</h2>
+          <div class="mt-4 grid gap-4 sm:grid-cols-2">
             <div>
-              <label class="mb-1.5 block text-sm text-fg-secondary">Dominant Hand</label>
-              <select
-                v-model="form.dominant_hand"
-                class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
+              <label
+                for="dominant-hand"
+                class="mb-1.5 block text-body-2 font-medium text-fg-secondary"
               >
+                Dominant hand
+              </label>
+              <select id="dominant-hand" v-model="form.dominant_hand" :class="fieldClass">
                 <option value="">Select hand</option>
                 <option value="right">Right</option>
                 <option value="left">Left</option>
@@ -363,11 +607,13 @@ async function handleSave() {
               </select>
             </div>
             <div>
-              <label class="mb-1.5 block text-sm text-fg-secondary">Preferred Position</label>
-              <select
-                v-model="form.preferred_position"
-                class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
+              <label
+                for="preferred-position"
+                class="mb-1.5 block text-body-2 font-medium text-fg-secondary"
               >
+                Preferred position
+              </label>
+              <select id="preferred-position" v-model="form.preferred_position" :class="fieldClass">
                 <option value="">Select position</option>
                 <option value="forehand">Forehand</option>
                 <option value="backhand">Backhand</option>
@@ -375,81 +621,78 @@ async function handleSave() {
               </select>
             </div>
           </div>
-        </div>
+        </section>
 
         <!-- Privacy -->
-        <div class="rounded-xl bg-surface p-5 shadow-card">
-          <h2 class="mb-4 font-display text-heading-3 text-fg">Privacy</h2>
-          <div class="space-y-3">
+        <section class="rounded-card bg-surface p-5 shadow-card">
+          <h2 class="font-display text-heading-3 text-fg">Privacy</h2>
+          <div class="mt-4 space-y-3" role="radiogroup" aria-label="Profile visibility">
             <label
-              class="flex cursor-pointer items-start gap-4 rounded-lg border-2 p-4 transition-all"
+              v-for="option in VISIBILITY_OPTIONS"
+              :key="option.value"
+              class="flex cursor-pointer items-start gap-3 rounded-button border p-4 transition-colors"
               :class="
-                form.profile_visibility === 'public'
-                  ? 'border-primary bg-primary/5'
-                  : 'border-border-strong hover:border-primary/50'
+                form.profile_visibility === option.value
+                  ? 'border-primary bg-primary-soft'
+                  : 'border-border-strong hover:bg-surface-2'
               "
             >
               <input
                 v-model="form.profile_visibility"
                 type="radio"
-                value="public"
-                class="mt-1 h-4 w-4 border-border-strong text-primary focus:ring-primary"
+                :value="option.value"
+                class="mt-0.5 h-4 w-4 shrink-0 border-border-strong text-primary focus:ring-primary"
               />
-              <div>
-                <span class="font-medium text-fg">Public Profile</span>
-                <p class="mt-0.5 text-sm text-fg-muted">Anyone can view your profile and stats</p>
-              </div>
-            </label>
-            <label
-              class="flex cursor-pointer items-start gap-4 rounded-lg border-2 p-4 transition-all"
-              :class="
-                form.profile_visibility === 'private'
-                  ? 'border-primary bg-primary/5'
-                  : 'border-border-strong hover:border-primary/50'
-              "
-            >
-              <input
-                v-model="form.profile_visibility"
-                type="radio"
-                value="private"
-                class="mt-1 h-4 w-4 border-border-strong text-primary focus:ring-primary"
-              />
-              <div>
-                <span class="font-medium text-fg">Private Profile</span>
-                <p class="mt-0.5 text-sm text-fg-muted">Only followers can view your profile</p>
-              </div>
+              <span class="min-w-0">
+                <span class="block text-body-2 font-medium text-fg">{{ option.title }}</span>
+                <span class="mt-0.5 block text-caption text-fg-muted">{{ option.hint }}</span>
+              </span>
             </label>
           </div>
-        </div>
+        </section>
 
-        <!-- Messages -->
-        <div
+        <!-- Live regions, so a save that succeeds or fails is announced rather
+             than only drawn. -->
+        <p
           v-if="savedMessage"
-          class="rounded-xl bg-primary/10 p-4 text-center text-primary ring-1 ring-primary/30"
+          role="status"
+          class="rounded-button bg-primary-soft px-4 py-3 text-body-2 text-primary"
         >
           {{ savedMessage }}
-        </div>
-        <div v-if="errorMessage" class="rounded-xl bg-danger-soft p-4 text-danger">
+        </p>
+        <p
+          v-if="errorMessage"
+          role="alert"
+          class="rounded-button bg-danger-soft px-4 py-3 text-body-2 text-danger"
+        >
           {{ errorMessage }}
-        </div>
+        </p>
 
-        <!-- Actions -->
-        <div class="flex gap-3">
-          <NuxtLink
-            to="/dashboard"
-            class="flex-1 rounded-xl border border-border-strong py-3 text-center font-medium text-fg-secondary hover:bg-surface-2"
-          >
+        <!-- Actions. Reversed on mobile so the primary sits nearest the thumb. -->
+        <div class="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+          <UiButton to="/dashboard" variant="secondary" size="lg" class="justify-center">
             Cancel
-          </NuxtLink>
-          <button
+          </UiButton>
+          <UiButton
             type="submit"
-            :disabled="saving"
-            class="flex-1 rounded-xl bg-primary py-3 font-medium text-on-primary hover:bg-primary-hover disabled:opacity-50"
+            size="lg"
+            class="justify-center"
+            :loading="saving"
+            :disabled="saving || !dirty || !form.display_name.trim()"
           >
-            {{ saving ? 'Saving...' : 'Save Changes' }}
-          </button>
+            {{ saving ? 'Saving…' : dirty ? 'Save changes' : 'Saved' }}
+          </UiButton>
         </div>
       </form>
     </div>
+
+    <UiModal
+      v-model="confirmRemovePhoto"
+      title="Remove your photo?"
+      description="Your profile goes back to showing your initials. You can upload another one at any time."
+      confirm-label="Remove photo"
+      destructive
+      @confirm="removePhoto"
+    />
   </div>
 </template>
