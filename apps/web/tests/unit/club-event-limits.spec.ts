@@ -57,6 +57,8 @@ function eventRecord(overrides: Partial<EventRecord> = {}): EventRecord {
     close_policy: 'manual',
     closes_at: null,
     closed_at: null,
+    restricted_at: null,
+    restricted_reason: null,
     coach_player_id: null,
     fee_payer: 'player',
     organizer_fee_amount: null,
@@ -240,5 +242,148 @@ describe('EventServiceError shape', () => {
     await expect(service.createEvent(ORGANISER, { ...CREATE_INPUT })).rejects.toMatchObject({
       status: 409
     })
+  })
+})
+
+/**
+ * The ceilings now come from the club's resolved plan (056) instead of three
+ * hardcoded `>= 1` literals. Every case above this line is UNCHANGED and still
+ * passes, which is the proof that applying 056 moved the numbers without
+ * changing anybody's allowance.
+ */
+describe('limits from the resolved plan', () => {
+  function serviceWithPlan(
+    allowance: Partial<{
+      max_draft_events: number | null
+      max_live_tournaments: number | null
+      max_live_open_play: number | null
+    }>,
+    counts: { drafts: number; liveTournaments: number; liveOpenPlay: number },
+    options: { verified?: boolean } = {}
+  ) {
+    const events = {
+      findById: vi.fn().mockResolvedValue(eventRecord()),
+      create: vi.fn().mockResolvedValue(eventRecord()),
+      update: vi.fn().mockResolvedValue(eventRecord()),
+      updateStatus: vi.fn().mockResolvedValue(eventRecord({ status: 'published' })),
+      search: vi.fn(),
+      countBlockingChildren: vi.fn(),
+      deleteWithChildren: vi.fn(),
+      findRestrictableForClub: vi.fn().mockResolvedValue([]),
+      setRestricted: vi.fn().mockResolvedValue(0),
+      countByClubForLimits: vi.fn().mockResolvedValue(counts)
+    } as unknown as EventRepository
+
+    const resolve = vi.fn().mockResolvedValue({
+      max_draft_events: 1,
+      max_live_tournaments: 1,
+      max_live_open_play: 1,
+      max_members: null,
+      online_fee_collection: false,
+      verified_badge_eligible: false,
+      plan_id: 'plan-1',
+      plan_name: 'Test plan',
+      origin: 'plan',
+      status: 'active',
+      current_period_end: null,
+      in_grace: false,
+      ...allowance
+    })
+
+    const service = createEventService(
+      events,
+      tournamentRepoFake() as never,
+      { findCategoryEntrants: vi.fn().mockResolvedValue([]) } as never,
+      {
+        findByClubAndPlayer: vi.fn().mockResolvedValue({ role: 'OWNER', status: 'active' })
+      } as never,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        findById: vi.fn().mockResolvedValue({
+          id: CLUB,
+          verification_status: options.verified ? 'verified' : 'unverified'
+        })
+      } as never,
+      { resolve, resolveMany: vi.fn() } as never
+    )
+
+    return { service, resolve, events }
+  }
+
+  it('lets a club past the old hardcoded 1 when its plan allows more', async () => {
+    const { service } = serviceWithPlan(
+      { max_draft_events: 3 },
+      { drafts: 2, liveTournaments: 0, liveOpenPlay: 0 }
+    )
+    await expect(service.createEvent(ORGANISER, { ...CREATE_INPUT })).resolves.toBeDefined()
+  })
+
+  it('still refuses once the plan cap is reached', async () => {
+    const { service } = serviceWithPlan(
+      { max_draft_events: 3 },
+      { drafts: 3, liveTournaments: 0, liveOpenPlay: 0 }
+    )
+    await expect(service.createEvent(ORGANISER, { ...CREATE_INPUT })).rejects.toMatchObject({
+      code: 'CLUB_DRAFT_LIMIT'
+    })
+  })
+
+  it('treats null as unlimited, never as zero', async () => {
+    const { service } = serviceWithPlan(
+      { max_draft_events: null },
+      { drafts: 99, liveTournaments: 0, liveOpenPlay: 0 }
+    )
+    await expect(service.createEvent(ORGANISER, { ...CREATE_INPUT })).resolves.toBeDefined()
+  })
+
+  it('enforces a plan that allows none of something', async () => {
+    // Zero is a real limit and must not be confused with unlimited.
+    const { service } = serviceWithPlan(
+      { max_draft_events: 0 },
+      { drafts: 0, liveTournaments: 0, liveOpenPlay: 0 }
+    )
+    await expect(service.createEvent(ORGANISER, { ...CREATE_INPUT })).rejects.toMatchObject({
+      code: 'CLUB_DRAFT_LIMIT'
+    })
+  })
+
+  it('names the actual cap in the message', async () => {
+    const { service } = serviceWithPlan(
+      { max_draft_events: 3 },
+      { drafts: 3, liveTournaments: 0, liveOpenPlay: 0 }
+    )
+    await expect(service.createEvent(ORGANISER, { ...CREATE_INPUT })).rejects.toMatchObject({
+      message: expect.stringContaining('3 draft events')
+    })
+  })
+
+  it('no longer tells a paying club to "get the club verified"', async () => {
+    // Verification is now one of two routes to a bigger allowance, not the only
+    // one, so the old message would send a paying club down the wrong path.
+    const { service } = serviceWithPlan(
+      { max_live_tournaments: 1 },
+      { drafts: 0, liveTournaments: 1, liveOpenPlay: 0 }
+    )
+    await expect(service.publishEvent(ORGANISER, 'event-1')).rejects.toMatchObject({
+      code: 'CLUB_EVENT_LIMIT'
+    })
+    await expect(service.publishEvent(ORGANISER, 'event-1')).rejects.not.toMatchObject({
+      message: expect.stringContaining('verified')
+    })
+  })
+
+  it('does not resolve entitlements at all for a verified club', async () => {
+    // The verified bypass stays first: removing it would drop every currently
+    // verified club from unlimited to 1/1/1 the moment this ships.
+    const { service, resolve } = serviceWithPlan(
+      { max_draft_events: 0 },
+      { drafts: 9, liveTournaments: 9, liveOpenPlay: 9 },
+      { verified: true }
+    )
+    await expect(service.createEvent(ORGANISER, { ...CREATE_INPUT })).resolves.toBeDefined()
+    expect(resolve).not.toHaveBeenCalled()
   })
 })

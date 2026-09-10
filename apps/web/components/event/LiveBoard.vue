@@ -26,8 +26,6 @@ import type { GameRules } from '~/utils/game-rules'
 import type { EventCourtDto, LiveGameScore } from '~/server/domains/event/dto/event.dto'
 import type { MatchListItemDto } from '~/server/domains/match/dto/match-join-row.dto'
 import type { BoxScoreMatch } from '~/components/match/BoxScore.vue'
-// PENDING-052: see utils/pending-052.ts. Delete both with the migration.
-import { ROUNDS_MIGRATION_PENDING, deriveDisplayRounds } from '~/utils/pending-052'
 
 const props = defineProps<{
   eventId: string
@@ -77,16 +75,15 @@ const freeCourts = computed(() =>
 )
 
 /**
- * PENDING-052. Rounds guessed from the order games were played in, so the
- * board can be reviewed before the migration lands. Delete with the shim: the
- * `?? ...` fallbacks below then read the real columns, which is what they were
- * written for.
+ * Empty map: every match now carries its real `event_round` from 052, so the
+ * `?? ...` fallbacks below read the column, which is what they were written
+ * for. Kept as a computed rather than inlined so the fallbacks did not have to
+ * be rewritten when the guessed rounds were removed.
  */
-const displayRounds = computed(() =>
-  ROUNDS_MIGRATION_PENDING
-    ? deriveDisplayRounds(props.matches, props.courtCount)
-    : { roundByMatchId: new Map<string, number>(), currentRound: props.currentRound }
-)
+const displayRounds = computed(() => ({
+  roundByMatchId: new Map<string, number>(),
+  currentRound: props.currentRound
+}))
 
 /** Newest wave first by default: what is on now is what is being asked about. */
 const newestFirst = ref(true)

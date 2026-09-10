@@ -9,6 +9,7 @@ import {
   DEFAULT_APP_NAME,
   DEFAULT_OVERLAY_COLOR,
   DEFAULT_OVERLAY_OPACITY,
+  DEFAULT_BACKGROUND_OPACITY,
   type BrandingDto
 } from '~/server/domains/platform/dto/branding.dto'
 
@@ -56,7 +57,8 @@ export async function getBranding(event: H3Event): Promise<BrandingDto> {
         subtitle: null,
         background_url: null,
         overlay_color: DEFAULT_OVERLAY_COLOR,
-        overlay_opacity: DEFAULT_OVERLAY_OPACITY
+        overlay_opacity: DEFAULT_OVERLAY_OPACITY,
+        background_opacity: DEFAULT_BACKGROUND_OPACITY
       }
     }
   }

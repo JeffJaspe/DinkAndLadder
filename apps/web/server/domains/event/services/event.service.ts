@@ -39,6 +39,11 @@ import {
   toTournamentRegistrationDto
 } from '../dto/tournament.dto'
 
+import type { ClubEntitlementsService } from '../../payment/services/club-entitlements.service'
+import { unwiredEntitlements } from '../../payment/services/club-entitlements.service'
+import type { ClubEntitlements } from '../../payment/dto/entitlements.dto'
+import { describeLimit } from '~/utils/subscription-plan'
+
 /** The stored pairing modes. Named for players in `utils/queue-mode.ts`. */
 const QUEUE_MODES: QueueMode[] = ['first_come', 'rating_based', 'random']
 
@@ -183,7 +188,18 @@ export function createEventService(
    * how many events it may run. Optional like the rest; without it no limit
    * applies, which is the behaviour that existed before there were any.
    */
-  clubs?: ClubRepository
+  clubs?: ClubRepository,
+  /**
+   * Resolves what this club's plan actually allows. Optional like the rest —
+   * but note the degrade below is NOT "no limit": an unwired dependency must
+   * not silently delete every ceiling, so it falls back to the same 1/1/1 the
+   * hardcoded literals enforced.
+   *
+   * NOTE: this argument list is now ten long and wants an options object. Not
+   * in this change — it would touch eighteen call sites for no behavioural
+   * gain.
+   */
+  entitlements?: ClubEntitlementsService
 ): EventService {
   async function assertEventOrganizer(playerId: string, eventId: string) {
     const event = await events.findById(eventId)
@@ -338,23 +354,30 @@ export function createEventService(
   }
 
   /**
-   * What an unverified club may have running at once.
+   * What this club may have running at once.
    *
    * Nothing limited this before, so a club could accumulate drafts and live
    * events without bound — and verification, which has a full approval flow
-   * already built, bought nothing. These are the limits that make the tier
-   * mean something.
+   * already built, bought nothing. These are the limits that make a tier mean
+   * something.
    *
-   * A verified club is unlimited. An unverified one gets one live tournament,
-   * one live open play, and one draft: enough to run a real weekend and plan
-   * the next, not enough to use the platform as free listing space.
+   * The three ceilings used to be hardcoded `>= 1` literals here. They are now
+   * read from the club's resolved plan (056), which is the same 1/1/1 for a
+   * club on the free plan — the seed was written to match these literals
+   * exactly, so applying that migration changed nobody's allowance.
    *
    * Cancelled and completed events do not count. An event that has had its
    * weekend must not block the next one, and a cancelled one never happened.
    *
-   * Degrades to no limit when the club repository was not supplied, matching
-   * how `memberships` and `categories` behave — a caller that did not wire it
-   * keeps the behaviour it had rather than failing closed.
+   * Two degrade paths, and they are NOT the same:
+   *
+   * - **No club repository** — no limit, unchanged. That matches `memberships`
+   *   and `categories`: a caller that never wired it keeps the behaviour it had
+   *   before limits existed at all.
+   * - **No entitlements service** — the 1/1/1 default, NOT unlimited. Every
+   *   existing caller is in this state until step 6 wires it, and a missing
+   *   optional dependency must not silently delete every ceiling in the
+   *   product.
    */
   async function assertWithinClubLimits(
     clubId: string,
@@ -364,30 +387,50 @@ export function createEventService(
     if (!clubs) return
 
     const club = await clubs.findById(clubId)
-    if (!club || club.verification_status === 'verified') return
+    if (!club) return
+
+    /*
+     * THE VERIFIED BYPASS STAYS, AND STAYS FIRST.
+     *
+     * Verification and paid plans are two routes to the same unlimited
+     * allowance. Removing this line would drop every currently verified club
+     * from unlimited to 1/1/1 the moment this ships — a regression delivered as
+     * a feature, to precisely the clubs that went through the review process.
+     */
+    if (club.verification_status === 'verified') return
+
+    const allowance: ClubEntitlements = entitlements
+      ? await entitlements.resolve(clubId)
+      : unwiredEntitlements()
 
     const counts = await events.countByClubForLimits(clubId)
 
     if (intent === 'draft') {
-      if (counts.drafts >= 1) {
+      const cap = allowance.max_draft_events
+      // null is unlimited. Never -1; see the entitlements DTO.
+      if (cap !== null && counts.drafts >= cap) {
         throw new EventServiceError(
           409,
           'CLUB_DRAFT_LIMIT',
-          'An unverified club can keep one draft at a time. Publish or delete the one you have, or get the club verified for unlimited drafts.'
+          `Your plan allows ${describeLimit(cap, 'draft event').toLowerCase()}. ` +
+            'Publish or delete the one you have, or upgrade the club for more.'
         )
       }
       return
     }
 
     const isTournament = eventType === 'tournament'
+    const cap = isTournament ? allowance.max_live_tournaments : allowance.max_live_open_play
     const live = isTournament ? counts.liveTournaments : counts.liveOpenPlay
-    if (live >= 1) {
+
+    if (cap !== null && live >= cap) {
       throw new EventServiceError(
         409,
         'CLUB_EVENT_LIMIT',
-        isTournament
-          ? 'An unverified club can run one tournament at a time. Finish or cancel the current one, or get the club verified.'
-          : 'An unverified club can run one open play event at a time. Finish or cancel the current one, or get the club verified.'
+        `Your plan allows ${describeLimit(
+          cap,
+          isTournament ? 'live tournament' : 'live open play event'
+        ).toLowerCase()}. Finish or cancel the current one, or upgrade the club for more.`
       )
     }
   }

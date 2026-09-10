@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { initialsFor } from '~/utils/initials'
 interface Props {
   id: string
   name: string
@@ -27,20 +26,7 @@ const location = computed(() => {
   >
     <div class="flex items-start gap-4">
       <!-- Logo -->
-      <div class="flex-shrink-0">
-        <img
-          v-if="logoUrl"
-          :src="logoUrl"
-          :alt="name"
-          class="h-14 w-14 rounded-card object-cover"
-        />
-        <div
-          v-else
-          class="flex h-14 w-14 items-center justify-center rounded-card bg-surface-3 text-xl font-bold text-fg"
-        >
-          {{ initialsFor(name, 1) }}
-        </div>
-      </div>
+      <UiClubLogo :name="name" :src="logoUrl" box-class="h-14 w-14 rounded-card" />
 
       <!-- Info -->
       <div class="min-w-0 flex-1">

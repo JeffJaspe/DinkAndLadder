@@ -24,7 +24,25 @@ export default defineNuxtConfig({
           type: 'font/woff2',
           href: '/fonts/inter-latin-var.woff2',
           crossorigin: 'anonymous'
-        }
+        },
+        // Brand icons (public/icons, from assets/dal-assets). The .ico is kept
+        // first and sized for the browsers that only read that one; the SVG is
+        // what modern browsers pick.
+        { rel: 'icon', href: '/icons/favicon.ico', sizes: '48x48' },
+        { rel: 'icon', href: '/icons/favicon.svg', type: 'image/svg+xml' },
+        { rel: 'apple-touch-icon', href: '/icons/apple-touch-icon.png' },
+        { rel: 'manifest', href: '/site.webmanifest' }
+      ],
+      meta: [
+        // Charcoal from the brand palette — the colour the app icons and the
+        // social image are drawn on.
+        { name: 'theme-color', content: '#1F2024' },
+        // Absolute: a scraper fetching a link preview has no page origin to
+        // resolve a relative path against. Same resolver the email links use.
+        { property: 'og:image', content: `${resolveSiteUrl(process.env)}/social/og-image.png` },
+        { property: 'og:image:width', content: '1200' },
+        { property: 'og:image:height', content: '630' },
+        { name: 'twitter:card', content: 'summary_large_image' }
       ],
       script: [
         {

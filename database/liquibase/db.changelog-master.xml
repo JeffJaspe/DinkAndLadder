@@ -61,5 +61,6 @@
     <include file="054-open-play-scoring/054-open-play-scoring.changelog.xml" relativeToChangelogFile="true"/>
     <include file="055-player-avatar/055-player-avatar.changelog.xml" relativeToChangelogFile="true"/>
     <include file="056-club-subscriptions/056-club-subscriptions.changelog.xml" relativeToChangelogFile="true"/>
+    <include file="057-hero-background-opacity/057-hero-background-opacity.changelog.xml" relativeToChangelogFile="true"/>
 
 </databaseChangeLog>

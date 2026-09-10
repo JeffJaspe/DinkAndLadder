@@ -1,8 +1,6 @@
 import { serverSupabaseClient } from '#supabase/server'
 import { apiError } from '~/server/utils/api-error'
 import type { MatchJoinRow } from '~/server/domains/match/dto/match-join-row.dto'
-// PENDING-052: see utils/pending-052.ts. Delete with the migration.
-import { ROUNDS_MIGRATION_PENDING } from '~/utils/pending-052'
 
 export default defineEventHandler(async (event) => {
   const eventId = getRouterParam(event, 'eventId')
@@ -25,7 +23,7 @@ export default defineEventHandler(async (event) => {
       match_type,
       status,
       event_id,
-      ${/* PENDING-052 */ ROUNDS_MIGRATION_PENDING ? '' : 'event_round,'}
+      event_round,
       affects_rating,
       venue,
       played_at,

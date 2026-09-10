@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { initialsFor } from '~/utils/initials'
+import { USE_BRAND_DEFAULTS } from '~/utils/brand-assets'
+
 interface Props {
   id: string
   displayName: string
@@ -21,6 +22,8 @@ const emit = defineEmits<{
   follow: [playerId: string]
   unfollow: [playerId: string]
 }>()
+
+const showAvatar = computed(() => !USE_BRAND_DEFAULTS && !!props.avatarUrl)
 
 const location = computed(() => {
   if (props.city && props.province) return `${props.city}, ${props.province}`
@@ -45,16 +48,16 @@ function handleFollowClick() {
       <!-- Avatar -->
       <div class="relative flex-shrink-0">
         <img
-          v-if="avatarUrl"
+          v-if="showAvatar"
           :src="avatarUrl"
           :alt="displayName"
           class="h-12 w-12 rounded-full object-cover"
         />
         <div
           v-else
-          class="flex h-12 w-12 items-center justify-center rounded-full bg-surface-3 text-lg font-semibold text-fg"
+          class="flex h-12 w-12 items-center justify-center rounded-full bg-surface-3 p-2"
         >
-          {{ initialsFor(displayName, 1) }}
+          <UiBrandImage />
         </div>
         <UiRankBadge
           v-if="rank && rank <= 10"

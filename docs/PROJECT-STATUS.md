@@ -7213,3 +7213,386 @@ same partial predicate, the standard idiom; and the `subscription_id` foreign ke
 was being declared on the column and then dropped and recreated in the same
 changeset to get `ON DELETE SET NULL`, which read as a mistake being corrected
 mid-changeset. It is declared once, in SQL.
+
+## Club subscriptions, step 2 of 9 — DTOs and pure utils (2026-09-10)
+
+**`056` is applied to dev.** Verified against the live database: `avatar_path`
+present, all nine changesets landed, `billing_mode` = `simulated` with a 7-day
+grace, nine verified clubs backfilled to `verification_source = 'admin_review'`,
+and **the 0009 seed did not no-op** — exactly one `is_default_free` club plan
+named *Free* carrying `1 / 1 / 1`, the same limits `event.service.ts` hardcodes.
+Club Premium is unpublished with its placeholder price; the three player plans
+are deactivated and kept. Row counts unchanged throughout (105 profiles, 17
+clubs, 106 events, 1127 matches, 21 tournaments, 282 activities).
+
+### What step 2 added
+
+`subscription.dto.ts` gains the club-subscription types below a divider; 013's
+types above it are untouched, and `SubscriptionPlanFeatures` stays frozen as
+legacy because `/subscriptions/me` and the player DTO still read `features`.
+
+**Two plan DTOs, not one with optional fields.** `ClubSubscriptionPlanDto` is
+what the public may see; `AdminClubSubscriptionPlanDto` adds `is_active`,
+`is_public` and `sort_order`. A single DTO with `is_public?: boolean` would make
+"can a draft plan's price leak?" a runtime question answered by whoever
+remembered to filter. Two make it a compile-time one — which matters more here
+than usual, because the entire pricing posture is "no price ships until ADR-007
+closes."
+
+`entitlements.dto.ts` (new) carries `ClubEntitlements` and `ClubUsage`. The
+field worth naming is **`origin`**: `plan` / `default_plan` / `verified_override`
+/ `fallback`. It is not decoration — the billing page has to explain the number
+it prints, and "unlimited because a SuperAdmin verified you" and "unlimited
+because you pay" are different sentences to an owner deciding whether to renew.
+`fallback` exists for the case that should never happen (no subscription *and*
+no readable default plan) and deliberately resolves to the conservative
+allowance: **a billing lookup that fails open is a billing system that does not
+exist.**
+
+`utils/subscription-plan.ts` (new, pure) sits in `utils/` for the reason
+`utils/convenience-fee.ts` gives: the admin preview, the public pricing page and
+the club chooser must produce the identical number, and one implementation is
+the only way to guarantee it.
+
+Three decisions inside it:
+
+- **`describeAnnualSaving` returns null rather than a number** when there is no
+  monthly twin, when the prices are equal, when either is zero, or when the year
+  costs *more*. A saving is either real or not advertised; it is never invented,
+  and it can never disagree with the two prices it sits between (which is what
+  the `savings_label` override is checked against).
+- **Zero is "No tournaments", never "0 tournaments" and never unlimited.** Zero
+  is a real limit. Conflating it with unlimited is exactly what `-1`-in-jsonb
+  invited, and `isUnlimited(-1)` is asserted false so the disease cannot return
+  quietly.
+- **Minor units come from `Intl`, not from an assumed 100.** ¥5000 is 5000 yen,
+  not 50.00, and `currency` is a column with a second row a day away.
+
+`describeEntitlements` builds its rows from the typed entitlement columns rather
+than from `marketing_bullets`, so a bullet the admin wrote and a limit the code
+enforces cannot disagree on a pricing page. The badge row says **"Eligible to
+apply"**, never "Verified".
+
+### Validation
+
+`typecheck` clean, `lint` 0 errors, `prettier` clean on the changed files,
+**1331 tests pass (89 files)** — 29 new. One test was wrong and got corrected
+rather than the code: `Intl` accepts any well-formed three-letter code and
+separates with a non-breaking space, so the `catch` fallback only fires on a
+malformed code, and both paths are now covered.
+
+Steps 3–9 (repositories, entitlements service, gateway and write services,
+controllers, SuperAdmin UI, club UI, security review) are not started.
+
+## Club subscriptions, step 3 of 9 — repositories (2026-09-10)
+
+Repositories only; no service or endpoint behaviour changed yet.
+
+**`subscription.repository.ts`** — fixed rather than rebuilt.
+
+- **`CreateClubSubscriptionInput` no longer requires `stripe_subscription_id`
+  and `stripe_customer_id`.** This type is the single reason no club write path
+  was ever built: it demanded two non-optional Stripe strings, and 013 shipped
+  with no gateway, so nothing could ever satisfy it. Provider identity is now
+  optional and generic, and `source` records how the row came to exist.
+- **`findLatestForClub` added** — newest row, *no status filter*.
+  `getClubSubscription`'s `.in('status', […])` is a business judgement living in
+  a repository: it hides a `canceled`-but-still-in-period month the club has
+  already paid for, and a service that cannot see that row cannot honour it.
+  Repositories fetch, services judge. `getClubSubscription` stays as the thin
+  wrapper the existing endpoint contract needs.
+- **`getPlanByStripeId` deleted** — dead and provider-specific. Its only
+  remaining reference was a mock in a test.
+- Added `listPublicClubPlans`, `listPlansForAdmin`, `getClubPlanById`,
+  `getDefaultFreePlan`, `createPlan`, `updatePlan`, `listClubSubscriptions`.
+  **No `deletePlan`**: a plan somebody holds is what a billing history means.
+- `UpdatePlanInput` omits `plan_type` (moving a plan between player and club
+  would silently retarget every subscription holding it) and `is_default_free`
+  (exactly one row may carry it, enforced by a unique index, so that move needs
+  its own operation rather than a patch field).
+- `createPlan` defaults `is_public` to **false**. Publishing is a separate,
+  deliberate act, never a side effect of creating.
+
+**`PLAN_COLUMNS` and `CLUB_SUB_COLUMNS` gained every new column.** This is the
+one that would have bitten quietly: a column absent from a PostgREST select list
+comes back as `undefined`, not as an error — and an omitted
+`max_live_tournaments` reads as `undefined`, which is not a number, which every
+"is there a ceiling?" test treats as **unlimited**. A missed entitlement column
+would have handed out free unlimited plans.
+
+Also: `transaction.repository.ts` gained `provider`/`provider_reference`/
+`is_test`/`subscription_id` and `findByProviderReference` (the idempotency
+lookup, scoped by provider because the unique index is on the pair);
+`platform-config.repository.ts` gained the billing columns and `updateBilling`,
+which finds the row first rather than issuing an unbounded `UPDATE` on a table
+that is single-row by convention and not by constraint; `club.repository.ts` and
+`ClubRecord` gained `verification_source`; `event.repository.ts` gained the
+restriction columns plus `findRestrictableForClub` (oldest first — on a lapse the
+oldest unfinished event of each type survives) and `setRestricted`.
+
+**The type system caught fourteen stale test fakes**, which is what those
+required fields are for: every `ClubRecord`, `EventRecord` and repository fake
+missing a new member failed to compile rather than silently defaulting. All
+updated.
+
+## PENDING-052 shim removed (2026-09-10)
+
+`utils/pending-052.ts` existed because 052 was written ahead of its deploy. The
+migration run has now applied it — `events.current_round`,
+`event_courts.round_number` and `matches.event_round` all verified present
+against dev — so the flag was **stale, and stale in the dangerous direction**:
+
+- `matches.create` was dropping `event_round` from every insert,
+- `event_courts.update` was stripping `round_number` from every patch,
+- `setCurrentRound` was reading the row back unchanged and advancing nothing,
+- and the live board and event page were rendering **guessed** rounds derived
+  from the order games were played in, while the real column sat there.
+
+Round data was being silently discarded on every open-play match recorded. The
+shim's own removal procedure was followed: all six call sites unwound and the
+file deleted. The `?? …` fallbacks in `LiveBoard.vue` now read the real columns,
+which is what they were written for, and `sessionRound` is
+`event.current_round` outright.
+
+### Validation
+
+`typecheck` clean, `lint` 0 errors, `prettier` clean on changed files,
+**1331 tests pass (89 files)**. Steps 4–9 not started.
+
+## Brand assets are now the club default (2026-09-11)
+
+The Dink and Ladder asset set was added at
+`apps/web/assets/dal-assets/` (source, with its README) and copied to the served
+locations the README expects: `public/brand/{logo,mark}/`, `public/icons/`,
+`public/social/og-image.png`, `public/site.webmanifest`.
+
+Clubs without an uploaded logo previously rendered a one-letter initials tile,
+duplicated in four places with four different treatments. That fallback is now
+the platform mark, behind a single component, `UiClubLogo`:
+
+- an uploaded `logo_url` still wins, and an upload that fails to load falls back
+  to the mark rather than a broken-image icon,
+- the light and dark drawings are both rendered and selected by the `dark`
+  class, so the right one is painted before hydration and follows the in-app
+  theme toggle (the `-auto` SVG only follows the OS setting, which would ignore
+  the toggle).
+
+Call sites: `ClubCard`, `/clubs` directory, the club page header, and club
+settings. The directory always shows the mark because `ClubSearchResultDto`
+carries no image paths — adding one means resolving a storage URL per row, which
+is a separate change and is **not** done here.
+
+No database, DTO, or API changes. Head tags for the new favicons/OG image are
+also **not** wired up yet.
+
+### Validation
+
+`typecheck` clean, `eslint` 0 errors, `prettier` clean on changed files.
+
+## Brand artwork is now the app-wide default image (2026-09-11)
+
+Extends the entry above from clubs to every image surface in the app, at Jeff's
+request: "use the asset to use as default all over the app, disregard my
+uploaded for now but can keep the function."
+
+### The switch
+
+`utils/brand-assets.ts` holds the asset paths, the brand charcoal, and
+`USE_BRAND_DEFAULTS`. While that flag is `true`, **uploaded images are not
+displayed anywhere** — player avatars, club logos and covers, and the
+SuperAdmin's platform logo all render the Dink and Ladder artwork instead.
+
+This is a presentation choice, not a feature removal. Every upload path is
+untouched and still working: files are stored, URLs are still resolved and still
+arrive in the DTOs, and the settings screens still upload and remove them.
+Flipping the flag to `false` restores uploaded imagery everywhere with no other
+change. No database, DTO, service, or endpoint was modified.
+
+### How the artwork picks a theme
+
+`UiBrandImage` renders both the light and the dark drawing and lets the
+document's `dark` class choose. That way the right one is painted before
+hydration (the theme is applied by the pre-hydration script in nuxt.config) and
+it follows the in-app toggle — the `-auto` SVGs in the asset set only read the
+OS setting, so they would ignore the toggle. A `theme` prop forces one drawing
+for grounds that do not flip: the brand-coloured tiles on the match-submit
+screen, and the charcoal cover art.
+
+### Surfaces changed
+
+- `UiBrandMark` (sidebar, mobile header, drawer, landing, auth, onboarding) —
+  the name-derived monogram tile is gone; its unused `gradient` prop went with
+  it, as no caller passed it.
+- `UiAvatar`, and the fourteen inline initials tiles that never used it, across
+  match cards, player cards, rosters, community, duo partners, following,
+  head-to-head, event registrations and match submission.
+- `UiClubLogo` on club cards, /clubs, /my-clubs, the club page header, club
+  settings and a player's club memberships.
+- `UiCoverArt` — the name-hashed gradient and monogram are replaced by the logo
+  on brand charcoal, the same treatment the app icons and social image use. A
+  `label` (e.g. "TOURNAMENT") now sits under the logo instead of replacing it.
+- `nuxt.config.ts` — favicon, apple-touch-icon, webmanifest, `theme-color` and
+  OG-image head tags. The OG URL is absolute via `resolveSiteUrl`, since a
+  scraper has no page origin to resolve a relative path against.
+
+`initialsFor` and its tests remain, with one caller left: achievement badges,
+which are not entity imagery.
+
+### Deliberately not done
+
+- `ClubSearchResultDto` still carries no image paths, so /clubs could not show
+  an uploaded logo even with the flag off. Resolving a storage URL per search
+  row is a separate change.
+- Playwright coverage of the dual-theme artwork swap.
+
+### Validation
+
+`typecheck` clean, `eslint` 0 errors (8 pre-existing `require-default-prop`
+warnings), `prettier` clean, `check:tokens` clean — the cover label uses
+`on-scrim`, the existing "always white, fixed dark ground" token, rather than
+`text-white`. **1329 tests pass (89 files).** Three `UiAvatar` specs asserted
+the initials behaviour that was replaced and were rewritten against the new
+contract; one of them reads `USE_BRAND_DEFAULTS` so it stays honest whichever
+way the flag is set.
+
+## Landing background image opacity is now operator-controlled (2026-09-11)
+
+Jeff: "add slider in /admin/branding for opacity of background image, need to
+control it."
+
+### What was actually wrong
+
+The console already had an "Overlay strength" slider, but that is the *scrim*
+colour laid over the hero text (026-platform-hero) — not the image. The image's
+own visibility was a hardcoded `0.92` canvas wash in `.dnl-hero-scrim` on
+`pages/index.vue`, so an uploaded landing background always painted as a faint
+ghost and nothing in the console could change it. The new slider drives that
+wash.
+
+### Full stack
+
+- **Liquibase** `057-hero-background-opacity` — `platform_config
+  .hero_background_opacity numeric(3,2)`, nullable, plus a CHECK for 0..1
+  matching the one 026 put on the overlay. Lands on push to main.
+- **DTO** — `HeroDto.background_opacity`, `DEFAULT_BACKGROUND_OPACITY = 0.08`
+  (the exact inverse of the old 0.92 wash, so an untouched platform does not
+  move), and `backgroundOpacityOf()`. The PostgREST-string-to-number and
+  clamping logic that `overlayOpacityOf` had is now shared by both.
+- **Repository** — column added to the select list, the EMPTY fallback record
+  and `HeroPatch`.
+- **Service** — `HeroInput.background_opacity`, validated by a new
+  `assertOpacity()` that both opacities use. Out of range is **refused**, not
+  clamped: a silent clamp would look like the slider was ignored.
+- **API** — no change needed; `PATCH /api/v1/admin/hero` is already a partial
+  patch, so tuning the image cannot blank someone's headline.
+- **UI** — the slider in the hero form, 0–100% in 1% steps, disabled with an
+  explanation when no background image is uploaded. `pages/index.vue` passes
+  `1 - background_opacity` into a `--dnl-hero-wash` custom property; the CSS
+  keeps `0.92` as its fallback, so the page is unchanged when the value is unset
+  or the migration has not run.
+
+### Validation
+
+`typecheck` clean, `eslint` 0 errors, `prettier` clean, `check:tokens` clean,
+**1334 tests pass (89 files)** — five new, covering the default, the
+PostgREST string read, out-of-range clamping on read, the partial-patch save,
+rejection of out-of-range writes, and the SuperAdmin gate on `setHero`.
+
+Not done: Playwright coverage of the landing page at a non-default opacity.
+
+## Club subscriptions, step 4 of 9 — entitlements + the limit change (2026-09-11)
+
+The plan calls this the riskiest step, because it replaces the three hardcoded
+`>= 1` literals in `event.service.ts` with numbers read from a database row.
+**The proof it is safe is that all ten cases of `club-event-limits.spec.ts` pass
+untouched** — the 0009 seed was written to match those literals exactly, so
+applying 056 changed nobody's allowance.
+
+### `club-entitlements.service.ts` — one resolver, no caching
+
+`resolve(clubId)` reads the club's latest subscription and decides whether it
+entitles *right now*. Two rows of that table are decisions rather than
+bookkeeping:
+
+- **`trialing` counts.** `subscription.service.ts` requires `status === 'active'`,
+  so a club in a trial was silently getting free-tier features while the UI
+  showed it a paid plan. That is a live bug, and this fixes it.
+- **`canceled` with the period still running counts.** They paid for the month;
+  cancelling is a decision about the *next* one. This case is only reachable
+  because `findLatestForClub` does not filter by status, which is what makes
+  that step-3 repository change load-bearing rather than cosmetic.
+
+`past_due` is a failed card, not a decision to leave, so it keeps working until
+the period ends *and* `subscription_grace_days` runs out — and `in_grace` says
+so, because the billing page has to explain itself.
+
+**No caching**, deliberately. `feature-flags.ts` earns its 30-second cache
+because a flag is decoration; an entitlement gates a refusal, and a club that has
+just paid must not be told to wait half a minute for its own event. That file's
+docstring warns against exactly this reuse.
+
+`resolveMany` resolves a page of clubs in two queries rather than 2N, and a test
+asserts it agrees with `resolve()` for the same club — two code paths answering
+one question is how they drift.
+
+### The limit change
+
+```
+if (!clubs) return
+const club = await clubs.findById(clubId); if (!club) return
+if (club.verification_status === 'verified') return   // KEPT, and kept FIRST
+```
+
+**The verified bypass stays and stays first.** Removing it would drop every
+currently verified club from unlimited to 1/1/1 the moment this ships — a
+regression delivered as a feature, aimed precisely at the clubs that went through
+the review process. There is a comment above the line saying so, and a test
+asserting entitlements are not even resolved for a verified club.
+
+**One deliberate departure from the plan.** Its pseudocode has
+`if (!entitlements) return` — no limit when the dependency is unwired. Every
+existing call site is unwired until step 6, so that line would have silently
+deleted every ceiling in the product the moment this shipped, and four cases in
+`club-event-limits.spec.ts` would have gone from passing to passing-for-the-wrong-
+reason. An unwired resolver now falls back to `SAFE_DEFAULT_ENTITLEMENTS`, which
+is 1/1/1 — today's behaviour, exactly. The `!clubs` degrade is unchanged, because
+that one really does mean "this caller predates limits entirely".
+
+`SAFE_DEFAULT_ENTITLEMENTS` has its own test asserting its exact value, since it
+is now the thing standing between a missing plan row and either a free unlimited
+tier or a lockout.
+
+Error codes `CLUB_DRAFT_LIMIT` / `CLUB_EVENT_LIMIT` are unchanged — the client
+upsell keys off them. The messages now interpolate the resolved cap through
+`describeLimit` and **stop saying "get the club verified"**, which since 056 is
+one of two routes and would send a paying club down the wrong one.
+
+### `subscription.service.ts` — four predicates deleted
+
+`canPlayerSubmitMatch`, `canPlayerJoinClub`, `canClubHostTournament`,
+`canClubAddMember`. None was called by anything. They read like authority — a
+named function returning a business decision — while enforcing nothing, which is
+the most dangerous shape a dead function can take: the next person to need a
+member limit would have found `canClubAddMember`, believed it, and built a limit
+on `features.max_members`, a jsonb key where `-1` means unlimited and a missing
+key means 50.
+
+**Kept, against the plan's letter:** `getPlayerFeatures`, `getClubFeatures` and
+the two `FREE_*` constants they fall back to. The plan lists the constants for
+deletion while also keeping `getPlayerFeatures`, which cannot both happen —
+and `/clubs/{clubId}/subscription` calls `getClubFeatures` today. Deleting them
+would have broken two live endpoints to tidy up a legacy blob nothing new reads.
+
+### Validation
+
+`typecheck` clean, `lint` 0 errors, `prettier` clean on changed files,
+**1361 tests pass (90 files)** — 30 new: 28 on the resolver (every status, both
+grace boundaries, the missing-plan and missing-default fallbacks, `resolveMany`
+agreeing with `resolve`) and 7 new cases on the limits spec alongside the 10
+untouched ones.
+
+Steps 5–9 not started. Step 5 is the write path, including
+`applyDowngradeRestrictions` (§4.2) — restriction is non-destructive and
+instantly reversible, which is what makes closing registration on a club's
+players acceptable at all, and it is flagged in the plan for revisiting in
+ADR-007.

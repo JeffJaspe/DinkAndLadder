@@ -3,7 +3,7 @@ import type { BrandingRecord, BrandingSlot } from '../dto/branding.dto'
 
 const BRANDING_COLUMNS =
   'app_name, logo_path, favicon_path, hero_title, hero_subtitle, hero_background_path, ' +
-  'hero_overlay_color, hero_overlay_opacity, branding_updated_at'
+  'hero_overlay_color, hero_overlay_opacity, hero_background_opacity, branding_updated_at'
 
 /** PostgREST's code for a column that is not there yet (pre-migration). */
 const UNDEFINED_COLUMN = '42703'
@@ -17,6 +17,7 @@ const EMPTY: BrandingRecord = {
   hero_background_path: null,
   hero_overlay_color: null,
   hero_overlay_opacity: null,
+  hero_background_opacity: null,
   branding_updated_at: null
 }
 
@@ -25,6 +26,7 @@ export interface HeroPatch {
   hero_subtitle?: string | null
   hero_overlay_color?: string | null
   hero_overlay_opacity?: number | null
+  hero_background_opacity?: number | null
 }
 
 export interface BrandingRepository {

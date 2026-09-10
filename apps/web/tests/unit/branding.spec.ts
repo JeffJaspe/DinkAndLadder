@@ -12,7 +12,9 @@ import {
   extensionFor,
   isBrandingSlot,
   objectPathFor,
+  backgroundOpacityOf,
   DEFAULT_APP_NAME,
+  DEFAULT_BACKGROUND_OPACITY,
   MAX_UPLOAD_BYTES,
   type BrandingRecord
 } from '../../server/domains/platform/dto/branding.dto'
@@ -36,6 +38,7 @@ function makeRecord(overrides: Partial<BrandingRecord> = {}): BrandingRecord {
     hero_background_path: null,
     hero_overlay_color: null,
     hero_overlay_opacity: null,
+    hero_background_opacity: null,
     branding_updated_at: null,
     ...overrides
   }
@@ -50,6 +53,10 @@ function serviceWith(record: BrandingRecord, { isSuperAdmin = true } = {}) {
       stored = { ...stored, app_name }
       return stored
     }),
+    setHero: vi.fn().mockImplementation(async (patch: Record<string, unknown>) => {
+      stored = { ...stored, ...patch }
+      return stored
+    }),
     setAssetPath: vi.fn().mockImplementation(async (slot: string, path: string | null) => {
       stored = { ...stored, [slot === 'logo' ? 'logo_path' : 'favicon_path']: path }
       return stored
@@ -57,6 +64,7 @@ function serviceWith(record: BrandingRecord, { isSuperAdmin = true } = {}) {
   } as unknown as BrandingRepository & {
     get: ReturnType<typeof vi.fn>
     setAppName: ReturnType<typeof vi.fn>
+    setHero: ReturnType<typeof vi.fn>
     setAssetPath: ReturnType<typeof vi.fn>
   }
 
@@ -105,6 +113,27 @@ describe('branding values', () => {
     // would keep serving the previous image from cache.
     expect(objectPathFor('logo', 'png', 1700000000000)).toBe('platform/logo-1700000000000.png')
     expect(objectPathFor('favicon', 'jpg', 1)).toBe('platform/favicon-1.jpg')
+  })
+
+  it('keeps the landing page as it was when no background opacity is stored', () => {
+    // NULL is "the operator never touched the slider", and the default is the
+    // exact inverse of the 0.92 canvas wash the page has always painted — so an
+    // untouched platform must not shift when this column arrives.
+    expect(backgroundOpacityOf(null)).toBe(DEFAULT_BACKGROUND_OPACITY)
+    expect(backgroundOpacityOf({ hero_background_opacity: null })).toBe(DEFAULT_BACKGROUND_OPACITY)
+  })
+
+  it('reads a background opacity back through PostgREST and out of range', () => {
+    // numeric(3,2) arrives as a string.
+    expect(backgroundOpacityOf({ hero_background_opacity: '0.35' })).toBe(0.35)
+    expect(backgroundOpacityOf({ hero_background_opacity: 1 })).toBe(1)
+    // It ends up in an inline style, so a value the CHECK constraint should
+    // have stopped is clamped rather than passed through.
+    expect(backgroundOpacityOf({ hero_background_opacity: 4 })).toBe(1)
+    expect(backgroundOpacityOf({ hero_background_opacity: -2 })).toBe(0)
+    expect(backgroundOpacityOf({ hero_background_opacity: 'nonsense' })).toBe(
+      DEFAULT_BACKGROUND_OPACITY
+    )
   })
 
   it('recognises only the defined slots', () => {
@@ -213,6 +242,39 @@ describe('branding service', () => {
     expect(branding.setAppName).not.toHaveBeenCalled()
     expect(assets.upload).not.toHaveBeenCalled()
     expect(assets.remove).not.toHaveBeenCalled()
+  })
+
+  it('saves a background opacity and patches only what was sent', async () => {
+    const { service, branding } = serviceWith(makeRecord({ hero_title: 'Kept' }))
+
+    const dto = await service.setHero(SUPER_ADMIN, { background_opacity: 0.6 })
+
+    expect(branding.setHero).toHaveBeenCalledWith({ hero_background_opacity: 0.6 }, SUPER_ADMIN)
+    // A partial patch: tuning the image must not blank the headline someone
+    // else wrote, nor the overlay they tuned.
+    expect(dto.hero.title).toBe('Kept')
+    expect(dto.hero.background_opacity).toBe(0.6)
+  })
+
+  it('refuses a background opacity outside 0..1', async () => {
+    const { service, branding } = serviceWith(makeRecord())
+
+    for (const background_opacity of [1.5, -0.1, Number.NaN]) {
+      await expect(service.setHero(SUPER_ADMIN, { background_opacity })).rejects.toMatchObject({
+        status: 400
+      })
+    }
+    // Refused before the write, not clamped into one.
+    expect(branding.setHero).not.toHaveBeenCalled()
+  })
+
+  it('refuses a hero change from anyone who is not the super admin', async () => {
+    const { service, branding } = serviceWith(makeRecord(), { isSuperAdmin: false })
+
+    await expect(service.setHero('someone', { background_opacity: 0.5 })).rejects.toMatchObject({
+      status: 403
+    })
+    expect(branding.setHero).not.toHaveBeenCalled()
   })
 
   it('lets anyone read branding', async () => {

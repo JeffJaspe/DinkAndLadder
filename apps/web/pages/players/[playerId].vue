@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { initialsFor } from '~/utils/initials'
 import type { PlayerProfileDto } from '~/server/domains/player/dto/player-profile.dto'
 import type { PlayerRatingDto } from '~/server/domains/rating/dto/rating.dto'
 import type {
@@ -1097,11 +1096,7 @@ function formatActivityText(activity: ProfileActivity): string {
                 :to="`/clubs/${membership.club.id}`"
                 class="flex items-center gap-3 rounded-lg bg-canvas p-3 transition-all hover:bg-surface-2"
               >
-                <div
-                  class="flex h-10 w-10 items-center justify-center rounded-lg bg-surface-2 text-lg font-bold text-fg-secondary"
-                >
-                  {{ initialsFor(membership.club.name, 1) }}
-                </div>
+                <UiClubLogo :name="membership.club.name" box-class="h-10 w-10 rounded-lg" />
                 <div class="flex-1">
                   <p class="text-sm font-medium text-fg">{{ membership.club.name }}</p>
                 </div>

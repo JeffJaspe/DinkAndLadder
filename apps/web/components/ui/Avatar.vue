@@ -1,12 +1,15 @@
 <script setup lang="ts">
-import { initialsFor } from '~/utils/initials'
+import { USE_BRAND_DEFAULTS } from '~/utils/brand-assets'
 /**
- * Player / club avatar with an initials fallback.
+ * Player / club avatar.
  *
  * Almost every list row, card and header in the mockups leads with an avatar,
  * and most real profiles have no photo — so the fallback is the common case,
- * not the edge case. Initials are tinted by a hash of the name so a list of
- * people is visually separable rather than a column of identical grey circles.
+ * not the edge case. It is now the Dink and Ladder mark rather than tinted
+ * initials, so a photoless profile reads as part of the platform.
+ *
+ * While USE_BRAND_DEFAULTS is on, uploaded photos are not displayed either and
+ * every avatar is the mark.
  */
 
 const props = withDefaults(
@@ -30,39 +33,20 @@ const SIZES = {
   xl: 'h-24 w-24 text-2xl'
 } as const
 
-/** First letters of the first two words: "Juan Dela Cruz" -> "JD". */
-const initials = computed(() => initialsFor(props.name))
-
 /**
- * Deterministic tint per name. Only tokenised fills are used, so the palette
- * still flips with the theme — a random hex here would have re-introduced
- * exactly the problem Phase 2 removed.
- *
- * The *background* carries the identity; the initials are always `text-fg`.
- * Tinting the letters too was the obvious-looking choice and it failed axe in
- * both themes — `text-primary` on `bg-primary/15` measured 4.13:1 in light and
- * `text-rating-bronze` on its own wash 4.11:1 in dark, because a colour over a
- * weak wash of itself has nowhere near enough separation. `fg` is the one
- * foreground guaranteed to clear AA over any of these.
+ * The mark needs breathing room inside a circle, and the amount that reads as
+ * deliberate rather than cramped does not scale linearly with the box.
  */
-const TINTS = [
-  'bg-primary/15',
-  'bg-accent/25',
-  'bg-rating-bronze/20',
-  'bg-rating-silver/20',
-  'bg-rating-gold/20',
-  'bg-info/15'
-]
-
-const tint = computed(() => {
-  const name = props.name ?? ''
-  let hash = 0
-  for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0
-  return TINTS[hash % TINTS.length]
-})
+const PADDING = {
+  xs: 'p-1',
+  sm: 'p-1.5',
+  md: 'p-2',
+  lg: 'p-3',
+  xl: 'p-5'
+} as const
 
 const failed = ref(false)
-const showImage = computed(() => Boolean(props.src) && !failed.value)
+const showImage = computed(() => !USE_BRAND_DEFAULTS && Boolean(props.src) && !failed.value)
 </script>
 
 <template>
@@ -71,7 +55,8 @@ const showImage = computed(() => Boolean(props.src) && !failed.value)
     :class="[
       SIZES[size],
       shape === 'square' ? 'rounded-2xl' : 'rounded-full',
-      showImage ? 'bg-surface-2' : `${tint} text-fg`,
+      'bg-surface-2',
+      showImage ? '' : PADDING[size],
       highlighted ? 'ring-2 ring-primary ring-offset-2 ring-offset-canvas' : ''
     ]"
   >
@@ -83,8 +68,8 @@ const showImage = computed(() => Boolean(props.src) && !failed.value)
       loading="lazy"
       @error="failed = true"
     />
-    <!-- aria-hidden: the name is always rendered as text next to the avatar in
-         every place this is used, so announcing initials would just be noise. -->
-    <span v-else aria-hidden="true">{{ initials }}</span>
+    <!-- No alt: the name is always rendered as text next to the avatar in every
+         place this is used, so announcing it again would just be noise. -->
+    <UiBrandImage v-else />
   </div>
 </template>

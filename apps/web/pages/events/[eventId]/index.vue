@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { initialsFor } from '~/utils/initials'
 import type {
   EventDto,
   EventQueueDto,
@@ -11,8 +10,6 @@ import type { MatchListItemDto } from '~/server/domains/match/dto/match-join-row
 import type { PartnerDto } from '~/server/domains/partnership/dto/partnership.dto'
 import type { BoxScoreMatch } from '~/components/match/BoxScore.vue'
 import type { PlayerProfileDto } from '~/server/domains/player/dto/player-profile.dto'
-// PENDING-052: see utils/pending-052.ts. Delete both with the migration.
-import { ROUNDS_MIGRATION_PENDING, deriveDisplayRounds } from '~/utils/pending-052'
 import { apiErrorMessage } from '~/utils/api-error-message'
 import { championOf, stageLabels } from '~/utils/bracket-rounds'
 import { rulesForEvent, rulesForRound } from '~/utils/game-rules'
@@ -574,18 +571,8 @@ watch(visibleTabs, (tabs) => {
   if (!tabs.includes(activeTab.value)) activeTab.value = 'matches'
 })
 
-/**
- * The round shown in the sticky strip.
- *
- * PENDING-052: derived the same way the board derives it, so the two do not
- * disagree while the migration is outstanding. Once 052 lands, delete the
- * import and this becomes `event.current_round` outright.
- */
-const sessionRound = computed(() => {
-  if (!event.value) return 1
-  if (!ROUNDS_MIGRATION_PENDING) return event.value.current_round
-  return deriveDisplayRounds(matchesData.value?.data ?? [], event.value.queue_courts).currentRound
-})
+/** The round shown in the sticky strip. */
+const sessionRound = computed(() => event.value?.current_round ?? 1)
 
 /**
  * The scoring rules this session is played to. See 054.
@@ -2179,9 +2166,9 @@ const { goBack } = useAppBack('/events')
               >
                 <div class="flex items-center gap-3">
                   <div
-                    class="flex h-10 w-10 items-center justify-center rounded-full bg-surface-2 text-sm font-medium text-fg"
+                    class="flex h-10 w-10 items-center justify-center rounded-full bg-surface-2 p-1.5"
                   >
-                    {{ initialsFor(reg.player?.display_name, 1) }}
+                    <UiBrandImage />
                   </div>
                   <div>
                     <NuxtLink

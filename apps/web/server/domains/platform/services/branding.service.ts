@@ -3,6 +3,7 @@ import type { BrandingRepository, HeroPatch } from '../repositories/branding.rep
 import type { PlatformAdminService } from './platform-admin.service'
 import {
   appNameOf,
+  backgroundOpacityOf,
   extensionFor,
   isHexColor,
   objectPathFor,
@@ -39,6 +40,7 @@ export interface HeroInput {
   subtitle?: string
   overlay_color?: string
   overlay_opacity?: number
+  background_opacity?: number
 }
 
 export interface BrandingService {
@@ -54,6 +56,19 @@ export interface BrandingService {
   uploadAsset(userId: string, slot: BrandingSlot, asset: UploadedAsset): Promise<BrandingAdminDto>
   /** SuperAdmin only. Clears the slot back to the built-in mark. */
   clearAsset(userId: string, slot: BrandingSlot): Promise<BrandingAdminDto>
+}
+
+/**
+ * Both hero opacities reach a public page as an inline style and are guarded by
+ * a CHECK constraint besides, so a value outside 0..1 is refused here rather
+ * than clamped — a rejected save tells the operator something went wrong, where
+ * a silent clamp would look like the slider ignored them.
+ */
+function assertOpacity(value: unknown, label: string): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 1) {
+    throw new BrandingServiceError(400, 'VALIDATION_ERROR', `The ${label} must be between 0 and 1.`)
+  }
+  return value
 }
 
 const SLOT_PATHS: Record<BrandingSlot, keyof BrandingRecord> = {
@@ -87,7 +102,8 @@ export function createBrandingService(
         subtitle: record.hero_subtitle?.trim() || null,
         background_url: hero,
         overlay_color: overlayColorOf(record),
-        overlay_opacity: overlayOpacityOf(record)
+        overlay_opacity: overlayOpacityOf(record),
+        background_opacity: backgroundOpacityOf(record)
       }
     }
   }
@@ -182,20 +198,14 @@ export function createBrandingService(
       }
 
       if (input.overlay_opacity !== undefined) {
-        const opacity = input.overlay_opacity
-        if (
-          typeof opacity !== 'number' ||
-          !Number.isFinite(opacity) ||
-          opacity < 0 ||
-          opacity > 1
-        ) {
-          throw new BrandingServiceError(
-            400,
-            'VALIDATION_ERROR',
-            'The overlay opacity must be between 0 and 1.'
-          )
-        }
-        patch.hero_overlay_opacity = opacity
+        patch.hero_overlay_opacity = assertOpacity(input.overlay_opacity, 'overlay opacity')
+      }
+
+      if (input.background_opacity !== undefined) {
+        patch.hero_background_opacity = assertOpacity(
+          input.background_opacity,
+          'background image opacity'
+        )
       }
 
       if (!Object.keys(patch).length) {

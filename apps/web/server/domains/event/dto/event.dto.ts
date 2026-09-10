@@ -141,6 +141,13 @@ export interface EventRecord {
   close_policy: EventClosePolicy
   closes_at: string | null
   closed_at: string | null
+  /**
+   * Set when a plan downgrade restricted this event (056). NOT a status: the
+   * event's own lifecycle is untouched, so every existing query still sees it
+   * exactly as before. Clears to null on resubscribe.
+   */
+  restricted_at: string | null
+  restricted_reason: 'plan_downgrade' | null
   /** Who is teaching. Only meaningful on a coaching event. */
   coach_player_id: string | null
   fee_payer: EventFeePayer

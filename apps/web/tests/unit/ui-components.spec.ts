@@ -11,17 +11,22 @@ import { mount } from '@vue/test-utils'
 import { describe, expect, it, vi } from 'vitest'
 
 import UiAvatar from '../../components/ui/Avatar.vue'
+import UiBrandImage from '../../components/ui/BrandImage.vue'
 import UiButton from '../../components/ui/Button.vue'
 import UiIcon from '../../components/ui/Icon.vue'
 import UiRatingBadge from '../../components/ui/RatingBadge.vue'
 import UiSegmented from '../../components/ui/Segmented.vue'
 import UiStepper from '../../components/ui/Stepper.vue'
 import UiTrendIndicator from '../../components/ui/TrendIndicator.vue'
+import { DAL_MARK_DARK, DAL_MARK_LIGHT, USE_BRAND_DEFAULTS } from '../../utils/brand-assets'
 import { ICON_PATHS } from '../../utils/icons'
 
 // Components that render icons pull `UiIcon` from Nuxt's component
 // auto-import, which does not exist here.
-const global = { components: { UiIcon }, stubs: { NuxtLink: { template: '<a><slot /></a>' } } }
+const global = {
+  components: { UiIcon, UiBrandImage },
+  stubs: { NuxtLink: { template: '<a><slot /></a>' } }
+}
 
 describe('UiIcon', () => {
   it('renders the registered path for a name', () => {
@@ -86,29 +91,31 @@ describe('UiButton', () => {
 })
 
 describe('UiAvatar', () => {
-  it('derives initials from the first two words', () => {
-    expect(mount(UiAvatar, { props: { name: 'Juan Dela Cruz' } }).text()).toBe('JD')
-    expect(mount(UiAvatar, { props: { name: 'Cher' } }).text()).toBe('C')
+  it('falls back to the brand mark rather than an empty circle', () => {
+    // Both drawings are rendered and the `dark` class picks one, so a photoless
+    // avatar is never blank whichever theme is active.
+    for (const name of ['Juan Dela Cruz', null, '   ']) {
+      const sources = mount(UiAvatar, { props: { name }, global })
+        .findAll('img')
+        .map((img) => img.attributes('src'))
+      expect(sources).toEqual([DAL_MARK_LIGHT, DAL_MARK_DARK])
+    }
   })
 
-  it('falls back rather than rendering an empty circle', () => {
-    expect(mount(UiAvatar, { props: { name: null } }).text()).toBe('?')
-    expect(mount(UiAvatar, { props: { name: '   ' } }).text()).toBe('?')
-  })
+  it('honours USE_BRAND_DEFAULTS for an uploaded photo', () => {
+    const wrapper = mount(UiAvatar, {
+      props: { name: 'A B', src: 'https://example.test/a.png' },
+      global
+    })
+    const sources = wrapper.findAll('img').map((img) => img.attributes('src'))
 
-  it('gives the same name the same tint every time', () => {
-    const a = mount(UiAvatar, { props: { name: 'Maria Santos' } })
-      .classes()
-      .join(' ')
-    const b = mount(UiAvatar, { props: { name: 'Maria Santos' } })
-      .classes()
-      .join(' ')
-    expect(a).toBe(b)
-  })
-
-  it('shows an image when one is supplied', () => {
-    const wrapper = mount(UiAvatar, { props: { name: 'A B', src: 'https://example.test/a.png' } })
-    expect(wrapper.find('img').exists()).toBe(true)
+    if (USE_BRAND_DEFAULTS) {
+      // The upload is deliberately not displayed while the flag is on — but the
+      // prop is still accepted, so flipping the flag is all it takes.
+      expect(sources).toEqual([DAL_MARK_LIGHT, DAL_MARK_DARK])
+    } else {
+      expect(sources).toEqual(['https://example.test/a.png'])
+    }
   })
 })
 
@@ -227,7 +234,7 @@ describe('component contracts', () => {
   it('does not leak console errors on mount', () => {
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
     mount(UiButton, { global })
-    mount(UiAvatar, { props: { name: 'A' } })
+    mount(UiAvatar, { props: { name: 'A' }, global })
     mount(UiRatingBadge, { props: { rating: 4 } })
     expect(spy).not.toHaveBeenCalled()
     spy.mockRestore()

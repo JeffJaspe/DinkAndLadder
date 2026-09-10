@@ -44,6 +44,8 @@ function makeEvent(overrides?: Partial<EventRecord>): EventRecord {
     close_policy: 'manual',
     closes_at: null,
     closed_at: null,
+    restricted_at: null,
+    restricted_reason: null,
     coach_player_id: null,
     fee_payer: 'player',
     organizer_fee_amount: null,
@@ -72,6 +74,8 @@ function setup(options?: {
     countByClubForLimits: vi
       .fn()
       .mockResolvedValue({ drafts: 0, liveTournaments: 0, liveOpenPlay: 0 }),
+    findRestrictableForClub: vi.fn().mockResolvedValue([]),
+    setRestricted: vi.fn().mockResolvedValue(0),
     countBlockingChildren: vi
       .fn()
       .mockResolvedValue(options?.blocking ?? { registrations: 0, matches: 0, queueEntries: 0 }),

@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest'
 
 import RankingBoard, { type RankingBoardEntry } from '../../components/RankingBoard.vue'
 import UiAvatar from '../../components/ui/Avatar.vue'
+import UiBrandImage from '../../components/ui/BrandImage.vue'
 import UiButton from '../../components/ui/Button.vue'
 import UiDataTable from '../../components/ui/DataTable.vue'
 import UiEmptyState from '../../components/ui/EmptyState.vue'
@@ -20,7 +21,16 @@ import UiTrendIndicator from '../../components/ui/TrendIndicator.vue'
 // The page-level components resolve these through Nuxt auto-import, which
 // does not exist in the test environment.
 const global = {
-  components: { UiAvatar, UiButton, UiDataTable, UiEmptyState, UiIcon, UiPodium, UiTrendIndicator },
+  components: {
+    UiAvatar,
+    UiBrandImage,
+    UiButton,
+    UiDataTable,
+    UiEmptyState,
+    UiIcon,
+    UiPodium,
+    UiTrendIndicator
+  },
   stubs: { NuxtLink: { template: '<a><slot /></a>' } }
 }
 

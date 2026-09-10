@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { initialsFor } from '~/utils/initials'
 import type { ClubDto } from '~/server/domains/club/dto/club.dto'
 import type { ClubRole, RosterMemberDto } from '~/server/domains/club/dto/club-membership.dto'
 import type { PlayerProfileDto } from '~/server/domains/player/dto/player-profile.dto'
@@ -541,18 +540,12 @@ const { goBack } = useAppBack('/my-clubs')
           <UiCoverArt v-else :name="club.name" variant="banner" rounded="rounded-none" />
 
           <div class="flex items-start gap-4 p-6 pt-0">
-            <img
-              v-if="club.logo_url"
+            <UiClubLogo
+              :name="club.name"
               :src="club.logo_url"
-              :alt="`${club.name} logo`"
-              class="-mt-8 h-16 w-16 flex-shrink-0 rounded-xl border-4 border-surface object-cover"
+              box-class="h-16 w-16 rounded-xl"
+              tile-class="-mt-8 border-4 border-surface"
             />
-            <div
-              v-else
-              class="-mt-8 flex h-16 w-16 flex-shrink-0 items-center justify-center rounded-xl border-4 border-surface bg-surface-2 text-2xl font-bold text-fg"
-            >
-              {{ initialsFor(club.name, 1) }}
-            </div>
             <div class="flex-1 pt-4">
               <div class="flex items-center gap-2">
                 <h1 class="font-display text-heading-1 text-fg">{{ club.name }}</h1>
@@ -1014,10 +1007,8 @@ const { goBack } = useAppBack('/my-clubs')
               class="flex items-center justify-between rounded-lg bg-canvas p-3"
             >
               <div class="flex items-center gap-3">
-                <div
-                  class="flex h-8 w-8 items-center justify-center rounded-full bg-surface-2 text-sm font-bold text-fg-secondary"
-                >
-                  {{ initialsFor(member.display_name, 1) }}
+                <div class="flex h-8 w-8 items-center justify-center rounded-full bg-surface-2 p-1">
+                  <UiBrandImage />
                 </div>
                 <NuxtLink
                   :to="`/players/${member.player_id}`"
@@ -1075,10 +1066,8 @@ const { goBack } = useAppBack('/my-clubs')
               class="flex items-center justify-between rounded-lg bg-canvas p-3"
             >
               <div class="flex items-center gap-3">
-                <div
-                  class="flex h-8 w-8 items-center justify-center rounded-full bg-surface-2 text-sm font-bold text-fg-secondary"
-                >
-                  {{ initialsFor(member.display_name, 1) }}
+                <div class="flex h-8 w-8 items-center justify-center rounded-full bg-surface-2 p-1">
+                  <UiBrandImage />
                 </div>
                 <NuxtLink
                   :to="`/players/${member.player_id}`"

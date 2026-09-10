@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { initialsFor } from '~/utils/initials'
 import type { ClubSearchResultDto } from '~/server/domains/club/dto/club.dto'
 
 useHead({ title: 'Discover Clubs' })
@@ -225,11 +224,9 @@ function clearFilters() {
         class="rounded-xl bg-surface p-4 shadow-card transition-all hover:bg-surface-2 hover:shadow-card-hover"
       >
         <div class="flex items-center gap-4">
-          <div
-            class="flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-xl bg-surface-2 text-xl font-bold text-fg-secondary"
-          >
-            {{ initialsFor(club.name, 1) }}
-          </div>
+          <!-- Club search results carry no image paths (ClubSearchResultDto),
+               so the directory always shows the platform mark. -->
+          <UiClubLogo :name="club.name" box-class="h-14 w-14 rounded-xl" />
           <div class="min-w-0 flex-1">
             <div class="flex items-center gap-1.5">
               <h2 class="truncate text-body-1 font-medium text-fg">{{ club.name }}</h2>

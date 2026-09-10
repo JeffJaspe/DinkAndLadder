@@ -1,3 +1,4 @@
+import type { VerificationSource } from '../../payment/dto/subscription.dto'
 export type ClubVisibility = 'public' | 'private'
 export type ClubStatus = 'active' | 'archived'
 export type ClubVerificationStatus = 'unverified' | 'pending' | 'verified' | 'suspended' | 'revoked'
@@ -20,6 +21,12 @@ export interface ClubRecord {
   verification_requested_at: string | null
   verified_at: string | null
   verified_by_user_id: string | null
+  /**
+   * 'admin_review' or 'subscription' — how the club reached its verification
+   * state (056). Not exposed on ClubDto: a club's own badge is public, but why
+   * it was granted is an internal detail of the review process.
+   */
+  verification_source: VerificationSource
   /**
    * Bucket-relative paths, not URLs - the URL shape depends on whether the
    * bucket is public, which is a deployment decision (see 025-platform-branding).

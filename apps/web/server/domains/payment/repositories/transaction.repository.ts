@@ -4,14 +4,28 @@ import type {
   TransactionStatus,
   TransactionType
 } from '../dto/transaction.dto'
+import type { PaymentProvider } from '../dto/subscription.dto'
 
 const COLUMNS =
-  'id, player_id, club_id, stripe_payment_intent_id, stripe_invoice_id, amount_cents, currency, status, transaction_type, description, metadata, created_at, updated_at'
+  'id, player_id, club_id, stripe_payment_intent_id, stripe_invoice_id, amount_cents, currency, status, transaction_type, description, metadata, created_at, updated_at, ' +
+  'provider, provider_reference, is_test, subscription_id'
 
 export interface TransactionRepository {
   create(input: CreateTransactionInput): Promise<PaymentTransactionRecord>
   findByStripePaymentIntent(stripePaymentIntentId: string): Promise<PaymentTransactionRecord | null>
   findByStripeInvoice(stripeInvoiceId: string): Promise<PaymentTransactionRecord | null>
+  /**
+   * The idempotency lookup. A gateway that retries a webhook is normal
+   * behaviour; charging twice because of it is not, and this is how a handler
+   * recognises a delivery it has already recorded.
+   *
+   * Scoped by provider as well as reference, because two gateways can hand out
+   * the same-looking id and the unique index behind this is on the pair.
+   */
+  findByProviderReference(
+    provider: PaymentProvider,
+    reference: string
+  ): Promise<PaymentTransactionRecord | null>
   updateStatus(id: string, status: TransactionStatus): Promise<PaymentTransactionRecord>
   listByPlayer(playerId: string, limit?: number): Promise<PaymentTransactionRecord[]>
   listByClub(clubId: string, limit?: number): Promise<PaymentTransactionRecord[]>
@@ -28,6 +42,17 @@ export interface CreateTransactionInput {
   transaction_type: TransactionType
   description?: string
   metadata?: Record<string, unknown>
+  /** Defaults to 'manual' in the database — an entry with no gateway at all. */
+  provider?: PaymentProvider
+  /** The gateway's own id for this charge, and the key idempotency turns on. */
+  provider_reference?: string | null
+  /**
+   * A database CHECK enforces `provider = 'simulated'` implies `is_test` and a
+   * zero amount, so a simulated charge cannot be recorded as real money even if
+   * a caller tries.
+   */
+  is_test?: boolean
+  subscription_id?: string | null
 }
 
 export function createTransactionRepository(client: SupabaseClient): TransactionRepository {
@@ -63,6 +88,18 @@ export function createTransactionRepository(client: SupabaseClient): Transaction
         .from('payment_transactions')
         .select(COLUMNS)
         .eq('stripe_invoice_id', stripeInvoiceId)
+        .maybeSingle()
+
+      if (error) throw error
+      return data as unknown as PaymentTransactionRecord | null
+    },
+
+    async findByProviderReference(provider, reference) {
+      const { data, error } = await client
+        .from('payment_transactions')
+        .select(COLUMNS)
+        .eq('provider', provider)
+        .eq('provider_reference', reference)
         .maybeSingle()
 
       if (error) throw error

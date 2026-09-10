@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import type { VerificationSource } from '../../payment/dto/subscription.dto'
 import { escapeLikePattern } from '../../shared/escape-like'
 import type {
   ClubRecord,
@@ -9,7 +10,7 @@ import type {
 
 const CLUB_COLUMNS =
   'id, name, slug, description, province, city, barangay, court_name, court_address, visibility, status, created_by_user_id, created_at, ' +
-  'verification_status, verification_requested_at, verified_at, verified_by_user_id, ' +
+  'verification_status, verification_requested_at, verified_at, verified_by_user_id, verification_source, ' +
   // 040-club-branding. Every read goes through this list, so a column missing
   // here reads as undefined everywhere rather than failing loudly.
   'cover_photo_path, logo_path'
@@ -40,6 +41,16 @@ export interface UpdateClubVerificationInput {
   verification_requested_at?: string | null
   verified_at?: string | null
   verified_by_user_id?: string | null
+  /**
+   * How the club came to be in this state (056).
+   *
+   * Once paying can put a club in the verification queue, "verified" alone
+   * stops answering the question a reviewer actually has: did a human check
+   * this organisation, or did a payment queue it? Every club verified before
+   * 056 was backfilled to 'admin_review', which is a statement of fact — that
+   * was the only path that existed.
+   */
+  verification_source?: VerificationSource
 }
 
 export interface ClubRepository {

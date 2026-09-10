@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { initialsFor } from '~/utils/initials'
 interface HeadToHeadMatch {
   match_id: string
   match_type: 'singles' | 'doubles'
@@ -75,10 +74,8 @@ function formatDate(dateStr: string): string {
         <!-- Header -->
         <div class="rounded-xl bg-surface p-6 shadow-card">
           <div class="flex items-center gap-4">
-            <div
-              class="flex h-16 w-16 items-center justify-center rounded-full bg-surface-2 text-2xl font-bold text-fg-secondary"
-            >
-              {{ initialsFor(stats.opponent.display_name, 1) }}
+            <div class="flex h-16 w-16 items-center justify-center rounded-full bg-surface-2 p-3">
+              <UiBrandImage />
             </div>
             <div>
               <p class="text-sm text-fg-muted">Head-to-Head vs</p>

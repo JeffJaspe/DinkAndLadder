@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { initialsFor } from '~/utils/initials'
 /**
  * Duo partners — formal partnerships, their requests, and the duo star.
  *
@@ -233,10 +232,8 @@ const sectionItems = computed(() => [
           :class="partner.is_default ? 'ring-1 ring-primary/40' : ''"
         >
           <NuxtLink :to="`/players/${partner.player_id}`" class="flex items-center gap-3">
-            <div
-              class="flex h-12 w-12 items-center justify-center rounded-full bg-surface-2 text-lg font-bold text-fg-secondary"
-            >
-              {{ initialsFor(partner.display_name, 1) }}
+            <div class="flex h-12 w-12 items-center justify-center rounded-full bg-surface-2 p-2">
+              <UiBrandImage />
             </div>
             <div>
               <p class="flex items-center gap-2 font-medium text-fg hover:text-primary">
@@ -314,10 +311,8 @@ const sectionItems = computed(() => [
         >
           <div class="flex items-center justify-between">
             <NuxtLink :to="`/players/${request.from_player_id}`" class="flex items-center gap-3">
-              <div
-                class="flex h-12 w-12 items-center justify-center rounded-full bg-surface-2 text-lg font-bold text-fg-secondary"
-              >
-                {{ initialsFor(request.player?.display_name, 1) }}
+              <div class="flex h-12 w-12 items-center justify-center rounded-full bg-surface-2 p-2">
+                <UiBrandImage />
               </div>
               <div>
                 <p class="font-medium text-fg hover:text-primary">
@@ -377,10 +372,8 @@ const sectionItems = computed(() => [
           class="flex items-center justify-between rounded-xl bg-surface p-4 shadow-card"
         >
           <NuxtLink :to="`/players/${request.to_player_id}`" class="flex items-center gap-3">
-            <div
-              class="flex h-12 w-12 items-center justify-center rounded-full bg-surface-2 text-lg font-bold text-fg-secondary"
-            >
-              {{ initialsFor(request.player?.display_name, 1) }}
+            <div class="flex h-12 w-12 items-center justify-center rounded-full bg-surface-2 p-2">
+              <UiBrandImage />
             </div>
             <div>
               <p class="font-medium text-fg hover:text-primary">

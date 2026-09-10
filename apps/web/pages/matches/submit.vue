@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { initialsFor } from '~/utils/initials'
 import type { PlayerProfileDto } from '~/server/domains/player/dto/player-profile.dto'
 import type { MatchDto } from '~/server/domains/match/dto/match.dto'
 import type { EventDto, EventRegistrationDto } from '~/server/domains/event/dto/event.dto'
@@ -495,9 +494,9 @@ const { goBack } = useAppBack('/events')
                     >
                       <div class="flex items-center gap-3">
                         <div
-                          class="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-sm font-bold text-on-primary"
+                          class="flex h-8 w-8 items-center justify-center rounded-full bg-primary p-1"
                         >
-                          {{ initialsFor(team1Player1.display_name, 1) }}
+                          <UiBrandImage theme="dark" />
                         </div>
                         <div>
                           <span class="text-fg">{{ team1Player1.display_name }}</span>
@@ -541,9 +540,9 @@ const { goBack } = useAppBack('/events')
                           @click="selectPlayer(player)"
                         >
                           <div
-                            class="flex h-8 w-8 items-center justify-center rounded-full bg-surface-3 text-sm font-bold text-fg-secondary"
+                            class="flex h-8 w-8 items-center justify-center rounded-full bg-surface-3 p-1"
                           >
-                            {{ initialsFor(player.display_name, 1) }}
+                            <UiBrandImage />
                           </div>
                           <div>
                             <p class="text-sm font-medium text-fg">
@@ -572,9 +571,9 @@ const { goBack } = useAppBack('/events')
                     >
                       <div class="flex items-center gap-3">
                         <div
-                          class="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-sm font-bold text-on-primary"
+                          class="flex h-8 w-8 items-center justify-center rounded-full bg-primary p-1"
                         >
-                          {{ initialsFor(team1Player2.display_name, 1) }}
+                          <UiBrandImage theme="dark" />
                         </div>
                         <div>
                           <span class="text-fg">{{ team1Player2.display_name }}</span>
@@ -618,9 +617,9 @@ const { goBack } = useAppBack('/events')
                           @click="selectPlayer(player)"
                         >
                           <div
-                            class="flex h-8 w-8 items-center justify-center rounded-full bg-surface-3 text-sm font-bold text-fg-secondary"
+                            class="flex h-8 w-8 items-center justify-center rounded-full bg-surface-3 p-1"
                           >
-                            {{ initialsFor(player.display_name, 1) }}
+                            <UiBrandImage />
                           </div>
                           <div>
                             <p class="text-sm font-medium text-fg">
@@ -655,9 +654,9 @@ const { goBack } = useAppBack('/events')
                     >
                       <div class="flex items-center gap-3">
                         <div
-                          class="flex h-8 w-8 items-center justify-center rounded-full bg-danger/80 text-sm font-bold text-white"
+                          class="flex h-8 w-8 items-center justify-center rounded-full bg-danger/80 p-1"
                         >
-                          {{ initialsFor(team2Player1.display_name, 1) }}
+                          <UiBrandImage theme="dark" />
                         </div>
                         <div>
                           <span class="text-fg">{{ team2Player1.display_name }}</span>
@@ -701,9 +700,9 @@ const { goBack } = useAppBack('/events')
                           @click="selectPlayer(player)"
                         >
                           <div
-                            class="flex h-8 w-8 items-center justify-center rounded-full bg-surface-3 text-sm font-bold text-fg-secondary"
+                            class="flex h-8 w-8 items-center justify-center rounded-full bg-surface-3 p-1"
                           >
-                            {{ initialsFor(player.display_name, 1) }}
+                            <UiBrandImage />
                           </div>
                           <div>
                             <p class="text-sm font-medium text-fg">
@@ -732,9 +731,9 @@ const { goBack } = useAppBack('/events')
                     >
                       <div class="flex items-center gap-3">
                         <div
-                          class="flex h-8 w-8 items-center justify-center rounded-full bg-danger/80 text-sm font-bold text-white"
+                          class="flex h-8 w-8 items-center justify-center rounded-full bg-danger/80 p-1"
                         >
-                          {{ initialsFor(team2Player2.display_name, 1) }}
+                          <UiBrandImage theme="dark" />
                         </div>
                         <div>
                           <span class="text-fg">{{ team2Player2.display_name }}</span>
@@ -778,9 +777,9 @@ const { goBack } = useAppBack('/events')
                           @click="selectPlayer(player)"
                         >
                           <div
-                            class="flex h-8 w-8 items-center justify-center rounded-full bg-surface-3 text-sm font-bold text-fg-secondary"
+                            class="flex h-8 w-8 items-center justify-center rounded-full bg-surface-3 p-1"
                           >
-                            {{ initialsFor(player.display_name, 1) }}
+                            <UiBrandImage />
                           </div>
                           <div>
                             <p class="text-sm font-medium text-fg">

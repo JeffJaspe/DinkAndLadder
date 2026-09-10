@@ -1,8 +1,13 @@
 <script setup lang="ts">
-import { initialsFor } from '~/utils/initials'
+import { USE_BRAND_DEFAULTS } from '~/utils/brand-assets'
 /**
  * The platform's mark: the uploaded logo if the SuperAdmin set one, otherwise
- * the monogram tile that has always been there.
+ * the Dink and Ladder mark.
+ *
+ * The fallback used to be a monogram tile built from the platform name. Real
+ * artwork exists now (assets/dal-assets), so the tile is gone — and while
+ * USE_BRAND_DEFAULTS is on, the uploaded logo is not displayed either and every
+ * surface shows the mark.
  *
  * Extracted because the same pair appears in the sidebar, the mobile header,
  * the drawer, the landing page and the auth screens — copies of the fallback
@@ -10,8 +15,6 @@ import { initialsFor } from '~/utils/initials'
  * landing header, its drawer and footer, and the login/register/reset screens
  * each hard-coded a "D" tile, so an uploaded logo never reached them.
  *
- * The monogram comes from the platform name rather than a hard-coded "D", so
- * renaming the platform renames its mark too.
  */
 const { appName, logoUrl } = useBranding()
 
@@ -26,13 +29,9 @@ const props = withDefaults(
     showName?: boolean
     /** Typography for that name, so each surface keeps its own scale. */
     nameClass?: string
-    /** The landing page's gradient treatment for the monogram tile. */
-    gradient?: boolean
   }>(),
-  { size: 'md', showName: true, nameClass: 'text-body-2 font-semibold', gradient: false }
+  { size: 'md', showName: true, nameClass: 'text-body-2 font-semibold' }
 )
-
-const monogram = computed(() => initialsFor(appName.value, 1))
 
 const BOX: Record<string, string> = {
   sm: 'h-7 w-7 rounded-lg text-caption',
@@ -44,14 +43,10 @@ const BOX: Record<string, string> = {
 
 const boxClass = computed(() => BOX[props.size] ?? BOX.md)
 
-const tileClass = computed(() =>
-  props.gradient ? 'bg-gradient-to-br from-primary to-primary-hover' : 'bg-primary'
-)
-
-// A logo may be any aspect ratio, so it is fitted into the square the monogram
+// A logo may be any aspect ratio, so it is fitted into the square the mark
 // occupies rather than stretched to it.
 const failed = ref(false)
-const showLogo = computed(() => !!logoUrl.value && !failed.value)
+const showLogo = computed(() => !USE_BRAND_DEFAULTS && !!logoUrl.value && !failed.value)
 </script>
 
 <template>
@@ -64,13 +59,9 @@ const showLogo = computed(() => !!logoUrl.value && !failed.value)
       :class="boxClass"
       @error="failed = true"
     />
-    <span
-      v-else
-      class="flex items-center justify-center font-bold text-on-primary"
-      :class="[boxClass, tileClass]"
-      aria-hidden="true"
-      >{{ monogram }}</span
-    >
+    <span v-else class="flex items-center justify-center" :class="boxClass">
+      <UiBrandImage :alt="showName ? '' : appName" />
+    </span>
     <span v-if="showName" class="text-fg" :class="nameClass">{{ appName }}</span>
   </span>
 </template>

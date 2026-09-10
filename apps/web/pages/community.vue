@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { initialsFor } from '~/utils/initials'
 /**
  * Community — everyone you play with, in one place.
  *
@@ -196,10 +195,8 @@ function formatRelativeTime(dateStr: string): string {
             class="flex items-center justify-between rounded-xl bg-surface p-4 transition-all hover:bg-surface-2 shadow-card hover:shadow-card-hover"
           >
             <div class="flex items-center gap-3">
-              <div
-                class="flex h-12 w-12 items-center justify-center rounded-full bg-surface-2 text-lg font-bold text-fg-secondary"
-              >
-                {{ initialsFor(teammate.display_name, 1) }}
+              <div class="flex h-12 w-12 items-center justify-center rounded-full bg-surface-2 p-2">
+                <UiBrandImage />
               </div>
               <div>
                 <p class="font-medium text-fg">{{ teammate.display_name }}</p>
@@ -245,10 +242,8 @@ function formatRelativeTime(dateStr: string): string {
             class="flex items-center justify-between rounded-xl bg-surface p-4 transition-all hover:bg-surface-2 shadow-card hover:shadow-card-hover"
           >
             <div class="flex items-center gap-3">
-              <div
-                class="flex h-12 w-12 items-center justify-center rounded-full bg-surface-2 text-lg font-bold text-fg-secondary"
-              >
-                {{ initialsFor(opponent.display_name, 1) }}
+              <div class="flex h-12 w-12 items-center justify-center rounded-full bg-surface-2 p-2">
+                <UiBrandImage />
               </div>
               <div>
                 <p class="font-medium text-fg">{{ opponent.display_name }}</p>

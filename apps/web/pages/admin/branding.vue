@@ -2,6 +2,7 @@
 import type { BrandingAdminDto, BrandingSlot } from '~/server/domains/platform/dto/branding.dto'
 import {
   DEFAULT_APP_NAME,
+  DEFAULT_BACKGROUND_OPACITY,
   MAX_HERO_SUBTITLE_LENGTH,
   MAX_HERO_TITLE_LENGTH
 } from '~/server/domains/platform/dto/branding.dto'
@@ -139,7 +140,8 @@ const heroForm = reactive({
   title: '',
   subtitle: '',
   overlay_color: '#000000',
-  overlay_opacity: 0.5
+  overlay_opacity: 0.5,
+  background_opacity: DEFAULT_BACKGROUND_OPACITY
 })
 const savingHero = ref(false)
 
@@ -150,6 +152,7 @@ watchEffect(() => {
   heroForm.subtitle = branding.value.hero.subtitle ?? ''
   heroForm.overlay_color = branding.value.hero.overlay_color
   heroForm.overlay_opacity = branding.value.hero.overlay_opacity
+  heroForm.background_opacity = branding.value.hero.background_opacity
 })
 
 async function saveHero() {
@@ -163,7 +166,8 @@ async function saveHero() {
         subtitle: heroForm.subtitle,
         overlay_color: heroForm.overlay_color,
         // A range input hands back a string; the API takes a number.
-        overlay_opacity: Number(heroForm.overlay_opacity)
+        overlay_opacity: Number(heroForm.overlay_opacity),
+        background_opacity: Number(heroForm.background_opacity)
       }
     })
     await Promise.all([refresh(), refreshLiveBranding()])
@@ -318,6 +322,36 @@ async function saveHero() {
                 placeholder="Track your rating, find tournaments, and connect with the pickleball community."
                 class="w-full rounded-button border border-border-strong bg-surface px-3 py-2 text-sm text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
               />
+            </div>
+
+            <!-- The image's own strength, separate from the scrim below it.
+                 The landing page lays a wash of its canvas over the artwork;
+                 this is how much of the image survives that wash. -->
+            <div>
+              <label
+                for="hero-background-opacity"
+                class="mb-1.5 block text-caption text-fg-secondary"
+              >
+                Background image opacity —
+                {{ Math.round(Number(heroForm.background_opacity) * 100) }}%
+              </label>
+              <input
+                id="hero-background-opacity"
+                v-model="heroForm.background_opacity"
+                type="range"
+                min="0"
+                max="1"
+                step="0.01"
+                class="w-full accent-primary"
+                :disabled="!branding?.hero.background_url"
+              />
+              <p class="mt-1 text-caption text-fg-muted">
+                {{
+                  branding?.hero.background_url
+                    ? 'Higher shows more of the image; the headline is ordinary page text on top of it, so a strong image competes with it.'
+                    : 'Upload a landing background above to use this.'
+                }}
+              </p>
             </div>
 
             <div class="flex flex-wrap items-end gap-4">

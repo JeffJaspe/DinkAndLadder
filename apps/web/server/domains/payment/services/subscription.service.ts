@@ -12,6 +12,27 @@ import {
   toClubSubscriptionDto
 } from '../dto/subscription.dto'
 
+/**
+ * **Four predicates were deleted from this service (056):**
+ * `canPlayerSubmitMatch`, `canPlayerJoinClub`, `canClubHostTournament` and
+ * `canClubAddMember`.
+ *
+ * Not one of them was called by anything in the product. They read like
+ * authority — a named function returning a business decision — while enforcing
+ * nothing, which is the most dangerous shape a dead function can take: the next
+ * person to need a member limit would have found `canClubAddMember`, believed
+ * it, and shipped a limit built on `features.max_members`, a jsonb key where
+ * `-1` means unlimited and a missing key means 50.
+ *
+ * Club allowances now resolve through `club-entitlements.service.ts`, against
+ * typed columns where `null` means unlimited.
+ *
+ * What stays, and why: `listPlans`, `getPlanById`, `getPlayerSubscription`,
+ * `getPlayerFeatures` and `getClubFeatures` are live read contracts —
+ * `/subscriptions/me`, `/subscriptions/plans` and `/clubs/{id}/subscription`
+ * all return them, and the Flutter client is a documented consumer. The
+ * `features` blob they read is frozen legacy; nothing new consults it.
+ */
 export class SubscriptionServiceError extends Error {
   constructor(
     public readonly status: number,
@@ -28,13 +49,9 @@ export interface SubscriptionService {
 
   getPlayerSubscription(playerId: string): Promise<PlayerSubscriptionDto | null>
   getPlayerFeatures(playerId: string): Promise<SubscriptionPlanFeatures>
-  canPlayerSubmitMatch(playerId: string, currentMonthSubmissions: number): Promise<boolean>
-  canPlayerJoinClub(playerId: string, currentClubCount: number): Promise<boolean>
 
   getClubSubscription(clubId: string): Promise<ClubSubscriptionDto | null>
   getClubFeatures(clubId: string): Promise<SubscriptionPlanFeatures>
-  canClubHostTournament(clubId: string): Promise<boolean>
-  canClubAddMember(clubId: string, currentMemberCount: number): Promise<boolean>
 }
 
 const FREE_FEATURES: SubscriptionPlanFeatures = {
@@ -105,22 +122,6 @@ export function createSubscriptionService(
       return getPlayerFeaturesInternal(playerId)
     },
 
-    async canPlayerSubmitMatch(playerId, currentMonthSubmissions) {
-      const features = await getPlayerFeaturesInternal(playerId)
-      const maxMatches = features.max_matches_per_month ?? 10
-
-      if (maxMatches === -1) return true
-      return currentMonthSubmissions < maxMatches
-    },
-
-    async canPlayerJoinClub(playerId, currentClubCount) {
-      const features = await getPlayerFeaturesInternal(playerId)
-      const maxClubs = features.max_clubs ?? 2
-
-      if (maxClubs === -1) return true
-      return currentClubCount < maxClubs
-    },
-
     async getClubSubscription(clubId) {
       const record = await subscriptions.getClubSubscription(clubId)
       if (!record) return null
@@ -131,19 +132,6 @@ export function createSubscriptionService(
 
     async getClubFeatures(clubId) {
       return getClubFeaturesInternal(clubId)
-    },
-
-    async canClubHostTournament(clubId) {
-      const features = await getClubFeaturesInternal(clubId)
-      return features.tournaments === true
-    },
-
-    async canClubAddMember(clubId, currentMemberCount) {
-      const features = await getClubFeaturesInternal(clubId)
-      const maxMembers = features.max_members ?? 50
-
-      if (maxMembers === -1) return true
-      return currentMemberCount < maxMembers
     }
   }
 }

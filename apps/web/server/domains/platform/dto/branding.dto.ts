@@ -14,6 +14,17 @@ export const DEFAULT_APP_NAME = 'DinkAndLadder'
 export const DEFAULT_OVERLAY_COLOR = '#000000'
 export const DEFAULT_OVERLAY_OPACITY = 0.5
 
+/**
+ * How strongly the landing background image reads, 0 (invisible) to 1
+ * (untouched).
+ *
+ * 0.08 is not a taste call: the landing page lays a flat wash of the theme's
+ * own canvas over the artwork at 0.92, which leaves exactly this much of the
+ * image showing. Keeping the default identical means an operator who never
+ * touches the slider sees the page they already had.
+ */
+export const DEFAULT_BACKGROUND_OPACITY = 0.08
+
 export interface BrandingRecord {
   app_name: string | null
   logo_path: string | null
@@ -23,6 +34,7 @@ export interface BrandingRecord {
   hero_background_path: string | null
   hero_overlay_color: string | null
   hero_overlay_opacity: number | string | null
+  hero_background_opacity: number | string | null
   branding_updated_at: string | null
 }
 
@@ -33,6 +45,8 @@ export interface HeroDto {
   background_url: string | null
   overlay_color: string
   overlay_opacity: number
+  /** 0 (invisible) to 1 (untouched). See DEFAULT_BACKGROUND_OPACITY. */
+  background_opacity: number
 }
 
 /** What a page needs to paint the brand. */
@@ -123,9 +137,18 @@ export function overlayColorOf(record: Pick<BrandingRecord, 'hero_overlay_color'
 export function overlayOpacityOf(
   record: Pick<BrandingRecord, 'hero_overlay_opacity'> | null
 ): number {
-  // numeric(3,2) comes back from PostgREST as a string.
-  const raw = record?.hero_overlay_opacity
+  return clampedOpacity(record?.hero_overlay_opacity, DEFAULT_OVERLAY_OPACITY)
+}
+
+export function backgroundOpacityOf(
+  record: Pick<BrandingRecord, 'hero_background_opacity'> | null
+): number {
+  return clampedOpacity(record?.hero_background_opacity, DEFAULT_BACKGROUND_OPACITY)
+}
+
+/** numeric(3,2) comes back from PostgREST as a string. */
+function clampedOpacity(raw: number | string | null | undefined, fallback: number): number {
   const value = typeof raw === 'string' ? Number.parseFloat(raw) : raw
-  if (typeof value !== 'number' || !Number.isFinite(value)) return DEFAULT_OVERLAY_OPACITY
+  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback
   return Math.min(1, Math.max(0, value))
 }

@@ -44,6 +44,8 @@ function makeEvent(id: string, clubId: string): EventRecord {
     close_policy: 'manual',
     closes_at: null,
     closed_at: null,
+    restricted_at: null,
+    restricted_reason: null,
     coach_player_id: null,
     fee_payer: 'player',
     organizer_fee_amount: null,

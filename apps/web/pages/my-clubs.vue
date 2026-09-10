@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { initialsFor } from '~/utils/initials'
 import type { MyClubMembershipDto } from '~/server/domains/club/dto/club-membership.dto'
 import { apiErrorMessage } from '~/utils/api-error-message'
 
@@ -163,11 +162,7 @@ const roleColors: Record<string, string> = {
           class="flex items-center gap-4 rounded-xl bg-surface p-4 transition-all hover:bg-surface-2 shadow-card hover:shadow-card-hover"
         >
           <!-- Logo -->
-          <div
-            class="flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-xl bg-surface-2 text-xl font-bold text-fg-secondary"
-          >
-            {{ initialsFor(membership.club.name, 1) }}
-          </div>
+          <UiClubLogo :name="membership.club.name" box-class="h-14 w-14 rounded-xl" />
 
           <!-- Info -->
           <div class="min-w-0 flex-1">

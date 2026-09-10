@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { initialsFor } from '~/utils/initials'
 interface FollowRelation {
   player_id: string
   display_name: string
@@ -112,10 +111,8 @@ async function unfollow(playerId: string) {
           class="flex items-center justify-between rounded-xl bg-surface p-4 shadow-card"
         >
           <NuxtLink :to="`/players/${relation.player_id}`" class="flex items-center gap-3">
-            <div
-              class="flex h-10 w-10 items-center justify-center rounded-full bg-surface-2 text-sm font-bold text-fg-secondary"
-            >
-              {{ initialsFor(relation.display_name, 1) }}
+            <div class="flex h-10 w-10 items-center justify-center rounded-full bg-surface-2 p-1.5">
+              <UiBrandImage />
             </div>
             <span class="font-medium text-fg hover:text-primary">
               {{ relation.display_name }}

@@ -82,15 +82,23 @@ describe('SubscriptionService', () => {
     repo = {
       listActivePlans: vi.fn(),
       getPlanById: vi.fn(),
-      getPlanByStripeId: vi.fn(),
       getPlayerSubscription: vi.fn(),
       getPlayerSubscriptionByStripeId: vi.fn(),
       createPlayerSubscription: vi.fn(),
       updatePlayerSubscription: vi.fn(),
       getClubSubscription: vi.fn(),
+      findLatestForClub: vi.fn(),
       getClubSubscriptionByStripeId: vi.fn(),
       createClubSubscription: vi.fn(),
-      updateClubSubscription: vi.fn()
+      updateClubSubscription: vi.fn(),
+      listClubSubscriptions: vi.fn().mockResolvedValue([]),
+      listPublicClubPlans: vi.fn().mockResolvedValue([]),
+      listPlansForAdmin: vi.fn().mockResolvedValue([]),
+      getClubPlanById: vi.fn(),
+      getPlansByIds: vi.fn().mockResolvedValue([]),
+      getDefaultFreePlan: vi.fn(),
+      createPlan: vi.fn(),
+      updatePlan: vi.fn()
     }
   })
 
@@ -150,52 +158,6 @@ describe('SubscriptionService', () => {
     })
   })
 
-  describe('canPlayerSubmitMatch', () => {
-    it('allows unlimited for pro subscribers', async () => {
-      const service = createSubscriptionService(repo)
-      vi.mocked(repo.getPlayerSubscription).mockResolvedValue(createMockPlayerSubscription())
-      vi.mocked(repo.getPlanById).mockResolvedValue(createMockPlan())
-
-      const canSubmit = await service.canPlayerSubmitMatch(TEST_IDS.player, 100)
-
-      expect(canSubmit).toBe(true)
-    })
-
-    it('limits free users to 10 per month', async () => {
-      const service = createSubscriptionService(repo)
-      vi.mocked(repo.getPlayerSubscription).mockResolvedValue(null)
-
-      const canSubmit9 = await service.canPlayerSubmitMatch(TEST_IDS.player, 9)
-      const canSubmit10 = await service.canPlayerSubmitMatch(TEST_IDS.player, 10)
-
-      expect(canSubmit9).toBe(true)
-      expect(canSubmit10).toBe(false)
-    })
-  })
-
-  describe('canPlayerJoinClub', () => {
-    it('allows unlimited clubs for pro subscribers', async () => {
-      const service = createSubscriptionService(repo)
-      vi.mocked(repo.getPlayerSubscription).mockResolvedValue(createMockPlayerSubscription())
-      vi.mocked(repo.getPlanById).mockResolvedValue(createMockPlan())
-
-      const canJoin = await service.canPlayerJoinClub(TEST_IDS.player, 50)
-
-      expect(canJoin).toBe(true)
-    })
-
-    it('limits free users to 2 clubs', async () => {
-      const service = createSubscriptionService(repo)
-      vi.mocked(repo.getPlayerSubscription).mockResolvedValue(null)
-
-      const canJoin1 = await service.canPlayerJoinClub(TEST_IDS.player, 1)
-      const canJoin2 = await service.canPlayerJoinClub(TEST_IDS.player, 2)
-
-      expect(canJoin1).toBe(true)
-      expect(canJoin2).toBe(false)
-    })
-  })
-
   describe('getClubFeatures', () => {
     it('returns premium features for subscribed club', async () => {
       const service = createSubscriptionService(repo)
@@ -221,54 +183,6 @@ describe('SubscriptionService', () => {
 
       expect(features.tournaments).toBe(false)
       expect(features.max_members).toBe(50)
-    })
-  })
-
-  describe('canClubHostTournament', () => {
-    it('allows premium clubs to host tournaments', async () => {
-      const service = createSubscriptionService(repo)
-      vi.mocked(repo.getClubSubscription).mockResolvedValue(createMockClubSubscription())
-      vi.mocked(repo.getPlanById).mockResolvedValue(
-        createMockPlan({ features: { tournaments: true } })
-      )
-
-      const canHost = await service.canClubHostTournament(TEST_IDS.club)
-
-      expect(canHost).toBe(true)
-    })
-
-    it('blocks free clubs from hosting tournaments', async () => {
-      const service = createSubscriptionService(repo)
-      vi.mocked(repo.getClubSubscription).mockResolvedValue(null)
-
-      const canHost = await service.canClubHostTournament(TEST_IDS.club)
-
-      expect(canHost).toBe(false)
-    })
-  })
-
-  describe('canClubAddMember', () => {
-    it('allows unlimited members for premium clubs', async () => {
-      const service = createSubscriptionService(repo)
-      vi.mocked(repo.getClubSubscription).mockResolvedValue(createMockClubSubscription())
-      vi.mocked(repo.getPlanById).mockResolvedValue(
-        createMockPlan({ features: { max_members: -1 } })
-      )
-
-      const canAdd = await service.canClubAddMember(TEST_IDS.club, 200)
-
-      expect(canAdd).toBe(true)
-    })
-
-    it('limits free clubs to 50 members', async () => {
-      const service = createSubscriptionService(repo)
-      vi.mocked(repo.getClubSubscription).mockResolvedValue(null)
-
-      const canAdd49 = await service.canClubAddMember(TEST_IDS.club, 49)
-      const canAdd50 = await service.canClubAddMember(TEST_IDS.club, 50)
-
-      expect(canAdd49).toBe(true)
-      expect(canAdd50).toBe(false)
     })
   })
 })

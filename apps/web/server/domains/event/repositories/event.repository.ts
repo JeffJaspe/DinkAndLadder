@@ -7,21 +7,16 @@ import type {
   EventStatus,
   UpdateEventInput
 } from '../dto/event.dto'
-// PENDING-052: see utils/pending-052.ts. Delete with the migration.
-import { ROUNDS_MIGRATION_PENDING, withoutPendingColumns } from '~/utils/pending-052'
-
-// PENDING-052: see utils/pending-052.ts. Delete with the migration.
-const EVENT_COLUMNS = withoutPendingColumns(
+const EVENT_COLUMNS =
   'id, club_id, name, description, venue, province, city, start_date, end_date, ' +
-    'start_time, end_time, ' +
-    'registration_opens, registration_closes, status, visibility, event_type, ' +
-    'fee_amount, fee_currency, max_participants, queue_enabled, queue_courts, queue_mode, match_format, ' +
-    'target_points, win_by_two, games_default, ' +
-    'min_players_to_start, close_policy, closes_at, closed_at, ' +
-    'coach_player_id, fee_payer, organizer_fee_amount, ' +
-    'queue_skip_timeout_seconds, current_round, created_by_player_id, created_at, updated_at',
-  ['current_round']
-)
+  'start_time, end_time, ' +
+  'registration_opens, registration_closes, status, visibility, event_type, ' +
+  'fee_amount, fee_currency, max_participants, queue_enabled, queue_courts, queue_mode, match_format, ' +
+  'target_points, win_by_two, games_default, ' +
+  'min_players_to_start, close_policy, closes_at, closed_at, ' +
+  'restricted_at, restricted_reason, ' +
+  'coach_player_id, fee_payer, organizer_fee_amount, ' +
+  'queue_skip_timeout_seconds, current_round, created_by_player_id, created_at, updated_at'
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -82,6 +77,28 @@ export interface EventRepository {
     liveTournaments: number
     liveOpenPlay: number
   }>
+  /**
+   * The club's unfinished events, oldest first, for deciding what survives a
+   * downgrade.
+   *
+   * Oldest first is the whole point: on a lapse the OLDEST unfinished event of
+   * each type stays live and the rest are restricted. The club's longest-standing
+   * commitment is the one with players already registered, and taking that one
+   * away would be the platform breaking a promise the club made.
+   *
+   * Completed and cancelled events are excluded — they have had their weekend
+   * and cannot be restricted into anything meaningful.
+   */
+  findRestrictableForClub(clubId: string): Promise<EventRecord[]>
+  /**
+   * Marks events restricted, or clears the mark when `reason` is null.
+   *
+   * Restricted, NOT cancelled: `status` is untouched, so every existing query
+   * still sees the event exactly as it did. Restriction is a separate nullable
+   * timestamp precisely so a billing state cannot leak into the event's own
+   * lifecycle.
+   */
+  setRestricted(eventIds: string[], reason: 'plan_downgrade' | null): Promise<number>
 }
 
 export function createEventRepository(client: SupabaseClient): EventRepository {
@@ -175,15 +192,6 @@ export function createEventRepository(client: SupabaseClient): EventRepository {
     },
 
     async setCurrentRound(eventId, round) {
-      // PENDING-052: nothing to advance until the column exists. Reading the
-      // row back unchanged keeps every caller on its normal path — the round
-      // is display-only while the migration is outstanding.
-      if (ROUNDS_MIGRATION_PENDING) {
-        const existing = await this.findById(eventId)
-        if (!existing) throw new Error('Event not found.')
-        return existing
-      }
-
       const { data, error } = await client
         .from('events')
         .update({ current_round: round, updated_at: new Date().toISOString() })
@@ -239,6 +247,38 @@ export function createEventRepository(client: SupabaseClient): EventRepository {
             r.event_type !== 'tournament' && (r.status === 'published' || r.status === 'active')
         ).length
       }
+    },
+
+    async findRestrictableForClub(clubId) {
+      const { data, error } = await client
+        .from('events')
+        .select(EVENT_COLUMNS)
+        .eq('club_id', clubId)
+        .in('status', ['draft', 'published', 'active'])
+        .order('created_at', { ascending: true })
+
+      if (error) throw error
+      return (data ?? []) as unknown as EventRecord[]
+    },
+
+    async setRestricted(eventIds, reason) {
+      // An empty list is a legitimate outcome of "restrict everything past the
+      // first" when a club has only one event, and `.in('id', [])` would be a
+      // pointless round trip.
+      if (eventIds.length === 0) return 0
+
+      const { data, error } = await client
+        .from('events')
+        .update({
+          restricted_at: reason === null ? null : new Date().toISOString(),
+          restricted_reason: reason,
+          updated_at: new Date().toISOString()
+        })
+        .in('id', eventIds)
+        .select('id')
+
+      if (error) throw error
+      return (data ?? []).length
     },
 
     async deleteWithChildren(eventId) {

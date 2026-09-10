@@ -57,9 +57,20 @@ const heroBackground = computed(() => {
   return {
     backgroundImage: `linear-gradient(${withAlpha(color, opacity)}, ${withAlpha(color, opacity)}), url("${cssUrl(hero.value.background_url)}")`,
     backgroundSize: 'cover',
-    backgroundPosition: 'center'
+    backgroundPosition: 'center',
+    // How much canvas .dnl-hero-scrim lays over the artwork. This was a
+    // hardcoded 0.92, which left an uploaded background as a ghost with no way
+    // to change it; it is now the inverse of the operator's own setting, so
+    // "image opacity 100%" means no wash at all. Clamped again here because it
+    // is a number arriving from the network on a public page.
+    '--dnl-hero-wash': String(1 - clamp01(hero.value.background_opacity))
   }
 })
+
+/** Anything outside 0..1 would put an invalid alpha into the inline style. */
+function clamp01(value: number): number {
+  return Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 0
+}
 
 /** #RRGGBB + 0..1 -> rgb(r g b / a), so one colour value serves both stops. */
 function withAlpha(hex: string, alpha: number): string {
@@ -877,7 +888,10 @@ onBeforeUnmount(() => {
   inset: 0;
   z-index: 0;
   pointer-events: none;
-  background-color: rgb(var(--dnl-canvas) / 0.92);
+  /* Set per-render from the operator's background-image opacity; the 0.92
+     fallback is what this was hardcoded to before that control existed, so a
+     platform that never touches the slider paints exactly as it always did. */
+  background-color: rgb(var(--dnl-canvas) / var(--dnl-hero-wash, 0.92));
 }
 
 /*

@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { initialsFor } from '~/utils/initials'
 import type { ClubDto } from '~/server/domains/club/dto/club.dto'
 import type { RosterMemberDto } from '~/server/domains/club/dto/club-membership.dto'
 import type { AnnouncementDto } from '~/server/domains/announcement/dto/announcement.dto'
@@ -192,10 +191,8 @@ const newMembers = computed(() => {
             :to="`/players/${member.player_id}`"
             class="flex items-center gap-2 rounded-lg bg-canvas px-3 py-2 transition-all hover:bg-surface-2"
           >
-            <div
-              class="flex h-8 w-8 items-center justify-center rounded-full bg-surface-2 text-sm font-bold text-fg-secondary"
-            >
-              {{ initialsFor(member.display_name, 1) }}
+            <div class="flex h-8 w-8 items-center justify-center rounded-full bg-surface-2 p-1">
+              <UiBrandImage />
             </div>
             <span class="text-sm text-fg">{{ member.display_name }}</span>
           </NuxtLink>

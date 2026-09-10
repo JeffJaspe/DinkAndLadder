@@ -1,18 +1,24 @@
 <script setup lang="ts">
+import {
+  DAL_CHARCOAL,
+  DAL_LOGO_DARK,
+  DAL_MARK_DARK,
+  USE_BRAND_DEFAULTS
+} from '~/utils/brand-assets'
+
 /**
- * Generated cover art for events and clubs.
+ * Cover art for events and clubs.
  *
  * The mockups show photographic covers on the Club Page and image-led Event
- * cards. There is no data behind them: no `cover_image_url`, `logo_url` or any
- * image column exists on events, clubs, or anywhere in the schema. Real covers
- * need a Liquibase changeset plus Supabase Storage and an upload flow — a
- * feature, not a styling pass — so that is tracked separately in docs/33.
+ * cards. Most entities have no uploaded cover, so this is what fills that space
+ * instead: the Dink and Ladder logo on the brand's charcoal, which is the same
+ * treatment the app icons and the social image use, and for the same reason —
+ * a solid ground is what the artwork was drawn for.
  *
- * Rather than ship fake photos or a flat grey box, this derives a stable
- * gradient and monogram from the entity's name. Every event looks distinct and
- * recognisable, the same event always looks the same, and nothing is invented
- * about the entity itself. When a real image column lands, pass `src` and this
- * becomes the fallback for entities that have not uploaded one.
+ * It replaces a gradient-and-monogram derived from the entity's name. That was
+ * written when the platform had no artwork of its own; it does now.
+ *
+ * While USE_BRAND_DEFAULTS is on, uploaded covers are not displayed either.
  */
 
 const props = withDefaults(
@@ -35,47 +41,17 @@ const props = withDefaults(
   { src: null, variant: 'card', rounded: 'rounded-card', label: null }
 )
 
-/**
- * Token-based pairs only, so covers still flip with the theme. Six pairs is
- * enough that adjacent cards in a list rarely collide, without the palette
- * turning into confetti.
- */
-const GRADIENTS = [
-  'from-primary/70 to-primary-hover/40',
-  'from-accent/70 to-primary/30',
-  'from-rating-gold/60 to-warning-fill/30',
-  'from-info/60 to-accent/30',
-  'from-rating-bronze/60 to-rating-gold/30',
-  'from-primary/50 to-info/40'
-]
-
-function hash(value: string): number {
-  let h = 0
-  for (let i = 0; i < value.length; i++) h = (h * 31 + value.charCodeAt(i)) >>> 0
-  return h
-}
-
-const gradient = computed(() => GRADIENTS[hash(props.name) % GRADIENTS.length])
-
-const monogram = computed(() => {
-  const words = props.name.trim().split(/\s+/).filter(Boolean)
-  if (!words.length) return '?'
-  return words
-    .slice(0, 2)
-    .map((w) => w[0]!.toUpperCase())
-    .join('')
-})
-
 const failed = ref(false)
-const showImage = computed(() => Boolean(props.src) && !failed.value)
+const showImage = computed(() => !USE_BRAND_DEFAULTS && Boolean(props.src) && !failed.value)
 
 const HEIGHT = { banner: 'h-40 sm:h-56', card: 'h-28' } as const
 </script>
 
 <template>
   <div
-    class="relative flex w-full items-center justify-center overflow-hidden bg-gradient-to-br"
-    :class="[HEIGHT[variant], rounded, showImage ? '' : gradient]"
+    class="relative flex w-full flex-col items-center justify-center gap-2 overflow-hidden"
+    :class="[HEIGHT[variant], rounded]"
+    :style="showImage ? undefined : { backgroundColor: DAL_CHARCOAL }"
   >
     <img
       v-if="showImage"
@@ -85,22 +61,26 @@ const HEIGHT = { banner: 'h-40 sm:h-56', card: 'h-28' } as const
       loading="lazy"
       @error="failed = true"
     />
-    <!-- A real label, so unlike the monogram it is not decorative and is read
+
+    <!-- The ground is always charcoal, so the dark drawing (white letters) is
+         correct in both themes and no light/dark pair is needed here.
+         Decorative: the entity's name is always real text beside this. -->
+    <img
+      v-else
+      :src="variant === 'banner' ? DAL_LOGO_DARK : DAL_MARK_DARK"
+      alt=""
+      aria-hidden="true"
+      class="max-w-[70%] object-contain"
+      :class="variant === 'banner' ? 'h-16 sm:h-20' : 'h-10'"
+    />
+
+    <!-- A real label, so unlike the artwork it is not decorative and is read
          out. It is the only thing on the cover saying what this is. -->
     <span
-      v-else-if="label"
-      class="px-3 text-center font-display font-bold uppercase leading-tight tracking-widest text-on-accent/90"
-      :class="variant === 'banner' ? 'text-2xl' : 'text-body-2'"
+      v-if="label && !showImage"
+      class="px-3 text-center font-display font-bold uppercase leading-tight tracking-widest text-on-scrim/90"
+      :class="variant === 'banner' ? 'text-body-1' : 'text-caption'"
       >{{ label }}</span
-    >
-
-    <!-- Decorative: the name is always rendered as real text beside this. -->
-    <span
-      v-else
-      class="font-display font-bold text-on-accent/70"
-      :class="variant === 'banner' ? 'text-5xl' : 'text-2xl'"
-      aria-hidden="true"
-      >{{ monogram }}</span
     >
 
     <slot />

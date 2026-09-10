@@ -34,6 +34,8 @@ function createFakeEventRepository(overrides?: Partial<EventRepository>): EventR
     countByClubForLimits: vi
       .fn()
       .mockResolvedValue({ drafts: 0, liveTournaments: 0, liveOpenPlay: 0 }),
+    findRestrictableForClub: vi.fn().mockResolvedValue([]),
+    setRestricted: vi.fn().mockResolvedValue(0),
     ...overrides
   }
 }
@@ -124,6 +126,8 @@ function makeEventRecord(overrides?: Partial<EventRecord>): EventRecord {
     close_policy: 'manual',
     closes_at: null,
     closed_at: null,
+    restricted_at: null,
+    restricted_reason: null,
     coach_player_id: null,
     fee_payer: 'player',
     organizer_fee_amount: null,

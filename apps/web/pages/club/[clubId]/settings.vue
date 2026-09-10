@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { initialsFor } from '~/utils/initials'
 import type { ClubDto } from '~/server/domains/club/dto/club.dto'
 import type { RosterMemberDto } from '~/server/domains/club/dto/club-membership.dto'
 import {
@@ -220,7 +219,7 @@ const clearCopy = computed(() =>
     ? {
         title: 'Remove the logo?',
         description:
-          "The club goes back to the initial mark generated from its name. The uploaded file is deleted and cannot be recovered."
+          'The club goes back to the initial mark generated from its name. The uploaded file is deleted and cannot be recovered.'
       }
     : {
         title: 'Remove the cover photo?',
@@ -340,18 +339,11 @@ onBeforeRouteLeave(() => {
           <div class="mt-6">
             <p class="mb-2 text-body-2 font-medium text-fg-secondary">Logo</p>
             <div class="flex items-center gap-4">
-              <img
-                v-if="club.logo_url"
+              <UiClubLogo
+                :name="club.name"
                 :src="club.logo_url"
-                alt=""
-                class="h-16 w-16 rounded-card object-cover"
+                box-class="h-16 w-16 rounded-card"
               />
-              <div
-                v-else
-                class="flex h-16 w-16 items-center justify-center rounded-card bg-primary-soft text-heading-3 font-bold text-primary"
-              >
-                {{ initialsFor(club.name, 1) }}
-              </div>
               <div class="flex flex-wrap items-center gap-3">
                 <label
                   class="cursor-pointer rounded-button border border-border-strong px-3 py-1.5 text-caption text-fg-secondary transition-colors hover:border-primary hover:text-fg"
@@ -420,7 +412,12 @@ onBeforeRouteLeave(() => {
             </UiButton>
           </div>
 
-          <p v-if="slugProblem" id="club-slug-error" role="alert" class="mt-2 text-caption text-danger">
+          <p
+            v-if="slugProblem"
+            id="club-slug-error"
+            role="alert"
+            class="mt-2 text-caption text-danger"
+          >
             {{ slugProblemMessage(slugProblem) }}
           </p>
         </section>
