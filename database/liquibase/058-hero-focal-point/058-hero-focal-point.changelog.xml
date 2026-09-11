@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Operator control over which part of the landing background is kept
+     (docs/30-SUPER-ADMIN-SPECIFICATION.md §2.3).
+
+     The landing page no longer shows the whole image behind the headline: the
+     headline sits on its own solid ground and the artwork is revealed beside
+     it on wide screens and as a strip above it on phones. Both crops are cut
+     from the same image, so an image whose subject sits at one edge - a logo
+     placed on the right, a player on the left - could be cropped out entirely
+     on one of them with no way to fix it short of re-editing the file.
+
+     These two columns are the focal point: the point in the image that every
+     crop keeps centred, as a fraction of the image's width and height. 0/0 is
+     the top-left corner, 1/1 the bottom-right. NULL means the centre, which is
+     exactly what the page painted before the columns existed. -->
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+    <changeSet id="0001-add-hero-focal-point" author="super-admin">
+        <addColumn tableName="platform_config">
+            <!-- numeric(3,2) matches the two hero opacity columns: two decimal
+                 places is finer than any pointer can place on a thumbnail. -->
+            <column name="hero_focal_x" type="numeric(3,2)">
+                <constraints nullable="true"/>
+            </column>
+            <column name="hero_focal_y" type="numeric(3,2)">
+                <constraints nullable="true"/>
+            </column>
+        </addColumn>
+        <rollback>
+            <dropColumn tableName="platform_config" columnName="hero_focal_x"/>
+            <dropColumn tableName="platform_config" columnName="hero_focal_y"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="0002-check-hero-focal-point" author="super-admin">
+        <!-- Both values reach a public page as an inline background-position.
+             The service validates them too; this is the guard that survives a
+             future write path that forgets to. -->
+        <sql>
+            ALTER TABLE platform_config ADD CONSTRAINT ck_platform_config_hero_focal_x
+                CHECK (hero_focal_x IS NULL OR (hero_focal_x >= 0 AND hero_focal_x &lt;= 1));
+            ALTER TABLE platform_config ADD CONSTRAINT ck_platform_config_hero_focal_y
+                CHECK (hero_focal_y IS NULL OR (hero_focal_y >= 0 AND hero_focal_y &lt;= 1));
+        </sql>
+        <rollback>
+            ALTER TABLE platform_config DROP CONSTRAINT ck_platform_config_hero_focal_x;
+            ALTER TABLE platform_config DROP CONSTRAINT ck_platform_config_hero_focal_y;
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

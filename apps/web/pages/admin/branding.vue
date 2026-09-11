@@ -1,8 +1,14 @@
 <script setup lang="ts">
-import type { BrandingAdminDto, BrandingSlot } from '~/server/domains/platform/dto/branding.dto'
+import type {
+  BrandingAdminDto,
+  BrandingSlot,
+  HeroDto
+} from '~/server/domains/platform/dto/branding.dto'
 import {
   DEFAULT_APP_NAME,
   DEFAULT_BACKGROUND_OPACITY,
+  DEFAULT_FOCAL_X,
+  DEFAULT_FOCAL_Y,
   MAX_HERO_SUBTITLE_LENGTH,
   MAX_HERO_TITLE_LENGTH
 } from '~/server/domains/platform/dto/branding.dto'
@@ -141,9 +147,37 @@ const heroForm = reactive({
   subtitle: '',
   overlay_color: '#000000',
   overlay_opacity: 0.5,
-  background_opacity: DEFAULT_BACKGROUND_OPACITY
+  background_opacity: DEFAULT_BACKGROUND_OPACITY,
+  focal_x: DEFAULT_FOCAL_X,
+  focal_y: DEFAULT_FOCAL_Y
 })
 const savingHero = ref(false)
+
+/**
+ * What the landing page would paint if the form were saved now: the stored
+ * image (uploads land immediately) under the unsaved copy and sliders.
+ */
+const previewHero = computed<HeroDto>(() => ({
+  title: heroForm.title,
+  subtitle: heroForm.subtitle,
+  background_url: branding.value?.hero.background_url ?? null,
+  overlay_color: heroForm.overlay_color,
+  overlay_opacity: Number(heroForm.overlay_opacity),
+  background_opacity: Number(heroForm.background_opacity),
+  focal_x: Number(heroForm.focal_x),
+  focal_y: Number(heroForm.focal_y)
+}))
+
+/** Previewed in the console's own theme first; the operator can flip it. */
+const { resolvedTheme } = useTheme()
+const previewTheme = ref<string>(resolvedTheme.value)
+const previewThemeResolved = computed<'light' | 'dark'>(() =>
+  previewTheme.value === 'dark' ? 'dark' : 'light'
+)
+const PREVIEW_THEMES = [
+  { value: 'light', label: 'Light' },
+  { value: 'dark', label: 'Dark' }
+]
 
 watchEffect(() => {
   // Mirror what is stored, but never over the top of someone mid-edit.
@@ -153,6 +187,8 @@ watchEffect(() => {
   heroForm.overlay_color = branding.value.hero.overlay_color
   heroForm.overlay_opacity = branding.value.hero.overlay_opacity
   heroForm.background_opacity = branding.value.hero.background_opacity
+  heroForm.focal_x = branding.value.hero.focal_x
+  heroForm.focal_y = branding.value.hero.focal_y
 })
 
 async function saveHero() {
@@ -167,7 +203,9 @@ async function saveHero() {
         overlay_color: heroForm.overlay_color,
         // A range input hands back a string; the API takes a number.
         overlay_opacity: Number(heroForm.overlay_opacity),
-        background_opacity: Number(heroForm.background_opacity)
+        background_opacity: Number(heroForm.background_opacity),
+        focal_x: Number(heroForm.focal_x),
+        focal_y: Number(heroForm.focal_y)
       }
     })
     await Promise.all([refresh(), refreshLiveBranding()])
@@ -287,15 +325,29 @@ async function saveHero() {
           <p class="mt-3 text-caption text-fg-muted">PNG or JPEG, up to 50 MB.</p>
         </div>
 
-        <!-- Hero copy. The image itself is the 'hero' slot above, so this card
-             is only the words and the scrim that keeps them readable. -->
+        <!-- Hero. The image file itself is the 'hero' slot above; this card is
+             the words, how the image is cropped and washed, and a preview of
+             the result painted from the unsaved values. -->
         <form class="rounded-card border border-border bg-surface p-4" @submit.prevent="saveHero">
-          <p class="font-medium text-fg">Landing headline</p>
-          <p class="mt-1 text-body-2 text-fg-secondary">
-            Leave both empty to keep the built-in copy.
-          </p>
+          <div class="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p class="font-medium text-fg">Landing hero</p>
+              <p class="mt-1 text-body-2 text-fg-secondary">
+                A preview of the signed-out landing page as it would look once saved.
+              </p>
+            </div>
+            <UiSegmented
+              v-model="previewTheme"
+              :items="PREVIEW_THEMES"
+              size="sm"
+              label="Preview theme"
+            />
+          </div>
 
-          <div class="mt-3 space-y-3">
+          <AdminHeroPreview class="mt-3" :hero="previewHero" :theme="previewThemeResolved" />
+
+          <div class="mt-5 space-y-3">
+            <p class="text-body-2 text-fg-secondary">Leave both empty to keep the built-in copy.</p>
             <div>
               <label for="hero-title" class="mb-1.5 block text-caption text-fg-secondary">
                 Headline
@@ -324,9 +376,31 @@ async function saveHero() {
               />
             </div>
 
-            <!-- The image's own strength, separate from the scrim below it.
+            <!-- Which part of the image survives the crop. The landing page
+                 reveals the artwork beside the headline on wide screens and as
+                 a strip above it on phones; this is the point both crops keep. -->
+            <div v-if="branding?.hero.background_url">
+              <p class="mb-1.5 text-caption text-fg-secondary">Focal point</p>
+              <AdminFocalPointPicker
+                :src="branding.hero.background_url"
+                :x="Number(heroForm.focal_x)"
+                :y="Number(heroForm.focal_y)"
+                :disabled="savingHero"
+                @update:x="heroForm.focal_x = $event"
+                @update:y="heroForm.focal_y = $event"
+              />
+              <p class="mt-1 text-caption text-fg-muted">
+                Drag the marker onto the part of the image that must stay in view — a logo, a
+                player. Wide screens show the image beside the headline; phones show a strip
+                above it. Both keep this point.
+              </p>
+            </div>
+
+            <!-- The image's own strength, separate from the overlay below it.
                  The landing page lays a wash of its canvas over the artwork;
-                 this is how much of the image survives that wash. -->
+                 this is how much of the image survives that wash. The headline
+                 keeps its own solid ground regardless, so this can go to 100%
+                 without costing legibility. -->
             <div>
               <label
                 for="hero-background-opacity"
@@ -348,7 +422,7 @@ async function saveHero() {
               <p class="mt-1 text-caption text-fg-muted">
                 {{
                   branding?.hero.background_url
-                    ? 'Higher shows more of the image; the headline is ordinary page text on top of it, so a strong image competes with it.'
+                    ? 'Higher shows more of the image. The headline keeps its own solid ground, so the image shows beside it on wide screens and above it on phones.'
                     : 'Upload a landing background above to use this.'
                 }}
               </p>
@@ -383,8 +457,8 @@ async function saveHero() {
             </div>
 
             <p class="text-caption text-fg-muted">
-              The headline sits on the overlay in white, so a darker, stronger overlay is what keeps
-              it readable over a busy image. With no background image, only the words apply.
+              The overlay tints the image itself; it does not affect the headline, which always
+              reads on its own ground. With no background image, only the words apply.
             </p>
           </div>
 
@@ -393,7 +467,7 @@ async function saveHero() {
             :disabled="savingHero"
             class="mt-4 rounded-button bg-primary px-4 py-2 text-sm font-medium text-on-primary hover:bg-primary-hover disabled:opacity-50"
           >
-            {{ savingHero ? 'Saving…' : 'Save headline' }}
+            {{ savingHero ? 'Saving…' : 'Save landing hero' }}
           </button>
         </form>
       </div>

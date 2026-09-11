@@ -5,6 +5,8 @@ import {
   appNameOf,
   backgroundOpacityOf,
   extensionFor,
+  focalXOf,
+  focalYOf,
   isHexColor,
   objectPathFor,
   overlayColorOf,
@@ -41,6 +43,8 @@ export interface HeroInput {
   overlay_color?: string
   overlay_opacity?: number
   background_opacity?: number
+  focal_x?: number
+  focal_y?: number
 }
 
 export interface BrandingService {
@@ -65,6 +69,11 @@ export interface BrandingService {
  * a silent clamp would look like the slider ignored them.
  */
 function assertOpacity(value: unknown, label: string): number {
+  return assertFraction(value, label)
+}
+
+/** The focal point shares the opacities' 0..1 range and the same refusal. */
+function assertFraction(value: unknown, label: string): number {
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 1) {
     throw new BrandingServiceError(400, 'VALIDATION_ERROR', `The ${label} must be between 0 and 1.`)
   }
@@ -103,7 +112,9 @@ export function createBrandingService(
         background_url: hero,
         overlay_color: overlayColorOf(record),
         overlay_opacity: overlayOpacityOf(record),
-        background_opacity: backgroundOpacityOf(record)
+        background_opacity: backgroundOpacityOf(record),
+        focal_x: focalXOf(record),
+        focal_y: focalYOf(record)
       }
     }
   }
@@ -206,6 +217,14 @@ export function createBrandingService(
           input.background_opacity,
           'background image opacity'
         )
+      }
+
+      if (input.focal_x !== undefined) {
+        patch.hero_focal_x = assertFraction(input.focal_x, 'focal point')
+      }
+
+      if (input.focal_y !== undefined) {
+        patch.hero_focal_y = assertFraction(input.focal_y, 'focal point')
       }
 
       if (!Object.keys(patch).length) {

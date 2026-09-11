@@ -1921,6 +1921,36 @@ routes × 2 themes**. `@axe-core/playwright` added as a devDependency.
   and the landing header gained the theme toggle it was missing.
 - **Dashboard carried its own wrong 5-tier rating table**, so the dashboard and
   a player's own badge could disagree about their tier. Now `tierForRating`.
+- **Landing hero unreadable in light mode with a full-strength background
+  image** (2026-09-11). The hero's only legibility device was a canvas wash
+  whose strength is `1 − background_opacity`, so the admin slider at ~100%
+  drove it to zero and the ordinary `fg` ink sat on a bright blue photo.
+  `pages/index.vue` now paints a fixed 0.92 canvas plate (`.dnl-hero-plate`)
+  under the claim and the actions only, and reveals the artwork beside it on
+  `md+` (38% of the band) and as a strip above it on phones. Text keeps the
+  page's own ink and contrast in both themes whatever the operator picks; the
+  operator's slider still governs how strong the revealed image is. The admin
+  branding help copy that still promised "the headline sits on the overlay in
+  white" was corrected. Not addressed: the phone strip shows the image's
+  centre, so a subject placed at one edge (as in the current logo art) does
+  not appear on phones — a phone crop/focal-point control would be a backlog
+  item, not a guess.
+- **Hero preview and focal point in the branding console** (2026-09-11).
+  Follow-up to the above. Liquibase 058 adds `hero_focal_x` / `hero_focal_y`
+  (numeric(3,2), CHECK 0..1, NULL = centre) to `platform_config`; threaded
+  through `BrandingRecord` → `HeroDto.focal_x/focal_y` → repository columns
+  and `HeroPatch` → `BrandingService.setHero` validation → `PATCH
+  /api/v1/admin/hero`. `focalPositionOf()` turns the pair into the
+  `background-position` the landing page and the preview both use, so the
+  operator's subject survives the wide reveal and the phone strip.
+  `components/admin/HeroPreview.vue` paints a wide and a phone frame of the
+  hero from the *unsaved* form values with its own light/dark toggle (frames
+  carry the `.dark` class themselves); `components/admin/FocalPointPicker.vue`
+  is a drag/click crosshair over the whole image plus two range inputs for
+  keyboard use. Unit tests: 22/22 in `branding.spec.ts` (4 new). Verified
+  visually via a throwaway page at 1024 and 400 px in both themes. The 058
+  columns land on dev with the next push to main; until then the repository's
+  existing pre-migration fallback paints built-in branding.
 
 Two stale E2E assertions were failing before this work (landing copy changed in
 uncommitted work); both updated.

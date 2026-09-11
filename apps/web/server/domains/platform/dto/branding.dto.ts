@@ -25,6 +25,14 @@ export const DEFAULT_OVERLAY_OPACITY = 0.5
  */
 export const DEFAULT_BACKGROUND_OPACITY = 0.08
 
+/**
+ * The point in the landing background that every crop keeps centred, as a
+ * fraction of the image's width and height (0/0 top-left, 1/1 bottom-right).
+ * The centre is what the page painted before the operator could choose.
+ */
+export const DEFAULT_FOCAL_X = 0.5
+export const DEFAULT_FOCAL_Y = 0.5
+
 export interface BrandingRecord {
   app_name: string | null
   logo_path: string | null
@@ -35,6 +43,8 @@ export interface BrandingRecord {
   hero_overlay_color: string | null
   hero_overlay_opacity: number | string | null
   hero_background_opacity: number | string | null
+  hero_focal_x: number | string | null
+  hero_focal_y: number | string | null
   branding_updated_at: string | null
 }
 
@@ -47,6 +57,9 @@ export interface HeroDto {
   overlay_opacity: number
   /** 0 (invisible) to 1 (untouched). See DEFAULT_BACKGROUND_OPACITY. */
   background_opacity: number
+  /** Focal point of the background image, 0..1 on each axis. See DEFAULT_FOCAL_X. */
+  focal_x: number
+  focal_y: number
 }
 
 /** What a page needs to paint the brand. */
@@ -144,6 +157,28 @@ export function backgroundOpacityOf(
   record: Pick<BrandingRecord, 'hero_background_opacity'> | null
 ): number {
   return clampedOpacity(record?.hero_background_opacity, DEFAULT_BACKGROUND_OPACITY)
+}
+
+export function focalXOf(record: Pick<BrandingRecord, 'hero_focal_x'> | null): number {
+  return clampedOpacity(record?.hero_focal_x, DEFAULT_FOCAL_X)
+}
+
+export function focalYOf(record: Pick<BrandingRecord, 'hero_focal_y'> | null): number {
+  return clampedOpacity(record?.hero_focal_y, DEFAULT_FOCAL_Y)
+}
+
+/**
+ * The CSS background-position that keeps the focal point in view. With
+ * `background-size: cover`, a position of X% Y% aligns the X% point of the
+ * image with the X% point of the box, which is exactly "keep this point in
+ * every crop" - the reason the focal point is stored as fractions.
+ */
+export function focalPositionOf(hero: Pick<HeroDto, 'focal_x' | 'focal_y'>): string {
+  return `${toPercent(hero.focal_x)}% ${toPercent(hero.focal_y)}%`
+}
+
+function toPercent(fraction: number): number {
+  return Math.round(Math.min(1, Math.max(0, fraction)) * 1000) / 10
 }
 
 /** numeric(3,2) comes back from PostgREST as a string. */

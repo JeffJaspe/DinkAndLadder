@@ -71,8 +71,12 @@ The admin UI will show a 4-swatch picker. Colors are injected as CSS custom prop
 | `hero_background_url` | text | Background image URL |
 | `hero_overlay_color` | text | Overlay color (hex) |
 | `hero_overlay_opacity` | decimal | 0.0 - 1.0 |
+| `hero_background_opacity` | decimal | 0.0 (invisible) - 1.0 (untouched); how much of the image survives the page's canvas wash (057) |
+| `hero_focal_x` / `hero_focal_y` | decimal | 0.0 - 1.0 each; the point every crop keeps in view — beside the headline on wide screens, the strip above it on phones. NULL = centre (058) |
 | `hero_title` | text | Main headline |
 | `hero_subtitle` | text | Tagline |
+
+The console shows a live preview of the landing hero (wide and phone frames, light and dark) painted from the unsaved form values, and a focal-point picker over the uploaded image.
 
 ### 2.4 Custom Icons
 

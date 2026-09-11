@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { EventDto } from '~/server/domains/event/dto/event.dto'
+import { focalPositionOf } from '~/server/domains/platform/dto/branding.dto'
 
 // This page ships its own fixed marketing header. Under the default layout a
 // signed-in visitor got that header *and* the app sidebar - two sets of chrome
@@ -57,7 +58,9 @@ const heroBackground = computed(() => {
   return {
     backgroundImage: `linear-gradient(${withAlpha(color, opacity)}, ${withAlpha(color, opacity)}), url("${cssUrl(hero.value.background_url)}")`,
     backgroundSize: 'cover',
-    backgroundPosition: 'center',
+    // The operator's focal point, so the part of the image they care about
+    // survives both the wide reveal and the phone strip.
+    backgroundPosition: focalPositionOf(hero.value),
     // How much canvas .dnl-hero-scrim lays over the artwork. This was a
     // hardcoded 0.92, which left an uploaded background as a ghost with no way
     // to change it; it is now the inverse of the operator's own setting, so
@@ -460,58 +463,68 @@ onBeforeUnmount(() => {
     <main>
       <!-- CLAIM BAND. No hero box: the claim is set on the page itself and
            closed by the heaviest rule the page owns. -->
-      <section class="relative isolate" :style="heroBackground ?? undefined">
+      <section
+        class="relative isolate overflow-hidden"
+        :class="heroBackground && 'dnl-hero--art'"
+        :style="heroBackground ?? undefined"
+      >
         <!-- The operator's artwork sits *under* the page's own ground rather
              than behind white knockout text.
-             The first pass laid a dark three-stop ramp over the image so fixed
-             white `on-scrim` ink would clear AA. That bought legibility and cost
-             everything else: a gradient on the one band the direction says is
-             flat, and the same near-black slab in both themes, so the light
-             theme had no light first viewport at all.
-             A flat wash of the theme's own canvas fixes both. The claim keeps
-             ordinary `fg` ink in whichever theme the visitor is in, the artwork
-             reads as a faint ground behind it, and `on-scrim` - which is a fixed
-             white by design, and the reason the ramp existed - is not needed on
-             this page at all. -->
+             Two layers, both flat, both the theme's own canvas:
+             - `.dnl-hero-scrim` is the whole band at the operator's chosen
+               strength, so "image opacity 100%" really does show the image.
+             - `.dnl-hero-plate` is the claim's own ground: a fixed 0.92 wash
+               under the words and the actions only. It is the legibility floor
+               the scrim used to be before the slider could drive it to zero,
+               and it is what lets the claim keep ordinary `fg` ink in either
+               theme whatever image or overlay the SuperAdmin picked.
+             The artwork reveals beside the plate on wide screens and above it
+             on phones, so a bright image is a composition, not a contrast bug.
+             An earlier pass tried a dark gradient with white `on-scrim` ink;
+             that put the same near-black slab in both themes and a ramp on the
+             one band the direction says is flat. Nothing here is a gradient. -->
         <div v-if="heroBackground" class="dnl-hero-scrim" aria-hidden="true" />
+        <div v-if="heroBackground" class="dnl-hero-plate" aria-hidden="true" />
 
-        <div class="relative z-10 mx-auto max-w-6xl px-4 pb-10 pt-14 sm:px-6 sm:pb-14 sm:pt-24">
-          <h1
-            class="max-w-[19ch] font-display text-[2.25rem] font-medium leading-[1.1] tracking-tight text-fg sm:text-6xl"
-          >
-            {{ hero.title ?? 'Run your open play and tournaments on one record.' }}
-          </h1>
-          <p class="mt-6 max-w-[62ch] text-body-1 text-fg-secondary sm:text-lg">
-            {{
-              hero.subtitle ??
-              'Sessions, entries, brackets, courts and results in one place instead of a group chat — and every result feeds a rating your players cannot argue with.'
-            }}
-          </p>
+        <div
+          class="relative z-10 mx-auto max-w-6xl px-4 pb-10 sm:px-6 sm:pb-14"
+          :class="heroBackground ? 'pt-[calc(44vw+2rem)] md:pt-24' : 'pt-14 sm:pt-24'"
+        >
+          <div class="dnl-hero-claim">
+            <h1
+              class="max-w-[19ch] font-display text-[2.25rem] font-medium leading-[1.1] tracking-tight text-fg sm:text-6xl"
+            >
+              {{ hero.title ?? 'Run your open play and tournaments on one record.' }}
+            </h1>
+            <p class="mt-6 max-w-[62ch] text-body-1 text-fg-secondary sm:text-lg">
+              {{
+                hero.subtitle ??
+                'Sessions, entries, brackets, courts and results in one place instead of a group chat — and every result feeds a rating your players cannot argue with.'
+              }}
+            </p>
+          </div>
         </div>
 
-        <!-- The actions sit on their own rule rather than inside a panel.
-             Solid canvas below `sm` only: at phone width the artwork's own
-             embedded lettering ghosts through the 0.92 wash directly behind the
-             two buttons, which is noise at the page's single point of action.
-             Desktop has room for the buttons to clear it, so the artwork keeps
-             reading there. -->
-        <div class="relative z-10 border-y border-fg-muted bg-canvas sm:bg-transparent">
-          <div
-            class="mx-auto flex max-w-6xl flex-col gap-3 px-4 py-5 sm:flex-row sm:items-center sm:px-6"
-          >
-            <NuxtLink
-              to="/register"
-              class="dnl-press rounded-button bg-primary px-6 py-3 text-center text-body-1 font-semibold text-on-primary transition-colors hover:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
-              >Create your club</NuxtLink
-            >
-            <NuxtLink
-              to="/events"
-              class="dnl-press rounded-button border border-fg-muted bg-canvas px-6 py-3 text-center text-body-1 font-semibold text-fg transition-colors hover:border-fg hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
-              >Find play near you</NuxtLink
-            >
-            <p class="text-body-2 text-fg-secondary sm:ml-auto">
-              Browsing is free and needs no account.
-            </p>
+        <!-- The actions sit on their own rule rather than inside a panel. The
+             row is kept inside the claim's column so the note on the right
+             never lands on the revealed artwork. -->
+        <div class="relative z-10 border-y border-fg-muted">
+          <div class="mx-auto max-w-6xl px-4 sm:px-6">
+            <div class="dnl-hero-claim flex flex-col gap-3 py-5 sm:flex-row sm:flex-wrap sm:items-center">
+              <NuxtLink
+                to="/register"
+                class="dnl-press whitespace-nowrap rounded-button bg-primary px-6 py-3 text-center text-body-1 font-semibold text-on-primary transition-colors hover:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+                >Create your club</NuxtLink
+              >
+              <NuxtLink
+                to="/events"
+                class="dnl-press whitespace-nowrap rounded-button border border-fg-muted bg-canvas px-6 py-3 text-center text-body-1 font-semibold text-fg transition-colors hover:border-fg hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+                >Find play near you</NuxtLink
+              >
+              <p class="text-body-2 text-fg-secondary">
+                Browsing is free and needs no account.
+              </p>
+            </div>
           </div>
         </div>
       </section>
@@ -875,23 +888,60 @@ onBeforeUnmount(() => {
 }
 
 /*
- * The legibility floor under an operator-chosen hero image.
+ * The ground under an operator-chosen hero image.
  *
- * One flat wash of the theme's own canvas - not a gradient, and not a fixed
- * colour. Because it is the canvas, the claim's ordinary `fg` ink keeps exactly
- * the contrast it has everywhere else on the page, in both themes, whatever
- * image or overlay opacity the SuperAdmin picked. The artwork stays readable
- * underneath as a ground rather than competing with the words on top of it.
+ * Two flat washes of the theme's own canvas - never a gradient, never a fixed
+ * colour. Because both are the canvas, the claim's ordinary `fg` ink keeps
+ * exactly the contrast it has everywhere else on the page, in both themes.
+ *
+ * `.dnl-hero-scrim` covers the whole band at the operator's strength, so their
+ * slider is honoured. `.dnl-hero-plate` is the fixed legibility floor under
+ * the claim and the actions: 0.92 is what the band was hardcoded to before the
+ * slider existed, so the words read as they always did while the artwork is
+ * revealed beside them (wide) or above them (phone). The plate and the claim
+ * column agree on one ratio, --dnl-hero-art, so the text can never cross onto
+ * the revealed image.
  */
 .dnl-hero-scrim {
   position: absolute;
   inset: 0;
   z-index: 0;
   pointer-events: none;
-  /* Set per-render from the operator's background-image opacity; the 0.92
-     fallback is what this was hardcoded to before that control existed, so a
-     platform that never touches the slider paints exactly as it always did. */
   background-color: rgb(var(--dnl-canvas) / var(--dnl-hero-wash, 0.92));
+}
+
+.dnl-hero--art {
+  /* Share of the band given to the artwork on wide screens, as a ratio. */
+  --dnl-hero-art: 0.38;
+}
+
+.dnl-hero-plate {
+  position: absolute;
+  z-index: 0;
+  pointer-events: none;
+  inset: 0;
+  /* Phone: the artwork is a strip above the claim, matching the claim's own
+     top padding in the template (44vw + 2rem). */
+  top: 44vw;
+  background-color: rgb(var(--dnl-canvas) / 0.92);
+}
+
+@media (min-width: 768px) {
+  .dnl-hero-plate {
+    top: 0;
+    /* The plate ends where the claim column ends. Below the 72rem container
+       cap the column is a share of the viewport; above it, a share of the
+       centred container plus the margin outside it. */
+    right: max(
+      calc(100% * var(--dnl-hero-art)),
+      calc((100% - 72rem) / 2 + 72rem * var(--dnl-hero-art))
+    );
+  }
+
+  .dnl-hero--art .dnl-hero-claim {
+    max-width: calc(100% * (1 - var(--dnl-hero-art)));
+    padding-right: 2rem;
+  }
 }
 
 /*

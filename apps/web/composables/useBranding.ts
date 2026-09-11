@@ -3,7 +3,9 @@ import {
   DEFAULT_APP_NAME,
   DEFAULT_OVERLAY_COLOR,
   DEFAULT_OVERLAY_OPACITY,
-  DEFAULT_BACKGROUND_OPACITY
+  DEFAULT_BACKGROUND_OPACITY,
+  DEFAULT_FOCAL_X,
+  DEFAULT_FOCAL_Y
 } from '~/server/domains/platform/dto/branding.dto'
 
 /** What the platform looks like before anyone has branded it. */
@@ -17,7 +19,9 @@ const BUILT_IN: BrandingDto = {
     background_url: null,
     overlay_color: DEFAULT_OVERLAY_COLOR,
     overlay_opacity: DEFAULT_OVERLAY_OPACITY,
-    background_opacity: DEFAULT_BACKGROUND_OPACITY
+    background_opacity: DEFAULT_BACKGROUND_OPACITY,
+    focal_x: DEFAULT_FOCAL_X,
+    focal_y: DEFAULT_FOCAL_Y
   }
 }
 

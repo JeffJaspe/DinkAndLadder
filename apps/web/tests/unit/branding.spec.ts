@@ -13,8 +13,13 @@ import {
   isBrandingSlot,
   objectPathFor,
   backgroundOpacityOf,
+  focalPositionOf,
+  focalXOf,
+  focalYOf,
   DEFAULT_APP_NAME,
   DEFAULT_BACKGROUND_OPACITY,
+  DEFAULT_FOCAL_X,
+  DEFAULT_FOCAL_Y,
   MAX_UPLOAD_BYTES,
   type BrandingRecord
 } from '../../server/domains/platform/dto/branding.dto'
@@ -39,6 +44,8 @@ function makeRecord(overrides: Partial<BrandingRecord> = {}): BrandingRecord {
     hero_overlay_color: null,
     hero_overlay_opacity: null,
     hero_background_opacity: null,
+    hero_focal_x: null,
+    hero_focal_y: null,
     branding_updated_at: null,
     ...overrides
   }
@@ -134,6 +141,20 @@ describe('branding values', () => {
     expect(backgroundOpacityOf({ hero_background_opacity: 'nonsense' })).toBe(
       DEFAULT_BACKGROUND_OPACITY
     )
+  })
+
+  it('keeps the image centred when no focal point is stored', () => {
+    expect(focalXOf({ hero_focal_x: null })).toBe(DEFAULT_FOCAL_X)
+    expect(focalYOf({ hero_focal_y: null })).toBe(DEFAULT_FOCAL_Y)
+    expect(focalPositionOf({ focal_x: DEFAULT_FOCAL_X, focal_y: DEFAULT_FOCAL_Y })).toBe('50% 50%')
+  })
+
+  it('turns a stored focal point into a background-position, clamped', () => {
+    expect(focalXOf({ hero_focal_x: '0.85' })).toBe(0.85)
+    expect(focalYOf({ hero_focal_y: 3 })).toBe(1)
+    expect(focalPositionOf({ focal_x: 0.85, focal_y: 0.2 })).toBe('85% 20%')
+    expect(focalPositionOf({ focal_x: 1.7, focal_y: -1 })).toBe('100% 0%')
+    expect(focalPositionOf({ focal_x: 0.333, focal_y: 0.5 })).toBe('33.3% 50%')
   })
 
   it('recognises only the defined slots', () => {
@@ -254,6 +275,31 @@ describe('branding service', () => {
     // else wrote, nor the overlay they tuned.
     expect(dto.hero.title).toBe('Kept')
     expect(dto.hero.background_opacity).toBe(0.6)
+  })
+
+  it('saves a focal point and reads it back', async () => {
+    const { service, branding } = serviceWith(makeRecord())
+
+    const dto = await service.setHero(SUPER_ADMIN, { focal_x: 0.82, focal_y: 0.4 })
+
+    expect(branding.setHero).toHaveBeenCalledWith(
+      { hero_focal_x: 0.82, hero_focal_y: 0.4 },
+      SUPER_ADMIN
+    )
+    expect(dto.hero.focal_x).toBe(0.82)
+    expect(dto.hero.focal_y).toBe(0.4)
+  })
+
+  it('refuses a focal point outside the image', async () => {
+    const { service, branding } = serviceWith(makeRecord())
+
+    for (const input of [{ focal_x: 1.2 }, { focal_y: -0.1 }, { focal_x: Number.NaN }]) {
+      await expect(service.setHero(SUPER_ADMIN, input)).rejects.toMatchObject({
+        status: 400,
+        code: 'VALIDATION_ERROR'
+      })
+    }
+    expect(branding.setHero).not.toHaveBeenCalled()
   })
 
   it('refuses a background opacity outside 0..1', async () => {
