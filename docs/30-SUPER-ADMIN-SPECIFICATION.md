@@ -69,12 +69,15 @@ The admin UI will show a 4-swatch picker. Colors are injected as CSS custom prop
 | Setting | Type | Description |
 |---------|------|-------------|
 | `hero_background_url` | text | Background image URL |
-| `hero_overlay_color` | text | Overlay color (hex) |
-| `hero_overlay_opacity` | decimal | 0.0 - 1.0 |
+| `hero_overlay_color` | text | Retained; no longer offered in the console nor applied by the page (superseded by the plate, 059) |
+| `hero_overlay_opacity` | decimal | Retained; as above |
 | `hero_background_opacity` | decimal | 0.0 (invisible) - 1.0 (untouched); how much of the image survives the page's canvas wash (057) |
 | `hero_focal_x` / `hero_focal_y` | decimal | 0.0 - 1.0 each; the point every crop keeps in view — beside the headline on wide screens, the strip above it on phones. NULL = centre (058) |
 | `hero_title` | text | Main headline |
 | `hero_subtitle` | text | Tagline |
+| `hero_plate_color` | text | #RRGGBB for the ground under the headline; NULL = the theme's own canvas (059) |
+| `hero_plate_opacity` | decimal | 0.0 - 1.0; NULL = 0.92 (059) |
+| `hero_fade` | decimal | 0.0 (hard edge) - 1.0; how far the plate dissolves into the image, as a share of the viewport width; NULL = 0.11 (059) |
 
 The console shows a live preview of the landing hero (wide and phone frames, light and dark) painted from the unsaved form values, and a focal-point picker over the uploaded image.
 

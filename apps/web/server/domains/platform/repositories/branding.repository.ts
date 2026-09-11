@@ -4,7 +4,7 @@ import type { BrandingRecord, BrandingSlot } from '../dto/branding.dto'
 const BRANDING_COLUMNS =
   'app_name, logo_path, favicon_path, hero_title, hero_subtitle, hero_background_path, ' +
   'hero_overlay_color, hero_overlay_opacity, hero_background_opacity, hero_focal_x, hero_focal_y, ' +
-  'branding_updated_at'
+  'hero_plate_color, hero_plate_opacity, hero_fade, branding_updated_at'
 
 /** PostgREST's code for a column that is not there yet (pre-migration). */
 const UNDEFINED_COLUMN = '42703'
@@ -21,6 +21,9 @@ const EMPTY: BrandingRecord = {
   hero_background_opacity: null,
   hero_focal_x: null,
   hero_focal_y: null,
+  hero_plate_color: null,
+  hero_plate_opacity: null,
+  hero_fade: null,
   branding_updated_at: null
 }
 
@@ -32,12 +35,15 @@ export interface HeroPatch {
   hero_background_opacity?: number | null
   hero_focal_x?: number | null
   hero_focal_y?: number | null
+  hero_plate_color?: string | null
+  hero_plate_opacity?: number | null
+  hero_fade?: number | null
 }
 
 export interface BrandingRepository {
   /**
    * Branding as stored. Falls back to an all-null record — not an error — when
-   * the 025/026/057/058 migrations have not run, so the platform keeps painting its own
+   * the 025/026/057/058/059 migrations have not run, so the platform keeps painting its own
    * name, monogram and landing copy instead of failing every page render.
    */
   get(): Promise<BrandingRecord>
@@ -97,7 +103,7 @@ export function createBrandingRepository(client: SupabaseClient): BrandingReposi
       if (error) {
         if (error.code === UNDEFINED_COLUMN) {
           console.warn(
-            '[branding] columns missing — run the 025/026/057/058 platform migrations. Using built-in branding.'
+            '[branding] columns missing — run the 025/026/057/058/059 platform migrations. Using built-in branding.'
           )
           return EMPTY
         }

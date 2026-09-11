@@ -13,13 +13,19 @@ import {
   isBrandingSlot,
   objectPathFor,
   backgroundOpacityOf,
+  fadeOf,
   focalPositionOf,
   focalXOf,
   focalYOf,
+  plateColorOf,
+  plateOpacityOf,
+  rgbTripletOf,
   DEFAULT_APP_NAME,
   DEFAULT_BACKGROUND_OPACITY,
   DEFAULT_FOCAL_X,
   DEFAULT_FOCAL_Y,
+  DEFAULT_FADE,
+  DEFAULT_PLATE_OPACITY,
   MAX_UPLOAD_BYTES,
   type BrandingRecord
 } from '../../server/domains/platform/dto/branding.dto'
@@ -46,6 +52,9 @@ function makeRecord(overrides: Partial<BrandingRecord> = {}): BrandingRecord {
     hero_background_opacity: null,
     hero_focal_x: null,
     hero_focal_y: null,
+    hero_plate_color: null,
+    hero_plate_opacity: null,
+    hero_fade: null,
     branding_updated_at: null,
     ...overrides
   }
@@ -155,6 +164,20 @@ describe('branding values', () => {
     expect(focalPositionOf({ focal_x: 0.85, focal_y: 0.2 })).toBe('85% 20%')
     expect(focalPositionOf({ focal_x: 1.7, focal_y: -1 })).toBe('100% 0%')
     expect(focalPositionOf({ focal_x: 0.333, focal_y: 0.5 })).toBe('33.3% 50%')
+  })
+
+  it('paints the plate and fade the page always had when nothing is stored', () => {
+    expect(plateColorOf({ hero_plate_color: null })).toBeNull()
+    expect(plateOpacityOf({ hero_plate_opacity: null })).toBe(DEFAULT_PLATE_OPACITY)
+    expect(fadeOf({ hero_fade: null })).toBe(DEFAULT_FADE)
+  })
+
+  it('reads a plate colour back only when it is a real hex, as an rgb triplet', () => {
+    expect(plateColorOf({ hero_plate_color: '#0b3b24' })).toBe('#0B3B24')
+    expect(plateColorOf({ hero_plate_color: 'red' })).toBeNull()
+    expect(plateColorOf({ hero_plate_color: 'url(x)' })).toBeNull()
+    expect(rgbTripletOf('#0B3B24')).toBe('11 59 36')
+    expect(rgbTripletOf('#FFFFFF')).toBe('255 255 255')
   })
 
   it('recognises only the defined slots', () => {
@@ -294,6 +317,36 @@ describe('branding service', () => {
     const { service, branding } = serviceWith(makeRecord())
 
     for (const input of [{ focal_x: 1.2 }, { focal_y: -0.1 }, { focal_x: Number.NaN }]) {
+      await expect(service.setHero(SUPER_ADMIN, input)).rejects.toMatchObject({
+        status: 400,
+        code: 'VALIDATION_ERROR'
+      })
+    }
+    expect(branding.setHero).not.toHaveBeenCalled()
+  })
+
+  it('saves the plate and fade, and clears the plate colour with an empty string', async () => {
+    const { service, branding } = serviceWith(makeRecord({ hero_plate_color: '#0B3B24' }))
+
+    const dto = await service.setHero(SUPER_ADMIN, {
+      plate_color: '',
+      plate_opacity: 0.7,
+      fade: 0.25
+    })
+
+    expect(branding.setHero).toHaveBeenCalledWith(
+      { hero_plate_color: null, hero_plate_opacity: 0.7, hero_fade: 0.25 },
+      SUPER_ADMIN
+    )
+    expect(dto.hero.plate_color).toBeNull()
+    expect(dto.hero.plate_opacity).toBe(0.7)
+    expect(dto.hero.fade).toBe(0.25)
+  })
+
+  it('refuses a plate colour that is not hex, and plate/fade values outside 0..1', async () => {
+    const { service, branding } = serviceWith(makeRecord())
+
+    for (const input of [{ plate_color: 'red' }, { plate_opacity: 1.1 }, { fade: -0.2 }]) {
       await expect(service.setHero(SUPER_ADMIN, input)).rejects.toMatchObject({
         status: 400,
         code: 'VALIDATION_ERROR'

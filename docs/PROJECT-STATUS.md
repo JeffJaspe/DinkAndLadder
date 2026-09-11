@@ -1951,6 +1951,22 @@ routes × 2 themes**. `@axe-core/playwright` added as a devDependency.
   visually via a throwaway page at 1024 and 400 px in both themes. The 058
   columns land on dev with the next push to main; until then the repository's
   existing pre-migration fallback paints built-in branding.
+  Per Jeff's request the plate's edge now dissolves into the artwork
+  (`.dnl-hero-plate::after`, 10rem rightward on `md+`, 3rem upward into the
+  phone strip) instead of cutting it. This is the landing page's one gradient;
+  it sits outside the plate so the words still rest on a flat 0.92 wash. The
+  console preview carries the same seam.
+- **Plate colour/opacity and fade are the operator's; overlay retired**
+  (2026-09-11). Liquibase 059 adds `hero_plate_color` (hex, CHECK), `hero_plate_opacity`
+  and `hero_fade` (numeric(3,2), CHECK 0..1), all NULL = what the page painted
+  before. Threaded DTO → repository → service (hex/fraction validation) → API →
+  `pages/index.vue` (`--dnl-hero-plate` rgb triplet or the theme canvas,
+  `--dnl-hero-plate-alpha`, `--dnl-hero-fade`) and the console preview. The
+  console's overlay colour/strength controls are removed and the page no
+  longer applies the overlay; the 026 columns and DTO fields stay (no
+  destructive migration, mobile contract unchanged). A custom plate colour is
+  the same in both themes, so the console says so and the preview's theme
+  toggle is where it is judged. Tests: branding.spec.ts 26/26 (4 new).
 
 Two stale E2E assertions were failing before this work (landing copy changed in
 uncommitted work); both updated.

@@ -5,8 +5,11 @@ import {
   appNameOf,
   backgroundOpacityOf,
   extensionFor,
+  fadeOf,
   focalXOf,
   focalYOf,
+  plateColorOf,
+  plateOpacityOf,
   isHexColor,
   objectPathFor,
   overlayColorOf,
@@ -45,6 +48,10 @@ export interface HeroInput {
   background_opacity?: number
   focal_x?: number
   focal_y?: number
+  /** '' clears back to the theme's own canvas. */
+  plate_color?: string
+  plate_opacity?: number
+  fade?: number
 }
 
 export interface BrandingService {
@@ -114,7 +121,10 @@ export function createBrandingService(
         overlay_opacity: overlayOpacityOf(record),
         background_opacity: backgroundOpacityOf(record),
         focal_x: focalXOf(record),
-        focal_y: focalYOf(record)
+        focal_y: focalYOf(record),
+        plate_color: plateColorOf(record),
+        plate_opacity: plateOpacityOf(record),
+        fade: fadeOf(record)
       }
     }
   }
@@ -225,6 +235,26 @@ export function createBrandingService(
 
       if (input.focal_y !== undefined) {
         patch.hero_focal_y = assertFraction(input.focal_y, 'focal point')
+      }
+
+      if (input.plate_color !== undefined) {
+        // Same rule as the overlay colour: it lands in an inline style.
+        if (input.plate_color !== '' && !isHexColor(input.plate_color)) {
+          throw new BrandingServiceError(
+            400,
+            'VALIDATION_ERROR',
+            'The plate colour must be a hex value like #F7F9F8.'
+          )
+        }
+        patch.hero_plate_color = input.plate_color || null
+      }
+
+      if (input.plate_opacity !== undefined) {
+        patch.hero_plate_opacity = assertFraction(input.plate_opacity, 'plate opacity')
+      }
+
+      if (input.fade !== undefined) {
+        patch.hero_fade = assertFraction(input.fade, 'fade')
       }
 
       if (!Object.keys(patch).length) {

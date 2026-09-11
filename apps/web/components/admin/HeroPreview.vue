@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { HeroDto } from '~/server/domains/platform/dto/branding.dto'
-import { focalPositionOf } from '~/server/domains/platform/dto/branding.dto'
+import { focalPositionOf, rgbTripletOf } from '~/server/domains/platform/dto/branding.dto'
 
 /**
  * A miniature of the signed-out landing hero, painted from the operator's
@@ -29,14 +29,6 @@ const BUILT_IN_SUBTITLE =
 const title = computed(() => props.hero.title?.trim() || BUILT_IN_TITLE)
 const subtitle = computed(() => props.hero.subtitle?.trim() || BUILT_IN_SUBTITLE)
 
-function withAlpha(hex: string, alpha: number): string {
-  const value = hex.replace('#', '')
-  const r = Number.parseInt(value.slice(0, 2), 16)
-  const g = Number.parseInt(value.slice(2, 4), 16)
-  const b = Number.parseInt(value.slice(4, 6), 16)
-  return `rgb(${r} ${g} ${b} / ${clamp01(alpha)})`
-}
-
 function clamp01(value: number): number {
   return Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 0
 }
@@ -44,15 +36,19 @@ function clamp01(value: number): number {
 /** Mirrors `heroBackground` on pages/index.vue, minus the page-only bits. */
 const artStyle = computed(() => {
   if (!props.hero.background_url) return null
-  const overlay = withAlpha(props.hero.overlay_color, Number(props.hero.overlay_opacity))
   return {
-    backgroundImage: `linear-gradient(${overlay}, ${overlay}), url("${props.hero.background_url}")`,
+    backgroundImage: `url("${props.hero.background_url}")`,
     backgroundSize: 'cover',
     backgroundPosition: focalPositionOf({
       focal_x: Number(props.hero.focal_x),
       focal_y: Number(props.hero.focal_y)
     }),
-    '--dnl-hero-wash': String(1 - clamp01(Number(props.hero.background_opacity)))
+    '--dnl-hero-wash': String(1 - clamp01(Number(props.hero.background_opacity))),
+    '--dnl-hero-plate': props.hero.plate_color
+      ? rgbTripletOf(props.hero.plate_color)
+      : 'var(--dnl-canvas)',
+    '--dnl-hero-plate-alpha': String(clamp01(Number(props.hero.plate_opacity))),
+    '--dnl-hero-fade': String(clamp01(Number(props.hero.fade)))
   }
 })
 </script>
@@ -159,11 +155,43 @@ const artStyle = computed(() => {
   inset: 0;
   z-index: 0;
   pointer-events: none;
-  background-color: rgb(var(--dnl-canvas) / 0.92);
+  background-color: rgb(var(--dnl-hero-plate, var(--dnl-canvas)) / var(--dnl-hero-plate-alpha, 0.92));
+}
+
+/* The page's dissolving seam between plate and artwork, at frame scale:
+   10rem of 1440 on wide, 3rem of a 400-wide phone (as a share of height). */
+.dnl-preview-plate::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 100%;
+  /* fade × frame width, as a share of the 400 × 640 frame's height. */
+  height: calc(100% * var(--dnl-hero-fade, 0.11) * 0.625);
+  background: linear-gradient(
+    to top,
+    rgb(var(--dnl-hero-plate, var(--dnl-canvas)) / var(--dnl-hero-plate-alpha, 0.92)),
+    rgb(var(--dnl-hero-plate, var(--dnl-canvas)) / 0)
+  );
 }
 
 .dnl-preview--wide .dnl-preview-plate {
   right: calc(100% * var(--dnl-hero-art));
+}
+
+.dnl-preview--wide .dnl-preview-plate::after {
+  top: 0;
+  bottom: 0;
+  left: 100%;
+  right: auto;
+  height: auto;
+  /* fade × band width; the plate is (1 - art) of the band, so scale back up. */
+  width: calc(100% * var(--dnl-hero-fade, 0.11) / (1 - var(--dnl-hero-art)));
+  background: linear-gradient(
+    to right,
+    rgb(var(--dnl-hero-plate, var(--dnl-canvas)) / var(--dnl-hero-plate-alpha, 0.92)),
+    rgb(var(--dnl-hero-plate, var(--dnl-canvas)) / 0)
+  );
 }
 
 .dnl-preview--wide .dnl-preview-claim {

@@ -63,5 +63,6 @@
     <include file="056-club-subscriptions/056-club-subscriptions.changelog.xml" relativeToChangelogFile="true"/>
     <include file="057-hero-background-opacity/057-hero-background-opacity.changelog.xml" relativeToChangelogFile="true"/>
     <include file="058-hero-focal-point/058-hero-focal-point.changelog.xml" relativeToChangelogFile="true"/>
+    <include file="059-hero-plate-and-fade/059-hero-plate-and-fade.changelog.xml" relativeToChangelogFile="true"/>
 
 </databaseChangeLog>

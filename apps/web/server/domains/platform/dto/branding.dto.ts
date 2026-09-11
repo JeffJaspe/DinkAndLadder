@@ -33,6 +33,16 @@ export const DEFAULT_BACKGROUND_OPACITY = 0.08
 export const DEFAULT_FOCAL_X = 0.5
 export const DEFAULT_FOCAL_Y = 0.5
 
+/**
+ * The plate under the headline: its strength, and how wide its edge dissolves
+ * into the artwork (a share of the band's width on wide screens, of the
+ * viewport width on phones). 0.92 and 0.11 are what the page painted before
+ * either was configurable. The plate's colour has no default constant: NULL
+ * means the theme's own canvas, the only colour correct in both themes.
+ */
+export const DEFAULT_PLATE_OPACITY = 0.92
+export const DEFAULT_FADE = 0.11
+
 export interface BrandingRecord {
   app_name: string | null
   logo_path: string | null
@@ -45,6 +55,9 @@ export interface BrandingRecord {
   hero_background_opacity: number | string | null
   hero_focal_x: number | string | null
   hero_focal_y: number | string | null
+  hero_plate_color: string | null
+  hero_plate_opacity: number | string | null
+  hero_fade: number | string | null
   branding_updated_at: string | null
 }
 
@@ -60,6 +73,12 @@ export interface HeroDto {
   /** Focal point of the background image, 0..1 on each axis. See DEFAULT_FOCAL_X. */
   focal_x: number
   focal_y: number
+  /** #RRGGBB, or null for the theme's own canvas. */
+  plate_color: string | null
+  /** 0..1. See DEFAULT_PLATE_OPACITY. */
+  plate_opacity: number
+  /** 0 (hard edge) .. 1. See DEFAULT_FADE. */
+  fade: number
 }
 
 /** What a page needs to paint the brand. */
@@ -165,6 +184,29 @@ export function focalXOf(record: Pick<BrandingRecord, 'hero_focal_x'> | null): n
 
 export function focalYOf(record: Pick<BrandingRecord, 'hero_focal_y'> | null): number {
   return clampedOpacity(record?.hero_focal_y, DEFAULT_FOCAL_Y)
+}
+
+export function plateColorOf(record: Pick<BrandingRecord, 'hero_plate_color'> | null): string | null {
+  return isHexColor(record?.hero_plate_color) ? record!.hero_plate_color!.toUpperCase() : null
+}
+
+export function plateOpacityOf(
+  record: Pick<BrandingRecord, 'hero_plate_opacity'> | null
+): number {
+  return clampedOpacity(record?.hero_plate_opacity, DEFAULT_PLATE_OPACITY)
+}
+
+export function fadeOf(record: Pick<BrandingRecord, 'hero_fade'> | null): number {
+  return clampedOpacity(record?.hero_fade, DEFAULT_FADE)
+}
+
+/**
+ * A hex colour as the "r g b" triplet the token system's custom properties
+ * carry, so a custom plate colour drops into `rgb(var(--x) / a)` unchanged.
+ */
+export function rgbTripletOf(hex: string): string {
+  const value = hex.replace('#', '')
+  return [0, 2, 4].map((i) => Number.parseInt(value.slice(i, i + 2), 16)).join(' ')
 }
 
 /**

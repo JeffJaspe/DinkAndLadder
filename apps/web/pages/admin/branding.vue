@@ -9,6 +9,8 @@ import {
   DEFAULT_BACKGROUND_OPACITY,
   DEFAULT_FOCAL_X,
   DEFAULT_FOCAL_Y,
+  DEFAULT_PLATE_OPACITY,
+  DEFAULT_FADE,
   MAX_HERO_SUBTITLE_LENGTH,
   MAX_HERO_TITLE_LENGTH
 } from '~/server/domains/platform/dto/branding.dto'
@@ -145,12 +147,21 @@ async function clear(slot: BrandingSlot) {
 const heroForm = reactive({
   title: '',
   subtitle: '',
-  overlay_color: '#000000',
-  overlay_opacity: 0.5,
   background_opacity: DEFAULT_BACKGROUND_OPACITY,
   focal_x: DEFAULT_FOCAL_X,
-  focal_y: DEFAULT_FOCAL_Y
+  focal_y: DEFAULT_FOCAL_Y,
+  /** '' = the theme's own canvas; the colour input needs a hex to show. */
+  plate_color: '',
+  plate_opacity: DEFAULT_PLATE_OPACITY,
+  fade: DEFAULT_FADE
 })
+
+/**
+ * What the colour input shows while "theme canvas" is in force: the light
+ * canvas, since the input cannot render "none". Picking any colour makes it
+ * custom; the reset link below it goes back to the theme's own.
+ */
+const LIGHT_CANVAS = '#F7F9F8'
 const savingHero = ref(false)
 
 /**
@@ -161,11 +172,15 @@ const previewHero = computed<HeroDto>(() => ({
   title: heroForm.title,
   subtitle: heroForm.subtitle,
   background_url: branding.value?.hero.background_url ?? null,
-  overlay_color: heroForm.overlay_color,
-  overlay_opacity: Number(heroForm.overlay_opacity),
+  // The overlay is no longer applied by the page; the DTO still carries it.
+  overlay_color: branding.value?.hero.overlay_color ?? '#000000',
+  overlay_opacity: branding.value?.hero.overlay_opacity ?? 0,
   background_opacity: Number(heroForm.background_opacity),
   focal_x: Number(heroForm.focal_x),
-  focal_y: Number(heroForm.focal_y)
+  focal_y: Number(heroForm.focal_y),
+  plate_color: heroForm.plate_color || null,
+  plate_opacity: Number(heroForm.plate_opacity),
+  fade: Number(heroForm.fade)
 }))
 
 /** Previewed in the console's own theme first; the operator can flip it. */
@@ -184,11 +199,12 @@ watchEffect(() => {
   if (savingHero.value || !branding.value) return
   heroForm.title = branding.value.hero.title ?? ''
   heroForm.subtitle = branding.value.hero.subtitle ?? ''
-  heroForm.overlay_color = branding.value.hero.overlay_color
-  heroForm.overlay_opacity = branding.value.hero.overlay_opacity
   heroForm.background_opacity = branding.value.hero.background_opacity
   heroForm.focal_x = branding.value.hero.focal_x
   heroForm.focal_y = branding.value.hero.focal_y
+  heroForm.plate_color = branding.value.hero.plate_color ?? ''
+  heroForm.plate_opacity = branding.value.hero.plate_opacity
+  heroForm.fade = branding.value.hero.fade
 })
 
 async function saveHero() {
@@ -200,12 +216,13 @@ async function saveHero() {
       body: {
         title: heroForm.title,
         subtitle: heroForm.subtitle,
-        overlay_color: heroForm.overlay_color,
         // A range input hands back a string; the API takes a number.
-        overlay_opacity: Number(heroForm.overlay_opacity),
         background_opacity: Number(heroForm.background_opacity),
         focal_x: Number(heroForm.focal_x),
-        focal_y: Number(heroForm.focal_y)
+        focal_y: Number(heroForm.focal_y),
+        plate_color: heroForm.plate_color,
+        plate_opacity: Number(heroForm.plate_opacity),
+        fade: Number(heroForm.fade)
       }
     })
     await Promise.all([refresh(), refreshLiveBranding()])
@@ -428,37 +445,73 @@ async function saveHero() {
               </p>
             </div>
 
+            <!-- The plate under the headline and its seam. The plate is what
+                 keeps the words readable, so its colour defaults to the theme's
+                 own canvas - the only colour that is right in both light and
+                 dark - and the preview above is where a custom one is judged. -->
             <div class="flex flex-wrap items-end gap-4">
               <div>
-                <label for="hero-overlay" class="mb-1.5 block text-caption text-fg-secondary">
-                  Overlay colour
+                <label for="hero-plate-color" class="mb-1.5 block text-caption text-fg-secondary">
+                  Headline background colour
                 </label>
-                <input
-                  id="hero-overlay"
-                  v-model="heroForm.overlay_color"
-                  type="color"
-                  class="h-10 w-16 cursor-pointer rounded-button border border-border-strong bg-surface"
-                />
+                <div class="flex items-center gap-3">
+                  <input
+                    id="hero-plate-color"
+                    type="color"
+                    :value="heroForm.plate_color || LIGHT_CANVAS"
+                    class="h-10 w-16 cursor-pointer rounded-button border border-border-strong bg-surface"
+                    @input="heroForm.plate_color = ($event.target as HTMLInputElement).value"
+                  />
+                  <button
+                    v-if="heroForm.plate_color"
+                    type="button"
+                    class="text-body-2 text-fg-secondary underline-offset-4 hover:text-fg hover:underline"
+                    @click="heroForm.plate_color = ''"
+                  >
+                    Use the page's own colour
+                  </button>
+                  <span v-else class="text-caption text-fg-muted">Page's own colour (per theme)</span>
+                </div>
               </div>
               <div class="min-w-[12rem] flex-1">
-                <label for="hero-opacity" class="mb-1.5 block text-caption text-fg-secondary">
-                  Overlay strength — {{ Math.round(Number(heroForm.overlay_opacity) * 100) }}%
+                <label for="hero-plate-opacity" class="mb-1.5 block text-caption text-fg-secondary">
+                  Headline background opacity —
+                  {{ Math.round(Number(heroForm.plate_opacity) * 100) }}%
                 </label>
                 <input
-                  id="hero-opacity"
-                  v-model="heroForm.overlay_opacity"
+                  id="hero-plate-opacity"
+                  v-model="heroForm.plate_opacity"
                   type="range"
                   min="0"
                   max="1"
-                  step="0.05"
+                  step="0.01"
                   class="w-full accent-primary"
                 />
               </div>
             </div>
 
+            <div>
+              <label for="hero-fade" class="mb-1.5 block text-caption text-fg-secondary">
+                Fade into the image — {{ Math.round(Number(heroForm.fade) * 100) }}%
+              </label>
+              <input
+                id="hero-fade"
+                v-model="heroForm.fade"
+                type="range"
+                min="0"
+                max="0.5"
+                step="0.01"
+                class="w-full accent-primary"
+                :disabled="!branding?.hero.background_url"
+              />
+              <p class="mt-1 text-caption text-fg-muted">
+                How far the headline's background dissolves into the image. 0% is a hard edge.
+              </p>
+            </div>
+
             <p class="text-caption text-fg-muted">
-              The overlay tints the image itself; it does not affect the headline, which always
-              reads on its own ground. With no background image, only the words apply.
+              A custom colour is the same in light and dark; check both in the preview before saving.
+              With no background image, only the words apply.
             </p>
           </div>
 

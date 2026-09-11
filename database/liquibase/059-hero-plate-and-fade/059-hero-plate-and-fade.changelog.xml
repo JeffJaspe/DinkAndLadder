@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Operator control over the landing hero's ground and its seam
+     (docs/30-SUPER-ADMIN-SPECIFICATION.md §2.3).
+
+     The headline sits on a flat plate of the theme's canvas at 0.92, and the
+     plate's edge dissolves into the artwork. Both were fixed numbers. These
+     columns make them the operator's: the plate's colour and strength, and how
+     wide the dissolve is. NULL on each keeps exactly what the page painted
+     before the column existed.
+
+     The 026 overlay columns (hero_overlay_color / hero_overlay_opacity) stay
+     in place; the console no longer offers them and the page no longer applies
+     them. Dropping columns is not done as a side effect of a UI change. -->
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+    <changeSet id="0001-add-hero-plate-and-fade" author="super-admin">
+        <addColumn tableName="platform_config">
+            <!-- #RRGGBB. NULL means the theme's own canvas, which is the only
+                 value that is correct in both light and dark. -->
+            <column name="hero_plate_color" type="text">
+                <constraints nullable="true"/>
+            </column>
+            <!-- 0 (no plate) to 1 (solid). NULL = 0.92. -->
+            <column name="hero_plate_opacity" type="numeric(3,2)">
+                <constraints nullable="true"/>
+            </column>
+            <!-- Width of the dissolve as a share of the band's width (wide)
+                 or of the viewport width (phone). 0 is a hard edge. NULL = 0.11. -->
+            <column name="hero_fade" type="numeric(3,2)">
+                <constraints nullable="true"/>
+            </column>
+        </addColumn>
+        <rollback>
+            <dropColumn tableName="platform_config" columnName="hero_plate_color"/>
+            <dropColumn tableName="platform_config" columnName="hero_plate_opacity"/>
+            <dropColumn tableName="platform_config" columnName="hero_fade"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="0002-check-hero-plate-and-fade" author="super-admin">
+        <!-- All three reach a public page as inline style. The service
+             validates them too; this is the guard that survives a future write
+             path that forgets to. -->
+        <sql>
+            ALTER TABLE platform_config ADD CONSTRAINT ck_platform_config_hero_plate_color
+                CHECK (hero_plate_color IS NULL OR hero_plate_color ~* '^#[0-9a-f]{6}$');
+            ALTER TABLE platform_config ADD CONSTRAINT ck_platform_config_hero_plate_opacity
+                CHECK (hero_plate_opacity IS NULL OR (hero_plate_opacity >= 0 AND hero_plate_opacity &lt;= 1));
+            ALTER TABLE platform_config ADD CONSTRAINT ck_platform_config_hero_fade
+                CHECK (hero_fade IS NULL OR (hero_fade >= 0 AND hero_fade &lt;= 1));
+        </sql>
+        <rollback>
+            ALTER TABLE platform_config DROP CONSTRAINT ck_platform_config_hero_plate_color;
+            ALTER TABLE platform_config DROP CONSTRAINT ck_platform_config_hero_plate_opacity;
+            ALTER TABLE platform_config DROP CONSTRAINT ck_platform_config_hero_fade;
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

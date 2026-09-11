@@ -5,7 +5,9 @@ import {
   DEFAULT_OVERLAY_OPACITY,
   DEFAULT_BACKGROUND_OPACITY,
   DEFAULT_FOCAL_X,
-  DEFAULT_FOCAL_Y
+  DEFAULT_FOCAL_Y,
+  DEFAULT_PLATE_OPACITY,
+  DEFAULT_FADE
 } from '~/server/domains/platform/dto/branding.dto'
 
 /** What the platform looks like before anyone has branded it. */
@@ -21,7 +23,10 @@ const BUILT_IN: BrandingDto = {
     overlay_opacity: DEFAULT_OVERLAY_OPACITY,
     background_opacity: DEFAULT_BACKGROUND_OPACITY,
     focal_x: DEFAULT_FOCAL_X,
-    focal_y: DEFAULT_FOCAL_Y
+    focal_y: DEFAULT_FOCAL_Y,
+    plate_color: null,
+    plate_opacity: DEFAULT_PLATE_OPACITY,
+    fade: DEFAULT_FADE
   }
 }
 

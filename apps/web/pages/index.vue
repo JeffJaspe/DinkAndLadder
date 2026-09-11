@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { EventDto } from '~/server/domains/event/dto/event.dto'
-import { focalPositionOf } from '~/server/domains/platform/dto/branding.dto'
+import { focalPositionOf, rgbTripletOf } from '~/server/domains/platform/dto/branding.dto'
 
 // This page ships its own fixed marketing header. Under the default layout a
 // signed-in visitor got that header *and* the app sidebar - two sets of chrome
@@ -52,11 +52,12 @@ const { appName, hero } = useBranding()
 
 const heroBackground = computed(() => {
   if (!hero.value.background_url) return null
-  // The scrim is a solid colour at the operator's opacity, laid over the image
-  // in one background shorthand so there is no extra element to position.
-  const { overlay_color: color, overlay_opacity: opacity } = hero.value
+  // The 026 overlay (hero_overlay_color / opacity) is no longer applied: the
+  // plate under the words is the legibility device now, and the console no
+  // longer offers the overlay. Everything here is clamped again because it is
+  // a value arriving from the network on a public page.
   return {
-    backgroundImage: `linear-gradient(${withAlpha(color, opacity)}, ${withAlpha(color, opacity)}), url("${cssUrl(hero.value.background_url)}")`,
+    backgroundImage: `url("${cssUrl(hero.value.background_url)}")`,
     backgroundSize: 'cover',
     // The operator's focal point, so the part of the image they care about
     // survives both the wide reveal and the phone strip.
@@ -66,21 +67,22 @@ const heroBackground = computed(() => {
     // to change it; it is now the inverse of the operator's own setting, so
     // "image opacity 100%" means no wash at all. Clamped again here because it
     // is a number arriving from the network on a public page.
-    '--dnl-hero-wash': String(1 - clamp01(hero.value.background_opacity))
+    '--dnl-hero-wash': String(1 - clamp01(hero.value.background_opacity)),
+    // The plate under the words: the operator's colour as an "r g b" triplet
+    // so it slots into the same rgb(... / a) the theme canvas uses, or the
+    // theme's own canvas when none is set.
+    '--dnl-hero-plate': hero.value.plate_color
+      ? rgbTripletOf(hero.value.plate_color)
+      : 'var(--dnl-canvas)',
+    '--dnl-hero-plate-alpha': String(clamp01(hero.value.plate_opacity)),
+    // How far the plate's edge dissolves into the artwork.
+    '--dnl-hero-fade': String(clamp01(hero.value.fade))
   }
 })
 
 /** Anything outside 0..1 would put an invalid alpha into the inline style. */
 function clamp01(value: number): number {
   return Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 0
-}
-
-/** #RRGGBB + 0..1 -> rgb(r g b / a), so one colour value serves both stops. */
-function withAlpha(hex: string, alpha: number): string {
-  const r = parseInt(hex.slice(1, 3), 16)
-  const g = parseInt(hex.slice(3, 5), 16)
-  const b = parseInt(hex.slice(5, 7), 16)
-  return `rgb(${r} ${g} ${b} / ${alpha})`
 }
 
 /** Closes the url() a stray quote or paren could otherwise escape. */
@@ -923,7 +925,30 @@ onBeforeUnmount(() => {
   /* Phone: the artwork is a strip above the claim, matching the claim's own
      top padding in the template (44vw + 2rem). */
   top: 44vw;
-  background-color: rgb(var(--dnl-canvas) / 0.92);
+  background-color: rgb(var(--dnl-hero-plate, var(--dnl-canvas)) / var(--dnl-hero-plate-alpha, 0.92));
+}
+
+/*
+ * The plate's edge dissolves into the artwork rather than cutting it. This is
+ * the one gradient on the page, and it is not decoration: it is the seam
+ * between the claim's ground and the operator's image, and a hard seam read
+ * as a panel. It lives entirely outside the plate - the words still sit on a
+ * flat 0.92 wash - so it costs nothing in contrast. Phone: upward into the
+ * strip. Wide: rightward into the reveal.
+ */
+.dnl-hero-plate::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 100%;
+  /* The operator's fade as a share of the viewport width: 0.11 × 400px ≈ 3rem. */
+  height: calc(100vw * var(--dnl-hero-fade, 0.11));
+  background: linear-gradient(
+    to top,
+    rgb(var(--dnl-hero-plate, var(--dnl-canvas)) / var(--dnl-hero-plate-alpha, 0.92)),
+    rgb(var(--dnl-hero-plate, var(--dnl-canvas)) / 0)
+  );
 }
 
 @media (min-width: 768px) {
@@ -935,6 +960,22 @@ onBeforeUnmount(() => {
     right: max(
       calc(100% * var(--dnl-hero-art)),
       calc((100% - 72rem) / 2 + 72rem * var(--dnl-hero-art))
+    );
+  }
+
+  .dnl-hero-plate::after {
+    top: 0;
+    bottom: 0;
+    left: 100%;
+    right: auto;
+    height: auto;
+    /* As a share of the viewport width (the band is full-bleed, and a % here
+       would be of the plate, not the band): 0.11 × 1440px ≈ 10rem. */
+    width: calc(100vw * var(--dnl-hero-fade, 0.11));
+    background: linear-gradient(
+      to right,
+      rgb(var(--dnl-hero-plate, var(--dnl-canvas)) / var(--dnl-hero-plate-alpha, 0.92)),
+      rgb(var(--dnl-hero-plate, var(--dnl-canvas)) / 0)
     );
   }
 
