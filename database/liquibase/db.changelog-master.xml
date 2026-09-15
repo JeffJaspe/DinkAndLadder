@@ -64,5 +64,8 @@
     <include file="057-hero-background-opacity/057-hero-background-opacity.changelog.xml" relativeToChangelogFile="true"/>
     <include file="058-hero-focal-point/058-hero-focal-point.changelog.xml" relativeToChangelogFile="true"/>
     <include file="059-hero-plate-and-fade/059-hero-plate-and-fade.changelog.xml" relativeToChangelogFile="true"/>
+    <include file="060-feed-recency-and-reason/060-feed-recency-and-reason.changelog.xml" relativeToChangelogFile="true"/>
+    <include file="061-event-co-organizers/061-event-co-organizers.changelog.xml" relativeToChangelogFile="true"/>
+    <include file="062-mfa/062-mfa.changelog.xml" relativeToChangelogFile="true"/>
 
 </databaseChangeLog>

@@ -178,7 +178,7 @@ const statusLabel = computed(() => {
  * tokens that already clear contrast in both themes.
  */
 const statusTone = computed(() => {
-  if (isComplete.value || drawDecided.value) return 'bg-primary/15 text-primary'
+  if (isComplete.value || drawDecided.value) return 'bg-primary-soft text-primary'
   if (props.bracket?.rounds.length) return 'bg-warning-soft text-warning'
   if (props.isFull) return 'bg-accent-soft text-on-accent'
   return 'bg-surface-2 text-fg-secondary'
@@ -232,7 +232,7 @@ const canRegister = computed(() => !props.bandReason && !props.isFull)
  * Each status now says its own name.
  */
 const MY_STATUS: Record<string, { label: string; tone: string }> = {
-  confirmed: { label: 'Registered', tone: 'bg-primary/20 text-primary' },
+  confirmed: { label: 'Registered', tone: 'bg-primary-soft text-primary' },
   pending: { label: 'Pending approval', tone: 'bg-warning-soft text-warning' },
   waitlisted: { label: 'On the waitlist', tone: 'bg-surface-2 text-fg-secondary' },
   rejected: { label: 'Entry declined', tone: 'bg-danger/10 text-danger' },
@@ -243,7 +243,7 @@ const myStatusLabel = computed(
   () => MY_STATUS[props.myRegistration?.status ?? '']?.label ?? 'Registered'
 )
 const myStatusTone = computed(
-  () => MY_STATUS[props.myRegistration?.status ?? '']?.tone ?? 'bg-primary/20 text-primary'
+  () => MY_STATUS[props.myRegistration?.status ?? '']?.tone ?? 'bg-primary-soft text-primary'
 )
 
 // --- Sections inside an open card ---

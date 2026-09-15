@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import {
   GUEST_ROUTES,
+  MFA_RECOVER_ROUTE,
+  MFA_VERIFY_ROUTE,
   RECOVERY_ROUTE,
   isChromelessRoute,
-  isGuestRoute
+  isGuestRoute,
+  isMfaExemptRoute
 } from '../../utils/route-groups'
 
 describe('isGuestRoute', () => {
@@ -61,8 +64,17 @@ describe('isChromelessRoute', () => {
     expect(isChromelessRoute('/auth-error')).toBe(true)
   })
 
+  it('covers the two-factor pages, which are the second half of signing in', () => {
+    expect(isChromelessRoute(MFA_VERIFY_ROUTE)).toBe(true)
+    expect(isChromelessRoute(MFA_RECOVER_ROUTE)).toBe(true)
+    expect(isMfaExemptRoute(MFA_VERIFY_ROUTE)).toBe(true)
+    expect(isMfaExemptRoute('/login')).toBe(true)
+  })
+
   it('leaves in-app routes to the app shell', () => {
     expect(isChromelessRoute('/dashboard')).toBe(false)
     expect(isChromelessRoute('/players/abc')).toBe(false)
+    expect(isMfaExemptRoute('/dashboard')).toBe(false)
+    expect(isMfaExemptRoute('/settings/security/two-factor')).toBe(false)
   })
 })

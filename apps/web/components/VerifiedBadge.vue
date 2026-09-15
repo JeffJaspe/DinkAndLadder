@@ -4,7 +4,7 @@ defineProps<{ size?: 'sm' | 'md' }>()
 
 <template>
   <span
-    class="inline-flex items-center gap-1 rounded-full bg-primary/15 font-medium text-primary"
+    class="inline-flex items-center gap-1 rounded-full bg-primary-soft font-medium text-primary"
     :class="size === 'sm' ? 'px-1.5 py-0.5 text-[10px]' : 'px-2 py-1 text-xs'"
     title="This club is verified by DinkAndLadder"
   >

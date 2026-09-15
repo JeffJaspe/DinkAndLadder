@@ -100,6 +100,12 @@ export default defineNuxtConfig({
         // Where a failed email link is trapped — by definition nobody
         // reaching it has a session.
         '/auth-error',
+        // Two-factor recovery has no session at all (the whole point), and
+        // the challenge page has one the module accepts - listed so a future
+        // tightening of the module's guard cannot lock the second half of
+        // sign-in behind the first.
+        '/mfa/recover',
+        '/mfa/verify',
         '/players/*',
         '/clubs/*',
         '/rankings',
@@ -118,6 +124,9 @@ export default defineNuxtConfig({
         // an old bookmark must reach that redirect rather than the login page.
         '/verified-clubs',
         '/events/*',
+        // Policies are for everyone, most of all the visitor deciding whether
+        // to sign up.
+        '/legal/*',
         // Dev-only token preview; it 404s outside dev, so there is nothing to guard.
         '/dev/*',
         '/api/webhooks/*'

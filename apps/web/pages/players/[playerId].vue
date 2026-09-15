@@ -952,7 +952,7 @@ function formatActivityText(activity: ProfileActivity): string {
                     class="rounded-md px-2 py-0.5 text-xs font-medium"
                     :class="
                       didIWin(match) === true
-                        ? 'bg-primary/20 text-primary'
+                        ? 'bg-primary-soft text-primary'
                         : didIWin(match) === false
                           ? 'bg-danger-soft text-danger'
                           : 'bg-surface-2 text-fg-secondary'

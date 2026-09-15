@@ -122,9 +122,9 @@ const steps = computed<Step[]>(() => {
 })
 
 const TONE = {
-  done: { ring: 'bg-success/15 text-success', line: 'bg-success/30' },
-  pending: { ring: 'bg-warning/15 text-warning', line: 'bg-border' },
-  bad: { ring: 'bg-danger/15 text-danger', line: 'bg-danger/30' }
+  done: { ring: 'bg-success-soft text-success', line: 'bg-success/30' },
+  pending: { ring: 'bg-warning-soft text-warning', line: 'bg-border' },
+  bad: { ring: 'bg-danger-soft text-danger', line: 'bg-danger/30' }
 } as const
 
 function absolute(iso: string) {

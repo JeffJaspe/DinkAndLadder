@@ -44,6 +44,17 @@ export interface MatchService {
     input: SubmitMatchInput,
     role?: SubmittedByRole
   ): Promise<MatchDto>
+  /**
+   * The organiser's record IS the verification.
+   *
+   * Results no longer come from the players on court; they come from the
+   * person running the event, entered at the desk. There is nobody left to
+   * confirm it to, so the row goes straight to 'verified' the way a bracket
+   * result already did (BracketService), and the caller settles the rating.
+   * The player-side verification methods below remain for rows that were
+   * submitted under the old rule and are still in flight.
+   */
+  recordOrganizerResult(organizerPlayerId: string, input: SubmitMatchInput): Promise<MatchDto>
   initiateVerification(actingPlayerId: string, matchId: string): Promise<MatchDto>
   recordVerificationDecision(
     actingPlayerId: string,
@@ -161,6 +172,14 @@ export function createMatchService(repository: MatchRepository): MatchService {
       validateSubmission(submittedByPlayerId, input, resolvedRole)
       const match = await repository.create(input, submittedByPlayerId, resolvedRole)
       return toMatchDto(match)
+    },
+
+    async recordOrganizerResult(organizerPlayerId, input) {
+      validateSubmission(organizerPlayerId, input, 'organizer')
+      const created = await repository.create(input, organizerPlayerId, 'organizer')
+      await repository.updateMatchStatus(created.id, 'verified', new Date().toISOString())
+      const match = await repository.findById(created.id)
+      return toMatchDto(match ?? created)
     },
 
     async initiateVerification(actingPlayerId, matchId) {

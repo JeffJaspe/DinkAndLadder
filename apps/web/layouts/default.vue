@@ -48,20 +48,34 @@ watch(
   }
 )
 
-const { data: myProfile } = useFetch<PlayerProfileDto>('/api/v1/players/me', {
-  server: false
+// Signed-in data only when there is someone signed in: this layout also wraps
+// the public browse pages, where these three used to fire and 401 on every
+// view. Fetched on load only when signed in, and again when a user appears.
+const signedIn = computed(() => !!user.value)
+const { data: myProfile, execute: loadProfile } = useFetch<PlayerProfileDto>('/api/v1/players/me', {
+  server: false,
+  immediate: signedIn.value
 })
 
-const { data: adminStatus } = useFetch<{ is_superadmin: boolean }>('/api/v1/me/is-superadmin', {
-  server: false
-})
+const { data: adminStatus, execute: loadAdminStatus } = useFetch<{ is_superadmin: boolean }>(
+  '/api/v1/me/is-superadmin',
+  { server: false, immediate: signedIn.value }
+)
 
 // Powers the sidebar user card. Deliberately not blocking: the shell must
 // render even if the rating service is down.
-const { data: myRatings } = useFetch<{
+const { data: myRatings, execute: loadRatings } = useFetch<{
   singles: PlayerRatingDto | null
   doubles: PlayerRatingDto | null
-}>('/api/v1/players/me/ratings', { server: false })
+}>('/api/v1/players/me/ratings', { server: false, immediate: signedIn.value })
+
+watch(signedIn, (now, before) => {
+  if (now && !before) {
+    loadProfile()
+    loadAdminStatus()
+    loadRatings()
+  }
+})
 
 const isSuperAdmin = computed(() => adminStatus.value?.is_superadmin ?? false)
 
@@ -201,7 +215,8 @@ const adminNavItems = computed<NavItem[]>(() => {
     { name: 'Fees & payments', href: '/admin/fees', icon: 'stats' },
     { name: 'Theme', href: '/admin/theme', icon: 'sun' },
     { name: 'Branding', href: '/admin/branding', icon: 'image' },
-    { name: 'Sponsors', href: '/admin/sponsors', icon: 'star' }
+    { name: 'Sponsors', href: '/admin/sponsors', icon: 'star' },
+    { name: 'Account security', href: '/admin/security', icon: 'shield' }
   ]
   // Development only — the backfill endpoint refuses to run anywhere else, so
   // in production this would be a button that can only return 403.
@@ -220,18 +235,28 @@ const onAdminRoute = computed(() => route.path.startsWith('/admin'))
  * under you — and stays wherever you last put it after that.
  */
 const adminOpen = ref(false)
-watch(onAdminRoute, (value) => { if (value) adminOpen.value = true }, { immediate: true })
+watch(
+  onAdminRoute,
+  (value) => {
+    if (value) adminOpen.value = true
+  },
+  { immediate: true }
+)
 
-// The bottom bar keeps its five slots and its centred raised action: the duo
-// badge rides the drawer and the desktop sidebar instead of displacing one of
-// the primary mobile destinations. The badge markup below still works if a
-// bottom-bar item is ever given a count.
-const mobileNavItems = computed<NavItem[]>(() => [
+// The bottom bar keeps its five slots and its centred raised action. The
+// centre used to be "+ submit a score"; players no longer record results (the
+// organiser does, from the event), so the one raised control on the phone is
+// now the thing a player at a court most often reaches for: finding another
+// player. My Clubs takes the fifth slot - Profile is one tap away in the
+// drawer, a club is where the next session is. The duo badge rides the drawer
+// and the desktop sidebar; the badge markup below still works if a bottom-bar
+// item is ever given a count.
+const mobileNavItems = computed<Array<NavItem & { raised?: boolean }>>(() => [
   { name: 'Home', href: '/dashboard', icon: 'home' },
   { name: 'Rankings', href: '/rankings', icon: 'trophy' },
-  { name: 'Matches', href: '/matches/submit', icon: 'plus' },
+  { name: 'Players', href: '/players', icon: 'search', raised: true },
   { name: 'Events', href: '/events', icon: 'calendar' },
-  { name: 'Profile', href: '/profile/edit', icon: 'user' }
+  { name: 'My Clubs', href: '/my-clubs', icon: 'clubs' }
 ])
 
 function isActive(href: string) {
@@ -329,7 +354,12 @@ async function handleLogout() {
             to="/profile/edit"
             class="flex items-center gap-3 rounded-button p-2 transition-colors hover:bg-surface-2"
           >
-            <UiAvatar :name="displayName" :src="myProfile?.avatar_url ?? null" size="md" highlighted />
+            <UiAvatar
+              :name="displayName"
+              :src="myProfile?.avatar_url ?? null"
+              size="md"
+              highlighted
+            />
             <span class="min-w-0 flex-1">
               <span class="block truncate text-body-2 font-medium text-fg">{{ displayName }}</span>
               <span v-if="singlesRating !== null" class="flex items-baseline gap-1.5">
@@ -475,13 +505,19 @@ async function handleLogout() {
           :class="isActive(item.href) ? 'text-primary' : 'text-fg-muted'"
           :aria-current="isActive(item.href) ? 'page' : undefined"
         >
-          <!-- The raised centre action, straight from the mobile mockup. -->
-          <span
-            v-if="item.icon === 'plus'"
-            class="flex h-10 w-10 items-center justify-center rounded-full bg-primary text-on-primary shadow-card"
-          >
-            <UiIcon name="plus" :stroke-width="2.5" />
-          </span>
+          <!-- The raised centre action. Green when it is the current page too:
+               the fill already says "primary", so the active state is carried
+               by the label beneath it like every other slot. -->
+          <template v-if="item.raised">
+            <span
+              class="-mt-5 flex h-12 w-12 items-center justify-center rounded-full bg-primary text-on-primary shadow-card ring-4 ring-canvas"
+            >
+              <UiIcon :name="item.icon" :stroke-width="2.5" />
+            </span>
+            <span class="text-[10px]" :class="isActive(item.href) ? 'font-semibold' : ''">{{
+              item.name
+            }}</span>
+          </template>
           <template v-else>
             <span class="relative">
               <UiIcon :name="item.icon" />
@@ -547,7 +583,9 @@ async function handleLogout() {
         <span class="text-caption font-semibold uppercase tracking-widest text-fg-secondary">
           Platform admin
         </span>
-        <span class="text-caption text-fg-muted">Changes here affect everyone on DinkAndLadder</span>
+        <span class="text-caption text-fg-muted"
+          >Changes here affect everyone on DinkAndLadder</span
+        >
         <NuxtLink
           to="/dashboard"
           class="ml-auto rounded-button px-2 py-1 text-caption text-primary transition-colors hover:bg-primary-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
@@ -561,5 +599,9 @@ async function handleLogout() {
 
     <!-- One toast host for the whole app; `useToast()` feeds it. -->
     <UiToaster />
+
+    <!-- Cookie choice, until made. Lifted above the mobile tab bar when the
+         shell is drawn so the buttons are never under it. -->
+    <LegalCookieBanner :above-tab-bar="showShell" />
   </div>
 </template>

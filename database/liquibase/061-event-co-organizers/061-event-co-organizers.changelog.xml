@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Co-organisers: the people an event's creator lets run it alongside them.
+
+     Results are recorded by the organiser (ADR-002, decided 2026-09-14), and
+     an organiser is one person: `events.created_by_player_id`. A weekend
+     tournament is not run by one person. This table lets the creator name
+     others who may do organiser work on this event - record results, start
+     and close it, run courts and the queue - without handing over the event.
+
+     Rules that live in the service, recorded here so the table is read right:
+       - Only the creator adds or removes co-organisers, and may do so at any
+         time; co-organisers cannot appoint each other.
+       - A co-organiser must be one of the creator's friends - a duo partner
+         (partnerships, 019) or an accepted team-up (team_ups, 035) in either
+         direction. Not an opponent, not a club member, not anyone by id.
+       - Deleting the event and editing this list stay with the creator.
+
+     `added_by_player_id` records who appointed them; today that is always the
+     creator, and the column is what makes a later "club staff may appoint"
+     rule expressible without a migration. -->
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+    <changeSet id="0001-create-event-co-organizers" author="event">
+        <createTable tableName="event_co_organizers">
+            <column name="id" type="uuid" defaultValueComputed="gen_random_uuid()">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="event_id" type="uuid">
+                <constraints nullable="false"
+                             foreignKeyName="fk_event_co_organizers_event"
+                             references="events(id)"
+                             deleteCascade="true"/>
+            </column>
+            <column name="player_id" type="uuid">
+                <constraints nullable="false"
+                             foreignKeyName="fk_event_co_organizers_player"
+                             references="player_profiles(id)"
+                             deleteCascade="true"/>
+            </column>
+            <column name="added_by_player_id" type="uuid">
+                <constraints nullable="false"
+                             foreignKeyName="fk_event_co_organizers_added_by"
+                             references="player_profiles(id)"/>
+            </column>
+            <column name="created_at" type="timestamptz" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <sql>
+            ALTER TABLE event_co_organizers ADD CONSTRAINT uq_event_co_organizers_pair
+                UNIQUE (event_id, player_id);
+        </sql>
+        <rollback>
+            <dropTable tableName="event_co_organizers"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="0002-event-co-organizers-indexes" author="event">
+        <!-- The pair index above already serves lookups by event; this one
+             serves "which events do I co-organise", which the result picker
+             asks on every open of /matches/submit. -->
+        <createIndex tableName="event_co_organizers" indexName="idx_event_co_organizers_player">
+            <column name="player_id"/>
+        </createIndex>
+        <rollback>
+            <dropIndex tableName="event_co_organizers" indexName="idx_event_co_organizers_player"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="0003-event-co-organizers-rls" author="event">
+        <comment>
+            Readable by anyone signed in: the event page shows who is running it, the
+            same way it shows who created it. Writes go through the API on the service
+            role after the creator-and-friend checks, the shape every cross-player
+            write in this schema takes; there is deliberately no INSERT/UPDATE/DELETE
+            policy.
+        </comment>
+        <sql>
+            ALTER TABLE event_co_organizers ENABLE ROW LEVEL SECURITY;
+            CREATE POLICY event_co_organizers_select_authenticated ON event_co_organizers
+                FOR SELECT
+                TO authenticated
+                USING (true);
+        </sql>
+        <rollback>
+            DROP POLICY IF EXISTS event_co_organizers_select_authenticated ON event_co_organizers;
+            ALTER TABLE event_co_organizers DISABLE ROW LEVEL SECURITY;
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

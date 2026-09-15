@@ -368,7 +368,7 @@ function submit() {
     >
       <span
         v-if="index != null"
-        class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/15 text-xs font-semibold tabular-nums text-primary"
+        class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary-soft text-xs font-semibold tabular-nums text-primary"
       >
         {{ index }}
       </span>
@@ -390,12 +390,12 @@ function submit() {
            the other says the score on screen is changing as you read it. -->
       <span
         v-if="isLive"
-        class="inline-flex items-center gap-1.5 rounded-pill bg-danger/15 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-danger"
+        class="inline-flex items-center gap-1.5 rounded-pill bg-danger-soft px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-danger"
       >
         <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-danger" aria-hidden="true" />
         Live
       </span>
-      <span v-else-if="onCourt" class="rounded-pill bg-primary/20 px-2 py-0.5 text-xs text-primary">
+      <span v-else-if="onCourt" class="rounded-pill bg-primary-soft px-2 py-0.5 text-xs text-primary">
         On court
       </span>
 

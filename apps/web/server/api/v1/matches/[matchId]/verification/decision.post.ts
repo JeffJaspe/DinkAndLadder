@@ -5,17 +5,13 @@ import {
   MatchServiceError
 } from '~/server/domains/match/services/match.service'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
-import { createRatingRepository } from '~/server/domains/rating/repositories/rating.repository'
-import { createRatingService } from '~/server/domains/rating/services/rating.service'
-import { applyRatingForMatch } from '~/server/domains/rating/services/apply-match-rating'
 import { createAuditRepository } from '~/server/domains/audit/repositories/audit.repository'
 import { createAuditService } from '~/server/domains/audit/services/audit.service'
 import { createNotificationRepository } from '~/server/domains/notification/repositories/notification.repository'
 import { createNotificationService } from '~/server/domains/notification/services/notification.service'
 import type { NotificationType } from '~/server/domains/notification/dto/notification.dto'
-import { createActivityRepository } from '~/server/domains/activity/repositories/activity.repository'
-import { createActivityLogger } from '~/server/domains/activity/services/activity.service'
 import { apiError } from '~/server/utils/api-error'
+import { settleVerifiedMatch } from '~/server/utils/settle-verified-match'
 import type { RecordVerificationDecisionInput } from '~/server/domains/match/dto/match.dto'
 import { getOptionalUser } from '~/server/utils/optional-user'
 
@@ -96,56 +92,12 @@ export default defineEventHandler(async (event) => {
       match_status: match.status
     })
 
-    // Activity logger for feed
-    const activityLogger = createActivityLogger(createActivityRepository(serviceClient))
-
     // Gated on `statusChanged`, not on `match.status`: when the last two
     // verifiers confirm at the same time both see a verified match, but only
-    // the one that won the transition may rate it. Rating twice would double
-    // every player's delta.
+    // the one that won the transition may settle it. Rating twice would double
+    // every player's delta. Shared with the organiser path in POST /api/v1/matches.
     if (statusChanged && match.status === 'verified') {
-      // Log match verified activity for all participants
-      await Promise.all(
-        match.participants.map((p) =>
-          activityLogger.logMatchVerified(p.player_id, match.id, {
-            match_type: match.match_type,
-            opponent_ids: match.participants
-              .filter((o) => o.team_number !== p.team_number)
-              .map((o) => o.player_id)
-          })
-        )
-      )
-
-      // Trigger rating calculation and log rating changes. Shared with
-      // BracketService, which reaches 'verified' without passing through here.
-      const ratingUpdates = await applyRatingForMatch(
-        createRatingService(createRatingRepository(serviceClient)),
-        match
-      )
-
-      // Log rating changes as activities and send notifications
-      for (const update of ratingUpdates) {
-        await activityLogger.logRatingChanged(
-          update.player_id,
-          match.match_type,
-          update.old_rating,
-          update.new_rating
-        )
-
-        // Send rating.updated notification
-        const profile = await playerRepo.findById(update.player_id)
-        if (profile) {
-          const direction = update.rating_delta > 0 ? 'increased' : 'decreased'
-          await notificationService.notify({
-            user_id: profile.user_id,
-            type: 'rating.updated' as NotificationType,
-            title: 'Rating Updated',
-            body: `Your ${match.match_type} rating ${direction} from ${update.old_rating.toFixed(2)} to ${update.new_rating.toFixed(2)}.`,
-            reference_type: 'player_rating',
-            reference_id: update.player_id
-          })
-        }
-      }
+      await settleVerifiedMatch(serviceClient, match)
     }
 
     const terminalStates = ['verified', 'rejected', 'disputed'] as const

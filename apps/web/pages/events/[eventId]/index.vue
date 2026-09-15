@@ -10,6 +10,7 @@ import type { MatchListItemDto } from '~/server/domains/match/dto/match-join-row
 import type { PartnerDto } from '~/server/domains/partnership/dto/partnership.dto'
 import type { BoxScoreMatch } from '~/components/match/BoxScore.vue'
 import type { PlayerProfileDto } from '~/server/domains/player/dto/player-profile.dto'
+import type { EventCoOrganizerDto } from '~/server/domains/event/dto/event-co-organizer.dto'
 import { apiErrorMessage } from '~/utils/api-error-message'
 import { championOf, stageLabels } from '~/utils/bracket-rounds'
 import { rulesForEvent, rulesForRound } from '~/utils/game-rules'
@@ -60,17 +61,49 @@ interface EventWithFeeWaiver extends EventDto {
   fee_waiver?: FeeWaiver | null
 }
 
+/**
+ * Every fetch this page needs at first render, started together.
+ *
+ * These were eight `await useFetch()` calls in a row. Each one waited for its
+ * round trip before the next began, so a navigation to an event paid for the
+ * whole chain end to end — measured at ~2.5s on a local dev server before
+ * anything below the header could draw, and the same again as SSR time on a
+ * hard load. None of them depends on another's result, so they are created
+ * un-awaited and awaited once as a group at the end of the block below; the
+ * page still blocks on all of them, but on the slowest one rather than the
+ * sum.
+ */
+const firstRenderFetches: Promise<unknown>[] = []
+function firstRender<T extends PromiseLike<unknown>>(fetch: T): T {
+  firstRenderFetches.push(Promise.resolve(fetch))
+  return fetch
+}
+
 const {
   data: event,
   pending: eventPending,
   error: eventError,
   refresh: refreshEvent
-} = await useFetch<EventWithFeeWaiver>(`/api/v1/events/${eventId}`)
+} = firstRender(useFetch<EventWithFeeWaiver>(`/api/v1/events/${eventId}`))
 
-const { data: myProfile } = await useFetch<PlayerProfileDto>('/api/v1/players/me')
+const { data: myProfile } = firstRender(useFetch<PlayerProfileDto>('/api/v1/players/me'))
 
-const { data: tournamentsData, pending: tournamentsPending } = await useFetch<TournamentsResponse>(
-  `/api/v1/events/${eventId}/tournaments`
+/**
+ * Who runs this event with its creator (061). Needed at first render because
+ * every organiser control below hangs off it.
+ */
+const { data: coOrganizersData } = firstRender(
+  useFetch<{ data: EventCoOrganizerDto[] }>(`/api/v1/events/${eventId}/co-organizers`, {
+    default: () => ({ data: [] })
+  })
+)
+const coOrganizers = computed(() => coOrganizersData.value?.data ?? [])
+function setCoOrganizers(list: EventCoOrganizerDto[]) {
+  coOrganizersData.value = { data: list }
+}
+
+const { data: tournamentsData, pending: tournamentsPending } = firstRender(
+  useFetch<TournamentsResponse>(`/api/v1/events/${eventId}/tournaments`)
 )
 
 /**
@@ -88,13 +121,15 @@ const {
   data: registrationsData,
   pending: registrationsPending,
   refresh: refreshRegistrations
-} = await useFetch<{ data: EventRegistrationDto[] }>(`/api/v1/events/${eventId}/registrations`)
+} = firstRender(
+  useFetch<{ data: EventRegistrationDto[] }>(`/api/v1/events/${eventId}/registrations`)
+)
 
 const {
   data: matchesData,
   pending: matchesPending,
   refresh: refreshMatches
-} = await useFetch<{ data: MatchListItemDto[] }>(`/api/v1/events/${eventId}/matches`)
+} = firstRender(useFetch<{ data: MatchListItemDto[] }>(`/api/v1/events/${eventId}/matches`))
 
 /**
  * The spectator boxscore, below the header and above the tabs.
@@ -109,11 +144,19 @@ const {
  */
 const isRegistered = computed(() => !!myRegistration.value)
 
-/** Ownership only. Almost nothing should branch on this directly — see below. */
-const isOrganizer = computed(
+/** The person who made the event. The only one who may delete it or change its co-organisers. */
+const isCreator = computed(
   () =>
     !!myProfile.value && !!event.value && event.value.created_by_player_id === myProfile.value.id
 )
+
+/** A friend the creator appointed to run the event alongside them. */
+const isCoOrganizer = computed(
+  () => !!myProfile.value && coOrganizers.value.some((c) => c.player_id === myProfile.value!.id)
+)
+
+/** Creator or co-organiser. Almost nothing should branch on this directly — see below. */
+const isOrganizer = computed(() => isCreator.value || isCoOrganizer.value)
 
 /**
  * The gate every organiser control hangs off.
@@ -125,7 +168,10 @@ const isOrganizer = computed(
  * test `!canManageEvent` rather than `!isOrganizer`: an owner in player mode is,
  * for every purpose on this screen, a participant.
  */
-const canManageEvent = computed(() => isOrganizer.value && isClubMode.value)
+// A co-organiser is exempt from the club-mode rule: they were appointed as a
+// person, may belong to no club at all, and so may have no club mode to enter.
+// Their delegated role IS the mode.
+const canManageEvent = computed(() => (isCreator.value && isClubMode.value) || isCoOrganizer.value)
 
 /**
  * Starting and ending a session.
@@ -492,15 +538,17 @@ const scoreSections = computed<ScoreSection[]>(() => {
 
 const hasScores = computed(() => scoreSections.value.some((section) => section.matches.length))
 
-const { data: rankingsData, pending: rankingsPending } = await useFetch<{
-  data: EventRankingEntry[]
-}>(`/api/v1/events/${eventId}/rankings`)
+const { data: rankingsData, pending: rankingsPending } = firstRender(
+  useFetch<{
+    data: EventRankingEntry[]
+  }>(`/api/v1/events/${eventId}/rankings`)
+)
 
 const {
   data: queueData,
   pending: queuePending,
   refresh: refreshQueue
-} = await useFetch<{ data: EventQueueDto[] }>(`/api/v1/events/${eventId}/queue`)
+} = firstRender(useFetch<{ data: EventQueueDto[] }>(`/api/v1/events/${eventId}/queue`))
 
 const myRegistration = computed(() => {
   if (!myProfile.value || !registrationsData.value?.data) return null
@@ -1172,11 +1220,15 @@ const registerError = ref('')
  * The convenience-fee ladder, so the dialog can quote a real total rather than
  * only the entry fee. Public and cached for the page.
  */
-const { data: feeRulesData } = await useFetch<{ data: PlatformFeeRule[] }>(
-  '/api/v1/platform/fee-rules',
-  { default: () => ({ data: [] }) }
+const { data: feeRulesData } = firstRender(
+  useFetch<{ data: PlatformFeeRule[] }>('/api/v1/platform/fee-rules', {
+    default: () => ({ data: [] })
+  })
 )
 const feeRules = computed(() => feeRulesData.value?.data ?? [])
+
+// The single wait for everything created above. See the note on `event`.
+await Promise.all(firstRenderFetches)
 
 async function openRegister() {
   if (!user.value) {
@@ -1231,11 +1283,11 @@ async function handleCheckIn() {
 
 const statusConfig: Record<string, { bg: string; text: string }> = {
   draft: { bg: 'bg-surface-3', text: 'text-fg-muted' },
-  published: { bg: 'bg-primary/20', text: 'text-primary' },
-  active: { bg: 'bg-primary/20', text: 'text-primary' },
-  open: { bg: 'bg-primary/20', text: 'text-primary' },
-  in_progress: { bg: 'bg-primary/20', text: 'text-primary' },
-  completed: { bg: 'bg-accent/20', text: 'text-accent' },
+  published: { bg: 'bg-primary-soft', text: 'text-primary' },
+  active: { bg: 'bg-primary-soft', text: 'text-primary' },
+  open: { bg: 'bg-primary-soft', text: 'text-primary' },
+  in_progress: { bg: 'bg-primary-soft', text: 'text-primary' },
+  completed: { bg: 'bg-accent-soft', text: 'text-primary' },
   cancelled: { bg: 'bg-danger-soft', text: 'text-danger' }
 }
 
@@ -1407,9 +1459,18 @@ const startBlockedReason = computed(() => {
  * like any other, so the name links to their profile the way every other player
  * reference on this page does.
  */
-const { data: coachProfile } = await useFetch<{ id: string; display_name: string }>(
-  () => `/api/v1/players/${event.value?.coach_player_id}`,
-  { immediate: false, watch: [() => event.value?.coach_player_id] }
+// Fetched only when there is a coach: watching the id directly fired a
+// request for `/players/null` on every event without one.
+const { data: coachProfile, execute: loadCoach } = await useFetch<{
+  id: string
+  display_name: string
+}>(() => `/api/v1/players/${event.value?.coach_player_id}`, { immediate: false, watch: false })
+watch(
+  () => event.value?.coach_player_id,
+  (id) => {
+    if (id) loadCoach()
+  },
+  { immediate: true }
 )
 
 const sessionState = computed(() => {
@@ -1500,7 +1561,9 @@ const { goBack } = useAppBack('/events')
                 <span
                   class="rounded-md px-2 py-0.5 text-xs font-medium"
                   :class="
-                    event.affects_rating ? 'bg-accent/20 text-accent' : 'bg-surface-3 text-fg-muted'
+                    event.affects_rating
+                      ? 'bg-accent-soft text-primary'
+                      : 'bg-surface-3 text-fg-muted'
                   "
                 >
                   {{ event.affects_rating ? 'Ranked' : 'Casual' }}
@@ -1645,9 +1708,10 @@ const { goBack } = useAppBack('/events')
               </button>
 
               <!-- Draft only. A published event is cancelled, never deleted, so
-                   the record and anyone's plans around it survive. -->
+                   the record and anyone's plans around it survive. Creator only:
+                   a co-organiser runs the event, they do not own it. -->
               <button
-                v-if="canManageEvent && event.status === 'draft'"
+                v-if="canManageEvent && isCreator && event.status === 'draft'"
                 :disabled="deleting"
                 class="min-h-11 w-full rounded-lg border border-danger/40 px-4 py-2 text-sm font-medium text-danger hover:bg-danger-soft disabled:opacity-50 sm:w-auto"
                 @click="deleteOpen = true"
@@ -1817,10 +1881,7 @@ const { goBack } = useAppBack('/events')
                   @click="activeTab = tab.id"
                 >
                   {{ tab.label }}
-                  <span
-                    v-if="tab.id === 'matches' && matchesData?.data"
-                    class="ml-1 text-xs opacity-75"
-                  >
+                  <span v-if="tab.id === 'matches' && matchesData?.data" class="ml-1 text-xs">
                     ({{ matchesData.data.length }})
                   </span>
                   <!-- The red LIVE dot: a player scanning the tab bar should be
@@ -1846,10 +1907,7 @@ const { goBack } = useAppBack('/events')
                   @click="activeTab = tab.id"
                 >
                   {{ tab.label }}
-                  <span
-                    v-if="tab.id === 'players' && registrationsData?.data"
-                    class="ml-1 text-xs opacity-75"
-                  >
+                  <span v-if="tab.id === 'players' && registrationsData?.data" class="ml-1 text-xs">
                     ({{ registrationsData.data.length }})
                   </span>
                 </button>
@@ -1993,18 +2051,39 @@ const { goBack } = useAppBack('/events')
               </dl>
             </div>
 
-            <!-- Submit Match Button (for non-tournament types) -->
+            <!-- Record a result. The organiser's, not the players': results are
+                 entered by whoever runs the session and are final on save. Gated
+                 on canManageEvent like every other organiser control, so an
+                 owner browsing in player mode sees what a player sees. Only for
+                 sessions without a draw - a tournament records through its
+                 bracket. -->
             <div
-              v-if="event.event_type !== 'tournament' && isRegistered && event.status === 'active'"
+              v-if="
+                event.event_type !== 'tournament' && canManageEvent && event.status === 'active'
+              "
               class="rounded-xl bg-surface p-6 shadow-card"
             >
               <NuxtLink
                 :to="`/matches/submit?event=${eventId}`"
                 class="block w-full rounded-lg bg-primary py-3 text-center font-medium text-on-primary hover:bg-primary-hover"
               >
-                Record Match
+                Record a result
               </NuxtLink>
+              <p class="mt-2 text-center text-caption text-fg-muted">
+                Entered by you as organiser. Counts the moment it is saved.
+              </p>
             </div>
+
+            <!-- Who else runs this. Organisers only: a participant does not
+                 need the roster of the desk. The creator edits; a co-organiser
+                 reads. -->
+            <EventCoOrganizersPanel
+              v-if="canManageEvent"
+              :event-id="eventId"
+              :co-organizers="coOrganizers"
+              :can-edit="isCreator"
+              @updated="setCoOrganizers"
+            />
 
             <!-- Queue Settings Info -->
             <div v-if="event.queue_enabled" class="rounded-xl bg-surface p-6 shadow-card">
@@ -2187,7 +2266,7 @@ const { goBack } = useAppBack('/events')
                     class="rounded px-2 py-0.5 text-xs"
                     :class="
                       reg.status === 'checked_in'
-                        ? 'bg-primary/20 text-primary'
+                        ? 'bg-primary-soft text-primary'
                         : 'bg-surface-3 text-fg-muted'
                     "
                   >
@@ -2526,7 +2605,9 @@ const { goBack } = useAppBack('/events')
                       <span
                         class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold tabular-nums"
                         :class="
-                          i === 0 ? 'bg-primary/15 text-primary' : 'bg-surface-2 text-fg-secondary'
+                          i === 0
+                            ? 'bg-primary-soft text-primary'
+                            : 'bg-surface-2 text-fg-secondary'
                         "
                         :title="`Position ${i + 1} in the queue`"
                       >

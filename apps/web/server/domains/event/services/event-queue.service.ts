@@ -84,11 +84,14 @@ async function assertOrganizer(events: EventRepository, eventId: string, playerI
   if (!event) {
     throw new EventQueueServiceError(404, 'NOT_FOUND', 'Event not found.')
   }
-  if (event.created_by_player_id !== playerId) {
+  if (
+    event.created_by_player_id !== playerId &&
+    !(await events.isCoOrganizer?.(eventId, playerId))
+  ) {
     throw new EventQueueServiceError(
       403,
       'FORBIDDEN',
-      'Only the event organizer can manage the queue.'
+      'Only the event organizer or a co-organiser can manage the queue.'
     )
   }
   return event

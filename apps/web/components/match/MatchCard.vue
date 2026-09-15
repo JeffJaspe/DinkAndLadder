@@ -143,7 +143,7 @@ watch(isLive, (live) => {
 
         <span
           class="inline-flex shrink-0 items-center gap-1.5 rounded-pill px-2 py-0.5 text-caption font-semibold uppercase tracking-wide"
-          :class="state.live ? 'bg-danger/15 text-danger' : 'bg-surface-2 text-fg-muted'"
+          :class="state.live ? 'bg-danger-soft text-danger' : 'bg-surface-2 text-fg-muted'"
         >
           <span
             v-if="state.live"

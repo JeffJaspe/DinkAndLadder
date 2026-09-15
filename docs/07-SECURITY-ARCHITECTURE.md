@@ -23,6 +23,22 @@ Use the selected authentication provider for:
 
 The application database should reference the authenticated user identity.
 
+### Assurance levels (two-factor) — IMPLEMENTED 2026-09-15
+
+Sessions carry Supabase's `aal` claim. What each level may do:
+
+| Surface | `aal1` (password / Google) | `aal2` (+ authenticator code) |
+|---|---|---|
+| Any `/api/v1` route, account **not** enrolled | allowed | allowed |
+| Any `/api/v1` route, account enrolled | **403 `MFA_REQUIRED`** (except auth/mfa/is-superadmin) | allowed |
+| `/api/v1/admin/**` | **403 `MFA_STEP_UP_REQUIRED`** always | allowed |
+| `POST /mfa/unenroll`, admin MFA reset | 403 | allowed (+ fresh code for unenroll) |
+| Future: set payout account, approve payout | 403 (`requireAal2`) | allowed |
+
+Enforced by `server/middleware/mfa-gate.ts` for every request; page-level redirects
+are a courtesy on top. Two-factor is mandatory for the SuperAdmin; details in
+`/docs/15-AUTHENTICATION-SPECIFICATION.md`.
+
 ## Authorization
 
 Authorization must be checked at the service boundary and enforced in database access policy/RLS where applicable.

@@ -22,6 +22,13 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 
 export interface EventRepository {
   findById(eventId: string): Promise<EventRecord | null>
+  /**
+   * Whether the creator appointed this player a co-organiser (061). Optional
+   * on the interface so the many in-memory fakes in the unit tests need not
+   * grow it; a repository without it simply knows no co-organisers, which is
+   * exactly what the schema had before 061.
+   */
+  isCoOrganizer?(eventId: string, playerId: string): Promise<boolean>
   create(input: CreateEventInput, createdByPlayerId: string): Promise<EventRecord>
   update(eventId: string, input: UpdateEventInput): Promise<EventRecord>
   updateStatus(eventId: string, status: EventStatus): Promise<EventRecord>
@@ -103,6 +110,16 @@ export interface EventRepository {
 
 export function createEventRepository(client: SupabaseClient): EventRepository {
   return {
+    async isCoOrganizer(eventId, playerId) {
+      const { count, error } = await client
+        .from('event_co_organizers')
+        .select('*', { count: 'exact', head: true })
+        .eq('event_id', eventId)
+        .eq('player_id', playerId)
+      if (error) throw error
+      return (count ?? 0) > 0
+    },
+
     async findById(eventId) {
       const { data, error } = await client
         .from('events')

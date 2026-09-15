@@ -1,10 +1,18 @@
 <script setup lang="ts">
 import type { EventDto } from '~/server/domains/event/dto/event.dto'
+import type { FeedReason } from '~/server/domains/activity/dto/activity.dto'
 // The registry is a typed union, so a name that is not drawn fails the build
 // rather than rendering nothing.
 import type { IconName } from '~/utils/icons'
+import { describeFeedReason, groupByFeedDay } from '~/utils/feed'
+import { formatRating, formatRatingDelta } from '~/utils/rating-tiers'
 
 useHead({ title: 'Feed' })
+
+const user = useSupabaseUser()
+// The rail's community link is a player-mode door; in club mode the page it
+// opens is off the map (and redirects straight back here).
+const { isClubMode } = useAccountMode()
 
 interface LinkedEvent {
   id: string
@@ -12,6 +20,7 @@ interface LinkedEvent {
   start_date: string | null
   city: string | null
   venue: string | null
+  status: string
 }
 
 interface Activity {
@@ -19,10 +28,16 @@ interface Activity {
   activity_type: string
   actor_player_id: string | null
   actor_display_name?: string
+  actor_club_id?: string | null
+  /** Named by the endpoint for club-authored rows. */
+  actor_club_name?: string | null
   metadata: Record<string, unknown> | null
   created_at: string
   /** The event this activity is about, when it points at one and it still exists. */
   event?: LinkedEvent | null
+  /** Why the row is in this reader's feed. See FeedReason. */
+  feed_reason?: FeedReason | null
+  feed_reason_name?: string | null
 }
 
 /**
@@ -61,6 +76,16 @@ const loadingMore = ref(false)
 const reachedEnd = ref(false)
 
 const activities = computed(() => [...(data.value?.activities ?? []), ...olderActivities.value])
+
+/**
+ * The log, one section per calendar day.
+ *
+ * The server orders by day first and nearest-actor second (060), so the day is
+ * the real structure of the page and gets a rule and a heading of its own.
+ * It is also what answers "why is this old post here": it sits under a
+ * heading that says exactly when it was.
+ */
+const dayGroups = computed(() => groupByFeedDay(activities.value))
 
 // A short page means the server has nothing further; asking again would be a
 // request that can only come back empty.
@@ -112,9 +137,13 @@ onMounted(() => {
  * month ago but starting next week sinks out of sight — "coming soon" was
  * effectively invisible. This reads the events list directly rather than
  * inventing synthetic activity rows for something that has not occurred yet.
+ *
+ * `status=published` and a deeper page on purpose: the endpoint lists furthest
+ * start date first, so an unfiltered `limit=20` was the twenty events furthest
+ * in the future and the nearest weekend could fall off the end of it.
  */
 const { data: eventsData } = useLazyFetch<{ events: EventDto[] }>('/api/v1/events', {
-  query: { limit: 20 },
+  query: { limit: 50, status: 'published' },
   default: () => ({ events: [] as EventDto[] })
 })
 
@@ -224,13 +253,41 @@ function namedEvent(activity: Activity): LinkedEvent | null {
   return activity.activity_type === 'club.event_created' ? (activity.event ?? null) : null
 }
 
+/**
+ * A cancelled event is still a true entry in the log — the club did create it —
+ * but it is no longer something to open, so the row says so instead of
+ * offering a link to a session nobody can join. Left as history rather than
+ * hidden: quietly dropping rows is how a feed starts feeling unreliable.
+ */
+function isCancelled(event: LinkedEvent | null | undefined): boolean {
+  return event?.status === 'cancelled'
+}
+
+/**
+ * The rating sentence, in the app's own three-decimal format with the move.
+ *
+ * The engine writes the raw float into the metadata, so the row used to read
+ * "rating updated to 3.367655538028936" - sixteen digits for a number the
+ * rest of the product prints as 3.368. The delta is what the reader actually
+ * wants from this row; the new figure is context.
+ */
+function ratingChangeText(meta: Record<string, unknown>): string {
+  const next = typeof meta.new_rating === 'number' ? meta.new_rating : Number(meta.new_rating)
+  const prev = typeof meta.old_rating === 'number' ? meta.old_rating : Number(meta.old_rating)
+  const type = typeof meta.rating_type === 'string' ? meta.rating_type : 'singles'
+  if (Number.isNaN(next)) return `rating updated (${type})`
+  const delta = Number.isNaN(prev) ? null : next - prev
+  const move = delta === null ? '' : ` (${formatRatingDelta(delta)})`
+  return `${type} rating now ${formatRating(next)}${move}`
+}
+
 function formatActivityText(activity: Activity): string {
   const meta = (activity.metadata ?? {}) as Record<string, string>
   switch (activity.activity_type) {
     case 'match.verified':
       return `played a match (${meta.match_type ?? 'singles'})`
     case 'rating.changed':
-      return `rating updated to ${meta.new_rating ?? '?'} (${meta.rating_type ?? 'singles'})`
+      return ratingChangeText(activity.metadata ?? {})
     case 'social.started_following':
       return `started teaming up with ${meta.target_display_name ?? 'someone'}`
     case 'social.shoutout':
@@ -246,7 +303,7 @@ function formatActivityText(activity: Activity): string {
       // renders it as a link instead, so it is not said twice.
       return activity.event ? 'created an event: ' : `created an event${eventNameSuffix(meta)}`
     case 'club.announcement':
-      return 'posted an announcement'
+      return meta.title ? `posted an announcement: ${meta.title}` : 'posted an announcement'
     case 'profile.updated':
       return 'updated their profile'
     case 'tournament.registered':
@@ -261,28 +318,44 @@ function formatTime(dateStr: string): string {
   const diffMs = Date.now() - date.getTime()
   const diffMins = Math.floor(diffMs / 60000)
   const diffHours = Math.floor(diffMs / 3600000)
-  const diffDays = Math.floor(diffMs / 86400000)
 
   if (diffMins < 1) return 'Just now'
   if (diffMins < 60) return `${diffMins}m ago`
   if (diffHours < 24) return `${diffHours}h ago`
-  if (diffDays < 7) return `${diffDays}d ago`
-  return date.toLocaleDateString()
+  // Past a day, the day heading above the row already says when; the row only
+  // needs the clock time.
+  return date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+}
+
+/**
+ * The reason line under a row, or nothing for an unscoped (signed-out) feed.
+ *
+ * On a club-authored row the club is named on the same line, so "You're a
+ * member of Bay Area Pickleball" would say the name twice; there the reason
+ * shortens to "you're a member" and the club link carries the name.
+ */
+function reasonFor(activity: Activity): string | null {
+  if (activity.actor_club_name && activity.feed_reason === 'club') return "you're a member"
+  return describeFeedReason(activity.feed_reason, activity.feed_reason_name)
 }
 </script>
 
 <template>
   <div class="min-h-screen bg-canvas p-4 lg:p-6">
-    <!-- Narrower than the usual page-shell on purpose. A feed is read top to
-         bottom, one item at a time, and a full-width row makes the eye travel
-         a long way for a single short sentence. -->
-    <div class="mx-auto max-w-2xl">
+    <!-- The page-shell column, shared with the rest of the app. Below `lg` the
+         feed is one column read top to bottom; from `lg` it becomes the log at
+         a reading width plus a rail for what is coming up and who is in the
+         feed, so the log is read at body size instead of squeezed to a strip
+         in the middle of a wide screen. -->
+    <div class="mx-auto max-w-6xl">
       <div class="mb-6 flex items-start justify-between gap-4">
         <div>
           <h1 class="font-display text-heading-1 font-semibold tracking-tight text-fg">Feed</h1>
           <p class="mt-1 max-w-[52ch] text-body-2 text-fg-muted">
-            Your community — partners, team-ups, opponents and your clubs — closest to you first,
-            not newest first.
+            <template v-if="user">
+              Your partners, team-ups, opponents and your clubs — by day, nearest to you first.
+            </template>
+            <template v-else> Public activity, newest first. </template>
           </p>
         </div>
         <button
@@ -294,222 +367,351 @@ function formatTime(dateStr: string): string {
         </button>
       </div>
 
-      <!-- Coming up. Sits above the log deliberately: the feed is a record of
-           the past, so an event that has not happened yet would otherwise never
-           surface here at all. One panel of ruled rows, not three floating
-           cards - it is a short list, and a list is what it should look like.
-           The 2px green left border it used to carry was the loudest mark on
-           the page and named nothing that was actually actionable. -->
-      <section
-        v-if="upcomingEvents.length"
-        class="mb-6 rounded-card border border-border bg-surface px-4 shadow-card sm:px-5"
-      >
-        <h2
-          class="border-b-2 border-border-strong py-3 text-caption font-semibold uppercase tracking-widest text-fg-muted"
-        >
-          Coming up
-        </h2>
-        <ul>
-          <li v-for="upcoming in upcomingEvents" :key="upcoming.id">
-            <NuxtLink
-              :to="`/events/${upcoming.id}`"
-              class="dnl-row group flex items-baseline gap-4 border-t border-border py-3.5 first:border-t-0 focus-visible:outline-none"
-            >
-              <span class="min-w-0 flex-1">
-                <span
-                  class="block truncate text-body-2 font-medium text-fg transition-colors group-hover:text-primary group-focus-visible:text-primary"
-                  >{{ upcoming.name }}</span
-                >
-                <span
-                  v-if="upcoming.venue || upcoming.city"
-                  class="block truncate text-caption text-fg-muted"
-                >
-                  {{ [upcoming.venue, upcoming.city].filter(Boolean).join(', ') }}
-                </span>
-              </span>
-              <span class="shrink-0 text-caption font-medium tabular-nums text-fg-secondary">
-                {{ formatEventDate(upcoming.start_date) }}
-              </span>
-            </NuxtLink>
-          </li>
-        </ul>
-      </section>
-
-      <!-- Loading. Ruled lines inside the panel the feed will occupy, rather
-           than five floating blocks: a placeholder should be the shape of the
-           thing that is arriving. -->
-      <div
-        v-if="status === 'pending'"
-        class="rounded-card border border-border bg-surface px-4 shadow-card sm:px-5"
-      >
-        <div
-          v-for="i in 5"
-          :key="i"
-          class="flex items-center gap-3 border-t border-border py-4 first:border-t-0"
-        >
-          <div class="h-4 w-4 shrink-0 animate-pulse rounded-badge bg-surface-2" />
-          <div class="h-3 w-full max-w-sm animate-pulse rounded-badge bg-surface-2" />
-          <div class="ml-auto h-3 w-8 shrink-0 animate-pulse rounded-badge bg-surface-2" />
-        </div>
-      </div>
-
-      <UiErrorState
-        v-else-if="error"
-        title="Could not load the feed"
-        message="Something went wrong fetching activity."
-        @retry="refresh()"
-      />
-
-      <!-- No community yet: the feed cannot fill until there is someone in it,
-           so the way out is finding people, not waiting. -->
-      <UiEmptyState
-        v-else-if="activities.length === 0 && hasNoCommunity"
-        title="Your feed is waiting on your people"
-        message="This feed shows your duo partners, your team-ups, everyone you have played a match against, and your own clubs. Add a partner, team up with someone, or play a match and their activity lands here."
-        action-label="Find players"
-        action-to="/players"
-      />
-
-      <!-- Community exists, but has been quiet. -->
-      <UiEmptyState
-        v-else-if="activities.length === 0"
-        title="Nothing from your community yet"
-        message="When the players you team up with record matches, join clubs or post shout-outs, it shows up here."
-        action-label="Find an event"
-        action-to="/events"
-      />
-
-      <!--
-        The log.
-
-        One panel of ruled rows, not twenty-five stacked cards. Twenty-five
-        shadows is a great deal of weight for a page whose content is mostly
-        one-line sentences, and when every row is a panel of the same size
-        nothing outranks anything - the reader has to spend the same attention
-        on "updated their profile" as on someone's own words. A row here costs
-        one line unless it brought something with it.
-      -->
-      <div v-else>
-        <ul class="rounded-card border border-border bg-surface px-4 shadow-card sm:px-5">
-          <li
-            v-for="activity in activities"
-            :key="activity.id"
-            class="border-t border-border first:border-t-0"
-            :class="hasBody(activity) ? 'py-4' : 'py-3'"
+      <div class="lg:grid lg:grid-cols-[minmax(0,1fr)_18rem] lg:items-start lg:gap-8">
+        <!-- The rail. On a phone it stacks above the log — an event that has
+             not happened yet would otherwise never surface on a page that is
+             a record of the past. From `lg` it moves to the right, in DOM
+             order after the log so the log is what a screen reader meets
+             first, and stays put while the log scrolls. -->
+        <aside class="lg:sticky lg:top-6 lg:order-2 lg:self-start">
+          <!-- Coming up. One panel of ruled rows, not three floating cards -
+               it is a short list, and a list is what it should look like. -->
+          <section
+            v-if="upcomingEvents.length"
+            class="mb-6 rounded-card border border-border bg-surface px-4 shadow-card sm:px-5"
+            aria-labelledby="feed-coming-up"
           >
-            <div class="flex gap-3">
-              <!-- The type mark. 16px, one stroke weight, muted: it is there to
-                   be skipped past until the reader wants it. -->
-              <UiIcon
-                :name="getActivityIcon(activity.activity_type)"
-                size="h-4 w-4"
-                :stroke-width="2"
-                class="mt-0.5 shrink-0 text-fg-muted"
-                aria-hidden="true"
-              />
-
-              <div class="min-w-0 flex-1">
-                <div class="flex items-baseline justify-between gap-3">
-                  <p class="min-w-0 text-body-2 text-fg-secondary">
-                    <!-- The actor's name is identity, not an action, so it sits
-                         in ordinary ink at weight 600 and turns green only under
-                         the pointer. It used to be green at rest on every row,
-                         which spent the page's scarcest colour twenty-five times
-                         a screen and left nothing to mark what could actually be
-                         opened. -->
-                    <NuxtLink
-                      v-if="activity.actor_player_id"
-                      :to="`/players/${activity.actor_player_id}`"
-                      class="dnl-press rounded-badge font-semibold text-fg transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
-                    >
-                      {{ activity.actor_display_name }}
-                    </NuxtLink>
-                    <span v-else class="font-semibold text-fg">{{
-                      activity.actor_display_name
-                    }}</span>
-                    {{ formatActivityText(activity) }}
-                    <NuxtLink
-                      v-if="namedEvent(activity)"
-                      :to="`/events/${namedEvent(activity)!.id}`"
-                      class="dnl-press rounded-badge font-medium text-primary underline decoration-primary/40 underline-offset-2 transition-colors hover:decoration-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
-                      >{{ namedEvent(activity)!.name }}</NuxtLink
-                    >
-                  </p>
-                  <time
-                    :datetime="activity.created_at"
-                    class="shrink-0 text-caption tabular-nums text-fg-muted"
-                    >{{ formatTime(activity.created_at) }}</time
-                  >
-                </div>
-
-                <!-- The shout-out's own words: the one place on this page where
-                     a person actually wrote something, so it gets the body ramp
-                     and real room. Its rule stays neutral - green here would
-                     mark a message as confirmed, which it is not. -->
-                <blockquote
-                  v-if="shoutoutMessage(activity)"
-                  class="mt-2 border-l border-border-strong py-0.5 pl-3 text-body-1 text-fg"
-                >
-                  {{ shoutoutMessage(activity) }}
-                </blockquote>
-
-                <!-- The event a shout-out points at. A ruled row, not a tinted
-                     block: a panel inside a panel is one container too many. -->
+            <h2
+              id="feed-coming-up"
+              class="border-b-2 border-border-strong py-3 text-caption font-semibold uppercase tracking-widest text-fg-muted"
+            >
+              Coming up
+            </h2>
+            <ul>
+              <li v-for="upcoming in upcomingEvents" :key="upcoming.id">
                 <NuxtLink
-                  v-if="activity.event && !namedEvent(activity)"
-                  :to="`/events/${activity.event.id}`"
-                  class="dnl-row dnl-step group mt-2.5 flex items-center gap-2.5 border-t border-border pt-2.5 focus-visible:outline-none"
+                  :to="`/events/${upcoming.id}`"
+                  class="dnl-row group flex items-baseline gap-4 border-t border-border py-3.5 first:border-t-0 focus-visible:outline-none"
                 >
-                  <UiIcon
-                    name="calendar"
-                    size="h-4 w-4"
-                    :stroke-width="2"
-                    class="shrink-0 text-fg-muted"
-                    aria-hidden="true"
-                  />
                   <span class="min-w-0 flex-1">
                     <span
                       class="block truncate text-body-2 font-medium text-fg transition-colors group-hover:text-primary group-focus-visible:text-primary"
+                      >{{ upcoming.name }}</span
                     >
-                      {{ activity.event.name }}
-                    </span>
-                    <span class="block truncate text-caption tabular-nums text-fg-muted">
-                      {{
-                        [formatEventDate(activity.event.start_date), activity.event.city]
-                          .filter(Boolean)
-                          .join(' · ')
-                      }}
+                    <span
+                      v-if="upcoming.venue || upcoming.city"
+                      class="block truncate text-caption text-fg-muted"
+                    >
+                      {{ [upcoming.venue, upcoming.city].filter(Boolean).join(', ') }}
                     </span>
                   </span>
-                  <UiIcon
-                    name="chevron-right"
-                    size="h-4 w-4"
-                    :stroke-width="2.2"
-                    class="dnl-step-chevron shrink-0 text-fg-muted"
-                    aria-hidden="true"
-                  />
+                  <span class="shrink-0 text-caption font-medium tabular-nums text-fg-secondary">
+                    {{ formatEventDate(upcoming.start_date) }}
+                  </span>
                 </NuxtLink>
-              </div>
-            </div>
-          </li>
-        </ul>
+              </li>
+            </ul>
+          </section>
 
-        <!-- Scrolling this into view fetches the next page. It is also the
-             manual fallback: without IntersectionObserver, or if a page fails,
-             the button is still there to press. -->
-        <div ref="sentinel" class="pt-4 text-center">
-          <p v-if="loadingMore" class="py-3 text-caption text-fg-muted">Loading more…</p>
-          <button
-            v-else-if="!reachedEnd"
-            type="button"
-            class="dnl-press rounded-button border border-border-strong px-5 py-2 text-body-2 font-medium text-fg-secondary transition-colors hover:border-primary hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
-            @click="loadMore"
+          <!-- Who is in this feed. The rule that admits a row is printed under
+               each row; this is the rule in full, once, with the way to change
+               it. Only from `lg`: on a phone the header line already says it
+               and the rows repeat it, and a third telling would push the log
+               below the fold. -->
+          <section
+            v-if="user"
+            class="hidden rounded-card border border-border bg-surface px-5 shadow-card lg:block"
+            aria-labelledby="feed-why"
           >
-            Load more
-          </button>
-          <p v-else-if="activities.length" class="py-3 text-caption text-fg-muted">
-            You're all caught up.
-          </p>
+            <h2
+              id="feed-why"
+              class="border-b-2 border-border-strong py-3 text-caption font-semibold uppercase tracking-widest text-fg-muted"
+            >
+              Why you see these
+            </h2>
+            <p class="py-3.5 text-body-2 leading-relaxed text-fg-secondary">
+              Only your people: duo partners, team-ups, anyone you've played a verified match with,
+              and posts from clubs you belong to. Each day, the nearest to you come first.
+            </p>
+            <NuxtLink
+              v-if="!isClubMode"
+              to="/community"
+              class="dnl-row dnl-step group flex items-center gap-2 border-t border-border py-3.5 text-body-2 font-medium text-fg transition-colors hover:text-primary focus-visible:text-primary focus-visible:outline-none"
+            >
+              <span class="flex-1">Manage your community</span>
+              <UiIcon
+                name="chevron-right"
+                size="h-4 w-4"
+                :stroke-width="2.2"
+                class="dnl-step-chevron shrink-0 text-fg-muted"
+                aria-hidden="true"
+              />
+            </NuxtLink>
+          </section>
+        </aside>
+
+        <div class="min-w-0 lg:order-1">
+          <!-- Loading. Ruled lines inside the panel the feed will occupy, rather
+               than five floating blocks: a placeholder should be the shape of the
+               thing that is arriving. -->
+          <div
+            v-if="status === 'pending'"
+            class="rounded-card border border-border bg-surface px-4 shadow-card sm:px-5"
+          >
+            <div
+              v-for="i in 6"
+              :key="i"
+              class="flex items-center gap-3 border-t border-border py-4 first:border-t-0"
+            >
+              <div class="h-4 w-4 shrink-0 animate-pulse rounded-badge bg-surface-2" />
+              <div class="h-3 w-full max-w-sm animate-pulse rounded-badge bg-surface-2" />
+              <div class="ml-auto h-3 w-8 shrink-0 animate-pulse rounded-badge bg-surface-2" />
+            </div>
+          </div>
+
+          <UiErrorState
+            v-else-if="error"
+            title="Could not load the feed"
+            message="Something went wrong fetching activity."
+            @retry="refresh()"
+          />
+
+          <!-- No community yet: the feed cannot fill until there is someone in it,
+               so the way out is finding people, not waiting. -->
+          <UiEmptyState
+            v-else-if="activities.length === 0 && hasNoCommunity"
+            title="Your feed is waiting on your people"
+            message="This feed shows your duo partners, your team-ups, everyone you have played a match against, and your own clubs. Add a partner, team up with someone, or play a match and their activity lands here."
+            action-label="Find players"
+            action-to="/players"
+          />
+
+          <!-- Community exists, but has been quiet. -->
+          <UiEmptyState
+            v-else-if="activities.length === 0"
+            title="Nothing from your community yet"
+            message="When the players you team up with record matches, join clubs or post shout-outs, it shows up here."
+            action-label="Find an event"
+            action-to="/events"
+          />
+
+          <!--
+            The log.
+
+            One panel per day of ruled rows, not twenty-five stacked cards.
+            Twenty-five shadows is a great deal of weight for a page whose
+            content is mostly one-line sentences, and when every row is a panel
+            of the same size nothing outranks anything - the reader has to spend
+            the same attention on "updated their profile" as on someone's own
+            words. A row here costs one sentence and one reason line unless it
+            brought something with it.
+          -->
+          <div v-else>
+            <section
+              v-for="group in dayGroups"
+              :key="group.key"
+              class="mb-6 rounded-card border border-border bg-surface px-4 shadow-card sm:px-5 lg:px-6"
+              :aria-label="group.label"
+            >
+              <h2
+                class="border-b-2 border-border-strong py-3 text-caption font-semibold uppercase tracking-widest text-fg-muted"
+              >
+                {{ group.label }}
+              </h2>
+              <ul>
+                <li
+                  v-for="activity in group.items"
+                  :key="activity.id"
+                  class="border-t border-border first:border-t-0"
+                  :class="hasBody(activity) ? 'py-4 lg:py-5' : 'py-3 lg:py-4'"
+                >
+                  <div class="flex gap-3 lg:gap-4">
+                    <!-- The type mark. One stroke weight, muted: it is there to
+                         be skipped past until the reader wants it. -->
+                    <UiIcon
+                      :name="getActivityIcon(activity.activity_type)"
+                      size="h-4 w-4 lg:h-5 lg:w-5"
+                      :stroke-width="2"
+                      class="mt-0.5 shrink-0 text-fg-muted lg:mt-[3px]"
+                      aria-hidden="true"
+                    />
+
+                    <div class="min-w-0 flex-1">
+                      <div class="flex items-baseline justify-between gap-3">
+                        <p class="min-w-0 text-body-2 text-fg-secondary lg:text-body-1">
+                          <!-- The actor's name is identity, not an action, so it sits
+                               in ordinary ink at weight 600 and turns green only under
+                               the pointer. It used to be green at rest on every row,
+                               which spent the page's scarcest colour twenty-five times
+                               a screen and left nothing to mark what could actually be
+                               opened. -->
+                          <NuxtLink
+                            v-if="activity.actor_player_id"
+                            :to="`/players/${activity.actor_player_id}`"
+                            class="dnl-press rounded-badge font-semibold text-fg transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+                          >
+                            {{ activity.actor_display_name }}
+                          </NuxtLink>
+                          <span v-else class="font-semibold text-fg">{{
+                            activity.actor_display_name
+                          }}</span>
+                          {{ formatActivityText(activity) }}
+                          <template v-if="namedEvent(activity)">
+                            <!-- A cancelled event is named, not linked: there is
+                                 nothing on the other side of the link to join. -->
+                            <template v-if="isCancelled(namedEvent(activity))">
+                              <span class="text-fg-muted line-through decoration-fg-muted/60">{{
+                                namedEvent(activity)!.name
+                              }}</span>
+                              <span class="whitespace-nowrap text-caption text-danger">
+                                (cancelled)</span
+                              >
+                            </template>
+                            <NuxtLink
+                              v-else
+                              :to="`/events/${namedEvent(activity)!.id}`"
+                              class="dnl-press rounded-badge font-medium text-primary underline decoration-primary/40 underline-offset-2 transition-colors hover:decoration-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+                              >{{ namedEvent(activity)!.name }}</NuxtLink
+                            >
+                          </template>
+                        </p>
+                        <time
+                          :datetime="activity.created_at"
+                          class="shrink-0 text-caption tabular-nums text-fg-muted"
+                          >{{ formatTime(activity.created_at) }}</time
+                        >
+                      </div>
+
+                      <!-- The club, when a club is behind the row, then why the
+                           row is here. One line in muted ink: the sentence above
+                           names the person, this names the club they did it for,
+                           so the reader is never left inferring either. -->
+                      <p
+                        v-if="activity.actor_club_name || reasonFor(activity)"
+                        class="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-caption text-fg-muted"
+                      >
+                        <NuxtLink
+                          v-if="activity.actor_club_name && activity.actor_club_id"
+                          :to="`/clubs/${activity.actor_club_id}`"
+                          class="dnl-press inline-flex items-center gap-1 rounded-badge font-medium text-fg-secondary transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+                        >
+                          <UiIcon
+                            name="clubs"
+                            size="h-3.5 w-3.5"
+                            :stroke-width="2"
+                            aria-hidden="true"
+                          />
+                          {{ activity.actor_club_name }}
+                        </NuxtLink>
+                        <span
+                          v-if="activity.actor_club_name && reasonFor(activity)"
+                          aria-hidden="true"
+                          >·</span
+                        >
+                        <span v-if="reasonFor(activity)">{{ reasonFor(activity) }}</span>
+                      </p>
+
+                      <!-- The shout-out's own words: the one place on this page where
+                           a person actually wrote something, so it gets the body ramp
+                           and real room. Its rule stays neutral - green here would
+                           mark a message as confirmed, which it is not. -->
+                      <blockquote
+                        v-if="shoutoutMessage(activity)"
+                        class="mt-2 border-l border-border-strong py-0.5 pl-3 text-body-1 text-fg lg:mt-2.5 lg:pl-4"
+                      >
+                        {{ shoutoutMessage(activity) }}
+                      </blockquote>
+
+                      <!-- The event a shout-out points at. A ruled row, not a tinted
+                           block: a panel inside a panel is one container too many.
+                           A cancelled one keeps the row but loses the link. -->
+                      <template v-if="activity.event && !namedEvent(activity)">
+                        <div
+                          v-if="isCancelled(activity.event)"
+                          class="mt-2.5 flex items-center gap-2.5 border-t border-border pt-2.5"
+                        >
+                          <UiIcon
+                            name="calendar"
+                            size="h-4 w-4"
+                            :stroke-width="2"
+                            class="shrink-0 text-fg-muted"
+                            aria-hidden="true"
+                          />
+                          <span class="min-w-0 flex-1">
+                            <span
+                              class="block truncate text-body-2 font-medium text-fg-muted line-through decoration-fg-muted/60"
+                            >
+                              {{ activity.event.name }}
+                            </span>
+                            <span class="block truncate text-caption tabular-nums text-fg-muted">
+                              {{
+                                [formatEventDate(activity.event.start_date), activity.event.city]
+                                  .filter(Boolean)
+                                  .join(' · ')
+                              }}
+                            </span>
+                          </span>
+                          <UiStatusPill status="cancelled" size="sm" />
+                        </div>
+                        <NuxtLink
+                          v-else
+                          :to="`/events/${activity.event.id}`"
+                          class="dnl-row dnl-step group mt-2.5 flex items-center gap-2.5 border-t border-border pt-2.5 focus-visible:outline-none"
+                        >
+                          <UiIcon
+                            name="calendar"
+                            size="h-4 w-4"
+                            :stroke-width="2"
+                            class="shrink-0 text-fg-muted"
+                            aria-hidden="true"
+                          />
+                          <span class="min-w-0 flex-1">
+                            <span
+                              class="block truncate text-body-2 font-medium text-fg transition-colors group-hover:text-primary group-focus-visible:text-primary"
+                            >
+                              {{ activity.event.name }}
+                            </span>
+                            <span class="block truncate text-caption tabular-nums text-fg-muted">
+                              {{
+                                [formatEventDate(activity.event.start_date), activity.event.city]
+                                  .filter(Boolean)
+                                  .join(' · ')
+                              }}
+                            </span>
+                          </span>
+                          <UiIcon
+                            name="chevron-right"
+                            size="h-4 w-4"
+                            :stroke-width="2.2"
+                            class="dnl-step-chevron shrink-0 text-fg-muted"
+                            aria-hidden="true"
+                          />
+                        </NuxtLink>
+                      </template>
+                    </div>
+                  </div>
+                </li>
+              </ul>
+            </section>
+
+            <!-- Scrolling this into view fetches the next page. It is also the
+                 manual fallback: without IntersectionObserver, or if a page fails,
+                 the button is still there to press. -->
+            <div ref="sentinel" class="text-center">
+              <p v-if="loadingMore" class="py-3 text-caption text-fg-muted">Loading more…</p>
+              <button
+                v-else-if="!reachedEnd"
+                type="button"
+                class="dnl-press rounded-button border border-border-strong px-5 py-2 text-body-2 font-medium text-fg-secondary transition-colors hover:border-primary hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+                @click="loadMore"
+              >
+                Load more
+              </button>
+              <p v-else-if="activities.length" class="py-3 text-caption text-fg-muted">
+                You're all caught up.
+              </p>
+            </div>
+          </div>
         </div>
       </div>
     </div>

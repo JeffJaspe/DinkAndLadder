@@ -205,11 +205,14 @@ export function createBracketService(
     if (!event) {
       throw new BracketServiceError(404, 'NOT_FOUND', 'Event not found.')
     }
-    if (event.created_by_player_id !== playerId) {
+    if (
+      event.created_by_player_id !== playerId &&
+      !(await events.isCoOrganizer?.(eventId, playerId))
+    ) {
       throw new BracketServiceError(
         403,
         'FORBIDDEN',
-        'Only the event organizer can manage brackets.'
+        'Only the event organizer or a co-organiser can manage brackets.'
       )
     }
     return event
@@ -253,7 +256,9 @@ export function createBracketService(
   async function isOrganizer(playerId: string | null | undefined, eventId: string) {
     if (!playerId) return false
     const event = await events.findById(eventId)
-    return !!event && event.created_by_player_id === playerId
+    if (!event) return false
+    if (event.created_by_player_id === playerId) return true
+    return (await events.isCoOrganizer?.(eventId, playerId)) ?? false
   }
 
   /**

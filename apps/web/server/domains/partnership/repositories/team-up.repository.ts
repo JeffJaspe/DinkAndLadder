@@ -25,6 +25,13 @@ export interface TeamUpRepository {
   remove(id: string): Promise<void>
   /** Whether the owner may register this member — the only question that gates anything. */
   isAcceptedMember(ownerPlayerId: string, memberPlayerId: string): Promise<boolean>
+  /**
+   * Everyone this player has an accepted team-up with, in either direction:
+   * the members of their roster and the owners of rosters they sit on. The
+   * relationship is directional for registering; for "are we teammates" it
+   * is not, and that is the question a friends list asks.
+   */
+  findAcceptedPeerIds(playerId: string): Promise<string[]>
 }
 
 /** The joined shape PostgREST returns for either embed direction. */
@@ -154,6 +161,18 @@ export function createTeamUpRepository(client: SupabaseClient): TeamUpRepository
     async remove(id) {
       const { error } = await client.from('team_ups').delete().eq('id', id)
       if (error) throw error
+    },
+
+    async findAcceptedPeerIds(playerId) {
+      const { data, error } = await client
+        .from('team_ups')
+        .select('owner_player_id, member_player_id')
+        .eq('status', 'accepted')
+        .or(`owner_player_id.eq.${playerId},member_player_id.eq.${playerId}`)
+      if (error) throw error
+      return ((data ?? []) as { owner_player_id: string; member_player_id: string }[]).map((r) =>
+        r.owner_player_id === playerId ? r.member_player_id : r.owner_player_id
+      )
     },
 
     async isAcceptedMember(ownerPlayerId, memberPlayerId) {

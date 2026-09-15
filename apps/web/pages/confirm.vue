@@ -11,6 +11,12 @@ const errorMessage = ref('')
 async function finishSignIn() {
   try {
     await $fetch('/api/v1/auth/session', { method: 'POST' })
+    // Google gets you to aal1 like a password does; a two-factor account
+    // still owes its code. Same check as login.vue.
+    if (await needsMfaChallenge(supabase)) {
+      await navigateTo('/mfa/verify', { replace: true })
+      return
+    }
     // See login.vue: /onboarding decides no-profile vs no-rating vs dashboard.
     await navigateTo('/onboarding')
   } catch {

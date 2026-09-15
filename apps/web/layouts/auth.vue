@@ -16,8 +16,9 @@
 </script>
 
 <template>
-  <div class="min-h-screen bg-canvas">
+  <main class="min-h-screen bg-canvas">
     <slot />
     <UiToaster />
-  </div>
+    <LegalCookieBanner />
+  </main>
 </template>

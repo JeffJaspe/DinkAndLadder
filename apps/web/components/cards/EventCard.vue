@@ -60,9 +60,9 @@ const registrationLabel = computed(() => {
 const registrationClass = computed(() => {
   switch (props.registrationStatus) {
     case 'upcoming':
-      return 'bg-warning/20 text-warning'
+      return 'bg-warning-soft text-warning'
     case 'open':
-      return 'bg-success/20 text-success'
+      return 'bg-success-soft text-success'
     case 'closed':
       return 'bg-fg-muted/20 text-fg-muted'
     default:

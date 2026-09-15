@@ -128,7 +128,7 @@ export function createAnalyticsService(client: SupabaseClient): AnalyticsService
         relationships.countFollowing(playerId),
         client
           .from('player_achievements')
-          .select('achievement_id, achievements(points)')
+          .select('achievement_id, achievement_definitions(points)')
           .eq('player_id', playerId)
       ])
 
@@ -171,7 +171,8 @@ export function createAnalyticsService(client: SupabaseClient): AnalyticsService
       const achievementRows = achievements.data ?? []
       const totalPoints = achievementRows.reduce((sum, a) => {
         const pts =
-          (a as unknown as { achievements: { points: number } | null }).achievements?.points ?? 0
+          (a as unknown as { achievement_definitions: { points: number } | null })
+            .achievement_definitions?.points ?? 0
         return sum + pts
       }, 0)
 

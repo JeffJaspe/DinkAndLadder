@@ -5,9 +5,8 @@ import {
   MatchServiceError
 } from '~/server/domains/match/services/match.service'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
-import { createEventRegistrationRepository } from '~/server/domains/event/repositories/event-registration.repository'
 import { createEventRepository } from '~/server/domains/event/repositories/event.repository'
-import type { MatchResultType, SubmittedByRole } from '~/utils/game-rules'
+import type { MatchResultType } from '~/utils/game-rules'
 import { apiError } from '~/server/utils/api-error'
 import type {
   SubmitMatchInput,
@@ -15,6 +14,7 @@ import type {
   SubmitMatchScoreInput
 } from '~/server/domains/match/dto/match.dto'
 import { getOptionalUser } from '~/server/utils/optional-user'
+import { settleVerifiedMatch } from '~/server/utils/settle-verified-match'
 
 function parseSubmitInput(body: unknown): SubmitMatchInput {
   if (typeof body !== 'object' || body === null) {
@@ -102,13 +102,13 @@ function parseSubmitInput(body: unknown): SubmitMatchInput {
 /**
  * Uses the service-role client: submitting a match inherently creates match_participants
  * rows for OTHER players, which no self-service RLS policy can express (see 008-security's
- * note on the match domain). Authorization: caller must be registered to the event and
- * be one of the listed participants — checked in MatchService.submitMatch.
+ * note on the match domain). Authorization: the caller must be the event's organiser —
+ * checked below, before the service-role write.
  */
 export default defineEventHandler(async (event) => {
   const claims = await getOptionalUser(event)
   if (!claims) {
-    throw apiError(401, 'AUTH_REQUIRED', 'Sign in to submit a match.')
+    throw apiError(401, 'AUTH_REQUIRED', 'Sign in to record a result.')
   }
 
   const userClient = await serverSupabaseClient(event)
@@ -117,7 +117,7 @@ export default defineEventHandler(async (event) => {
     throw apiError(
       409,
       'PLAYER_PROFILE_REQUIRED',
-      'Complete your player profile before submitting a match.'
+      'Complete your player profile before recording a result.'
     )
   }
 
@@ -126,50 +126,41 @@ export default defineEventHandler(async (event) => {
   const serviceClient = serverSupabaseServiceRole(event)
 
   /**
-   * Which of the three parties this is.
+   * Organiser only.
    *
-   * Three are involved in any match — team 1, team 2 and the organiser — and
-   * any of them may report the score. Only the server can tell which, so it is
-   * resolved here rather than trusted from the body.
-   *
-   * The organiser branch is what registration used to block: they are running
-   * the desk, not playing, so they hold no registration and were refused before
-   * the service ever saw the request.
+   * A result is recorded by the person running the event, not by the players
+   * on court. This replaced the earlier rule where any registered player could
+   * submit and the opponent confirmed: the event creator is the one party with
+   * no side to take, and their record is final the moment it is written — no
+   * verification round, the same as a bracket result. The service-role client
+   * is used for the write; the check that makes that safe is this one.
    */
-  const eventRow = await createEventRepository(serviceClient).findById(input.event_id)
+  const eventRepo = createEventRepository(serviceClient)
+  const eventRow = await eventRepo.findById(input.event_id)
   if (!eventRow) {
     throw apiError(404, 'NOT_FOUND', 'Event not found.')
   }
-
-  const isOrganizer = eventRow.created_by_player_id === playerProfile.id
-  let role: SubmittedByRole = 'organizer'
-
-  if (!isOrganizer) {
-    const registrationRepo = createEventRegistrationRepository(userClient)
-    const registration = await registrationRepo.findByEventAndPlayer(
-      input.event_id,
-      playerProfile.id
+  const mayRecord =
+    eventRow.created_by_player_id === playerProfile.id ||
+    ((await eventRepo.isCoOrganizer?.(input.event_id, playerProfile.id)) ?? false)
+  if (!mayRecord) {
+    throw apiError(
+      403,
+      'ORGANIZER_ONLY',
+      'Results are recorded by the organiser or a co-organiser of the event.'
     )
-    if (!registration || registration.status === 'withdrawn') {
-      throw apiError(
-        403,
-        'NOT_REGISTERED',
-        'You must be registered to this event to submit matches.'
-      )
-    }
-    // Which side they played on, so the record says who reported it.
-    const own = input.participants.find((p) => p.player_id === playerProfile.id)
-    role = own?.team_number === 2 ? 'team_2' : 'team_1'
   }
 
   const service = createMatchService(createMatchRepository(serviceClient))
 
   try {
-    const match = await service.submitMatch(playerProfile.id, input, role)
-    return { data: match, message: 'Match submitted', request_id: crypto.randomUUID() }
+    const match = await service.recordOrganizerResult(playerProfile.id, input)
+    // Verified on write, so everything that follows a verification follows now.
+    await settleVerifiedMatch(serviceClient, match)
+    return { data: match, message: 'Result recorded', request_id: crypto.randomUUID() }
   } catch (err) {
     if (err instanceof MatchServiceError) throw apiError(err.status, err.code, err.message)
     console.error('[POST /api/v1/matches] submitMatch failed:', err)
-    throw apiError(500, 'INTERNAL_ERROR', 'Could not submit the match.')
+    throw apiError(500, 'INTERNAL_ERROR', 'Could not record the result.')
   }
 })

@@ -42,9 +42,9 @@ const STATUS_TABS = [
 ]
 
 const STATUS_STYLES: Record<string, string> = {
-  pending: 'bg-warning/20 text-warning',
-  actioned: 'bg-danger/20 text-danger',
-  reviewed: 'bg-success/20 text-success',
+  pending: 'bg-warning-soft text-warning',
+  actioned: 'bg-danger-soft text-danger',
+  reviewed: 'bg-success-soft text-success',
   dismissed: 'bg-fg-muted/20 text-fg-muted'
 }
 

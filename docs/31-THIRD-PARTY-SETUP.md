@@ -1,5 +1,15 @@
 # Third-Party Integration Setup Guide
 
+## 0. Two-factor authentication (Supabase, TOTP)
+
+One dashboard toggle, per project (dev **and** prod), nothing else:
+
+**Supabase Dashboard → Authentication → Multi-Factor → TOTP → Enable.**
+
+Free on every plan. Until it is on, `POST /api/v1/mfa/enroll` answers
+`MFA_NOT_ENABLED` and the wizard shows that message. Phone/SMS MFA is a paid
+add-on and is deliberately not used (ADR-009). No env vars, no keys.
+
 ## 1. Google OAuth (Supabase)
 
 ### Setup Steps

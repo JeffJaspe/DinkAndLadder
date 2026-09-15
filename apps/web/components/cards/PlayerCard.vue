@@ -89,7 +89,7 @@ function handleFollowClick() {
         class="flex-shrink-0 rounded-button px-3 py-1.5 text-sm font-medium transition-colors"
         :class="
           isFollowing
-            ? 'bg-surface-3 text-fg hover:bg-danger/20 hover:text-danger'
+            ? 'bg-surface-3 text-fg hover:bg-danger-soft hover:text-danger'
             : 'bg-primary text-on-primary hover:bg-primary-hover'
         "
         @click.prevent="handleFollowClick"

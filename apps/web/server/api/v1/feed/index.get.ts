@@ -19,6 +19,8 @@ import { getOptionalUser } from '~/server/utils/optional-user'
 
 interface EnrichedActivity extends ActivityDto {
   actor_display_name: string
+  /** The club a club-authored row belongs to, so the page can name it. */
+  actor_club_name?: string | null
   /** Present when a shout-out was posted against an event. */
   event?: LinkedEvent | null
 }
@@ -30,20 +32,30 @@ async function enrichWithDisplayNames(
   const playerIds = [
     ...new Set(activities.map((a) => a.actor_player_id).filter((id): id is string => !!id))
   ]
-  if (playerIds.length === 0) {
-    return activities.map((a) => ({ ...a, actor_display_name: 'Unknown' }))
-  }
+  const clubIds = [
+    ...new Set(activities.map((a) => a.actor_club_id).filter((id): id is string => !!id))
+  ]
 
-  const { data: profiles } = await client
-    .from('player_profiles')
-    .select('id, display_name')
-    .in('id', playerIds)
+  // Two lookups, side by side: the person and, for a club-authored row, the
+  // club. "Owner created an event" named the person and not the club it was
+  // for, which on a feed of several clubs left the reader guessing whose
+  // evening it was.
+  const [profiles, clubs] = await Promise.all([
+    playerIds.length
+      ? client.from('player_profiles').select('id, display_name').in('id', playerIds)
+      : Promise.resolve({ data: [] as { id: string; display_name: string }[] }),
+    clubIds.length
+      ? client.from('clubs').select('id, name').in('id', clubIds)
+      : Promise.resolve({ data: [] as { id: string; name: string }[] })
+  ])
 
-  const nameMap = new Map((profiles ?? []).map((p) => [p.id, p.display_name]))
+  const nameMap = new Map((profiles.data ?? []).map((p) => [p.id, p.display_name]))
+  const clubMap = new Map((clubs.data ?? []).map((c) => [c.id, c.name]))
 
   return activities.map((a) => ({
     ...a,
-    actor_display_name: (a.actor_player_id && nameMap.get(a.actor_player_id)) || 'Unknown'
+    actor_display_name: (a.actor_player_id && nameMap.get(a.actor_player_id)) || 'Unknown',
+    actor_club_name: (a.actor_club_id && clubMap.get(a.actor_club_id)) || null
   }))
 }
 

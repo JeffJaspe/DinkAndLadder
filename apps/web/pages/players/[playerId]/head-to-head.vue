@@ -125,7 +125,7 @@ function formatDate(dateStr: string): string {
                   <span
                     class="rounded-md px-2 py-0.5 text-xs font-medium"
                     :class="{
-                      'bg-primary/20 text-primary': match.result === 'win',
+                      'bg-primary-soft text-primary': match.result === 'win',
                       'bg-danger-soft text-danger': match.result === 'loss',
                       'bg-surface-2 text-fg-secondary': match.result === 'draw'
                     }"

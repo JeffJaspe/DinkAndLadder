@@ -167,9 +167,12 @@ const {
   watch: [ratingType, provinceName, cityName, barangayName, debouncedSearch, offset]
 })
 
-// "Where am I?" is the first question anyone asks on a rankings page.
+// "Where am I?" is the first question anyone asks on a rankings page — when
+// there is a "me". The page is public, so a signed-out visitor skips the call.
+const rankingsUser = useSupabaseUser()
 const { data: myProfile } = useFetch<PlayerProfileDto>('/api/v1/players/me', {
-  server: false
+  server: false,
+  immediate: !!rankingsUser.value
 })
 
 const entries = computed(() => response.value?.data ?? [])
@@ -312,9 +315,9 @@ function openPlayer(entry: { player_id: string }) {
             compact
             icon="trophy"
             title="No ranked players yet"
-            message="Ratings appear here once matches have been played and verified."
-            action-label="Submit a match"
-            action-to="/matches/submit"
+            message="Ratings appear here once organisers have recorded matches."
+            action-label="Find an event"
+            action-to="/events"
           />
         </template>
 

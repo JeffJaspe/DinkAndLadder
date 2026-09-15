@@ -236,7 +236,7 @@ const decidingPhase = computed<BracketPhase | null>(() => {
 
           <span
             v-if="locked"
-            class="inline-flex items-center gap-1.5 rounded-pill bg-primary/15 px-3 py-1.5 text-sm font-medium text-primary"
+            class="inline-flex items-center gap-1.5 rounded-pill bg-primary-soft px-3 py-1.5 text-sm font-medium text-primary"
           >
             <UiIcon name="check" size="h-4 w-4" />
             Draw locked

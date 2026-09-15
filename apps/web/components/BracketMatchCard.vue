@@ -97,7 +97,7 @@ const showRatings = computed(() => !orderedScores.value.length)
 
       <div
         class="flex items-center gap-2 rounded-md px-2 py-1"
-        :class="entry.isWinner ? 'bg-primary/20' : 'bg-canvas'"
+        :class="entry.isWinner ? 'bg-primary-soft' : 'bg-canvas'"
       >
         <span class="min-w-0 flex-1">
           <span

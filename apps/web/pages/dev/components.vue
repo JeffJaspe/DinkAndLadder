@@ -282,8 +282,8 @@ function confirmWithDelay() {
           <UiEmptyState
             title="No matches yet"
             message="Play your first match to start your journey!"
-            action-label="Submit a match"
-            action-to="/matches/submit"
+            action-label="Find an event"
+            action-to="/events"
           />
           <UiErrorState detail="TypeError: failed to fetch" @retry="toast.info('Retry pressed')" />
           <UiEmptyState

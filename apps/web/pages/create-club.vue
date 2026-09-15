@@ -141,8 +141,9 @@ async function handleCreate() {
           <div class="space-y-4">
             <div class="grid gap-4 sm:grid-cols-2">
               <div>
-                <label class="mb-1.5 block text-sm text-fg-secondary">Province</label>
+                <label for="club-province" class="mb-1.5 block text-sm text-fg-secondary">Province</label>
                 <select
+                  id="club-province"
                   :value="selectedProvince"
                   :disabled="loadingProvinces"
                   class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:opacity-50"
@@ -155,8 +156,9 @@ async function handleCreate() {
                 </select>
               </div>
               <div>
-                <label class="mb-1.5 block text-sm text-fg-secondary">City / Municipality</label>
+                <label for="club-city" class="mb-1.5 block text-sm text-fg-secondary">City / Municipality</label>
                 <select
+                  id="club-city"
                   :value="selectedCity"
                   :disabled="!selectedProvince || loadingCities"
                   class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:opacity-50"
@@ -170,10 +172,11 @@ async function handleCreate() {
               </div>
             </div>
             <div>
-              <label class="mb-1.5 block text-sm text-fg-secondary"
+              <label for="club-barangay" class="mb-1.5 block text-sm text-fg-secondary"
                 >Barangay <span class="text-fg-muted">(optional)</span></label
               >
               <select
+                id="club-barangay"
                 :value="selectedBarangay"
                 :disabled="!selectedCity || loadingBarangays"
                 class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:opacity-50"

@@ -1,0 +1,352 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Two things the feed page could not do with the 053 function.
+
+     1. Stop pinning month-old rows above this morning's.
+
+        053 ordered by (geo_score, verified_score, created_at). Geo score is a
+        property of the *actor*, not the row, so once a same-barangay club
+        existed, every event it created in August sat permanently above every
+        match anybody played in September - the page read as "old posts still
+        showing" and nothing a reader did could move them. Nearest-first is
+        still the right idea (039), but only among things that happened at
+        about the same time. The order is now: the calendar day the row was
+        written (newest first), then the geo score, then verified clubs, then
+        the exact time, then id. "Today, nearest first; then yesterday, nearest
+        first." A row can never outrank a newer day.
+
+        The day is taken in Asia/Manila, the market's clock: a match at 11pm and
+        one at 1am PHT are two different evenings to the people who played
+        them, and the UTC date would put both on the same day.
+
+     2. Say why a row is there.
+
+        The function already decides that a row is in the feed because the
+        actor is the viewer's partner, team-up, opponent, or one of their clubs.
+        It now says which, in two extra columns, so the page can print "you're
+        a member of Bay Area Pickleball" under the row instead of the reader
+        guessing. The reason is computed here rather than in the API layer
+        because the membership joins are already in this query; computing it
+        again in TypeScript would mean four more round trips per page.
+
+        Kinds, in priority order when more than one applies:
+          club     - written by a club the viewer belongs to (feed_reason_name
+                     carries the club's name)
+          self     - the viewer's own activity
+          partner  - a duo partner (partnerships)
+          team_up  - an accepted team-up (team_ups)
+          opponent - someone they have played a verified match with
+        NULL for a signed-out viewer, whose public listing has no reason.
+
+     The RETURNS TABLE changes, and Postgres will not CREATE OR REPLACE a
+     function with a different result type, so the function is dropped and
+     recreated. CREATE FUNCTION re-grants EXECUTE to PUBLIC, which is exactly
+     the default 053 revoked, so the revoke/grant is repeated here on purpose.
+     The call signature is unchanged; fn_community_player_ids is untouched. -->
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+    <changeSet id="060-feed-recency-and-reason" author="claude">
+        <sql splitStatements="true">
+            DROP FUNCTION IF EXISTS
+                fn_feed_for_player(uuid, int, int, text[], timestamptz, text);
+        </sql>
+        <sql splitStatements="false">
+            CREATE FUNCTION fn_feed_for_player(
+                p_player_id uuid,
+                p_limit int DEFAULT 20,
+                p_offset int DEFAULT 0,
+                p_types text[] DEFAULT NULL,
+                p_since timestamptz DEFAULT NULL,
+                p_scope text DEFAULT 'community'
+            )
+            RETURNS TABLE (
+                id uuid,
+                actor_player_id uuid,
+                actor_club_id uuid,
+                activity_type varchar(50),
+                reference_type varchar(50),
+                reference_id uuid,
+                visibility varchar(20),
+                metadata jsonb,
+                created_at timestamptz,
+                geo_score int,
+                feed_reason text,
+                feed_reason_name text
+            )
+            LANGUAGE sql
+            STABLE
+            SECURITY DEFINER
+            SET search_path = public
+            AS $$
+                WITH me AS (
+                    SELECT pp.id
+                      FROM player_profiles pp
+                     WHERE pp.user_id = auth.uid()
+                ),
+                effective AS (
+                    SELECT
+                        (SELECT m.id FROM me m) AS player_id,
+                        CASE
+                            WHEN (SELECT m.id FROM me m) IS NULL THEN 'geo'
+                            ELSE 'community'
+                        END AS scope
+                ),
+                -- The same set fn_community_player_ids returns, but labelled.
+                -- Kept as a separate CTE rather than changing that function's
+                -- result type: /community and the empty-state count read it.
+                my_matches AS (
+                    SELECT mp.match_id
+                      FROM match_participants mp
+                      JOIN me ON me.id = mp.player_id
+                ),
+                labelled AS (
+                    SELECT me.id AS player_id, 'self' AS reason, 1 AS prio FROM me
+                    UNION ALL
+                    SELECT CASE WHEN p.player1_id = me.id THEN p.player2_id ELSE p.player1_id END,
+                           'partner', 2
+                      FROM partnerships p
+                      JOIN me ON me.id IN (p.player1_id, p.player2_id)
+                    UNION ALL
+                    SELECT CASE WHEN t.owner_player_id = me.id
+                                THEN t.member_player_id ELSE t.owner_player_id END,
+                           'team_up', 3
+                      FROM team_ups t
+                      JOIN me ON me.id IN (t.owner_player_id, t.member_player_id)
+                     WHERE t.status = 'accepted'
+                    UNION ALL
+                    SELECT mp.player_id, 'opponent', 4
+                      FROM match_participants mp
+                      JOIN my_matches mm ON mm.match_id = mp.match_id
+                      JOIN matches m ON m.id = mp.match_id
+                     WHERE m.status = 'verified'
+                ),
+                community AS (
+                    SELECT DISTINCT ON (l.player_id) l.player_id, l.reason
+                      FROM labelled l
+                     WHERE l.player_id IS NOT NULL
+                       AND (SELECT e.scope FROM effective e) = 'community'
+                       AND NOT EXISTS (
+                           SELECT 1
+                             FROM player_relationships b, me
+                            WHERE b.relationship_type = 'block'
+                              AND b.status = 'active'
+                              AND (
+                                  (b.from_player_id = me.id AND b.to_player_id = l.player_id)
+                               OR (b.from_player_id = l.player_id AND b.to_player_id = me.id)
+                              )
+                       )
+                     ORDER BY l.player_id, l.prio
+                ),
+                my_clubs AS (
+                    SELECT cm.club_id, c.name
+                      FROM club_memberships cm
+                      JOIN clubs c ON c.id = cm.club_id
+                     WHERE (SELECT e.scope FROM effective e) = 'community'
+                       AND cm.player_id = (SELECT e.player_id FROM effective e)
+                       AND cm.status = 'active'
+                ),
+                scored AS (
+                    SELECT
+                        a.id,
+                        a.actor_player_id,
+                        a.actor_club_id,
+                        a.activity_type,
+                        a.reference_type,
+                        a.reference_id,
+                        a.visibility,
+                        a.metadata,
+                        a.created_at,
+                        COALESCE(
+                            CASE
+                                WHEN lower(btrim(COALESCE(pp.barangay, c.barangay)))
+                                     = lower(btrim(v.barangay))
+                                 AND lower(btrim(COALESCE(pp.city, c.city)))
+                                     = lower(btrim(v.city))
+                                THEN 3
+                                WHEN lower(btrim(COALESCE(pp.city, c.city)))
+                                     = lower(btrim(v.city))
+                                 AND lower(btrim(COALESCE(pp.province, c.province)))
+                                     = lower(btrim(v.province))
+                                THEN 2
+                                WHEN lower(btrim(COALESCE(pp.province, c.province)))
+                                     = lower(btrim(v.province))
+                                THEN 1
+                                ELSE 0
+                            END,
+                            0
+                        ) AS geo_score,
+                        CASE WHEN c.verification_status = 'verified' THEN 1 ELSE 0 END
+                            AS verified_score,
+                        CASE
+                            WHEN mc.club_id IS NOT NULL THEN 'club'
+                            ELSE cp.reason
+                        END AS feed_reason,
+                        CASE
+                            WHEN mc.club_id IS NOT NULL THEN mc.name
+                            ELSE NULL
+                        END AS feed_reason_name
+                      FROM activities a
+                      LEFT JOIN player_profiles pp ON pp.id = a.actor_player_id
+                      LEFT JOIN clubs c ON c.id = a.actor_club_id
+                      LEFT JOIN player_profiles v
+                             ON v.id = (SELECT e.player_id FROM effective e)
+                      LEFT JOIN community cp ON cp.player_id = a.actor_player_id
+                      LEFT JOIN my_clubs mc ON mc.club_id = a.actor_club_id
+                     WHERE a.visibility = 'public'
+                       AND (p_types IS NULL OR a.activity_type = ANY(p_types))
+                       AND (p_since IS NULL OR a.created_at &gt; p_since)
+                       AND (
+                           (SELECT e.scope FROM effective e) &lt;&gt; 'community'
+                        OR cp.player_id IS NOT NULL
+                        OR mc.club_id IS NOT NULL
+                       )
+                )
+                SELECT
+                    s.id, s.actor_player_id, s.actor_club_id, s.activity_type,
+                    s.reference_type, s.reference_id, s.visibility, s.metadata,
+                    s.created_at, s.geo_score, s.feed_reason, s.feed_reason_name
+                  FROM scored s
+                 ORDER BY (s.created_at AT TIME ZONE 'Asia/Manila')::date DESC,
+                          s.geo_score DESC,
+                          s.verified_score DESC,
+                          s.created_at DESC,
+                          s.id DESC
+                 LIMIT p_limit
+                OFFSET p_offset;
+            $;
+        </sql>
+        <sql splitStatements="true">
+            REVOKE ALL ON FUNCTION
+                fn_feed_for_player(uuid, int, int, text[], timestamptz, text) FROM PUBLIC;
+            GRANT EXECUTE ON FUNCTION
+                fn_feed_for_player(uuid, int, int, text[], timestamptz, text)
+                TO anon, authenticated;
+        </sql>
+        <rollback>
+            <!-- Back to 053: identity-scoped, geo-first, no reason columns. -->
+            <sql splitStatements="true">
+                DROP FUNCTION IF EXISTS
+                    fn_feed_for_player(uuid, int, int, text[], timestamptz, text);
+            </sql>
+            <sql splitStatements="false">
+                CREATE FUNCTION fn_feed_for_player(
+                    p_player_id uuid,
+                    p_limit int DEFAULT 20,
+                    p_offset int DEFAULT 0,
+                    p_types text[] DEFAULT NULL,
+                    p_since timestamptz DEFAULT NULL,
+                    p_scope text DEFAULT 'community'
+                )
+                RETURNS TABLE (
+                    id uuid,
+                    actor_player_id uuid,
+                    actor_club_id uuid,
+                    activity_type varchar(50),
+                    reference_type varchar(50),
+                    reference_id uuid,
+                    visibility varchar(20),
+                    metadata jsonb,
+                    created_at timestamptz,
+                    geo_score int
+                )
+                LANGUAGE sql
+                STABLE
+                SECURITY DEFINER
+                SET search_path = public
+                AS $$
+                    WITH me AS (
+                        SELECT pp.id
+                          FROM player_profiles pp
+                         WHERE pp.user_id = auth.uid()
+                    ),
+                    effective AS (
+                        SELECT
+                            (SELECT m.id FROM me m) AS player_id,
+                            CASE
+                                WHEN (SELECT m.id FROM me m) IS NULL THEN 'geo'
+                                ELSE 'community'
+                            END AS scope
+                    ),
+                    community AS (
+                        SELECT c.player_id
+                          FROM fn_community_player_ids((SELECT e.player_id FROM effective e)) c
+                         WHERE (SELECT e.scope FROM effective e) = 'community'
+                    ),
+                    my_clubs AS (
+                        SELECT cm.club_id
+                          FROM club_memberships cm
+                         WHERE (SELECT e.scope FROM effective e) = 'community'
+                           AND cm.player_id = (SELECT e.player_id FROM effective e)
+                           AND cm.status = 'active'
+                    ),
+                    scored AS (
+                        SELECT
+                            a.id,
+                            a.actor_player_id,
+                            a.actor_club_id,
+                            a.activity_type,
+                            a.reference_type,
+                            a.reference_id,
+                            a.visibility,
+                            a.metadata,
+                            a.created_at,
+                            COALESCE(
+                                CASE
+                                    WHEN lower(btrim(COALESCE(pp.barangay, c.barangay)))
+                                         = lower(btrim(v.barangay))
+                                     AND lower(btrim(COALESCE(pp.city, c.city)))
+                                         = lower(btrim(v.city))
+                                    THEN 3
+                                    WHEN lower(btrim(COALESCE(pp.city, c.city)))
+                                         = lower(btrim(v.city))
+                                     AND lower(btrim(COALESCE(pp.province, c.province)))
+                                         = lower(btrim(v.province))
+                                    THEN 2
+                                    WHEN lower(btrim(COALESCE(pp.province, c.province)))
+                                         = lower(btrim(v.province))
+                                    THEN 1
+                                    ELSE 0
+                                END,
+                                0
+                            ) AS geo_score,
+                            CASE WHEN c.verification_status = 'verified' THEN 1 ELSE 0 END
+                                AS verified_score
+                          FROM activities a
+                          LEFT JOIN player_profiles pp ON pp.id = a.actor_player_id
+                          LEFT JOIN clubs c ON c.id = a.actor_club_id
+                          LEFT JOIN player_profiles v
+                                 ON v.id = (SELECT e.player_id FROM effective e)
+                         WHERE a.visibility = 'public'
+                           AND (p_types IS NULL OR a.activity_type = ANY(p_types))
+                           AND (p_since IS NULL OR a.created_at &gt; p_since)
+                           AND (
+                               (SELECT e.scope FROM effective e) &lt;&gt; 'community'
+                            OR a.actor_player_id IN (SELECT cp.player_id FROM community cp)
+                            OR a.actor_club_id IN (SELECT mc.club_id FROM my_clubs mc)
+                           )
+                    )
+                    SELECT
+                        s.id, s.actor_player_id, s.actor_club_id, s.activity_type,
+                        s.reference_type, s.reference_id, s.visibility, s.metadata,
+                        s.created_at, s.geo_score
+                      FROM scored s
+                     ORDER BY s.geo_score DESC, s.verified_score DESC,
+                              s.created_at DESC, s.id DESC
+                     LIMIT p_limit
+                    OFFSET p_offset;
+                $;
+            </sql>
+            <sql splitStatements="true">
+                REVOKE ALL ON FUNCTION
+                    fn_feed_for_player(uuid, int, int, text[], timestamptz, text) FROM PUBLIC;
+                GRANT EXECUTE ON FUNCTION
+                    fn_feed_for_player(uuid, int, int, text[], timestamptz, text)
+                    TO anon, authenticated;
+            </sql>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

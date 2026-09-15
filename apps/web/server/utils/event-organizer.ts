@@ -41,6 +41,14 @@ export async function assertCanRunEvent(
 
   if (eventRow.created_by_player_id === playerId) return eventRow
 
+  // A co-organiser the creator appointed (061).
+  const { count } = await serviceClient
+    .from('event_co_organizers')
+    .select('*', { count: 'exact', head: true })
+    .eq('event_id', eventId)
+    .eq('player_id', playerId)
+  if ((count ?? 0) > 0) return eventRow
+
   if (eventRow.club_id) {
     const { data: membership } = await serviceClient
       .from('club_memberships')
@@ -57,7 +65,7 @@ export async function assertCanRunEvent(
   throw apiError(
     403,
     'FORBIDDEN',
-    'Only the organizer or the hosting club’s staff can run this session.'
+    'Only the organizer, a co-organiser or the hosting club’s staff can run this session.'
   )
 }
 

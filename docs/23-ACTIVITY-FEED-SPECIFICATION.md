@@ -63,6 +63,24 @@ Query activities at read time:
    - OR actor_club is in memberships AND visibility in ('public', 'club')
    - OR actor is self
 
+### Shipped implementation (fn_feed_for_player, 039 → 049 → 053 → 060)
+
+The main feed is one SQL function, identity-scoped to `auth.uid()`:
+
+- **Scope** (049/050/053): only the viewer's own people — duo partners, accepted
+  team-ups, anyone they have played a verified match with — plus `public` rows
+  authored by clubs they are an active member of. Blocked players are excluded.
+  A signed-out caller gets the public listing.
+- **Order** (060): calendar day in Asia/Manila (newest first), then geo score
+  (barangay 3 / city 2 / province 1 / 0), then verified-club, then exact time,
+  then id. "Today, nearest first; then yesterday, nearest first." Geo score is a
+  property of the actor, not the row, so ordering by it first (053) pinned a
+  nearby club's month-old rows above everything current — that was the "old
+  posts still showing" report.
+- **Reason** (060): each row carries `feed_reason` (`club` / `self` / `partner`
+  / `team_up` / `opponent`, priority in that order) and `feed_reason_name` (the
+  club's name for `club`). The page prints it under every row.
+
 ### Push-based (scalable, future)
 Fan-out activities to followers' feeds at write time:
 1. On activity creation, insert into activity_feed_items for each eligible follower

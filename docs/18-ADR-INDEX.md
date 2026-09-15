@@ -61,9 +61,33 @@ Still open:
   implementation could proceed, not an invented permanent business rule.
 
 ADR-002 — Match Verification Authority
-Status: OPEN
+Status: DECIDED 2026-09-14 — the organiser's record is the verification.
 
-Interim implementation (MVP-005, not a final decision — revisit here first if it changes):
+Decision: players do not submit results. A result is recorded by the event's
+creator (`events.created_by_player_id`) from the event, and is `verified` the
+moment it is written — the same rule the bracket path already applied. There
+is no opponent confirmation round. `POST /api/v1/matches` refuses anyone but the
+organiser with `ORGANIZER_ONLY`; `MatchService.recordOrganizerResult` stores the
+row verified; `server/utils/settle-verified-match.ts` applies feed rows, the
+rating move and notifications for both this path and the legacy decision path.
+
+Co-organisers (061, 2026-09-14): the creator may appoint friends — duo partners
+and accepted team-ups, nobody else — as co-organisers, at any time. A
+co-organiser is an organiser for every purpose except owning the event: they
+record results, edit, publish, start, complete, cancel, run brackets, courts and
+the queue; they cannot delete it or change the co-organiser list. Enforced in
+`EventRepository.isCoOrganizer` (read by every organiser check),
+`EventCoOrganizerService` (creator-only + friend-only rules) and
+`assertCanRunEvent`.
+
+The interim implementation below remains in the code only for rows that were
+submitted under the earlier rule and are still in flight (the decision, counter
+and dispute endpoints and the match-page verification panel). No new row can
+enter `submitted` or `pending_verification`. Remove it once those rows are
+settled. Player disputes of an organiser's record are not designed; if wanted,
+that is a new ADR.
+
+Superseded interim implementation (MVP-005):
 required verifiers are every match participant except the one who submitted the match, no
 distinction between teammate and opponent. A match becomes `verified` only once every required
 verifier has independently `confirmed`; a single `rejected` or `disputed` decision immediately
@@ -254,6 +278,60 @@ DB-stored secret is readable by anything holding the service-role key and ends
 up in backups.
 
 Decide before enabling payments. Do not let the quoting code imply either shape.
+
+**Addendum (2026-09-15, planning only, not yet decided):** a third shape was put
+on the table — DinkAndLadder collects the whole ₱520 into its own PayMongo
+wallet, holds it, and disburses the organiser's share after the event completes
+(refund on cancellation). It is the best player experience of the three and the
+one PayMongo's own guidance sketched (Wallet + a `send_money` Workflow), but it is
+*escrow*: the platform holds club funds, which this ADR's context said to avoid.
+If chosen it must be recorded here as a conscious reversal, with the settlement-
+lag, refund-fee and payout-destination-verification consequences written down.
+Two-factor authentication (ADR-009) was built first as its precondition.
+
+
+## ADR-009: Two-factor authentication is TOTP-only; a recovery code is a reset
+
+Status: **DECIDED** (2026-09-15) — implemented; see `/docs/15-AUTHENTICATION-SPECIFICATION.md`.
+
+Context:
+The payment design puts money movement behind the SuperAdmin (approving payouts)
+and club owners (setting where payouts go). Both needed more than a password.
+
+Decisions:
+1. **Authenticator app (TOTP) only.** No SMS: it costs money on Supabase, needs a
+   phone number we otherwise never collect, and is defeated by SIM swap — the
+   attack a second factor exists to stop. No email codes: email is what resets
+   the password, so it would be one factor twice.
+2. **A recovery code is a self-service reset, not a login.** Supabase has no
+   recovery codes and nothing but a real factor can raise a session to `aal2`.
+   Rather than build a parallel verifier, presenting a code (with the password)
+   deletes every factor and the owner re-enrols. Same power as "turn 2FA off",
+   so: hashed, shown once, single-use, behind Turnstile, one generic error.
+3. **Enforcement is server-side, per request.** A redirect is not a control;
+   `server/middleware/mfa-gate.ts` refuses the API to an `aal1` session on an
+   enrolled account, and to any session on `/api/v1/admin/**`.
+4. **Mandatory for the SuperAdmin now; for paying club owners when the payout
+   form exists.** Optional for everyone else. `MfaService.status().required` is
+   the single policy point.
+5. **Session-level assurance for v1.** The code at sign-in makes the whole
+   session `aal2`. Re-prompting for money actions within a session is deferred:
+   Supabase's `currentAuthenticationMethods` carries per-method timestamps, so
+   a "verified within N minutes" step-up is buildable when the payout endpoints
+   are, without a schema change.
+
+Consequences:
+- `users.mfa_enrolled_at` is denormalised from Supabase and re-synced at every
+  sign-in; the gate reads it via a 30-second per-user memo that the writers
+  invalidate. Across instances, enrolling can lag up to 30 s for *other*
+  instances (fails open for the person who just signed in with the password
+  moments ago); unenrolling can only make the gate stricter (fails safe).
+- The enrolment verify runs in the browser, not the server, because the
+  session being upgraded lives in the browser's cookies. The server confirms
+  from Supabase's factor list, never from the client.
+- The e2e suite plays the authenticator (`tests/e2e/helpers/totp.ts`, pinned to
+  the RFC vectors) and runs the MFA journey in its own Playwright project after
+  every other authed spec, because an enrolled test account refuses `aal1`.
 
 
 ## ADR Rule

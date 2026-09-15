@@ -11,6 +11,15 @@ export type ActivityType =
 
 export type ActivityVisibility = 'public' | 'followers' | 'club' | 'private'
 
+/**
+ * Why a row is in the viewer's feed. Set by fn_feed_for_player (060), so it is
+ * only ever present on rows that came through the feed; profile listings and
+ * the public firehose carry no reason because nothing was filtered.
+ *
+ * `club` is the one kind that names something: `feed_reason_name` is the club.
+ */
+export type FeedReason = 'club' | 'self' | 'partner' | 'team_up' | 'opponent'
+
 export interface ActivityRecord {
   id: string
   actor_player_id: string | null
@@ -21,6 +30,8 @@ export interface ActivityRecord {
   visibility: ActivityVisibility
   metadata: Record<string, unknown> | null
   created_at: string
+  feed_reason?: FeedReason | null
+  feed_reason_name?: string | null
 }
 
 export interface ActivityDto {
@@ -33,6 +44,9 @@ export interface ActivityDto {
   visibility: ActivityVisibility
   metadata: Record<string, unknown> | null
   created_at: string
+  /** See FeedReason. Null when the row was not scoped, e.g. a signed-out feed. */
+  feed_reason: FeedReason | null
+  feed_reason_name: string | null
 }
 
 export function toActivityDto(record: ActivityRecord): ActivityDto {
@@ -45,7 +59,9 @@ export function toActivityDto(record: ActivityRecord): ActivityDto {
     reference_id: record.reference_id,
     visibility: record.visibility,
     metadata: record.metadata,
-    created_at: record.created_at
+    created_at: record.created_at,
+    feed_reason: record.feed_reason ?? null,
+    feed_reason_name: record.feed_reason_name ?? null
   }
 }
 

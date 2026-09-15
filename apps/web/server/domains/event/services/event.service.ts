@@ -201,19 +201,30 @@ export function createEventService(
    */
   entitlements?: ClubEntitlementsService
 ): EventService {
-  async function assertEventOrganizer(playerId: string, eventId: string) {
+  /**
+   * The creator, or a co-organiser the creator appointed (061). Co-organisers
+   * run the event - edit, publish, start, complete, cancel, add tournaments -
+   * but do not own it: deleting it, and choosing who co-organises, pass
+   * `creatorOnly` and stay with the person who made it.
+   */
+  async function assertEventOrganizer(
+    playerId: string,
+    eventId: string,
+    options: { creatorOnly?: boolean } = {}
+  ) {
     const event = await events.findById(eventId)
     if (!event) {
       throw new EventServiceError(404, 'NOT_FOUND', 'Event not found.')
     }
-    if (event.created_by_player_id !== playerId) {
-      throw new EventServiceError(
-        403,
-        'FORBIDDEN',
-        'Only the event organizer can modify this event.'
-      )
-    }
-    return event
+    if (event.created_by_player_id === playerId) return event
+    if (!options.creatorOnly && (await events.isCoOrganizer?.(eventId, playerId))) return event
+    throw new EventServiceError(
+      403,
+      'FORBIDDEN',
+      options.creatorOnly
+        ? 'Only the person who created the event can do this.'
+        : 'Only the event organizer or a co-organiser can modify this event.'
+    )
   }
 
   /**
@@ -723,7 +734,7 @@ export function createEventService(
     },
 
     async deleteDraftEvent(playerId, eventId) {
-      const event = await assertEventOrganizer(playerId, eventId)
+      const event = await assertEventOrganizer(playerId, eventId, { creatorOnly: true })
 
       // Only drafts. A published event may already have people planning around
       // it, so withdrawing it is `cancelEvent` — which preserves the record —

@@ -22,7 +22,18 @@ export default defineEventHandler(async (event) => {
   const registrationRepo = createTournamentRegistrationRepository(client)
   const service = createEventService(eventRepo, tournamentRepo, registrationRepo)
 
-  const eventDto = await service.getEvent(eventId)
+  // Who is asking and what they are asking about do not depend on each other,
+  // so they are looked up side by side. This was four round trips in a row -
+  // event, claims, profile, then the event *again* for the waiver - and at
+  // ~200ms each to the database it was most of the page's wait.
+  async function resolveViewer(): Promise<string | null> {
+    const claims = await getOptionalUser(event)
+    if (!claims) return null
+    const profile = await createPlayerProfileRepository(client).findByUserId(claims.sub)
+    return profile?.id ?? null
+  }
+
+  const [eventDto, playerId] = await Promise.all([service.getEvent(eventId), resolveViewer()])
   if (!eventDto) {
     throw apiError(404, 'NOT_FOUND', 'Event not found.')
   }
@@ -30,14 +41,7 @@ export default defineEventHandler(async (event) => {
   // Whether THIS caller pays. Computed here rather than in the browser: a
   // price the client works out for itself is a suggestion, not a price. Null
   // caller (signed out) gets the ordinary quote.
-  const claims = await getOptionalUser(event)
-  let playerId: string | null = null
-  if (claims) {
-    const profile = await createPlayerProfileRepository(client).findByUserId(claims.sub)
-    playerId = profile?.id ?? null
-  }
-
-  const feeWaiver = await resolveFeeWaiver(serverSupabaseServiceRole(event), eventId, playerId)
+  const feeWaiver = await resolveFeeWaiver(serverSupabaseServiceRole(event), eventDto, playerId)
 
   return { ...eventDto, fee_waiver: feeWaiver }
 })

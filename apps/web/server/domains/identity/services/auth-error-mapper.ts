@@ -70,6 +70,22 @@ const AUTH_ERROR_MESSAGES: Record<string, MappedAuthError> = {
   signup_disabled: {
     code: 'SIGNUP_DISABLED',
     message: 'New registrations are temporarily disabled.'
+  },
+  mfa_verification_failed: {
+    code: 'MFA_VERIFY_FAILED',
+    message: 'That code is not right. Check your authenticator app and try again.'
+  },
+  mfa_factor_not_found: {
+    code: 'MFA_FACTOR_NOT_FOUND',
+    message: 'That two-factor setup has expired. Start again from Settings.'
+  },
+  too_many_enrolled_mfa_factors: {
+    code: 'MFA_TOO_MANY_FACTORS',
+    message: 'This account already has the maximum number of authenticators.'
+  },
+  mfa_totp_enroll_not_enabled: {
+    code: 'MFA_NOT_ENABLED',
+    message: 'Two-factor authentication is not switched on for this deployment yet.'
   }
 }
 

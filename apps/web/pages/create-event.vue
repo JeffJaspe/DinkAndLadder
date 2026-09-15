@@ -707,7 +707,7 @@ async function submit() {
                   <span class="font-medium text-fg">{{ t.label }}</span>
                   <span
                     v-if="t.ranked"
-                    class="rounded bg-accent/20 px-1.5 py-0.5 text-xs text-accent"
+                    class="rounded bg-accent-soft px-1.5 py-0.5 text-xs text-primary"
                   >
                     Ranked
                   </span>
@@ -718,7 +718,7 @@ async function submit() {
           </div>
           <div
             v-if="selectedEventType?.ranked"
-            class="mt-3 rounded-lg bg-accent/10 p-3 text-sm text-accent"
+            class="mt-3 rounded-lg bg-accent-soft p-3 text-sm text-primary"
           >
             Matches in this event will affect player ratings.
           </div>

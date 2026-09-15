@@ -7,6 +7,13 @@ export interface LinkedEvent {
   start_date: string
   city: string | null
   venue: string | null
+  /**
+   * So the feed can say when the thing it links to is no longer a thing to
+   * join. A row about an event that was cancelled a month ago is a true
+   * record and still belongs in the log, but presenting it as a live link
+   * with no mark is what read as "old posts still showing".
+   */
+  status: string
 }
 
 export interface ActivityWithLinkedEvent {
@@ -60,7 +67,7 @@ export async function attachLinkedEvents<T extends ActivityWithLinkedEvent>(
 
   const { data } = await client
     .from('events')
-    .select('id, name, start_date, city, venue')
+    .select('id, name, start_date, city, venue, status')
     .in('id', eventIds)
 
   const byId = new Map(((data ?? []) as LinkedEvent[]).map((e) => [e.id, e]))

@@ -46,6 +46,13 @@ Deliver:
 - login/register UI
 - tests
 
+### AUTH-002 Two-factor authentication — DONE (2026-09-15)
+TOTP via authenticator app, mandatory for the SuperAdmin, optional otherwise;
+recovery codes as self-service reset; server-side per-request enforcement.
+Precondition for the payment work. ADR-009; `/docs/15-AUTHENTICATION-SPECIFICATION.md`.
+Remaining: dashboard TOTP toggle (dev + prod), run the `mfa` e2e project after 062
+lands, club-owner mandate + in-session step-up when payout endpoints exist.
+
 ## MVP-002 Player Profiles
 Deliver:
 - player profile schema
@@ -770,3 +777,90 @@ rows are the same code and the same green test.
 - [ ] `EXPLAIN ANALYZE` the three named queries before and after Phase 1.
 - [ ] Enable `pg_stat_statements` and rank by total time — it will probably
       surface something not on this list.
+
+## Feed (2026-09-14 audit)
+
+- [x] Old rows pinned above new ones — `060-feed-recency-and-reason`: day-first
+      ordering (Asia/Manila), geo score only within a day.
+- [x] Per-row "why you see this" — `feed_reason` / `feed_reason_name` from the
+      same function; `describeFeedReason()` in `utils/feed.ts`.
+- [x] Desktop layout: log at `max-w-6xl` with an 18rem sticky rail (Coming up +
+      Why you see these); rows step up to body-1 at `lg`. Mobile stacks.
+- [x] Cancelled events named but not linked; `rating.changed` rows use
+      `formatRating` + signed delta; announcements show their title; Coming up
+      asks for `status=published&limit=50` so the nearest weekend is never off
+      the end of the page.
+- [ ] Four rows per verified match (2× `match.verified` + 2× `rating.changed`).
+      Collapse into one row per match, or stop logging `rating.changed` as a
+      public row when it is a direct consequence of a match already in the feed.
+- [ ] `social.started_following` (visibility `followers`) and
+      `club.member_joined` (`club`) never reach the feed because
+      `fn_feed_for_player` filters `visibility = 'public'`. Decide whether the
+      community scope makes those visibilities redundant.
+- [x] Club named under club-authored rows (`actor_club_name` from the feed
+      endpoint, linked to `/clubs/:id`).
+- [x] Event page: eight serial `await useFetch` → one `Promise.all`; event
+      endpoint parallelised and one round trip removed (2026-09-14).
+- [ ] `/players/:id` has the same serial-await shape — apply `firstRender()`.
+- [ ] Feed e2e: an authed spec that asserts day headings are monotonic and the
+      reason line is present on every row once 060 has landed on dev.
+
+## Results are recorded by the organiser (decided 2026-09-14, ADR-002)
+
+- [x] `POST /api/v1/matches` organiser-only; verified on write; settle helper
+      shared with the legacy decision endpoint.
+- [x] `/matches/submit` → "Record a result": organiser gate, organiser event
+      picker, no self/duo pre-seating; player sees an explanation state.
+- [x] Player entry points removed: bottom-bar centre, Matches list, club page,
+      rankings/empty states. Event page "Record a result" is organiser + club
+      mode only.
+- [x] Mobile bottom bar: Home · Rankings · **Players** (raised) · Events · My Clubs.
+- [x] Marketing: landing loop (Played → Recorded → Rating moves), hero line,
+      For-players lead, auth-shell claim; PRODUCT.md positioning.
+- [x] e2e match-chain rewritten to the organiser flow (11/11 green on dev).
+- [ ] Retire the legacy verification UI/endpoints once no `submitted` /
+      `pending_verification` rows remain on prod (dashboard "Now: verify",
+      match-page decision panel, counter-score, `/matches?status=pending`).
+- [ ] Decide whether a player may dispute an organiser's record (new ADR).
+- [x] Co-organisers (`061-event-co-organizers`, 2026-09-14): the creator
+      appoints friends (duo partners / team-ups) who then organise — record,
+      run, edit — but cannot delete or change the list. Panel on the event
+      Info tab; `GET /api/v1/players/me/friends` feeds the picker.
+- [ ] Organiser scope: club OWNER/ADMIN still cannot record for an event they
+      did not create unless appointed (court-running already allows staff via
+      `assertCanRunEvent`; `POST /api/v1/matches` does not). Decide.
+- [ ] Co-organiser e2e: needs the two test accounts to be duo partners first;
+      seed that in `auth.setup.ts`, then appoint member and record as them.
+- [ ] docs/12-MATCH-VERIFICATION-SPECIFICATION.md still describes the old loop;
+      rewrite against ADR-002.
+
+## Legal & Policy Pages (plan: docs/38-LEGAL-POLICIES-PLAN.md)
+
+Jurisdiction is the Philippines (RA 10173). Order follows docs/38 §8. Policy
+text ships flagged *DRAFT — pending legal review* until a lawyer signs off.
+
+- [x] Cookie banner + `/legal/cookies` + Settings and landing-footer links
+      (docs/38 §6, built 2026-09-12). One shared inventory in
+      `utils/cookie-consent.ts`; bump `CONSENT_VERSION` when a non-essential
+      category is added.
+- [ ] `057-policy-acceptances` changeset + RLS (docs/38 §4).
+- [ ] Legal domain: DTO, markdown repository, service, `GET /api/v1/legal/{key}`,
+      acceptance endpoints; unit tests for version/re-acceptance logic.
+- [ ] `pages/legal/[key].vue` for terms / privacy / refunds; footer links on
+      both layouts; real links in the `register.vue` sentence.
+- [ ] Register checkbox (unchecked by default), OAuth-path acceptance on first
+      `/onboarding` submit, blocking re-acceptance interstitial on material
+      version bumps.
+- [ ] Draft terms.md, privacy.md, refunds.md from docs/38 §1 facts. Blocked on
+      the §9 inputs: entity name, DPO, minimum age, venue, hosting wording.
+- [ ] Delete account (`DELETE /api/v1/players/me`, anonymise profile, keep
+      match rows) + Settings UI — before the privacy policy's rights section
+      is un-flagged.
+- [ ] Export my data (`GET /api/v1/players/me/export`, rate-limited).
+- [ ] Breach-response runbook section in docs/07 (72-hour NPC rule).
+- [ ] NPC registration of DPO and processing systems (ops, before launch).
+- [ ] Playwright: `/legal/*` in the public audit (cookies done), stale
+      acceptance → interstitial, delete-account journey.
+- [ ] ADR-008 — legal policy versioning and acceptance.
+- [ ] Refund policy sections gated on ADR-006 (entry-fee settlement) and
+      ADR-007 (subscription refund window) — do not write until decided.

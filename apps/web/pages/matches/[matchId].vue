@@ -128,8 +128,8 @@ async function submitCounter() {
 
 const statusConfig: Record<string, { bg: string; text: string }> = {
   submitted: { bg: 'bg-warning-soft', text: 'text-warning' },
-  pending_verification: { bg: 'bg-accent/20', text: 'text-accent' },
-  verified: { bg: 'bg-primary/20', text: 'text-primary' },
+  pending_verification: { bg: 'bg-accent-soft', text: 'text-primary' },
+  verified: { bg: 'bg-primary-soft', text: 'text-primary' },
   disputed: { bg: 'bg-danger-soft', text: 'text-danger' },
   cancelled: { bg: 'bg-surface-3', text: 'text-fg-muted' }
 }

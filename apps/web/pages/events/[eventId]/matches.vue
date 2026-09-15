@@ -270,7 +270,7 @@ useHead({
 </script>
 
 <template>
-  <div class="min-h-screen bg-canvas p-4 lg:p-8">
+  <main class="min-h-screen bg-canvas p-4 lg:p-8">
     <header class="mb-6 flex flex-wrap items-start justify-between gap-4">
       <div class="min-w-0">
         <UiPageHeader :to="`/events/${eventId}`" back-label="Back to the event" />
@@ -283,7 +283,7 @@ useHead({
       <div class="flex items-center gap-3">
         <span
           v-if="hasLiveCourt"
-          class="inline-flex items-center gap-1.5 rounded-pill bg-danger/15 px-2.5 py-1 text-caption font-semibold uppercase tracking-wide text-danger"
+          class="inline-flex items-center gap-1.5 rounded-pill bg-danger-soft px-2.5 py-1 text-caption font-semibold uppercase tracking-wide text-danger"
         >
           <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-danger" aria-hidden="true" />
           Live
@@ -340,17 +340,21 @@ useHead({
         </div>
       </section>
 
-      <div v-if="bracketPending" class="space-y-3">
+      <!-- The draw exists only for a tournament. The bracket fetch is
+           `immediate: false`, and Nuxt reports an un-run lazy fetch as still
+           pending, so without this guard an open-play session showed six
+           skeleton rows under the court board forever. -->
+      <div v-if="tournament && bracketPending" class="space-y-3">
         <div v-for="i in 6" :key="i" class="h-16 animate-pulse rounded-card bg-surface" />
       </div>
 
       <UiEmptyState
-        v-else-if="!bracketData?.rounds?.length"
+        v-else-if="tournament && !bracketData?.rounds?.length"
         title="No draw yet"
         message="Matches appear here once the organiser generates the draw."
       />
 
-      <div v-else class="space-y-6">
+      <div v-else-if="tournament && bracketData" class="space-y-6">
         <div class="grid gap-6 xl:grid-cols-[minmax(0,1fr)_20rem]">
           <!-- The draw, drawn as a draw. This is the half the page was missing:
                it listed the matches and never showed the bracket, which is the
@@ -403,5 +407,7 @@ useHead({
         </section>
       </div>
     </template>
-  </div>
+    <!-- No layout here, so the page hosts the cookie bar itself. -->
+    <LegalCookieBanner />
+  </main>
 </template>

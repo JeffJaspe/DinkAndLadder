@@ -2,11 +2,12 @@ import { serverSupabaseServiceRole } from '#supabase/server'
 import { createPlatformConfigRepository } from '~/server/domains/platform/repositories/platform-config.repository'
 import { createPlatformAdminService } from '~/server/domains/platform/services/platform-admin.service'
 import { getOptionalUser } from '~/server/utils/optional-user'
+import { assuranceLevelOf, isMfaEnrolled } from '~/server/utils/mfa'
 
 export default defineEventHandler(async (event) => {
   const claims = await getOptionalUser(event)
   if (!claims) {
-    return { is_superadmin: false }
+    return { is_superadmin: false, mfa_enrolled: false, aal: 'aal1' as const }
   }
 
   // Service role, not the caller's client: platform_config has RLS enabled with
@@ -18,5 +19,11 @@ export default defineEventHandler(async (event) => {
 
   const isSuperAdmin = await service.isSuperAdmin(claims.sub)
 
-  return { is_superadmin: isSuperAdmin }
+  // The admin route guard needs these to steer an un-enrolled SuperAdmin into
+  // the wizard, or an aal1 one to the challenge, rather than to a 403 wall.
+  return {
+    is_superadmin: isSuperAdmin,
+    mfa_enrolled: isSuperAdmin ? await isMfaEnrolled(event, claims.sub) : false,
+    aal: assuranceLevelOf(claims)
+  }
 })

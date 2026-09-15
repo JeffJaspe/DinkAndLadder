@@ -27,9 +27,67 @@ async function loadProviders() {
   providers.value = (data.user?.identities ?? []).map((identity) => identity.provider)
 }
 
+/**
+ * Two-factor state comes from our API, not from Supabase directly: the API
+ * also knows whether this account is one that *must* have it (SuperAdmin),
+ * and how many recovery codes are left, neither of which Supabase tracks.
+ */
+interface MfaStatus {
+  enrolled: boolean
+  enrolled_at: string | null
+  aal: 'aal1' | 'aal2'
+  required: boolean
+  recovery_codes_remaining: number
+}
+const mfa = ref<MfaStatus | null>(null)
+const mfaError = ref('')
+const loadingMfa = ref(true)
+
+async function loadMfa() {
+  mfaError.value = ''
+  try {
+    const response = await $fetch<{ data: MfaStatus }>('/api/v1/mfa/status')
+    mfa.value = response.data
+  } catch {
+    mfaError.value = 'Could not check two-factor authentication.'
+  }
+}
+
+const enrolledSince = computed(() => {
+  if (!mfa.value?.enrolled_at) return ''
+  return new Date(mfa.value.enrolled_at).toLocaleDateString('en-PH', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric'
+  })
+})
+
+// Turning it off: a fresh code in a dialog, then the status card reloads.
+const disableOpen = ref(false)
+const disableCode = ref('')
+const disableError = ref('')
+const disabling = ref(false)
+
+async function disableMfa() {
+  disableError.value = ''
+  disabling.value = true
+  try {
+    await $fetch('/api/v1/mfa/unenroll', { method: 'POST', body: { code: disableCode.value } })
+    disableOpen.value = false
+    disableCode.value = ''
+    await loadMfa()
+  } catch (err) {
+    const fetchError = err as { data?: { message?: string } }
+    disableError.value = fetchError.data?.message ?? 'Could not turn off two-factor authentication.'
+  } finally {
+    disabling.value = false
+  }
+}
+
 onMounted(async () => {
-  await loadProviders()
+  await Promise.all([loadProviders(), loadMfa()])
   loadingProviders.value = false
+  loadingMfa.value = false
 })
 
 async function handleSubmit() {
@@ -109,6 +167,100 @@ async function handleSubmit() {
           </template>
         </div>
       </section>
+
+      <section class="mb-6">
+        <h2 class="mb-2 text-caption font-semibold uppercase tracking-widest text-fg-muted">
+          Two-factor authentication
+        </h2>
+
+        <div class="rounded-card border border-border bg-surface shadow-card">
+          <div v-if="loadingMfa" class="p-4 text-body-2 text-fg-muted">Checking…</div>
+
+          <div v-else-if="mfaError" class="p-4">
+            <p role="alert" class="text-body-2 text-danger">{{ mfaError }}</p>
+            <button type="button" class="mt-2 text-body-2 font-medium text-primary" @click="loadMfa">
+              Try again
+            </button>
+          </div>
+
+          <template v-else-if="mfa">
+            <div class="flex items-center gap-4 p-4">
+              <span
+                class="flex h-10 w-10 shrink-0 items-center justify-center rounded-button bg-surface-2 text-fg-secondary"
+              >
+                <UiIcon name="shield" />
+              </span>
+              <span class="flex-1">
+                <span class="block font-medium text-fg">Authenticator app</span>
+                <span class="mt-0.5 block text-body-2 text-fg-muted">
+                  <template v-if="mfa.enrolled">
+                    On since {{ enrolledSince }} ·
+                    {{ mfa.recovery_codes_remaining }} recovery
+                    {{ mfa.recovery_codes_remaining === 1 ? 'code' : 'codes' }} left
+                  </template>
+                  <template v-else>Off — a code from your phone at every sign-in</template>
+                </span>
+              </span>
+              <UiIcon v-if="mfa.enrolled" name="verified" class="text-primary" />
+            </div>
+
+            <div class="border-t border-border p-4">
+              <p v-if="mfa.required && !mfa.enrolled" class="mb-3 text-body-2 text-warning">
+                This account administers the platform, so two-factor authentication is required.
+              </p>
+              <p v-else-if="mfa.required" class="mb-3 text-body-2 text-fg-secondary">
+                Required for this account — it cannot be turned off.
+              </p>
+
+              <div class="flex flex-wrap gap-2">
+                <NuxtLink
+                  to="/settings/security/two-factor"
+                  class="inline-flex items-center rounded-button bg-primary px-4 py-2.5 font-semibold text-on-primary transition-colors hover:bg-primary-hover"
+                >
+                  {{ mfa.enrolled ? 'Set up a new device' : 'Set up' }}
+                </NuxtLink>
+                <button
+                  v-if="mfa.enrolled && !mfa.required"
+                  type="button"
+                  class="inline-flex items-center rounded-button border border-border-strong px-4 py-2.5 font-medium text-fg transition-colors hover:bg-surface-2"
+                  @click="disableOpen = true"
+                >
+                  Turn off
+                </button>
+              </div>
+            </div>
+          </template>
+        </div>
+      </section>
+
+      <UiModal
+        v-model="disableOpen"
+        title="Turn off two-factor authentication?"
+        description="Your account will sign in with a password alone. Enter the current code from your authenticator app to confirm."
+        confirm-label="Turn off"
+        destructive
+        :loading="disabling"
+        @confirm="disableMfa"
+        @cancel="disableCode = ''; disableError = ''"
+      >
+        <label for="disable-code" class="mb-1.5 block text-body-2 font-medium text-fg-secondary"
+          >6-digit code</label
+        >
+        <input
+          id="disable-code"
+          v-model="disableCode"
+          type="text"
+          inputmode="numeric"
+          autocomplete="one-time-code"
+          maxlength="6"
+          pattern="[0-9]{6}"
+          class="w-full rounded-button border border-border-strong bg-canvas px-4 py-2.5 font-mono text-lg tracking-[0.3em] text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
+          @keydown.enter.prevent="disableMfa"
+        />
+        <p v-if="disableError" role="alert" class="mt-2 text-body-2 text-danger">
+          {{ disableError }}
+        </p>
+      </UiModal>
 
       <section>
         <h2 class="mb-2 text-caption font-semibold uppercase tracking-widest text-fg-muted">

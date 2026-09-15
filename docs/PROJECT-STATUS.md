@@ -4,6 +4,15 @@
 
 All seven MVP items (Authentication through Rankings) are COMPLETE and live-verified against the real Supabase database. The full MVP feature set from `/docs/03-MVP-SCOPE.md` is implemented.
 
+**2026-09-12 — Playwright audit + authenticated e2e suite.** `apps/web/tests/e2e` now
+signs in as both dev test accounts (`tests/e2e/auth/`), audits every route (5xx, client
+errors, axe AA, landmarks, screenshots) and drives the full MVP chain through the UI:
+create event → publish → both register → start → record match → verify → rating change.
+113/113 e2e green; the eight findings the first run surfaced (profile stats 500,
+non-UUID ids 500, AA contrast on status pills, unlabeled selects, missing `<main>`,
+signed-out 401 noise, Record Match prefill, endless skeletons on open-play Matches)
+are all fixed. Details: `/docs/37-PLAYWRIGHT-AUDIT-2026-09-12.md`.
+
 No production implementation should be assumed complete beyond what this file states.
 
 ## Current Objective
@@ -7642,3 +7651,426 @@ Steps 5–9 not started. Step 5 is the write path, including
 instantly reversible, which is what makes closing registration on a club's
 players acceptable at all, and it is flagged in the plan for revisiting in
 ADR-007.
+
+## Legal & policy pages, step 3b — cookie consent (2026-09-12)
+
+Plan is `docs/38-LEGAL-POLICIES-PLAN.md`; jurisdiction confirmed as the
+Philippines. Jeff chose a banner from day one even though only essential
+cookies exist, so the constraint was honesty: the bar must not claim to block
+anything that is not there, and it must genuinely gate anything added later.
+
+### One inventory, three readers
+
+`utils/cookie-consent.ts` holds `CONSENT_CATEGORIES` — every cookie the site
+sets, its purpose, lifetime and who sets it — plus `CONSENT_VERSION`. The
+banner gates on it, `/legal/cookies` renders its table from it, and the future
+analytics plugin will boot off `useConsent().allows('analytics')`. The page
+cannot list a cookie the banner does not know about, and a unit test fails the
+moment a non-essential category gains a cookie without a version bump.
+
+`analytics` is listed with zero cookies and shown as *Off*. That is
+deliberate: the choice the visitor makes today has to mean something when
+analytics arrives, and a category that appears only later would need a
+re-prompt anyway.
+
+### The bar
+
+`components/legal/CookieBanner.vue`, mounted in all three layouts (default, auth, marketing) and on the one layout-less page (`aboveTabBar`
+lifts it clear of the mobile tab bar in the app shell). Two equal-weight
+buttons, **Essential only** and **Accept all**, and no close control — a
+dismiss that counts as consent is the pattern regulators name, and one that
+does not just brings the bar back on the next page. It is a landmark
+`region`, not a `dialog`: it must not trap focus or block a visitor reading
+the rankings.
+
+The choice is a JSON record `{v, choice, at}` in `dnl-cookie-consent` (1
+year, lax, same shape as the theme cookie), so SSR draws or omits the bar on
+the first byte — verified with curl: absent from `/rankings` with the cookie,
+present on `/login` without it. A record from an older `CONSENT_VERSION`
+reads as "not chosen" and the bar returns.
+
+### Why `useConsent` keeps state in `useState`, not the cookie ref
+
+The first cut read straight from `useCookie`. Two `useCookie` refs for the
+same name — the banner in the layout and the buttons on the cookies page —
+are separate refs Nuxt reconciles only through CookieStore change events, and
+in Chromium the banner never learned that the page had answered. The
+composable now writes the cookie *and* a shared `useState`; every reader sees
+the write on the same tick. The cookie is persistence, not the render's
+source of truth.
+
+### `/legal/cookies`
+
+Public (`/legal/*` added to the auth excludes). Your choice at the top with
+the two buttons and *Ask me again*, a plain-language summary, one section per
+category with the table, and a note on browser controls. Linked from
+Settings → Cookies and the landing-page footer.
+
+### Tests
+
+- `tests/unit/cookie-consent.spec.ts` (13) — record validity fails closed;
+  stale version reads as no choice; analytics allowed only under `all`; the
+  inventory locks exactly one category and lists the consent cookie itself.
+- `tests/unit/cookie-banner.spec.ts` (6) — both answers, no close control,
+  hides on answer, stays hidden with a current record, returns for a stale
+  one, lifts above the tab bar only when asked.
+- `tests/e2e/cookie-consent.spec.ts` (4, public project) — asks on both
+  layouts, `Essential only` lands in the cookie and the bar is absent after a
+  fresh navigation, the page's own buttons satisfy the bar and *Ask me again*
+  brings it back. Pages are opened through `visit()` from the audit helper:
+  a click before hydration on `/rankings` landed on server HTML and did
+  nothing, which showed up as a flake on the first run.
+- `auditRoute()` now seeds an answered consent cookie so the bar is not on
+  every screenshot; `/legal/cookies` added to the public audit.
+
+**1388 unit tests pass (92 files)**, lint clean on changed files. `typecheck`
+not run this session because it kills the dev server on :3000 — run it before
+committing. The public audit on `/`, `/rankings` and `/legal/cookies` reports
+one serious axe node each, all `<nuxt-devtools-frame>`: the audit reused the
+dev server instead of `preview`, and the frame is a custom element the
+`#nuxt-devtools-frame` exclude does not match. Nothing on the cookies page
+fails.
+
+Next: step 1 of docs/38 §8, the `057-policy-acceptances` changeset.
+
+## Feed audit — old rows, desktop width, "why you see this" (2026-09-14)
+
+Reported as "a lot of bugs, old posts still showing" on the Feed tab. Audit
+against the dev database: 319 activities, 282 of them from August; 45 point at
+events that have already happened and 12 at events since cancelled; and the
+053 function ordered by `geo_score` *first*, which is a property of the actor
+rather than the row. A club in the reader's own barangay therefore had every
+August row pinned above every September match, and nothing the reader did
+could move them. Not a cache problem — `useFetch` re-runs on navigation.
+
+### Database — `060-feed-recency-and-reason`
+
+`fn_feed_for_player` dropped and recreated (the result type changes, so
+`CREATE OR REPLACE` is not allowed; the PUBLIC `EXECUTE` revoke from 053 is
+repeated because `CREATE FUNCTION` re-grants it).
+
+- Order is now `(created_at AT TIME ZONE 'Asia/Manila')::date DESC, geo_score
+  DESC, verified_score DESC, created_at DESC, id DESC`. Nearest-first (039) is
+  kept, but only inside a day. Manila rather than UTC so an 11pm and a 1am
+  match are two evenings, as they are to the people who played them.
+- Two new columns: `feed_reason` (`club` / `self` / `partner` / `team_up` /
+  `opponent`, priority in that order) and `feed_reason_name` (club name).
+  The community set is computed inline as a labelled CTE with
+  `DISTINCT ON (player_id) ... ORDER BY prio`; `fn_community_player_ids` is
+  untouched because `/community` and the empty-state count read it.
+- Call signature unchanged. Lands on dev on push to main.
+
+### Layers
+
+- DTO: `FeedReason`, optional on `ActivityRecord`, explicit `| null` on
+  `ActivityDto`; `toActivityDto` passes it through.
+- `attachLinkedEvents` now selects the event's `status`.
+- `utils/feed.ts`: `describeFeedReason()` ("You're a member of Bay Area
+  Pickleball", "Your duo partner", "You've teamed up", "You've played each
+  other", "Your own activity"), `describeFeedDay()` (Today / Yesterday / date),
+  `groupByFeedDay()` (consecutive groups — never re-sorts the server order).
+
+### Page
+
+- Desktop (`lg`): the page-shell `max-w-6xl` column, split
+  `minmax(0,1fr) / 18rem`. The log is left at body-1 with 20px marks and
+  deeper rows; a sticky rail on the right carries *Coming up* and a *Why you
+  see these* panel with the rule in full and a *Manage your community* row.
+  The rail is after the log in DOM order. Below `lg` everything stacks, the
+  log stays at body-2, and the explainer panel is hidden — the header line
+  and the per-row reason already say it.
+- One panel per calendar day with the day as its label heading, so the
+  structure the server imposes is visible; past a day old, the row time is the
+  clock time only because the heading already says the date.
+- Every row prints its reason in muted caption under the sentence.
+- A `club.event_created` row whose event is cancelled names it struck-through
+  with *(cancelled)* and no link; a cancelled shout-out event keeps its ruled
+  row with a `cancelled` pill and no link. Rows are never dropped — quietly
+  losing rows is how a log stops being trusted.
+- `rating.changed` read "rating updated to 3.367655538028936"; now "singles
+  rating now 3.368 (−0.003)" via `formatRating`/`formatRatingDelta`.
+- `club.announcement` shows its title. *Coming up* fetches
+  `status=published&limit=50` (the endpoint lists furthest-first, so the old
+  `limit=20` could miss the nearest weekend).
+
+### Tests / validation
+
+`tests/unit/feed-page-helpers.spec.ts` (12): reason copy, day labels across
+today/yesterday/other-year, consecutive grouping that does not merge a day
+that reappears, DTO pass-through and explicit null. 47 feed tests pass.
+`vue-tsc --noEmit` clean (run directly, not via `nuxt prepare`, because the
+dev server was up); eslint clean on changed files. Screenshots at 1440 and
+390 as the dev test member: two-column desktop, stacked mobile, day heading,
+cancelled event, formatted rating. Reason lines and the new order cannot be
+seen until 060 is applied to dev.
+
+### Left open (backlog, Feed section)
+
+Four rows per verified match; `followers`/`club` visibilities never reach the
+feed; an authed e2e for day monotonicity and reason presence once 060 lands.
+
+## Session lifetime — sign out on browser close, "Remember me" (2026-09-14)
+
+Asked for: closing the browser signs you out; a "Remember me" that makes the
+next sign-in easy.
+
+**Why it needed a plugin, not a config line.** `@supabase/ssr` writes every
+auth cookie with a 400-day `Max-Age` and spreads its own default *after* the
+`cookieOptions` the Nuxt module passes (`cookies.js`, `setCookieOptions`),
+so the module's `maxAge: 8h` was never in effect and no option yields a
+session cookie.
+
+- `plugins/session-lifetime.client.ts` — unless the remember-me cookie is
+  present, reads every `sb-<ref>-auth-token*` cookie back from
+  `document.cookie` and rewrites it with the same value, path and flags and
+  no expiry. Runs on `SIGNED_IN` / `TOKEN_REFRESHED` / `USER_UPDATED`, on
+  every `page:finish` (the SSR pass can refresh the token and answer with a
+  long-lived `Set-Cookie` no client event announces), and once at boot.
+- `utils/remember-me.ts` — `findAuthCookies()` and `sessionCookieString()`,
+  pure and tested. `composables/useRememberMe.ts` — the choice as a 400-day
+  cookie `dnl_remember` whose value is the email to prefill (`"1"` when opted
+  in via Google, where the address is not known).
+- `pages/login.vue` — "Remember me on this device" checkbox with the cost of
+  leaving it off spelled out; pre-checked and email prefilled when a previous
+  sign-in opted in; a `/register` hand-over email still wins the prefill. The
+  choice is recorded before the session exists so the plugin sees it the
+  moment the cookies land; the Google path records it before the redirect.
+- `utils/cookie-consent.ts` — inventory lists `dnl_remember` and the auth
+  cookie's lifetime now says which of the two it is.
+
+Verified against the dev server with the e2e seed: with no remember cookie,
+the auth cookies come back from `context.cookies()` as session cookies
+(`expires: -1`) and the reader stays signed in; with it present they keep
+their expiry. Login prefills and pre-checks from the cookie at 1440 and 390.
+`tests/unit/remember-me.spec.ts` (5). Lint and `vue-tsc` clean.
+
+Caveats, stated on the plugin: a browser set to "continue where you left off"
+restores session cookies as well — that is the browser's rule for every site.
+The remembered session's real ceiling is Supabase's refresh-token lifetime,
+set in the dashboard, not here.
+
+## Link audit from the feed — the slow event page (2026-09-14)
+
+Every link on the feed was clicked from a signed-in Playwright context with
+request timing captured (dev server, Tokyo database, ~150–500ms per query).
+Every route resolved; nothing 404ed or errored. Two links were slow for the
+same reason, and the layout was adding noise to all of them.
+
+### Findings
+
+- **`/events/:id` — 2.9s to first content on a hard load, 3.7s to idle on a
+  client navigation.** The page ran eight `await useFetch()` calls one after
+  another in `<script setup>`; each waited for its round trip before the next
+  began, so the page paid the whole chain in series. `/api/v1/events/:id`
+  itself took ~850ms: four serial round trips (event, claims, profile, then
+  the event *again* inside `resolveFeeWaiver`).
+- **`/players/:id` — 3.2s to idle.** Same shape (serial `await useFetch`);
+  left for a follow-up, noted below.
+- **Every navigation** re-fired the three sidebar badge counts
+  (`partner-requests/count`, `team/count`, `notifications/unread-count`):
+  the composables `watch(user, …)`, and the Supabase plugin replaces the
+  `user` object on every `page:start`, so the watch fired on every click.
+- `/profile/edit` and `/matches/submit` links were not clickable in the audit
+  context (covered by the cookie bar in the layout); not a defect.
+
+### Fixes
+
+- `pages/events/[eventId]/index.vue` — the eight first-render fetches are
+  created un-awaited through a `firstRender()` tracker and awaited once with
+  `Promise.all`. Coach lookup stays as it was (`immediate: false`).
+- `server/api/v1/events/[eventId]/index.get.ts` — event lookup and viewer
+  resolution run side by side; `resolveFeeWaiver` now takes the event row it
+  needs (`club_id`, `created_by_player_id`) instead of re-fetching it.
+- `composables/use{PartnerRequest,TeamUpRequest,UnreadNotification}Count.ts`
+  — watch `user.value?.sub`, not the object.
+
+**Measured after** (same harness): feed → event, event heading at **~840ms**
+(from ~2.9s), idle at **~1.15s** (from 3.7s); `/api/v1/events/:id` **~350ms**
+(from ~850ms); hard-load SSR **1.6s** (from 2.8s); zero badge refetches on
+navigation. The floor is now the slowest single query to Tokyo, not the sum.
+
+### Feed: the club on club-authored rows
+
+`/api/v1/feed` now names the club (`actor_club_name`, one `clubs` lookup run
+alongside the display-name lookup). The page prints it under the sentence as
+a link to `/clubs/:id` with the clubs mark, on the same line as the reason;
+when the reason is "club", it shortens to "· you're a member" so the name is
+not said twice.
+
+1405 unit tests pass (94 files); lint and `vue-tsc` clean.
+
+### Left open
+
+- `/players/:id` has the same serial-await shape (stats 1.3s, matches, team,
+  partners…): apply the `firstRender()` pattern there.
+- The dev-server numbers are bounded by the Philippines→Tokyo round trip;
+  production on Vercel (region near the database) will be lower across the
+  board, but the serial-vs-parallel ratio holds wherever it runs.
+
+## Results are recorded by the organiser — the player submission flow is gone (2026-09-14)
+
+Product decision (ADR-002, now DECIDED): players do not submit results. The
+creator of the event records the score from the event, and that record is
+final on save — no opponent confirmation. Marketing, the phone bar, and every
+entry point were redone to match.
+
+### Backend
+- `MatchService.recordOrganizerResult()` — validates as 'organizer' (the
+  recorder need not have played), stores the row, marks it `verified`.
+- `POST /api/v1/matches` — refuses anyone but `events.created_by_player_id`
+  with 403 `ORGANIZER_ONLY`, then settles the result.
+- `server/utils/settle-verified-match.ts` — feed rows, rating move, rating
+  notifications; extracted from the decision endpoint so the organiser path
+  and the legacy path do exactly the same thing to a player's number.
+- `GET /api/v1/players/me/submittable-events` — the events this player
+  *created*, not the ones they registered for.
+
+### UI
+- Mobile bottom bar: Home · Rankings · **Players** (raised centre, search
+  mark, now labelled) · Events · My Clubs. Profile lives in the drawer.
+- `/matches/submit` → "Record a result / Entered by the organiser. Final the
+  moment it is saved." Organiser gate mirrors the endpoint; a player who opens
+  it gets "Only the organiser records results here" and a way back. Picker
+  lists organised events; empty state points at Create an event. The
+  self-seat and duo pre-seat are gone — the recorder is at the desk.
+- Event page: "Record a result" only for `canManageEvent` (organiser in club
+  mode) on an active non-tournament event, with a one-line note under it.
+- Removed: club page "Submit Match", Matches list "Submit match" (now "Find an
+  event"), rankings/matches/dev empty-state CTAs → `/events`.
+- Landing: hero line, loop band (Played → **Recorded** → Rating moves; the
+  green step is the organiser's entry), lead under "A rating nobody argues
+  with", For-players lead. Auth shell claim. PRODUCT.md users/purpose/
+  positioning updated to the new rule.
+
+### Tests
+- `tests/unit/match.service.spec.ts` +2 (organiser record is verified and
+  re-readable as such; roster validation still applies). 1407 unit tests pass.
+- `tests/e2e/authed/match-chain.spec.ts` rewritten: owner records in club
+  mode with both sides picked → verified on save, no "Start verification"; the
+  member is refused by the page and gets 403 from the API; the member's match
+  page shows verified with rating-changes rows. **11/11 green against the dev
+  server.** The spec now seeds the consent cookie — the cookie bar was
+  intercepting Create Event.
+- Lint clean (8 pre-existing warnings), `vue-tsc` clean.
+
+### Left
+See the backlog section: retire the legacy verification UI once in-flight rows
+settle; decide player disputes; decide club OWNER/ADMIN recording; rewrite
+docs/12.
+
+## Event co-organisers (2026-09-14)
+
+The creator of an event can appoint people to run it with them — editable at
+any time, friends only.
+
+- **Database** `061-event-co-organizers`: `event_co_organizers(event_id,
+  player_id, added_by_player_id)`, unique pair, index on player, RLS: readable
+  by any signed-in user, no write policies (service role behind the creator
+  and friend checks). Lands on dev on push to main; until then the event page
+  degrades to "no co-organisers" and `POST /api/v1/matches` /
+  `submittable-events` will 500 on dev because they read the table.
+- **"Friends"** is defined once, in `partnership/services/friends.service.ts`:
+  duo partners (mutual) plus accepted team-ups in either direction
+  (`TeamUpRepository.findAcceptedPeerIds`, new). Not opponents, not club-mates.
+- **Service** `event/services/event-co-organizer.service.ts`: `add` is
+  creator-only, friend-only, idempotent, refuses the creator themselves;
+  `remove` creator-only; `isOrganizer` = creator or co-organiser.
+- **Organiser rights** now include co-organisers everywhere the creator had
+  them, via an optional `EventRepository.isCoOrganizer` read (optional so the
+  unit-test fakes need not grow it): `EventService.assertEventOrganizer`
+  (with `creatorOnly` for delete), bracket, queue, tournament categories,
+  `assertCanRunEvent` (courts), `POST /api/v1/matches`, and the result picker
+  lists co-organised events.
+- **API** `GET/POST /api/v1/events/:id/co-organizers`,
+  `DELETE …/co-organizers/:playerId` (each answers with the full list),
+  `GET /api/v1/players/me/friends`. Wiring shared in
+  `server/utils/co-organizers.ts`.
+- **UI** `components/event/CoOrganizersPanel.vue` on the event Info tab, for
+  organisers only: list with avatars and remove; creator gets *Add*, which
+  opens a picker of friends not yet appointed (with the reason each qualifies
+  and an honest empty state pointing at Community); a co-organiser sees the
+  list read-only with a line saying only the creator changes it. On the event
+  page `isCreator` / `isCoOrganizer` / `isOrganizer` are now three things;
+  `canManageEvent` is *creator in club mode, or co-organiser in any mode* —
+  a friend may have no club and so no club mode to enter. Delete Draft stays
+  creator-only. `/matches/submit` accepts co-organisers.
+- **Tests** `tests/unit/event-co-organizer.service.spec.ts` (8): appoint a
+  friend, refuse a stranger, refuse a co-organiser appointing, refuse the
+  creator, idempotent, creator-only removal, 404, friends merge. 1415 unit
+  tests pass; lint and `vue-tsc` clean. Rendered the panel and picker as the
+  test owner at 1440/390 (the owner has no friends, so the picker's empty
+  state is what shows).
+
+## Two-factor authentication (2026-09-15)
+
+Built first as the precondition for the event-payment work (escrow in the PayMongo
+wallet; payouts to organiser accounts): money movement sits behind the SuperAdmin
+and, later, club owners, and both needed more than a password. Decisions in
+ADR-009; spec in `/docs/15-AUTHENTICATION-SPECIFICATION.md` § Multi-factor.
+
+### Database
+- **`062-mfa`** (four changesets, lands on push): `users.mfa_enrolled_at`;
+  `mfa_recovery_codes` (hash per row, `used_at`, `UNIQUE (user_id, code_hash)`,
+  partial index on unused, RLS on with zero policies — service role only).
+
+### Backend
+- **DTOs** `identity/dto/mfa.dto.ts`; `UserRecord/UserDto` gain `mfa_enrolled_at`.
+- **Pure utils** `utils/mfa-recovery.ts` (codes from an ambiguity-free alphabet,
+  normalise, SHA-256 bound to the user id) and `utils/mfa-gate.ts` (the allow /
+  refuse decision for a path × `aal` × enrolled).
+- **Repositories** `user.repository` (`setMfaEnrolledAt`, `findByEmail`),
+  `mfa-recovery-code.repository` (`replaceForUser`, `consume` — one UPDATE that
+  is the same "no" for wrong and spent, `countUnused`, `deleteForUser`).
+- **Service** `identity/services/mfa.service.ts` on narrow client interfaces
+  (user client for factor ops, admin client for deleting someone else's, a
+  sign-in client for recovery): `status`, `startEnrollment` (discards an
+  abandoned unverified factor first), `confirmEnrollment` (requires Supabase
+  to list a verified factor; the browser did the verify because that is what
+  upgrades *its* session), `unenroll` (fresh code; refused for required roles),
+  `recover` (password + code → all factors deleted, one generic failure, probe
+  session signed out on failure), `adminReset`, `syncEnrolledFlag`.
+- **Controllers** `/api/v1/mfa/{status,enroll,enroll/confirm,unenroll,recover}`,
+  `/api/v1/admin/users/{id}/mfa-reset` (audit `identity.mfa_admin_reset`),
+  `/api/v1/admin/users/lookup?email=`. `/auth/session` now re-syncs the flag;
+  `/me/is-superadmin` returns `mfa_enrolled` + `aal`.
+- **Enforcement** `server/middleware/mfa-gate.ts` on every `/api/v1` request
+  (memoised PK read, 30 s, invalidated by the writers); `requireAal2()` in
+  `server/utils/mfa.ts` for step-up endpoints and the future payout ones.
+  Error mapper gains the four Supabase MFA codes.
+
+### UI
+- `/settings/security`: two-factor card (Off / On since · codes left / required
+  notice), *Set up*, *Turn off* dialog asking for a fresh code.
+- `/settings/security/two-factor`: three-step wizard (QR + manual key → code →
+  eight recovery codes shown once with copy/download and a "saved" gate),
+  `?required=1` and `?reset=1` banners.
+- `/mfa/verify` (auth layout): the sign-in challenge; `/mfa/recover`: email +
+  password + recovery code behind Turnstile.
+- `login.vue` / `confirm.vue` route through `needsMfaChallenge()`;
+  `middleware/mfa-gate.global.ts` redirects a half-signed-in session;
+  `middleware/super-admin.ts` sends an un-enrolled SuperAdmin to the wizard and
+  an `aal1` one to the challenge. `/admin/security` page for the reset, in the
+  admin nav. Both `/mfa/*` routes are chromeless and excluded from the module
+  guard.
+
+### Tests
+- Unit: `mfa-recovery.spec` (12), `mfa-gate.spec` (14, every combination),
+  `mfa.service.spec` (23, in-memory Supabase factor store), `totp.spec` (9, RFC
+  4226/6238 vectors), `route-groups.spec` extended. **1474 unit tests pass**
+  (99 files); `vue-tsc` clean; lint 0 errors.
+- E2E `tests/e2e/authed/mfa.spec.ts` in its own Playwright project `mfa`
+  (depends on `owner` + `member`, because an enrolled test account refuses
+  every other spec's `aal1` session): settings off → wizard with a minted TOTP
+  → eight codes → a fresh context on the seeded `aal1` state gets 403
+  `MFA_REQUIRED` and is sent to `/mfa/verify` → passes → turn off (wrong code
+  refused, right code works). The seeder (`auth/seed.ts`) now strips factors,
+  codes and the flag before minting sessions, so a crashed run cannot poison
+  the next. **Not yet run**: needs 062 on dev, the TOTP toggle in the dashboard,
+  and a preview build.
+
+### Left
+- [ ] Supabase Dashboard → Authentication → Multi-Factor → TOTP on (dev + prod).
+- [ ] Run the `mfa` Playwright project once 062 has landed on dev.
+- [ ] Wire the club-owner mandate into `MfaService.status().required` when the
+      payout-account form is built; in-session re-prompt for money actions.
+- [ ] Flutter challenge screen.

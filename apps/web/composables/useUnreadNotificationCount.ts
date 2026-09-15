@@ -31,9 +31,15 @@ export function useUnreadNotificationCount() {
 
   const unreadCount = computed(() => data.value?.data.unread_count ?? 0)
 
-  watch(user, (value) => {
-    if (value) refresh()
-  })
+  // Watched by id, not by object: the Supabase plugin replaces the user object
+  // on every page:start, and watching the object itself re-fetched this count
+  // on every navigation in the app (three extra requests per click, layout-wide).
+  watch(
+    () => user.value?.sub,
+    (id) => {
+      if (id) refresh()
+    }
+  )
 
   return { unreadCount, refreshUnreadNotificationCount: refresh }
 }

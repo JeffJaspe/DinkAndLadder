@@ -59,6 +59,12 @@ const accountLinks = computed<SettingsLink[]>(() => {
       description: 'What you have been told about, and what is waiting',
       href: '/notifications',
       icon: 'bell'
+    },
+    {
+      title: 'Cookies',
+      description: 'What is stored in your browser, and your choice about it',
+      href: '/legal/cookies',
+      icon: 'shield'
     }
   )
   return links

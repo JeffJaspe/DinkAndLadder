@@ -875,22 +875,10 @@ const { goBack } = useAppBack('/my-clubs')
           </div>
         </div>
 
-        <!-- Admin Actions -->
+        <!-- Admin Actions. "Submit match" left with the player submission
+             flow: a result is recorded from the event it was played in, by the
+             organiser, so the club page's one action is to create that event. -->
         <div v-if="canUseClubActions" class="mb-6 grid gap-3 sm:grid-cols-2">
-          <NuxtLink
-            :to="`/matches/submit?club=${clubId}`"
-            class="flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 font-medium text-on-primary hover:bg-primary-hover"
-          >
-            <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M12 4v16m8-8H4"
-              />
-            </svg>
-            Submit Match
-          </NuxtLink>
           <NuxtLink
             :to="`/create-event?club=${clubId}`"
             class="flex items-center justify-center gap-2 rounded-xl border border-primary px-4 py-3 font-medium text-primary hover:bg-primary/10"

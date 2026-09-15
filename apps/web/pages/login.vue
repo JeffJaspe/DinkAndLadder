@@ -14,7 +14,15 @@ const { public: publicConfig } = useRuntimeConfig()
 // Prefilled when /register hands someone over here because their address
 // already has an account — retyping it would be pure friction.
 const route = useRoute()
-const email = ref(typeof route.query.email === 'string' ? route.query.email : '')
+// "Remember me": on, the session survives closing the browser and the address
+// is kept for next time; off, closing the browser signs you out and nothing
+// is kept. A remembered address wins the prefill only when /register did not
+// hand one over — that one is about *this* visit.
+const { isRemembered, rememberedEmail, remember, forget } = useRememberMe()
+const rememberMe = ref(isRemembered.value)
+const email = ref(
+  typeof route.query.email === 'string' ? route.query.email : rememberedEmail.value
+)
 const password = ref('')
 const turnstileToken = ref('')
 const turnstileWidget = ref<{ reset: () => void } | null>(null)
@@ -41,6 +49,9 @@ async function handleLogin() {
     return
   }
   loading.value = true
+  // Recorded before the session exists so the lifetime plugin sees the
+  // choice the moment the auth cookies land (plugins/session-lifetime.client.ts).
+  applyRememberChoice()
   try {
     const loginResponse = await $fetch<{
       session: { access_token: string; refresh_token: string } | null
@@ -62,6 +73,13 @@ async function handleLogin() {
       })
     }
     await $fetch('/api/v1/auth/session', { method: 'POST' })
+    // A two-factor account is only half signed in. The route guard would
+    // catch this on the next navigation anyway; going straight there avoids a
+    // flash of the destination first.
+    if (await needsMfaChallenge(supabase)) {
+      await navigateTo('/mfa/verify', { replace: true })
+      return
+    }
     // /onboarding itself now decides where to land: no profile yet -> account
     // type chooser, profile but no saved rating (e.g. a prior submission that
     // never actually persisted) -> straight to the questionnaire, otherwise ->
@@ -80,10 +98,18 @@ async function handleLogin() {
   }
 }
 
+function applyRememberChoice() {
+  if (rememberMe.value) remember(email.value)
+  else forget()
+}
+
 async function handleGoogleLogin() {
   errorMessage.value = ''
   errorCode.value = ''
   googleLoading.value = true
+  // The address is Google's to tell us; only the lifetime choice is known here.
+  if (rememberMe.value) remember(rememberedEmail.value)
+  else forget()
   try {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
@@ -173,6 +199,26 @@ async function handleGoogleLogin() {
               class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
             />
           </div>
+
+          <!-- The label wraps the box and the words: on a phone the words are
+               where the thumb lands. The caption says what "off" costs, since
+               signing out on close is the part nobody expects. -->
+          <label class="flex cursor-pointer items-start gap-3 pt-1">
+            <input v-model="rememberMe" type="checkbox" class="peer sr-only" />
+            <span
+              class="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-badge border border-border-strong bg-canvas text-on-primary transition-colors peer-checked:border-primary peer-checked:bg-primary peer-focus-visible:ring-2 peer-focus-visible:ring-primary peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-canvas [&>svg]:opacity-0 peer-checked:[&>svg]:opacity-100"
+              aria-hidden="true"
+            >
+              <UiIcon name="check" size="h-3.5 w-3.5" :stroke-width="3" class="transition-opacity" />
+            </span>
+            <span class="min-w-0">
+              <span class="block text-sm font-medium text-fg">Remember me on this device</span>
+              <span class="mt-0.5 block text-caption text-fg-muted">
+                Stay signed in and keep your email filled in. Leave it off on a shared device —
+                you're signed out when the browser closes.
+              </span>
+            </span>
+          </label>
 
           <TurnstileWidget
             v-if="publicConfig.turnstileSiteKey"

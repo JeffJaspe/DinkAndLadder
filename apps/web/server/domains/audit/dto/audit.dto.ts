@@ -7,9 +7,15 @@ export type AuditEventType =
   | 'match.score_counter_proposed'
   | 'player.profile_admin_change'
   | 'rating.correction'
+  | 'identity.mfa_admin_reset'
 
 export type AuditTargetType =
-  'club_membership' | 'match' | 'match_verification' | 'player_profile' | 'player_rating'
+  | 'club_membership'
+  | 'match'
+  | 'match_verification'
+  | 'player_profile'
+  | 'player_rating'
+  | 'user'
 
 export interface AuditLogInput {
   event_type: AuditEventType

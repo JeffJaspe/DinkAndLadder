@@ -14,7 +14,7 @@ useHead({
     {
       name: 'description',
       content:
-        'DinkAndLadder gives Philippine pickleball clubs one place to run open play, tournaments, brackets and members — and gives players a rating that only moves on matches an opponent confirmed.'
+        'DinkAndLadder gives Philippine pickleball clubs one place to run open play, tournaments, brackets and members — and gives players a rating that only moves on results the club that ran the game recorded.'
     }
   ]
 })
@@ -126,35 +126,40 @@ const clubLedger: ReadonlyArray<{ label: string; line: string }> = [
 ]
 
 /**
- * The verification loop. This is the mechanism, and it is drawn, not claimed.
+ * The record loop. This is the mechanism, and it is drawn, not claimed.
  *
  * `record` is the same match travelling the three stops, so the band shows one
  * result changing state rather than three captions in a row. The numbers are
  * illustrative and labelled as such on the page - they are the shape of a
  * rating move, not a claim that this match happened.
+ *
+ * The middle stop used to be the opponent confirming a player's own
+ * submission. Players no longer submit at all: the organiser running the
+ * session enters the score, and that record is final. The stop that earns
+ * Court Green is therefore the organiser's entry, not an opponent's nod.
  */
 const loop: ReadonlyArray<{
   label: string
   line: string
   /** `null` on the stop that assembles its record from live state. */
   record: string | null
-  /** Court Green marks the confirmed step, and nothing else on this page. */
+  /** Court Green marks the step where the record is made final, and nothing else on this page. */
   confirmed?: boolean
 }> = [
   {
-    label: 'Submitted',
-    line: 'A player records the score straight after the game.',
+    label: 'Played',
+    line: 'A game at a club’s open play, ladder night or tournament.',
     record: '11 — 7'
   },
   {
-    label: 'Confirmed',
-    line: 'The opponent confirms it, rejects it, or disputes it.',
-    record: 'Opponent agreed',
+    label: 'Recorded',
+    line: 'The organiser running it enters the score at the desk. Nobody reports their own.',
+    record: 'Entered by the organiser',
     confirmed: true
   },
   {
     label: 'Rating moves',
-    line: 'Only a confirmed result moves a rating — and it leaves a trail.',
+    line: 'Only a recorded result moves a rating — and it leaves a trail.',
     // Assembled from `ratingTick` below so the figure can travel the gap the
     // sentence describes. `null` means "this stop builds its own record".
     record: null
@@ -165,7 +170,7 @@ const loop: ReadonlyArray<{
  * The second beat of the page's one authored moment.
  *
  * The third stop says a rating moves, so the figure moves. It counts the same
- * 45 thousandths a confirmed match is worth here, and it starts when the
+ * 45 thousandths a recorded match is worth here, and it starts when the
  * connecting rule arrives at that stop rather than when the band enters view,
  * so the stroke and the number read as one event instead of two.
  *
@@ -512,7 +517,9 @@ onBeforeUnmount(() => {
              never lands on the revealed artwork. -->
         <div class="relative z-10 border-y border-fg-muted">
           <div class="mx-auto max-w-6xl px-4 sm:px-6">
-            <div class="dnl-hero-claim flex flex-col gap-3 py-5 sm:flex-row sm:flex-wrap sm:items-center">
+            <div
+              class="dnl-hero-claim flex flex-col gap-3 py-5 sm:flex-row sm:flex-wrap sm:items-center"
+            >
               <NuxtLink
                 to="/register"
                 class="dnl-press whitespace-nowrap rounded-button bg-primary px-6 py-3 text-center text-body-1 font-semibold text-on-primary transition-colors hover:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
@@ -523,9 +530,7 @@ onBeforeUnmount(() => {
                 class="dnl-press whitespace-nowrap rounded-button border border-fg-muted bg-canvas px-6 py-3 text-center text-body-1 font-semibold text-fg transition-colors hover:border-fg hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
                 >Find play near you</NuxtLink
               >
-              <p class="text-body-2 text-fg-secondary">
-                Browsing is free and needs no account.
-              </p>
+              <p class="text-body-2 text-fg-secondary">Browsing is free and needs no account.</p>
             </div>
           </div>
         </div>
@@ -611,14 +616,16 @@ onBeforeUnmount(() => {
            separates. Dark mode takes `surface-2` instead, because the dark
            `surface-3` is light enough to put fg-secondary at 4.05:1, under AA;
            on surface-2 it reads 5.28:1. -->
-      <section ref="loopBand" class="dnl-loop border-y-2 border-fg bg-surface-3 dark:bg-surface-2">
+      <!-- dark:bg-surface, not surface-2: the confirmed step is text-primary, which
+           is only 3.85:1 on surface-2 in the dark theme and 5.3:1 on surface. -->
+      <section ref="loopBand" class="dnl-loop border-y-2 border-fg bg-surface-3 dark:bg-surface">
         <div class="mx-auto max-w-6xl px-4 py-14 sm:px-6 sm:py-20">
           <h2 class="font-display text-heading-1 font-semibold tracking-tight text-fg sm:text-4xl">
             A rating nobody argues with
           </h2>
           <p class="mt-5 max-w-[62ch] text-body-1 text-fg-secondary">
-            No self-reported numbers. A result only counts once the person on the other side of the
-            net says it happened.
+            No self-reported numbers. A result only counts when the club that ran the game writes it
+            down — and it is final the moment they do.
           </p>
 
           <ol class="mt-12 grid gap-10 sm:grid-cols-3 sm:gap-8">
@@ -670,7 +677,7 @@ onBeforeUnmount(() => {
               For players
             </h2>
             <p class="mt-5 max-w-[48ch] text-body-1 text-fg-secondary">
-              Find play near you and reserve a slot. Record the match when you are done. Watch the
+              Find play near you and reserve a slot. Play; the club writes the score down. Watch the
               ladder move — on results, not on opinions.
             </p>
             <NuxtLink
@@ -850,6 +857,13 @@ onBeforeUnmount(() => {
         class="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 px-4 py-8 sm:flex-row sm:px-6"
       >
         <UiBrandMark size="sm" name-class="text-body-2 font-medium" />
+        <nav aria-label="Policies" class="flex gap-4 text-caption text-fg-secondary">
+          <NuxtLink
+            to="/legal/cookies"
+            class="rounded-button underline-offset-2 hover:text-fg hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            >Cookies</NuxtLink
+          >
+        </nav>
         <p class="text-caption text-fg-muted">© 2026 Jeff Jaspe. All Rights Reserved.</p>
       </div>
     </footer>
@@ -925,7 +939,9 @@ onBeforeUnmount(() => {
   /* Phone: the artwork is a strip above the claim, matching the claim's own
      top padding in the template (44vw + 2rem). */
   top: 44vw;
-  background-color: rgb(var(--dnl-hero-plate, var(--dnl-canvas)) / var(--dnl-hero-plate-alpha, 0.92));
+  background-color: rgb(
+    var(--dnl-hero-plate, var(--dnl-canvas)) / var(--dnl-hero-plate-alpha, 0.92)
+  );
 }
 
 /*

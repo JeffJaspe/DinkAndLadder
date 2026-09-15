@@ -144,7 +144,7 @@ function swatchesFor(colors: Record<string, string | undefined>) {
               </div>
               <span
                 v-if="activeKey === palette.key"
-                class="shrink-0 rounded-badge bg-primary/15 px-2 py-0.5 text-caption font-medium text-primary"
+                class="shrink-0 rounded-badge bg-primary-soft px-2 py-0.5 text-caption font-medium text-primary"
               >
                 In use
               </span>

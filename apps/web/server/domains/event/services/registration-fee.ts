@@ -31,21 +31,22 @@ const ORGANIZER_ROLES = ['OWNER', 'ADMIN']
  * `playerId` may be null (a signed-out visitor looking at the event), in which
  * case there is no waiver to compute - the quote shown is the ordinary one.
  */
+export interface FeeWaiverEvent {
+  club_id: string | null
+  created_by_player_id: string | null
+}
+
+/**
+ * The event row is passed in rather than looked up: every caller has already
+ * loaded the event to answer anything about it, and a second round trip for
+ * two columns it already holds was a fifth of this endpoint's latency.
+ */
 export async function resolveFeeWaiver(
   serviceClient: SupabaseClient,
-  eventId: string,
+  eventRow: FeeWaiverEvent | null,
   playerId: string | null
 ): Promise<FeeWaiver> {
-  if (!playerId) return NO_WAIVER
-
-  const { data } = await serviceClient
-    .from('events')
-    .select('club_id, created_by_player_id')
-    .eq('id', eventId)
-    .maybeSingle()
-
-  const eventRow = data as { club_id: string | null; created_by_player_id: string | null } | null
-  if (!eventRow) return NO_WAIVER
+  if (!playerId || !eventRow) return NO_WAIVER
 
   // The person who created it, whether or not a club is involved.
   if (eventRow.created_by_player_id === playerId) {

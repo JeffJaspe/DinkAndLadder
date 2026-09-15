@@ -130,11 +130,15 @@ export function createTournamentCategoryService(
       throw new EventServiceError(404, 'NOT_FOUND', 'Tournament not found.')
     }
     const event = await events.findById(tournament.event_id)
-    if (!event || event.created_by_player_id !== actingPlayerId) {
+    const allowed =
+      !!event &&
+      (event.created_by_player_id === actingPlayerId ||
+        ((await events.isCoOrganizer?.(event.id, actingPlayerId)) ?? false))
+    if (!allowed) {
       throw new EventServiceError(
         403,
         'FORBIDDEN',
-        'Only the event organizer can manage tournament categories.'
+        'Only the event organizer or a co-organiser can manage tournament categories.'
       )
     }
     return tournament

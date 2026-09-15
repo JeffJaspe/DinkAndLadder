@@ -259,7 +259,7 @@ const categoryLabel = (category: string) => {
             @click="selectAccountType('player')"
           >
             <div
-              class="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-primary/20 text-2xl"
+              class="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-primary-soft text-2xl"
             >
               🏓
             </div>
@@ -299,7 +299,7 @@ const categoryLabel = (category: string) => {
             <span class="text-fg-muted"
               >Question {{ currentQuestionIndex + 1 }} of {{ questions.length }}</span
             >
-            <span class="rounded-full bg-primary/20 px-3 py-1 text-xs text-primary">
+            <span class="rounded-full bg-primary-soft px-3 py-1 text-xs text-primary">
               {{ categoryLabel(currentQuestion.category) }}
             </span>
           </div>
@@ -441,7 +441,7 @@ const categoryLabel = (category: string) => {
           <div class="space-y-4">
             <div class="flex items-start gap-3">
               <div
-                class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-primary/20 text-sm text-primary"
+                class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-primary-soft text-sm text-primary"
               >
                 1
               </div>
@@ -452,7 +452,7 @@ const categoryLabel = (category: string) => {
             </div>
             <div class="flex items-start gap-3">
               <div
-                class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-primary/20 text-sm text-primary"
+                class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-primary-soft text-sm text-primary"
               >
                 2
               </div>
@@ -463,7 +463,7 @@ const categoryLabel = (category: string) => {
             </div>
             <div class="flex items-start gap-3">
               <div
-                class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-primary/20 text-sm text-primary"
+                class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-primary-soft text-sm text-primary"
               >
                 3
               </div>

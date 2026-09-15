@@ -45,7 +45,7 @@ interface TypeStyle {
  */
 const TYPE_STYLES: Record<string, TypeStyle> = {
   urgent: {
-    container: 'border-l-2 border-danger bg-danger/15',
+    container: 'border-l-2 border-danger bg-danger-soft',
     accent: 'text-danger',
     icon: 'alert',
     label: 'Urgent'

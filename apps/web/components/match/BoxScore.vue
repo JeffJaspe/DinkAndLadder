@@ -93,7 +93,7 @@ function groupIsLive(matches: BoxScoreMatch[]): boolean {
         </span>
         <span
           v-if="groupIsLive(bucket.matches)"
-          class="inline-flex items-center gap-1.5 rounded-pill bg-danger/15 px-2 py-0.5 text-caption font-semibold uppercase tracking-wide text-danger"
+          class="inline-flex items-center gap-1.5 rounded-pill bg-danger-soft px-2 py-0.5 text-caption font-semibold uppercase tracking-wide text-danger"
         >
           <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-danger" aria-hidden="true" />
           Live

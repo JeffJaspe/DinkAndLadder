@@ -15,5 +15,6 @@
   <div class="min-h-screen bg-canvas">
     <slot />
     <UiToaster />
+    <LegalCookieBanner />
   </div>
 </template>

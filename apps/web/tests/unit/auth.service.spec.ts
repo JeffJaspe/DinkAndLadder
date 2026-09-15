@@ -18,6 +18,9 @@ function createFakeUserRepository(seed: UserRecord[] = []): UserRepository {
     async findByAuthId(authId) {
       return rows.get(authId) ?? null
     },
+    async findByEmail(email) {
+      return [...rows.values()].find((row) => row.email === email) ?? null
+    },
     async upsertFromAuthIdentity(identity: AuthIdentity) {
       const existing = rows.get(identity.id)
       const row: UserRecord = existing
@@ -28,10 +31,15 @@ function createFakeUserRepository(seed: UserRecord[] = []): UserRepository {
             status: 'active',
             email_verified_at: null,
             last_login_at: new Date().toISOString(),
+            mfa_enrolled_at: null,
             created_at: new Date().toISOString()
           }
       rows.set(identity.id, row)
       return row
+    },
+    async setMfaEnrolledAt(userId, at) {
+      const existing = rows.get(userId)
+      if (existing) rows.set(userId, { ...existing, mfa_enrolled_at: at })
     }
   }
 }

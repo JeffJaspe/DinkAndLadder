@@ -16,9 +16,10 @@ web
 
 Two primary users, both first-class, in two different physical situations:
 
-- **Player — phone, at and around the court.** Submits a score after a game,
-  verifies or disputes an opponent's submission, checks their rating and where
-  they sit in the rankings, finds and registers for open play and tournaments.
+- **Player — phone, at and around the court.** Checks their rating and where
+  they sit in the rankings, finds and registers for open play and tournaments,
+  finds other players. Does not record scores: the organiser running the
+  session does, and the result is final on save.
   Often standing, one-handed, on mobile data, between games.
 - **Club admin / organizer — laptop or tablet.** Creates and runs the club:
   open-play sessions and tournaments, brackets, courts, scoresheets, members,
@@ -37,8 +38,8 @@ design priority.
 ## Product Purpose
 
 DinkAndLadder is a Philippine pickleball platform. It gives players a rating
-that comes from real, opponent-verified matches, and gives clubs the tools to
-actually run their play — open play sessions, tournaments, brackets, members —
+that comes from real matches recorded by the club that ran them, and gives
+clubs the tools to actually run their play — open play sessions, tournaments, brackets, members —
 so that the rating falls out of real competition rather than self-report.
 
 Success: a player's number is one they and their opponents both trust, and a
@@ -50,8 +51,12 @@ paper and in a group chat.
 Four things together, none of which a neighboring product truthfully offers as
 one system for this market:
 
-1. **Ratings from verified matches.** Every result is confirmed, rejected, or
-   disputed by a participant before it moves a rating. There is an audit trail.
+1. **Ratings from organiser-recorded matches.** Players never report their
+   own results. The organiser running the event enters the score and it is
+   final on save; only that moves a rating. There is an audit trail.
+   (Decided 2026-09-14; replaced the earlier submit-then-opponent-confirms
+   loop. The player-side verification screens remain only for rows that were
+   already in flight.)
 2. **Easy access to open play.** Finding and joining a session near you is a
    first-class flow, not a Facebook post.
 3. **Tournament accessibility, with online entry-fee payment.** Discovering,

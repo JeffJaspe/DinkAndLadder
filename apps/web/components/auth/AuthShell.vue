@@ -26,8 +26,8 @@ const { appName } = useBranding()
 /**
  * The three audiences, rotating.
  *
- * Every line is a capability that ships today: the assessment and opponent
- * verification in the rating domain, sessions/brackets/courts/members in the
+ * Every line is a capability that ships today: the assessment and the
+ * organiser-recorded result in the rating and match domains, sessions/brackets/courts/members in the
  * club and event domains, and `coaching` as an event type that carries a named
  * coach and a fee but no draw and no rating effect (see
  * `server/domains/event/dto/event.dto.ts`). Nothing here claims traction,
@@ -44,7 +44,7 @@ const slides = [
     title: 'Your rating comes from real matches.',
     points: [
       'A short assessment gives you a starting number.',
-      'Every result is confirmed by your opponent before it counts.',
+      'Every result is recorded by the organiser who ran the game — never self-reported.',
       'One ladder, singles and doubles.'
     ]
   },

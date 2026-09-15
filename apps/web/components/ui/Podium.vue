@@ -158,10 +158,12 @@ const tierFor = (entry: PodiumEntry) => (entry.rating === null ? null : tierForR
       <!-- Fewer than three rated players is normal for a young ladder, so an
            empty place is a real state rather than an error. -->
       <template v-else>
-        <div class="flex w-full flex-col items-center gap-1.5 px-1 pb-2 opacity-40">
+        <div class="flex w-full flex-col items-center gap-1.5 px-1 pb-2">
+          <!-- The label stays at full opacity: at 40% fg-muted was 1.73:1 on
+               white. Only the ghost avatar is faded. -->
           <span class="text-caption text-fg-muted">Unclaimed</span>
           <span
-            class="flex items-center justify-center rounded-2xl border-2 border-dashed border-border-strong"
+            class="flex items-center justify-center rounded-2xl border-2 border-dashed border-border-strong opacity-40"
             :class="place.rank === 1 ? 'h-16 w-16' : 'h-10 w-10'"
           >
             <UiIcon name="user" size="h-5 w-5" class="text-fg-muted" />

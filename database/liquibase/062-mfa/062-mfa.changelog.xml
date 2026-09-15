@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Two-factor authentication (TOTP via an authenticator app).
+
+     Supabase Auth owns the factors themselves (`auth.mfa_factors`) and the
+     `aal` claim on every JWT. This file holds only the two things the app
+     needs that Supabase does not provide:
+
+       1. `users.mfa_enrolled_at` - a denormalised "this account has a
+          verified factor". The server-side gate (server/middleware/mfa-gate.ts)
+          reads it on every API request from an `aal1` session, and one PK read
+          is affordable where an Auth admin API call per request is not. It is
+          written only by the MFA endpoints and re-synced from Supabase on every
+          sign-in (auth.service provisionSession), so a factor enrolled from the
+          mobile client is picked up at the next login.
+
+       2. `mfa_recovery_codes` - Supabase has no recovery codes. Ours are a
+          self-service RESET, not a way to sign in: a code cannot raise a session
+          to aal2, so using one removes every factor and the owner re-enrols.
+          Hashes only (SHA-256 of code + user id); the plaintext is shown once
+          at enrolment and never stored.
+
+     RLS is enabled with zero policies, the same posture as platform_config
+     (018): the browser never reads or writes these rows, only the service role
+     on the server does. -->
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+    <changeSet id="0001-users-mfa-enrolled-at" author="identity">
+        <addColumn tableName="users">
+            <column name="mfa_enrolled_at" type="timestamptz"/>
+        </addColumn>
+        <rollback>
+            <dropColumn tableName="users" columnName="mfa_enrolled_at"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="0002-create-mfa-recovery-codes" author="identity">
+        <createTable tableName="mfa_recovery_codes">
+            <column name="id" type="uuid" defaultValueComputed="gen_random_uuid()">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="user_id" type="uuid">
+                <constraints nullable="false"
+                             foreignKeyName="fk_mfa_recovery_codes_user"
+                             references="users(id)"
+                             deleteCascade="true"/>
+            </column>
+            <column name="code_hash" type="text">
+                <constraints nullable="false"/>
+            </column>
+            <column name="used_at" type="timestamptz"/>
+            <column name="created_at" type="timestamptz" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <sql>
+            ALTER TABLE mfa_recovery_codes ADD CONSTRAINT uq_mfa_recovery_codes_user_hash
+                UNIQUE (user_id, code_hash);
+        </sql>
+        <rollback>
+            <dropTable tableName="mfa_recovery_codes"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="0003-mfa-recovery-codes-index" author="identity">
+        <!-- The unique constraint above already leads with user_id, so a
+             separate index on it would be redundant. The partial index serves
+             the two queries the app makes: "how many are left" and "consume
+             this one", both of which only ever look at unused rows. -->
+        <sql>
+            CREATE INDEX idx_mfa_recovery_codes_unused
+                ON mfa_recovery_codes (user_id) WHERE used_at IS NULL;
+        </sql>
+        <rollback>
+            <sql>DROP INDEX IF EXISTS idx_mfa_recovery_codes_unused;</sql>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="0004-mfa-recovery-codes-rls" author="identity">
+        <sql>
+            ALTER TABLE mfa_recovery_codes ENABLE ROW LEVEL SECURITY;
+        </sql>
+        <rollback>
+            <sql>ALTER TABLE mfa_recovery_codes DISABLE ROW LEVEL SECURITY;</sql>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

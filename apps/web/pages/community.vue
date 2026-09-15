@@ -16,6 +16,9 @@
  * Rankings and Clubs tabs were removed earlier this pass: both duplicated
  * better pages (`/rankings`, `/clubs`).
  */
+// Player mode only: a club is not a party to any relationship on this page.
+definePageMeta({ middleware: 'player-only' })
+
 useHead({ title: 'Community' })
 
 interface PlayHistoryEntry {

@@ -198,6 +198,31 @@ describe('MatchService', () => {
     expect(match.submitted_by_role).toBe('organizer')
   })
 
+  it('recordOrganizerResult stores the row already verified, by the organiser', async () => {
+    const service = createMatchService(repository)
+
+    const match = await service.recordOrganizerResult('organiser-1', baseSinglesInput)
+
+    expect(match.status).toBe('verified')
+    expect(match.verified_at).toBeTruthy()
+    expect(match.submitted_by_role).toBe('organizer')
+    // What the service returns is what a fresh read returns: no in-flight
+    // verification for anyone to answer.
+    const read = await service.getById(match.id)
+    expect(read?.status).toBe('verified')
+  })
+
+  it('recordOrganizerResult still validates the roster and the scores', async () => {
+    const service = createMatchService(repository)
+
+    await expect(
+      service.recordOrganizerResult('organiser-1', {
+        ...baseSinglesInput,
+        participants: baseSinglesInput.participants.slice(0, 1)
+      })
+    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' })
+  })
+
   it('still refuses a player who did not play in the match', async () => {
     const service = createMatchService(repository)
 

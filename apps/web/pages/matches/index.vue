@@ -106,10 +106,10 @@ const visible = computed(() => {
 })
 
 const STATUS_PILL: Record<string, { label: string; klass: string }> = {
-  submitted: { label: 'Pending', klass: 'bg-warning/15 text-warning' },
-  pending_verification: { label: 'Pending', klass: 'bg-warning/15 text-warning' },
-  verified: { label: 'Verified', klass: 'bg-success/15 text-success' },
-  disputed: { label: 'Disputed', klass: 'bg-danger/15 text-danger' },
+  submitted: { label: 'Pending', klass: 'bg-warning-soft text-warning' },
+  pending_verification: { label: 'Pending', klass: 'bg-warning-soft text-warning' },
+  verified: { label: 'Verified', klass: 'bg-success-soft text-success' },
+  disputed: { label: 'Disputed', klass: 'bg-danger-soft text-danger' },
   cancelled: { label: 'Cancelled', klass: 'bg-surface-2 text-fg-muted' }
 }
 
@@ -160,12 +160,12 @@ function clearDates() {
       <div>
         <h1 class="font-display text-heading-1 text-fg">Matches</h1>
         <p class="mt-1 text-body-2 text-fg-secondary">
-          Your match history and anything awaiting a decision.
+          Every result an organiser has recorded for you, and anything still awaiting a decision.
         </p>
       </div>
-      <UiButton to="/matches/submit" size="sm">
-        <UiIcon name="plus" size="h-4 w-4" :stroke-width="2.5" />
-        Submit match
+      <UiButton to="/events" size="sm" variant="secondary">
+        <UiIcon name="calendar" size="h-4 w-4" :stroke-width="2" />
+        Find an event
       </UiButton>
     </header>
 
@@ -216,9 +216,9 @@ function clearDates() {
     <UiEmptyState
       v-else-if="!matches.length"
       title="No matches yet"
-      message="Play your first match to start your journey!"
-      action-label="Submit a match"
-      action-to="/matches/submit"
+      message="Play at an open play session, ladder night or tournament — the organiser records the result and it lands here."
+      action-label="Find an event"
+      action-to="/events"
     />
 
     <UiEmptyState

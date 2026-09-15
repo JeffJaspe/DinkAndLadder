@@ -36,13 +36,33 @@ export const GUEST_ROUTES: readonly string[] = [
  */
 export const RECOVERY_ROUTE = '/update-password'
 
+/**
+ * The two-factor pages. `/mfa/verify` is reached with an aal1 session that is
+ * not yet allowed anywhere else; `/mfa/recover` with no session at all. Both
+ * are the second half of signing in and get the sign-in treatment: no shell,
+ * never bounced by the MFA route guard (which would loop).
+ */
+export const MFA_VERIFY_ROUTE = '/mfa/verify'
+export const MFA_RECOVER_ROUTE = '/mfa/recover'
+
 /** Routes that must never render the app shell, whoever is signed in. */
 const CHROMELESS_ROUTES: readonly string[] = [
   ...GUEST_ROUTES,
   RECOVERY_ROUTE,
+  MFA_VERIFY_ROUTE,
+  MFA_RECOVER_ROUTE,
   '/auth-error',
   '/confirm'
 ]
+
+/**
+ * Where an aal1 session on an enrolled account may still go without being
+ * sent to the challenge: the challenge itself, recovery, and the pages that
+ * exist for people who are not signed in anyway.
+ */
+export function isMfaExemptRoute(path: string): boolean {
+  return isChromelessRoute(path)
+}
 
 /** `/login/` and `/login` are the same route; `/` must survive the trim. */
 function normalize(path: string): string {

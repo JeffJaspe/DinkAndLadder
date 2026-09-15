@@ -2,7 +2,6 @@
 import type { PlayerProfileDto } from '~/server/domains/player/dto/player-profile.dto'
 import type { MatchDto } from '~/server/domains/match/dto/match.dto'
 import type { EventDto, EventRegistrationDto } from '~/server/domains/event/dto/event.dto'
-import type { PartnerDto } from '~/server/domains/partnership/dto/partnership.dto'
 import {
   rulesForEvent,
   resolveResult,
@@ -12,7 +11,7 @@ import {
   type MatchResultType
 } from '~/utils/game-rules'
 
-useHead({ title: 'Submit a match' })
+useHead({ title: 'Record a result' })
 
 interface RegisteredPlayer {
   id: string
@@ -26,9 +25,12 @@ const eventId = computed(() => route.query.event as string | undefined)
 const { data: myProfile } = await useFetch<PlayerProfileDto>('/api/v1/players/me')
 
 /**
- * The events this player may submit from, for the picker shown when the page is
+ * The events this player organises, for the picker shown when the page is
  * opened without an `?event=` id. Only fetched in that case — arriving from an
  * event already knows the answer.
+ *
+ * Organises, not plays in: a result is recorded by the person running the
+ * event, never by the players on court (POST /api/v1/matches enforces it).
  */
 interface SubmittableEvent {
   id: string
@@ -56,10 +58,27 @@ const { data: eventData, error: eventError } = await useFetch<EventDto>(
   { watch: [eventId], immediate: !!eventId.value }
 )
 
+// Co-organisers (061) may record too; the endpoint accepts them by the same rule.
+const { data: coOrganizersData } = await useFetch<{ data: { player_id: string }[] }>(
+  () => `/api/v1/events/${eventId.value}/co-organizers`,
+  { watch: [eventId], immediate: !!eventId.value, default: () => ({ data: [] }) }
+)
+
 const { data: registrationsData } = await useFetch<{ data: EventRegistrationDto[] }>(
   () => `/api/v1/events/${eventId.value}/registrations`,
   { watch: [eventId], immediate: !!eventId.value }
 )
+
+/**
+ * Whether this reader may record for this event. Mirrors the endpoint's rule
+ * exactly — the event's creator — so the page never offers a form the server
+ * will refuse. Null while either side is still loading.
+ */
+const isOrganizer = computed<boolean | null>(() => {
+  if (!eventData.value || !myProfile.value || !coOrganizersData.value) return null
+  if (eventData.value.created_by_player_id === myProfile.value.id) return true
+  return coOrganizersData.value.data.some((c) => c.player_id === myProfile.value!.id)
+})
 
 const registeredPlayers = computed<RegisteredPlayer[]>(() => {
   if (!registrationsData.value?.data) return []
@@ -73,7 +92,22 @@ const registeredPlayers = computed<RegisteredPlayer[]>(() => {
 })
 
 const matchType = ref<'singles' | 'doubles'>('singles')
+/**
+ * Defaults to now, in local time and to the minute — the form is nearly always
+ * filled in straight after the game, and it used to start empty, which made
+ * Submit stay disabled with nothing on screen saying why. Set on the client
+ * only: the server's clock (UTC on Vercel) is not the player's.
+ */
+function nowForDatetimeLocal() {
+  const d = new Date()
+  d.setSeconds(0, 0)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
 const playedAt = ref('')
+onMounted(() => {
+  if (!playedAt.value) playedAt.value = nowForDatetimeLocal()
+})
 const venue = ref('')
 
 const team1Player1 = ref<RegisteredPlayer | null>(null)
@@ -147,21 +181,6 @@ const activeSearchField = ref<
   'team1Player1' | 'team1Player2' | 'team2Player1' | 'team2Player2' | null
 >(null)
 
-/**
- * The reader's default duo, used to pre-fill the doubles partner slot and to
- * float that player to the top of the typeahead.
- *
- * server: false — it is a signed-in-only preference and has no bearing on the
- * initial render.
- */
-const { data: myPartnersData } = useFetch<{ data: PartnerDto[] }>('/api/v1/players/me/partners', {
-  server: false,
-  default: () => ({ data: [] })
-})
-const defaultPartnerId = computed(
-  () => myPartnersData.value?.data.find((partner) => partner.is_default)?.player_id ?? null
-)
-
 const filteredPlayers = computed(() => {
   const selectedIds = new Set(
     [
@@ -179,36 +198,8 @@ const filteredPlayers = computed(() => {
     players = players.filter((p) => p.display_name.toLowerCase().includes(q))
   }
 
-  // The duo first — it is the player this list is most often opened to find.
-  const duo = defaultPartnerId.value
-  if (duo) {
-    players = [...players].sort((a, b) => Number(b.id === duo) - Number(a.id === duo))
-  }
-
   return players.slice(0, 10)
 })
-
-/**
- * Pre-fill the partner slot when doubles is chosen.
- *
- * Only when the duo is actually registered for this event — an unregistered
- * player cannot be a participant, and pre-filling a name the server will
- * reject is worse than leaving the slot empty. Never overwrites a slot the
- * reader has already filled.
- */
-watch(
-  [matchType, defaultPartnerId, registeredPlayers],
-  () => {
-    if (matchType.value !== 'doubles' || team1Player2.value) return
-    const duo = defaultPartnerId.value
-    if (!duo || duo === myProfile.value?.id) return
-    const mate = registeredPlayers.value.find((p) => p.id === duo)
-    if (mate && team2Player1.value?.id !== duo && team2Player2.value?.id !== duo) {
-      team1Player2.value = mate
-    }
-  },
-  { immediate: true }
-)
 
 function selectPlayer(player: RegisteredPlayer) {
   if (activeSearchField.value === 'team1Player1') team1Player1.value = player
@@ -297,20 +288,16 @@ async function handleSubmit() {
     await navigateTo(`/matches/${response.data.id}`)
   } catch (err) {
     const fetchError = err as { data?: { message?: string } }
-    errorMessage.value = fetchError.data?.message ?? 'Could not submit the match.'
+    errorMessage.value = fetchError.data?.message ?? 'Could not record the result.'
   } finally {
     saving.value = false
   }
 }
 
-onMounted(() => {
-  if (myProfile.value) {
-    const me = registeredPlayers.value.find((p) => p.id === myProfile.value?.id)
-    if (me) {
-      team1Player1.value = me
-    }
-  }
-})
+// No self-prefill. The form used to seat the submitter as Team 1 / Player 1,
+// which was right when the submitter had played; the organiser recording from
+// the desk usually has not, and pre-seating them would be a wrong roster one
+// tap from being saved.
 /**
  * Back returns to the page you came from; the route below is only the
  * fallback for a deep link, where there is nothing of ours behind us.
@@ -324,15 +311,16 @@ const { goBack } = useAppBack('/events')
       <UiPageHeader
         to="/matches"
         back-label="Matches"
-        title="Record Match"
-        subtitle="Submit a match from an event"
+        title="Record a result"
+        subtitle="Entered by the organiser. Final the moment it is saved."
       />
 
       <!-- Pick which event this match was played in -->
       <div v-if="!eventId" class="rounded-xl bg-surface p-6 shadow-card">
         <h3 class="font-display text-heading-3 text-fg">Which event was this?</h3>
         <p class="mt-1 text-sm text-fg-muted">
-          Pick the event you played in. Only events you are registered for are listed.
+          Pick one of the events you organise. Results are recorded by the organiser, not the
+          players.
         </p>
 
         <div v-if="myEventsPending" class="mt-5 space-y-2">
@@ -343,14 +331,14 @@ const { goBack } = useAppBack('/events')
              registrations cannot be helped by a list - send them to find one. -->
         <div v-else-if="!myEvents.length" class="mt-5 rounded-lg bg-canvas p-6 text-center">
           <p class="text-sm text-fg-secondary">
-            You are not registered for any events yet. Matches are submitted from an event you
-            played in.
+            You have not organised an event yet. Results are recorded by the organiser of the event
+            they were played in — if you played, the club running it enters the score.
           </p>
           <NuxtLink
-            to="/events"
+            to="/create-event"
             class="mt-4 inline-block rounded-lg bg-primary px-6 py-2.5 font-medium text-on-primary hover:bg-primary-hover"
           >
-            Browse events
+            Create an event
           </NuxtLink>
         </div>
 
@@ -396,12 +384,33 @@ const { goBack } = useAppBack('/events')
         </button>
       </div>
 
-      <template v-else-if="eventData">
+      <!-- Someone else's event. The endpoint would refuse the form anyway;
+           this says why before a score is typed, and points at the one thing a
+           player can do about a result: ask the organiser. -->
+      <div
+        v-else-if="eventData && isOrganizer === false"
+        class="rounded-card border border-border bg-surface p-6 shadow-card"
+      >
+        <h2 class="font-display text-heading-3 text-fg">Only the organiser records results here</h2>
+        <p class="mt-2 max-w-[52ch] text-body-2 text-fg-secondary">
+          Scores for <span class="font-medium text-fg">{{ eventData.name }}</span> are entered by
+          the person running it, and count the moment they are saved. If you played and your result
+          is missing, ask the organiser.
+        </p>
+        <NuxtLink
+          :to="`/events/${eventData.id}`"
+          class="mt-5 inline-block rounded-button bg-primary px-5 py-2.5 text-body-2 font-semibold text-on-primary transition-colors hover:bg-primary-hover"
+        >
+          Back to the event
+        </NuxtLink>
+      </div>
+
+      <template v-else-if="eventData && isOrganizer">
         <!-- Event Info Banner -->
         <div class="mb-6 rounded-xl bg-surface-2 p-4">
           <div class="flex items-center justify-between">
             <div>
-              <p class="text-xs text-fg-muted">Submitting match for</p>
+              <p class="text-xs text-fg-muted">Recording a result for</p>
               <h2 class="font-display text-heading-3 text-fg">{{ eventData.name }}</h2>
               <p class="text-sm text-fg-secondary">
                 {{ registeredPlayers.length }} registered player(s)
@@ -410,7 +419,9 @@ const { goBack } = useAppBack('/events')
             <span
               class="rounded-md px-2 py-0.5 text-xs"
               :class="
-                eventData.affects_rating ? 'bg-accent/20 text-accent' : 'bg-surface-3 text-fg-muted'
+                eventData.affects_rating
+                  ? 'bg-accent-soft text-primary'
+                  : 'bg-surface-3 text-fg-muted'
               "
             >
               {{ eventData.affects_rating ? 'Ranked' : 'Casual' }}
@@ -547,11 +558,6 @@ const { goBack } = useAppBack('/events')
                           <div>
                             <p class="text-sm font-medium text-fg">
                               {{ player.display_name }}
-                              <span
-                                v-if="player.id === defaultPartnerId"
-                                class="ml-1 rounded-pill bg-primary-soft px-1.5 py-0.5 text-xs font-medium text-primary"
-                                >★ your duo</span
-                              >
                             </p>
                             <p v-if="player.rating" class="text-xs text-fg-muted">
                               Rating: {{ player.rating.toFixed(2) }}
@@ -624,11 +630,6 @@ const { goBack } = useAppBack('/events')
                           <div>
                             <p class="text-sm font-medium text-fg">
                               {{ player.display_name }}
-                              <span
-                                v-if="player.id === defaultPartnerId"
-                                class="ml-1 rounded-pill bg-primary-soft px-1.5 py-0.5 text-xs font-medium text-primary"
-                                >★ your duo</span
-                              >
                             </p>
                             <p v-if="player.rating" class="text-xs text-fg-muted">
                               Rating: {{ player.rating.toFixed(2) }}
@@ -707,11 +708,6 @@ const { goBack } = useAppBack('/events')
                           <div>
                             <p class="text-sm font-medium text-fg">
                               {{ player.display_name }}
-                              <span
-                                v-if="player.id === defaultPartnerId"
-                                class="ml-1 rounded-pill bg-primary-soft px-1.5 py-0.5 text-xs font-medium text-primary"
-                                >★ your duo</span
-                              >
                             </p>
                             <p v-if="player.rating" class="text-xs text-fg-muted">
                               Rating: {{ player.rating.toFixed(2) }}
@@ -784,11 +780,6 @@ const { goBack } = useAppBack('/events')
                           <div>
                             <p class="text-sm font-medium text-fg">
                               {{ player.display_name }}
-                              <span
-                                v-if="player.id === defaultPartnerId"
-                                class="ml-1 rounded-pill bg-primary-soft px-1.5 py-0.5 text-xs font-medium text-primary"
-                                >★ your duo</span
-                              >
                             </p>
                             <p v-if="player.rating" class="text-xs text-fg-muted">
                               Rating: {{ player.rating.toFixed(2) }}
@@ -898,7 +889,7 @@ const { goBack } = useAppBack('/events')
               :disabled="saving || !canSubmit"
               class="flex-1 rounded-xl bg-primary py-3 font-medium text-on-primary hover:bg-primary-hover disabled:opacity-50"
             >
-              {{ saving ? 'Submitting...' : 'Submit Match' }}
+              {{ saving ? 'Saving…' : 'Save result' }}
             </button>
           </div>
         </form>
