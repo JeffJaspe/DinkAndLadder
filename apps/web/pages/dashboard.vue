@@ -514,6 +514,8 @@ const dashboardLinks: ReadonlyArray<{ to: string; label: string; line: string }>
     </div>
 
     <div v-else-if="currentUser" class="page-shell space-y-5">
+      <SecurityMfaReminder />
+
       <!-- STANDING. Who you are and where you stand. -->
       <section class="rounded-card border border-border bg-surface p-5 shadow-card sm:p-6">
         <div class="flex flex-wrap items-start justify-between gap-4">

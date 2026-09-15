@@ -29,7 +29,7 @@ export default defineConfig({
     {
       name: 'owner',
       testMatch: /authed\//,
-      testIgnore: [/\.member\.spec\.ts$/, /authed\/mfa\.spec\.ts$/],
+      testIgnore: [/\.member\.spec\.ts$/, /authed\/mfa\.spec\.ts$/, /authed\/mobile-audit\.spec\.ts$/],
       dependencies: ['setup'],
       use: { ...devices['Desktop Chrome'], storageState: authState('owner') }
     },
@@ -38,6 +38,18 @@ export default defineConfig({
       testMatch: /authed\/.*\.member\.spec\.ts/,
       dependencies: ['setup'],
       use: { ...devices['Desktop Chrome'], storageState: authState('member') }
+    },
+    // Every screen at phone width. Runs the owner session in a Chromium phone
+    // emulation; the guest describe inside the spec drops the session itself.
+    {
+      name: 'mobile',
+      testMatch: /authed\/mobile-audit\.spec\.ts$/,
+      dependencies: ['setup'],
+      use: {
+        ...devices['Pixel 7'],
+        viewport: { width: 390, height: 844 },
+        storageState: authState('owner')
+      }
     },
     // Enrols the owner account in two-factor and unenrols it at the end. While
     // it is enrolled, the seeded password-only session is refused by the API -

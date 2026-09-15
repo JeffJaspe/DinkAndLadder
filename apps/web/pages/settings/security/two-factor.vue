@@ -183,6 +183,84 @@ onMounted(start)
         </div>
 
         <template v-else-if="enrollment">
+          <!-- Most players have never used one of these. The walkthrough is
+               collapsed for the people who have, and opens on the first click
+               for everyone else - no separate help page to find. -->
+          <details class="group mb-6 rounded-button border border-border bg-surface-2">
+            <summary
+              class="flex cursor-pointer items-center justify-between gap-3 px-4 py-3 text-body-2 font-medium text-fg [&::-webkit-details-marker]:hidden"
+            >
+              <span class="flex items-center gap-2">
+                <UiIcon name="info" class="text-primary" />
+                New to authenticator apps? Read this first
+              </span>
+              <span class="text-fg-muted" aria-hidden="true">
+                <UiIcon name="minus" class="hidden group-open:block" />
+                <UiIcon name="plus" class="group-open:hidden" />
+              </span>
+            </summary>
+            <div class="space-y-4 border-t border-border px-4 py-4 text-body-2 text-fg-secondary">
+              <p>
+                An authenticator app is a free app on your phone that shows a 6-digit number
+                which changes every 30 seconds. Once it is set up, signing in asks for the
+                current number as well as your password — so someone who knows your password
+                still can't get in without your phone. Nothing is texted or emailed to you, and
+                it works without signal.
+              </p>
+
+              <ol class="list-decimal space-y-3 pl-5">
+                <li>
+                  <span class="font-medium text-fg">Install one of these on your phone</span>
+                  (any of them works — pick whichever you like):
+                  <ul class="mt-1.5 list-disc space-y-1 pl-5">
+                    <li>
+                      <span class="font-medium text-fg">Google Authenticator</span> — search for
+                      it in the App Store (iPhone) or Play Store (Android).
+                    </li>
+                    <li>
+                      <span class="font-medium text-fg">Microsoft Authenticator</span> — same
+                      stores. If you already use it for work, it can hold this account too.
+                    </li>
+                    <li>
+                      <span class="font-medium text-fg">Authy</span>,
+                      <span class="font-medium text-fg">1Password</span> or
+                      <span class="font-medium text-fg">Bitwarden</span> — also fine if you
+                      already have one.
+                    </li>
+                  </ul>
+                </li>
+                <li>
+                  <span class="font-medium text-fg">Open the app and add an account.</span>
+                  Look for a <span class="font-medium text-fg">+</span> button, then choose
+                  <span class="font-medium text-fg">Scan a QR code</span>.
+                </li>
+                <li>
+                  <span class="font-medium text-fg">Point your phone's camera at the square code below.</span>
+                  A new entry named after this site appears in the app, showing a 6-digit
+                  number. Can't scan? Choose
+                  <span class="font-medium text-fg">Enter a setup key</span> in the app instead
+                  and type the key shown next to the code.
+                </li>
+                <li>
+                  <span class="font-medium text-fg">Type the 6-digit number into the box below</span>
+                  and press <span class="font-medium text-fg">Turn on</span>. The number changes
+                  every 30 seconds — if it's about to change, wait for the next one.
+                </li>
+                <li>
+                  <span class="font-medium text-fg">Save the recovery codes</span> you're shown on
+                  the next screen. They are your way back in if you lose your phone. Each works
+                  once, and you won't be shown them again.
+                </li>
+              </ol>
+
+              <p class="rounded-button bg-surface px-3 py-2 text-caption text-fg-muted">
+                Getting a new phone later? Move your accounts in the authenticator app first
+                (both Google and Microsoft can transfer them), or use a recovery code here and
+                set up again on the new phone.
+              </p>
+            </div>
+          </details>
+
           <h2 class="font-display text-heading-3 text-fg">1. Scan this with your authenticator app</h2>
           <p class="mt-1 text-body-2 text-fg-secondary">
             Google Authenticator, Microsoft Authenticator, Authy or 1Password all work.
