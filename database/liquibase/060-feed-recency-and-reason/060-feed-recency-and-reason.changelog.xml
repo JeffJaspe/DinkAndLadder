@@ -216,7 +216,7 @@
                           s.id DESC
                  LIMIT p_limit
                 OFFSET p_offset;
-            $;
+            $$;
         </sql>
         <sql splitStatements="true">
             REVOKE ALL ON FUNCTION
@@ -337,7 +337,7 @@
                               s.created_at DESC, s.id DESC
                      LIMIT p_limit
                     OFFSET p_offset;
-                $;
+                $$;
             </sql>
             <sql splitStatements="true">
                 REVOKE ALL ON FUNCTION
