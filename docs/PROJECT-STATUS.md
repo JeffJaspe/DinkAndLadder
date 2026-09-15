@@ -8074,3 +8074,21 @@ ADR-009; spec in `/docs/15-AUTHENTICATION-SPECIFICATION.md` § Multi-factor.
 - [ ] Wire the club-owner mandate into `MfaService.status().required` when the
       payout-account form is built; in-session re-prompt for money actions.
 - [ ] Flutter challenge screen.
+
+---
+
+## 2026-09-15 — Production branding upload 500: the `Images` bucket only existed in dev
+
+Uploading a landing background on prod (`POST /api/v1/admin/branding/hero`)
+returned a bare 500. Prod's Storage answered `Bucket not found` for `Images`:
+the bucket had been created by hand in the dev dashboard on 2026-08-23 and never
+reproduced in the Seoul project, so every image upload there (branding, club
+branding, sponsor images, avatars — all share `BrandingAssetRepository`) was
+failing the same way.
+
+Fix: `063-images-bucket` inserts the bucket row (`storage.buckets`, public,
+50 MB, dev's exact MIME list) `ON CONFLICT DO NOTHING`, behind a
+`tableExists storage.buckets` precondition that marks it ran on CI's vanilla
+Postgres. Lands on dev on push; prod needs the usual `db-production`
+`workflow_dispatch` → `update`, after which the upload works without a code
+change.

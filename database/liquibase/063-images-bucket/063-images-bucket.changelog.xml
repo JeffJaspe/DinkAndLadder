@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The Storage bucket every uploaded image lives in
+     (docs/30-SUPER-ADMIN-SPECIFICATION.md §2.1).
+
+     `Images` was created by hand in the dev project's dashboard on 2026-08-23
+     and never reproduced anywhere else, so the production project had no
+     bucket at all: every branding upload there failed with "Bucket not found",
+     surfaced to the operator as a bare 500. A bucket is configuration the
+     application depends on exactly as it depends on a table, so it is
+     versioned here and reaches each database through the same pipeline.
+
+     The row mirrors dev verbatim - public, 50 MB, and the same MIME list,
+     `image/svg` included even though no browser sends that type (the
+     application allow-list is the one that actually decides; see
+     ALLOWED_IMAGE_TYPES in branding.dto.ts). Matching dev exactly is the point:
+     an environment that differs from the one the code was proven against is a
+     drift, not an improvement. -->
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+    <changeSet id="0001-create-images-bucket" author="super-admin">
+        <!-- CI validates the changelog against vanilla postgres:16, which has no
+             `storage` schema. There the changeset is marked ran and skipped;
+             on a Supabase project it inserts. Dev already has the bucket, so
+             ON CONFLICT keeps this a no-op there rather than a failure. -->
+        <preConditions onFail="MARK_RAN">
+            <tableExists schemaName="storage" tableName="buckets"/>
+        </preConditions>
+        <sql>
+            INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+            VALUES (
+                'Images',
+                'Images',
+                true,
+                52428800,
+                ARRAY['image/jpeg', 'image/jpg', 'image/png', 'image/svg']
+            )
+            ON CONFLICT (id) DO NOTHING;
+        </sql>
+        <rollback>
+            <!-- Refuses (foreign key) while any object is still stored in it,
+                 which is the right outcome: rolling back a bucket must never
+                 silently discard the images inside. -->
+            <sql>DELETE FROM storage.buckets WHERE id = 'Images';</sql>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>
