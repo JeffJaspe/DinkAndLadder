@@ -3,7 +3,7 @@
   "crons": [
     {
       "path": "/api/v1/tasks/close-stale-open-play",
-      "schedule": "0 * * * *"
+      "schedule": "0 15 * * *"
     }
   ]
 }
