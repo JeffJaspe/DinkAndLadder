@@ -13,7 +13,12 @@ export function useRememberMe() {
   const cookie = useCookie<string | null>(REMEMBER_ME_COOKIE, {
     default: () => null,
     maxAge: REMEMBER_ME_MAX_AGE,
-    sameSite: 'lax'
+    sameSite: 'lax',
+    // useCookie JSON-decodes by default, which turns the "1" sentinel into the
+    // number 1 — and then `rememberedEmail` hands a number to `remember()`.
+    // The value is only ever a plain string; keep it one.
+    encode: (value) => (value == null ? '' : encodeURIComponent(String(value))),
+    decode: (value) => (value === '' ? null : decodeURIComponent(value))
   })
 
   const isRemembered = computed(() => Boolean(cookie.value))
@@ -25,7 +30,7 @@ export function useRememberMe() {
 
   /** Opt in, for this address when there is one. */
   function remember(email?: string) {
-    const trimmed = email?.trim()
+    const trimmed = typeof email === 'string' ? email.trim() : ''
     cookie.value = trimmed || OPTED_IN_NO_EMAIL
   }
 
