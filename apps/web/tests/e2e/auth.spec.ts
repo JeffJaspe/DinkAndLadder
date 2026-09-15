@@ -7,18 +7,46 @@ import { expect, test } from '@playwright/test'
 
 test('login page has email/password fields and a link to register', async ({ page }) => {
   await page.goto('/login')
-  await expect(page.getByLabel('Email')).toBeVisible()
-  await expect(page.getByLabel('Password')).toBeVisible()
+  await expect(page.getByLabel('Email', { exact: true })).toBeVisible()
+  await expect(page.getByLabel('Password', { exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible()
   await expect(page.getByRole('link', { name: /register/i })).toBeVisible()
 })
 
 test('register page has email/password fields and a link to login', async ({ page }) => {
   await page.goto('/register')
-  await expect(page.getByLabel('Email')).toBeVisible()
-  await expect(page.getByLabel('Password')).toBeVisible()
+  await expect(page.getByLabel('Email', { exact: true })).toBeVisible()
+  await expect(page.getByLabel('Password', { exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Register' })).toBeVisible()
   await expect(page.getByRole('main').getByRole('link', { name: /log in/i })).toBeVisible()
+})
+
+test('password fields can be revealed and hidden again', async ({ page }) => {
+  // update-password uses the same field twice, but only renders its form on a
+  // recovery session, so it is not reachable from a signed-out spec.
+  for (const [path, label] of [
+    ['/register', 'Password'],
+    ['/login', 'Password']
+  ] as const) {
+    await page.goto(path)
+    const field = page.getByLabel(label, { exact: true })
+    await field.fill('correct-horse-9')
+    await expect(field).toHaveAttribute('type', 'password')
+
+    // The toggle sits inside this field's own wrapper, so it is found from the
+    // input rather than by name — a page can carry two password fields.
+    const toggle = field.locator('..').getByRole('button', { name: 'Show password' })
+    await toggle.click()
+    await expect(field).toHaveAttribute('type', 'text')
+    await expect(field).toHaveValue('correct-horse-9')
+    await expect(field.locator('..').getByRole('button', { name: 'Hide password' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    )
+
+    await field.locator('..').getByRole('button', { name: 'Hide password' }).click()
+    await expect(field).toHaveAttribute('type', 'password')
+  }
 })
 
 test('visiting the dashboard while signed out redirects to login', async ({ page }) => {

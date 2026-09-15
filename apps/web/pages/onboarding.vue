@@ -10,6 +10,8 @@ interface AssessmentQuestion {
 
 interface RatingResult {
   rating: number
+  reliability: 'high' | 'medium' | 'low'
+  flags: string[]
   tier: {
     name: string
     description: string
@@ -201,13 +203,35 @@ const tierTokens = computed(() =>
   ratingResult.value ? tierForRating(ratingResult.value.rating) : null
 )
 
+/**
+ * The result screen says how much to trust the number. Wording stays plain:
+ * the reliability grade comes from the scoring model (agreement between skill
+ * areas, playing history, and whether the self-reported level matched).
+ */
+const reliabilityNote = computed(() => {
+  switch (ratingResult.value?.reliability) {
+    case 'high':
+      return 'Confidence: high — your answers were consistent and backed by playing experience.'
+    case 'medium':
+      return 'Confidence: medium — a reasonable estimate that a few rated matches will sharpen.'
+    default:
+      return 'Confidence: low — treat this as a rough starting point; your first rated matches will matter most.'
+  }
+})
+
 const categoryLabel = (category: string) => {
   const labels: Record<string, string> = {
-    experience: 'Experience',
-    skill: 'Skills',
+    serve_return: 'Serve & Return',
+    groundstrokes: 'Groundstrokes',
+    dinking: 'Dinking',
+    third_shot: 'Third Shot',
+    net_game: 'Net Game',
+    positioning: 'Positioning',
     strategy: 'Strategy',
+    consistency: 'Consistency',
+    experience: 'Experience',
     competition: 'Competition',
-    'self-assessment': 'Self Assessment'
+    self_level: 'Your Level'
   }
   return labels[category] || category
 }
@@ -378,7 +402,7 @@ const categoryLabel = (category: string) => {
           </h1>
 
           <p class="mb-6 text-fg-muted" :class="{ 'animate-fade-in-delay': showCelebration }">
-            Your initial rating has been determined
+            Your provisional rating has been determined
           </p>
 
           <!-- Rating Display -->
@@ -396,6 +420,10 @@ const categoryLabel = (category: string) => {
 
           <p class="text-sm text-fg-muted">
             {{ ratingResult.tier.description }}
+          </p>
+
+          <p class="mt-2 text-xs text-fg-muted" data-testid="assessment-reliability">
+            {{ reliabilityNote }}
           </p>
 
           <!-- Rating Scale -->
@@ -426,7 +454,8 @@ const categoryLabel = (category: string) => {
         </button>
 
         <p class="text-center text-xs text-fg-muted">
-          Your rating will adjust as you play more matches
+          This is a starting estimate, not an official rating. It will move toward your real results
+          as you play rated matches.
         </p>
       </div>
 

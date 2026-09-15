@@ -2,14 +2,14 @@ import type { ReportRepository } from '../repositories/report.repository'
 import type { NotificationService } from '~/server/domains/notification/services/notification.service'
 import type { PlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
 import {
-  REPORT_REASON_LABELS,
   isReportReason,
   toAdminPlayerReportDto,
   toPlayerReportDto,
+  warningBody,
   type AdminPlayerReportDto,
+  type AdminReportQueueDto,
   type CreatePlayerReportInput,
   type PlayerReportDto,
-  type ReportReason,
   type ResolveReportInput
 } from '../dto/report.dto'
 
@@ -32,7 +32,7 @@ export interface ReportService {
     status?: string
     limit: number
     offset: number
-  }): Promise<{ items: AdminPlayerReportDto[]; total: number }>
+  }): Promise<AdminReportQueueDto>
   resolveReport(
     reportId: string,
     reviewerUserId: string,
@@ -100,7 +100,13 @@ export function createReportService(
 
     async listForAdmin({ status, limit, offset }) {
       const { items, total } = await reports.list({ status, limit, offset })
-      return { items: items.map(toAdminPlayerReportDto), total }
+      // Both extras describe the page the moderator is looking at, so they
+      // travel with it rather than as two more round trips from the screen.
+      const [counts, report_counts] = await Promise.all([
+        reports.countByStatus(),
+        reports.countByReportedPlayer([...new Set(items.map((r) => r.reported_player_id))])
+      ])
+      return { items: items.map(toAdminPlayerReportDto), total, counts, report_counts }
     },
 
     async resolveReport(reportId, reviewerUserId, input) {
@@ -151,16 +157,13 @@ export function createReportService(
     const profile = await players.findById(reportedPlayerId)
     if (!profile) return
 
-    const label = REPORT_REASON_LABELS[reason as ReportReason] ?? 'Community guidelines'
-
     await notifications.notify({
       user_id: profile.user_id,
       type: 'moderation.warning',
       title: 'A warning about your account',
-      // "Someone reported" is as specific as this is ever allowed to be.
-      body: moderatorNote
-        ? `Your account was reported for: ${label}. From the moderation team: ${moderatorNote}`
-        : `Your account was reported for: ${label}. Please review the community guidelines - repeated reports can lead to your account being suspended.`,
+      // "Someone reported" is as specific as this is ever allowed to be. The
+      // sentence lives in the DTO module so the queue can preview it verbatim.
+      body: warningBody(reason, moderatorNote),
       reference_type: 'player_report',
       reference_id: reportId
     })

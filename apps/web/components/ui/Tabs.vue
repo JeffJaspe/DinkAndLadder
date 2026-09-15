@@ -54,6 +54,31 @@ function select(value: string) {
   }
 }
 
+/**
+ * A tab strip wider than its box scrolls, but nothing said so: on a phone the
+ * fifth tab was simply gone. When the strip overflows, its clipped edge fades
+ * out so the cut looks like a cut. Measured, not assumed, so a strip that fits
+ * carries no fade.
+ */
+const strip = ref<HTMLElement | null>(null)
+const clippedRight = ref(false)
+const clippedLeft = ref(false)
+
+function measure() {
+  const el = strip.value
+  if (!el) return
+  clippedRight.value = el.scrollLeft + el.clientWidth < el.scrollWidth - 1
+  clippedLeft.value = el.scrollLeft > 1
+}
+
+onMounted(() => {
+  measure()
+  const observer = new ResizeObserver(measure)
+  if (strip.value) observer.observe(strip.value)
+  onBeforeUnmount(() => observer.disconnect())
+})
+watch(() => props.tabs, () => nextTick(measure), { deep: true })
+
 function onKeydown(event: KeyboardEvent) {
   const keys = ['ArrowLeft', 'ArrowRight', 'Home', 'End']
   if (!keys.includes(event.key)) return
@@ -80,9 +105,12 @@ function onKeydown(event: KeyboardEvent) {
 
 <template>
   <div
+    ref="strip"
     class="scroll-x -mb-px flex gap-1 border-b border-border"
+    :class="{ 'tabs-clip-r': clippedRight, 'tabs-clip-l': clippedLeft }"
     role="tablist"
     @keydown="onKeydown"
+    @scroll.passive="measure"
   >
     <button
       v-for="tab in tabs"
@@ -108,3 +136,23 @@ function onKeydown(event: KeyboardEvent) {
     </button>
   </div>
 </template>
+
+<style scoped>
+/* The fade is a mask, not an overlay, so the last visible tab stays
+   clickable right up to the edge and the theme's own canvas shows through. */
+.tabs-clip-r {
+  mask-image: linear-gradient(to right, black calc(100% - 2.5rem), transparent);
+}
+.tabs-clip-l {
+  mask-image: linear-gradient(to right, transparent, black 2.5rem);
+}
+.tabs-clip-r.tabs-clip-l {
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    black 2.5rem,
+    black calc(100% - 2.5rem),
+    transparent
+  );
+}
+</style>

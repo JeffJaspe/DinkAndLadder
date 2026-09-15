@@ -1,7 +1,9 @@
-import { selectRandomQuestions } from '~/server/domains/rating/data/question-bank'
+import { getAssessmentQuestions } from '~/server/domains/rating/data/question-bank'
 
 export default defineEventHandler(() => {
-  const questions = selectRandomQuestions()
+  // Choice scores stay server-side: the client only ever sees labels, so the
+  // ladder cannot be read off the payload and gamed.
+  const questions = getAssessmentQuestions()
 
   return {
     data: questions.map((q) => ({

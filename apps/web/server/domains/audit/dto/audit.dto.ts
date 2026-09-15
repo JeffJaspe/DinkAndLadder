@@ -8,6 +8,7 @@ export type AuditEventType =
   | 'player.profile_admin_change'
   | 'rating.correction'
   | 'identity.mfa_admin_reset'
+  | 'rating.admin_reset'
 
 export type AuditTargetType =
   | 'club_membership'

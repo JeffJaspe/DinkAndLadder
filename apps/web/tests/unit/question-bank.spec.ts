@@ -1,149 +1,92 @@
 import { describe, expect, it } from 'vitest'
 import {
-  calculateInitialRating,
+  getAssessmentQuestions,
   getTierForRating,
-  selectRandomQuestions,
   QUESTION_BANK,
-  RATING_TIERS
+  RATING_TIERS,
+  SKILL_DIMENSIONS
 } from '../../server/domains/rating/data/question-bank'
+import {
+  INITIAL_RATING_MAX,
+  SKILL_DIMENSION_WEIGHTS
+} from '../../server/domains/rating/services/initial-rating.service'
+import { RATING_MIN } from '../../server/domains/rating/services/rating.service'
 
 describe('question-bank', () => {
   describe('QUESTION_BANK', () => {
-    it('has questions in all required categories', () => {
-      const categories = new Set(QUESTION_BANK.map((q) => q.category))
-      expect(categories.has('experience')).toBe(true)
-      expect(categories.has('skill')).toBe(true)
-      expect(categories.has('strategy')).toBe(true)
-      expect(categories.has('competition')).toBe(true)
-      expect(categories.has('self-assessment')).toBe(true)
+    it('has 15–20 questions', () => {
+      expect(QUESTION_BANK.length).toBeGreaterThanOrEqual(15)
+      expect(QUESTION_BANK.length).toBeLessThanOrEqual(20)
     })
 
-    it('has at least 5 experience questions', () => {
-      const exp = QUESTION_BANK.filter((q) => q.category === 'experience')
-      expect(exp.length).toBeGreaterThanOrEqual(5)
+    it('has unique ids', () => {
+      const ids = QUESTION_BANK.map((q) => q.id)
+      expect(new Set(ids).size).toBe(ids.length)
     })
 
-    it('has at least 10 skill questions', () => {
-      const skill = QUESTION_BANK.filter((q) => q.category === 'skill')
-      expect(skill.length).toBeGreaterThanOrEqual(10)
-    })
-
-    it('has at least 5 strategy questions', () => {
-      const strat = QUESTION_BANK.filter((q) => q.category === 'strategy')
-      expect(strat.length).toBeGreaterThanOrEqual(5)
-    })
-
-    it('has at least 5 competition questions', () => {
-      const comp = QUESTION_BANK.filter((q) => q.category === 'competition')
-      expect(comp.length).toBeGreaterThanOrEqual(5)
-    })
-
-    it('has at least 5 self-assessment questions', () => {
-      const self = QUESTION_BANK.filter((q) => q.category === 'self-assessment')
-      expect(self.length).toBeGreaterThanOrEqual(5)
-    })
-
-    it('all questions have at least 2 choices', () => {
-      for (const q of QUESTION_BANK) {
-        expect(q.choices.length).toBeGreaterThanOrEqual(2)
+    it('covers every skill dimension with at least two questions', () => {
+      for (const dimension of SKILL_DIMENSIONS) {
+        const count = QUESTION_BANK.filter((q) => q.category === dimension).length
+        expect(count, dimension).toBeGreaterThanOrEqual(2)
       }
     })
 
-    it('all choices have valid point values between 1 and 6', () => {
+    it('has exactly one of each calibration question', () => {
+      for (const category of ['experience', 'competition', 'self_level'] as const) {
+        expect(QUESTION_BANK.filter((q) => q.category === category)).toHaveLength(1)
+      }
+    })
+
+    it('every skill ladder climbs strictly from novice to expert', () => {
+      for (const q of QUESTION_BANK) {
+        if (!(SKILL_DIMENSIONS as readonly string[]).includes(q.category)) continue
+        expect(q.choices.length, q.id).toBe(5)
+        for (let i = 1; i < q.choices.length; i++) {
+          expect(q.choices[i].score, `${q.id} choice ${i}`).toBeGreaterThan(q.choices[i - 1].score)
+        }
+        expect(q.choices[0].score, q.id).toBe(RATING_MIN)
+        expect(q.choices[q.choices.length - 1].score, q.id).toBe(5.0)
+      }
+    })
+
+    it('every choice scores within the provisional rating range', () => {
       for (const q of QUESTION_BANK) {
         for (const c of q.choices) {
-          expect(c.points).toBeGreaterThanOrEqual(1)
-          expect(c.points).toBeLessThanOrEqual(6)
+          expect(c.score).toBeGreaterThanOrEqual(RATING_MIN)
+          expect(c.score).toBeLessThanOrEqual(INITIAL_RATING_MAX)
         }
       }
     })
-  })
 
-  describe('selectRandomQuestions', () => {
-    it('returns exactly 7 questions', () => {
-      const selected = selectRandomQuestions()
-      expect(selected.length).toBe(7)
-    })
-
-    it('includes 1 experience question', () => {
-      const selected = selectRandomQuestions()
-      const exp = selected.filter((q) => q.category === 'experience')
-      expect(exp.length).toBe(1)
-    })
-
-    it('includes 3 skill questions', () => {
-      const selected = selectRandomQuestions()
-      const skill = selected.filter((q) => q.category === 'skill')
-      expect(skill.length).toBe(3)
-    })
-
-    it('includes 1 strategy question', () => {
-      const selected = selectRandomQuestions()
-      const strat = selected.filter((q) => q.category === 'strategy')
-      expect(strat.length).toBe(1)
-    })
-
-    it('includes 1 competition question', () => {
-      const selected = selectRandomQuestions()
-      const comp = selected.filter((q) => q.category === 'competition')
-      expect(comp.length).toBe(1)
-    })
-
-    it('includes 1 self-assessment question', () => {
-      const selected = selectRandomQuestions()
-      const self = selected.filter((q) => q.category === 'self-assessment')
-      expect(self.length).toBe(1)
-    })
-
-    it('returns different questions on repeated calls (randomization check)', () => {
-      const selections: string[][] = []
-      for (let i = 0; i < 10; i++) {
-        const selected = selectRandomQuestions()
-        selections.push(selected.map((q) => q.id).sort())
+    it('never asks a technical question in rating-number terms', () => {
+      for (const q of QUESTION_BANK) {
+        if (q.category === 'self_level') continue
+        const text = [q.question, ...q.choices.map((c) => c.label)].join(' ')
+        expect(text, q.id).not.toMatch(/\b[2-5]\.[05]\b/)
+        expect(text, q.id).not.toMatch(/DUPR/i)
       }
-      const uniqueSets = new Set(selections.map((s) => s.join(',')))
-      expect(uniqueSets.size).toBeGreaterThan(1)
+    })
+
+    it('the competitive-level question spans beginners to pro', () => {
+      const q = QUESTION_BANK.find((q) => q.category === 'self_level')!
+      expect(q.choices[0].score).toBeLessThan(2.5)
+      expect(q.choices[q.choices.length - 1].score).toBe(INITIAL_RATING_MAX)
     })
   })
 
-  describe('calculateInitialRating', () => {
-    it('returns 2.5 for empty answers', () => {
-      expect(calculateInitialRating({})).toBe(2.5)
+  describe('SKILL_DIMENSION_WEIGHTS', () => {
+    it('sum to 1 across every dimension', () => {
+      const total = SKILL_DIMENSIONS.reduce((sum, d) => sum + SKILL_DIMENSION_WEIGHTS[d], 0)
+      expect(total).toBeCloseTo(1, 10)
     })
+  })
 
-    it('returns 2.0 for all minimum scores (1 point each)', () => {
-      const answers: Record<string, number> = {}
-      for (let i = 0; i < 7; i++) {
-        answers[`Q${i}`] = 1
-      }
-      expect(calculateInitialRating(answers)).toBe(2.0)
-    })
-
-    it('returns 6.0 for all maximum scores (6 points each)', () => {
-      const answers: Record<string, number> = {}
-      for (let i = 0; i < 7; i++) {
-        answers[`Q${i}`] = 6
-      }
-      expect(calculateInitialRating(answers)).toBe(6.0)
-    })
-
-    it('returns approximately 4.0 for average scores (3.5 points each)', () => {
-      const answers: Record<string, number> = {}
-      for (let i = 0; i < 7; i++) {
-        answers[`Q${i}`] = 3.5
-      }
-      const rating = calculateInitialRating(answers)
-      expect(rating).toBeCloseTo(4.0, 1)
-    })
-
-    it('returns a value between 2.0 and 6.0', () => {
-      const answers: Record<string, number> = {}
-      for (let i = 0; i < 7; i++) {
-        answers[`Q${i}`] = Math.floor(Math.random() * 6) + 1
-      }
-      const rating = calculateInitialRating(answers)
-      expect(rating).toBeGreaterThanOrEqual(2.0)
-      expect(rating).toBeLessThanOrEqual(6.0)
+  describe('getAssessmentQuestions', () => {
+    it('returns the whole bank, in a fixed order', () => {
+      const first = getAssessmentQuestions().map((q) => q.id)
+      const second = getAssessmentQuestions().map((q) => q.id)
+      expect(first).toEqual(QUESTION_BANK.map((q) => q.id))
+      expect(second).toEqual(first)
     })
   })
 

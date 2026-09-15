@@ -38,6 +38,22 @@ export interface RatingTransactionRecord {
   played_at?: string | null
 }
 
+/** One Initial Skill Rating questionnaire submission — the estimate a player's
+ * rating started from, kept apart from the match-derived rating that follows it. */
+export interface RatingAssessmentRecord {
+  id: string
+  player_id: string
+  answers: Array<{ question_id: string; choice_index: number; score: number }>
+  dimension_scores: Record<string, number>
+  technical_rating: number
+  provisional_rating: number
+  self_reported_level: number
+  reliability: 'high' | 'medium' | 'low'
+  flags: string[]
+  calculation_version: number
+  created_at: string
+}
+
 export interface PlayerRatingDto {
   player_id: string
   rating_type: RatingType

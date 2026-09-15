@@ -8092,3 +8092,147 @@ Fix: `063-images-bucket` inserts the bucket row (`storage.buckets`, public,
 Postgres. Lands on dev on push; prod needs the usual `db-production`
 `workflow_dispatch` → `update`, after which the upload works without a code
 change.
+
+---
+
+## 2026-09-15 — Mobile audit suite, and the moderation queue rebuilt
+
+**Mobile audit.** New Playwright project `mobile` (390×844, Chromium Pixel 7):
+`tests/e2e/authed/mobile-audit.spec.ts` + `helpers/mobile.ts` load 41 routes
+and assert no sideways overflow, listing every element past the viewport edge
+plus a full-page screenshot per route. First run 35/41; findings and the fix
+order are in `docs/38-MOBILE-AUDIT-2026-09-15.md` (four sideways-scroll pages,
+rankings and scoresheet hiding their key column, club-profile logo painted
+under the cover). Nothing fixed yet except the shared tab strip (below).
+
+**Admin reports queue (`/admin/reports`) — audited and rebuilt.**
+- DTO: `AdminReportQueueDto` (`items`, `total`, `counts` per status,
+  `report_counts` per reported player) and a shared `warningBody(reason, note)`
+  so the queue previews the exact sentence the service sends.
+- Repository: `countByStatus()` (four head-only counts), `countByReportedPlayer(ids)`.
+- Service: `listForAdmin` returns the queue DTO; `sendWarning` uses `warningBody`.
+- Controller: `GET /api/v1/admin/reports` passes `counts` and `report_counts` through.
+- UI: `UiTabs` with counts (Pending / Reviewed / Warned / Dismissed / All, linkable
+  via `?tab=`), "Showing n of total" + Show more (the API always paged at 25; the
+  page never did), queue age ("waiting 3d"), a repeat-offender pill
+  ("4 reports"), the reporter's words as a blockquote, a visible label + helper
+  under the note, a live preview of the warning text, resolved cards show when
+  they were closed and what was sent, per-tab empty states, pills stack under
+  the title on phones.
+- `UiTabs`: fades the clipped edge when the strip overflows (ResizeObserver +
+  mask), so a fifth tab on a phone reads as scrollable instead of missing.
+- Tests: `report.service.spec.ts` +3 (counts, report counts, warning body);
+  `tests/e2e/authed/admin-reports.spec.ts` drives the screen as the owner with
+  the two admin endpoints mocked at the network edge (the SuperAdmin is one real
+  account; the guard runs client-side on an in-app navigation), 3 tests.
+- Validation: unit 17/17, e2e 5/5, eslint clean, `vue-tsc` clean against the
+  running dev server's `.nuxt`.
+- No database change.
+
+## 2026-09-16 — Initial Skill Rating questionnaire rebuilt (provisional rating v2)
+
+The onboarding questionnaire drew 7 of 31 questions at random, averaged 1–6
+points onto 2.0–6.0, counted "I know what a third-shot drop is" the same as
+hitting one, and never stored the answers. Replaced with a fixed, scenario-based
+model; the match-rating algorithm is untouched.
+
+- Content (`server/domains/rating/data/question-bank.ts`): 20 fixed questions —
+  17 scenario ladders across 8 weighted dimensions (serve/return, groundstrokes,
+  dinking, third shot, net game, positioning, strategy, consistency) scored
+  2.0 / 2.5 / 3.0 / 4.0 / 5.0 directly on the rating scale, plus playing
+  history, competitive experience and a "who can you compete against" question.
+  Technical questions never mention numeric levels; tiers unchanged.
+- Model (`server/domains/rating/services/initial-rating.service.ts`,
+  `calculateProvisionalRating`, version 2): weighted mean, bounded by an
+  execution cap (mean of consistency + strategy, +0.5), playing-history and
+  competition caps, a small competition bonus only on an already-elite
+  profile, the self-reported level as a secondary signal (blended when it
+  agrees, ignored and flagged when higher), clamp 2.0–5.5, round to 0.1.
+  Reliability high/medium/low seeds `confidence_score` at 0.85 / 1.0 / 1.2.
+  Flags: `uneven_profile`, `execution_capped`, `experience_capped`,
+  `self_report_above_evidence`, `self_report_below_evidence`. Full formula and
+  constants recorded under ADR-001 in `docs/18-ADR-INDEX.md`.
+- Database: `064-rating-assessments` — `rating_assessments` (answers,
+  dimension scores, technical + provisional rating, reliability, flags,
+  version), RLS select-own, service-role writes only. Lands on push to main.
+- Repository/DTO: `rating-assessment.repository.ts`, `RatingAssessmentRecord`.
+- Controllers: `GET /assessment-questions` serves the fixed bank (labels only);
+  `POST /submit-assessment` validates through the service (400 on incomplete /
+  unknown / duplicate / bad choice), writes both ratings with the reliability
+  variance seed, stores the assessment row, returns `reliability` + `flags`
+  alongside `rating`/`tier`.
+- UI (`pages/onboarding.vue`): new category labels, "provisional rating"
+  wording, a one-line confidence note, and the footer now says it is a
+  starting estimate that moves toward real results.
+- Tests: `tests/unit/initial-rating.service.spec.ts` (25: nine novice→pro
+  profiles, seven contradictory profiles, monotonicity, rounding/clamp,
+  validation), `tests/unit/question-bank.spec.ts` rewritten (13),
+  `tests/e2e/authed/initial-rating.spec.ts` (questions API contract, stepping
+  through all 20 scenarios in the rate-only flow; submit→celebration is not
+  drivable because both seeded accounts are already rated and the assessment
+  is once-only).
+- Validation: unit 1492/1492, e2e 4/4 against the running dev server, eslint
+  clean, prettier clean, `vue-tsc` clean.
+- Known limits: novices floor at 2.0 (DB and engine minimum, the "~1.5"
+  anchor is not representable); the reliability constants and the variance
+  seeding are placeholders of the same standing as the K-factor values;
+  existing players keep their v1 ratings (no re-score — answers were never
+  stored).
+
+## 2026-09-16 — SuperAdmin: reset a player's rating (retake the assessment)
+
+"Reset" means the player goes back to unrated and takes the Initial Skill
+Rating questionnaire again (the assessment endpoint refuses while a rating
+exists, so nothing else could get them there).
+
+- Repository: `RatingRepository.resetRatings(playerId)` — `rating_value` NULL,
+  `matches_played` 0, `confidence_score` 1.0, `calculated_at` NULL on every
+  row for the player; `rating_transactions` untouched (immutable by design).
+- Service: `RatingService.resetPlayerRatings(playerId)` returns the rows as
+  they were for the audit payload; 409 `NOT_RATED` when there is nothing to
+  reset so a double-click cannot log a phantom reset.
+- Controller: `POST /api/v1/admin/players/:playerId/rating-reset` — SuperAdmin
+  + aal2, audit event `rating.admin_reset` (new `AuditEventType`; no DB
+  constraint on the column, so no migration). `GET /api/v1/admin/users/lookup`
+  now also returns `player` (id, display name, singles/doubles rating, matches
+  played) or null.
+- UI: `/admin/ratings` gained a "Reset a player's rating" section (email
+  lookup → card → destructive confirm modal → status line); the backfill
+  section below it stays development-only. The "Rating tools" nav item is now
+  shown in every environment. The dashboard shows a "Take the skill
+  assessment" banner (→ `/onboarding?flow=rate-only`) whenever the player has
+  no singles rating on file, which is what actually sends a reset player back
+  to the questionnaire.
+- Tests: `rating.service.spec.ts` +2 (reset clears both rows and returns the
+  previous values; refuses when unrated); `tests/e2e/authed/admin-rating-reset.spec.ts`
+  (2, endpoints mocked at the network edge as in admin-reports.spec).
+- Validation: unit 1494/1494, e2e 4/4 on the running dev server, eslint,
+  prettier and `vue-tsc` clean. No database change.
+
+---
+
+## 2026-09-16 — Register page audit: password reveal, Turnstile theme
+
+Audited `/register` at 1366 and 390 in both OS colour schemes. Layout held at
+both widths (no overflow, 44px+ controls). Two defects, both fixed; one open
+copy question.
+
+- **Password was masked with no way to see it.** New `AuthPasswordField`
+  (`components/auth/PasswordField.vue`): label, input, a 44px show/hide button
+  inside the field (`aria-label` Show/Hide password, `aria-pressed`,
+  `aria-controls`), optional hint wired via `aria-describedby`. Used on
+  register, login and both update-password fields so the control is the same
+  everywhere. The toggle syncs the DOM value into the model before flipping
+  `type`, so characters typed before hydration are not wiped on reveal. Icons
+  `eye` / `eye-off` added to the registry.
+- **Turnstile followed the OS scheme, not the app theme** — a dark-OS visitor on
+  the (default) light app got a black widget in a white form. `TurnstileWidget`
+  now passes `theme: resolvedTheme` from `useTheme()`.
+- Tests: `tests/e2e/auth.spec.ts` +1 (reveal/hide on register and login,
+  value preserved); the two existing label lookups made `exact` — the login
+  test had started matching the remember-me caption. Unit 1494/1494, e2e auth
+  7/7, eslint clean, `vue-tsc` clean.
+- **Open:** "By signing up, you agree to our Terms of Service and Privacy
+  Policy" names two documents that do not exist (`/legal` has only the cookie
+  policy) and links nothing. Either publish them or soften the line; not
+  changed here because it is factual copy.

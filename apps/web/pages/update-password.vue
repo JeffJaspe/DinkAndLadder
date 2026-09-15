@@ -135,40 +135,24 @@ async function handleUpdate() {
 
         <!-- Form -->
         <form v-else class="space-y-4" @submit.prevent="handleUpdate">
-          <div>
-            <label for="update-password" class="mb-1.5 block text-sm font-medium text-fg-secondary"
-              >New password</label
-            >
-            <input
-              id="update-password"
-              v-model="password"
-              type="password"
-              required
-              autocomplete="new-password"
-              minlength="8"
-              placeholder="Create a password"
-              class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
-            />
-            <p class="mt-1.5 text-xs text-fg-muted">Minimum 8 characters</p>
-          </div>
+          <AuthPasswordField
+            id="update-password"
+            v-model="password"
+            label="New password"
+            autocomplete="new-password"
+            :minlength="8"
+            placeholder="Create a password"
+            hint="Minimum 8 characters"
+          />
 
-          <div>
-            <label
-              for="update-password-confirm"
-              class="mb-1.5 block text-sm font-medium text-fg-secondary"
-              >Confirm password</label
-            >
-            <input
-              id="update-password-confirm"
-              v-model="confirmation"
-              type="password"
-              required
-              autocomplete="new-password"
-              minlength="8"
-              placeholder="Repeat the password"
-              class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
-            />
-          </div>
+          <AuthPasswordField
+            id="update-password-confirm"
+            v-model="confirmation"
+            label="Confirm password"
+            autocomplete="new-password"
+            :minlength="8"
+            placeholder="Repeat the password"
+          />
 
           <div v-if="errorMessage" class="rounded-lg bg-danger-soft px-4 py-3 text-sm text-danger">
             {{ errorMessage }}

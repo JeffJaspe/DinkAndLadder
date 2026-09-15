@@ -4,7 +4,10 @@ import {
   ReportServiceError
 } from '../../server/domains/moderation/services/report.service'
 import type { ReportRepository } from '../../server/domains/moderation/repositories/report.repository'
-import type { PlayerReportRecord } from '../../server/domains/moderation/dto/report.dto'
+import {
+  warningBody,
+  type PlayerReportRecord
+} from '../../server/domains/moderation/dto/report.dto'
 import type { PlayerProfileRepository } from '../../server/domains/player/repositories/player-profile.repository'
 import type { NotificationService } from '../../server/domains/notification/services/notification.service'
 
@@ -36,6 +39,10 @@ function fakeReports(overrides: Partial<ReportRepository> = {}): ReportRepositor
     findById: vi.fn().mockResolvedValue(makeReport()),
     findOpenByPair: vi.fn().mockResolvedValue(null),
     list: vi.fn().mockResolvedValue({ items: [], total: 0 }),
+    countByStatus: vi
+      .fn()
+      .mockResolvedValue({ pending: 0, reviewed: 0, actioned: 0, dismissed: 0 }),
+    countByReportedPlayer: vi.fn().mockResolvedValue({}),
     resolve: vi.fn(async (id, updates) => makeReport({ id, ...updates })),
     ...overrides
   } as ReportRepository
@@ -247,5 +254,40 @@ describe('listForAdmin', () => {
     const { items } = await service.listForAdmin({ limit: 25, offset: 0 })
 
     expect(items[0].reporter_player_id).toBe(REPORTER)
+  })
+
+  it('carries the tab counts and how often each reported player has been reported', async () => {
+    const other = 'eeeeeeee-0000-0000-0000-000000000005'
+    const reports = fakeReports({
+      list: vi.fn().mockResolvedValue({
+        items: [makeReport(), makeReport({ id: 'report-2' }), makeReport({ id: 'report-3', reported_player_id: other })],
+        total: 3
+      }),
+      countByStatus: vi
+        .fn()
+        .mockResolvedValue({ pending: 3, reviewed: 1, actioned: 2, dismissed: 0 }),
+      countByReportedPlayer: vi.fn().mockResolvedValue({ [REPORTED]: 5, [other]: 1 })
+    })
+    const service = createReportService(reports, fakePlayers(), fakeNotifications())
+
+    const queue = await service.listForAdmin({ status: 'pending', limit: 25, offset: 0 })
+
+    expect(queue.counts).toEqual({ pending: 3, reviewed: 1, actioned: 2, dismissed: 0 })
+    expect(queue.report_counts).toEqual({ [REPORTED]: 5, [other]: 1 })
+    // Each reported player is asked about once, however many rows they have on the page.
+    expect(reports.countByReportedPlayer).toHaveBeenCalledWith([REPORTED, other])
+  })
+})
+
+describe('warningBody', () => {
+  it('names the reason and the note, never the reporter', () => {
+    expect(warningBody('harassment', '  Keep it civil on court.  ')).toBe(
+      'Your account was reported for: Harassment or abusive behaviour. From the moderation team: Keep it civil on court.'
+    )
+  })
+
+  it('falls back to the guidelines line without a note, and to a generic label for an unknown reason', () => {
+    expect(warningBody('spam', '')).toContain('Please review the community guidelines')
+    expect(warningBody('not-a-reason', null)).toContain('Community guidelines')
   })
 })

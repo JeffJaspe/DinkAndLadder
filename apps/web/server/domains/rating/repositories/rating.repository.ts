@@ -32,6 +32,14 @@ export interface RatingRepository {
     calculationVersion: number,
     updates: RatingUpdateResult[]
   ): Promise<void>
+  /**
+   * Clears every rating row for a player back to "unrated" so the Initial
+   * Skill Rating questionnaire can be taken again: rating_value NULL,
+   * matches_played 0, confidence_score back to the default. History rows in
+   * rating_transactions are untouched — they are immutable by design. Needs a
+   * service-role client (player_ratings has no UPDATE policy for players).
+   */
+  resetRatings(playerId: string): Promise<void>
 }
 
 export function createRatingRepository(client: SupabaseClient): RatingRepository {
@@ -105,6 +113,20 @@ export function createRatingRepository(client: SupabaseClient): RatingRepository
 
       if (error) throw error
       return (count ?? 0) > 0
+    },
+
+    async resetRatings(playerId) {
+      const { error } = await client
+        .from('player_ratings')
+        .update({
+          rating_value: null,
+          matches_played: 0,
+          confidence_score: 1.0,
+          calculated_at: null,
+          updated_at: new Date().toISOString()
+        })
+        .eq('player_id', playerId)
+      if (error) throw error
     },
 
     async applyRatingUpdates(matchId, ratingType, calculationVersion, updates) {

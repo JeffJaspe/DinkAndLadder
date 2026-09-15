@@ -1,5 +1,6 @@
 <script setup lang="ts">
 const props = defineProps<{ siteKey: string }>()
+const { resolvedTheme } = useTheme()
 const emit = defineEmits<{
   verified: [token: string]
   expired: []
@@ -36,8 +37,12 @@ onMounted(async () => {
     return
   }
   if (!container.value || !window.turnstile) return
+  // `theme` follows the app's own toggle. Left on Cloudflare's default the
+  // widget read the OS scheme, so a dark-OS visitor on the light app got a
+  // black box in the middle of a white form.
   widgetId = window.turnstile.render(container.value, {
     sitekey: props.siteKey,
+    theme: resolvedTheme.value,
     callback: (token: string) => emit('verified', token),
     'expired-callback': () => emit('expired'),
     'error-callback': () => emit('error')

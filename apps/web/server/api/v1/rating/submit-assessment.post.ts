@@ -3,19 +3,17 @@ import { createPlayerProfileRepository } from '~/server/domains/player/repositor
 import { createPlayerProfileService } from '~/server/domains/player/services/player-profile.service'
 import { PlayerProfileValidationError } from '~/server/domains/player/dto/player-profile.dto'
 import { createRatingRepository } from '~/server/domains/rating/repositories/rating.repository'
+import { createRatingAssessmentRepository } from '~/server/domains/rating/repositories/rating-assessment.repository'
 import { createRatingService } from '~/server/domains/rating/services/rating.service'
 import {
-  QUESTION_BANK,
-  calculateInitialRating,
-  getTierForRating
-} from '~/server/domains/rating/data/question-bank'
+  INITIAL_RATING_ALGORITHM_VERSION,
+  InitialRatingValidationError,
+  calculateProvisionalRating,
+  type AssessmentAnswer
+} from '~/server/domains/rating/services/initial-rating.service'
+import { getTierForRating } from '~/server/domains/rating/data/question-bank'
 import { apiError } from '~/server/utils/api-error'
 import { getOptionalUser } from '~/server/utils/optional-user'
-
-interface AssessmentAnswer {
-  questionId: string
-  choiceIndex: number
-}
 
 interface SubmitAssessmentInput {
   /** Required only when this user has no profile yet — see ensureProfile. */
@@ -30,26 +28,22 @@ export default defineEventHandler(async (event) => {
   }
 
   const body = await readBody<SubmitAssessmentInput>(event)
-  if (!body?.answers || !Array.isArray(body.answers) || body.answers.length !== 7) {
-    throw apiError(400, 'INVALID_INPUT', 'Exactly 7 answers are required.')
+  if (!body?.answers || !Array.isArray(body.answers)) {
+    throw apiError(400, 'INVALID_INPUT', 'Answers are required.')
   }
 
-  const questionMap = new Map(QUESTION_BANK.map((q) => [q.id, q]))
-  const pointsByQuestion: Record<string, number> = {}
-
-  for (const answer of body.answers) {
-    const question = questionMap.get(answer.questionId)
-    if (!question) {
-      throw apiError(400, 'INVALID_QUESTION', `Unknown question: ${answer.questionId}`)
+  // Validation (every question answered once, valid choice) and scoring both
+  // live in the domain service; this handler only maps its errors to HTTP.
+  let result: ReturnType<typeof calculateProvisionalRating>
+  try {
+    result = calculateProvisionalRating(body.answers)
+  } catch (err) {
+    if (err instanceof InitialRatingValidationError) {
+      throw apiError(400, err.code, err.message)
     }
-    if (answer.choiceIndex < 0 || answer.choiceIndex >= question.choices.length) {
-      throw apiError(400, 'INVALID_CHOICE', `Invalid choice for question: ${answer.questionId}`)
-    }
-    pointsByQuestion[answer.questionId] = question.choices[answer.choiceIndex].points
+    throw err
   }
-
-  const rating = calculateInitialRating(pointsByQuestion)
-  const tier = getTierForRating(rating)
+  const tier = getTierForRating(result.rating)
 
   const client = await serverSupabaseClient(event)
   const profileRepository = createPlayerProfileRepository(client)
@@ -108,8 +102,10 @@ export default defineEventHandler(async (event) => {
       {
         player_id: profile.id,
         rating_type: ratingType,
-        rating_value: rating,
-        confidence_score: 1.0,
+        rating_value: result.rating,
+        // Variance seed by questionnaire reliability — see
+        // INITIAL_CONFIDENCE_BY_RELIABILITY in initial-rating.service.ts.
+        confidence_score: result.confidence_score,
         matches_played: 0,
         // provisional is a generated column (matches_played < 5) — Postgres
         // rejects any write that names it explicitly.
@@ -127,9 +123,31 @@ export default defineEventHandler(async (event) => {
     }
   }
 
+  // The audit row is written after the rating so a failure here cannot leave the
+  // player rated-but-unrecorded on retry (the ALREADY_RATED guard above would then
+  // block them). Losing the audit row is logged, not fatal: the rating is the
+  // thing the player is waiting on.
+  try {
+    await createRatingAssessmentRepository(serviceClient).create({
+      player_id: profile.id,
+      answers: result.answers,
+      dimension_scores: result.dimension_scores,
+      technical_rating: result.technical_rating,
+      provisional_rating: result.rating,
+      self_reported_level: result.self_reported_level,
+      reliability: result.reliability,
+      flags: result.flags,
+      calculation_version: INITIAL_RATING_ALGORITHM_VERSION
+    })
+  } catch (err) {
+    console.error('[POST /api/v1/rating/submit-assessment] rating_assessments insert failed:', err)
+  }
+
   return {
     data: {
-      rating,
+      rating: result.rating,
+      reliability: result.reliability,
+      flags: result.flags,
       tier: {
         name: tier.name,
         description: tier.description,

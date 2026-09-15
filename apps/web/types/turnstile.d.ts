@@ -3,6 +3,7 @@ export interface TurnstileRenderOptions {
   callback?: (token: string) => void
   'expired-callback'?: () => void
   'error-callback'?: () => void
+  theme?: 'light' | 'dark' | 'auto'
 }
 
 export interface TurnstileApi {

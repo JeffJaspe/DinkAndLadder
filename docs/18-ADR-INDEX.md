@@ -16,11 +16,31 @@ Decided so far (not final until the remaining open items below are resolved):
 - No-show / withdrawal: the match is voided outright — zero rating impact for every
   participant, as if it never happened. (Exact mechanism for flagging a no-show in the Match
   Verification workflow is not yet designed — see MVP-005/MVP-006 boundary.)
-- Initial rating for a brand-new/unrated player: determined via a self-assessment
-  questionnaire (implemented in `apps/web/server/domains/rating/data/question-bank.ts`).
-  - Question selection: 1 Experience, 3 Skill, 1 Strategy, 1 Competition, 1 Self-Assessment
-    (7 total, randomly selected from a bank of 31 questions per the user-provided spec).
-  - Scoring: points per answer (1-6), normalized to a 2.0-6.0 rating range.
+- Initial rating for a brand-new/unrated player: the Initial Skill Rating questionnaire
+  (content: `apps/web/server/domains/rating/data/question-bank.ts`; model:
+  `apps/web/server/domains/rating/services/initial-rating.service.ts`,
+  `INITIAL_RATING_ALGORITHM_VERSION = 2`, replacing the v1 7-of-31 random-draw average on
+  2026-09-16). It is a *provisional* starting estimate, never presented as an official rating.
+  - 20 fixed scenario questions: 17 skill questions across 8 weighted dimensions
+    (serve/return 10%, groundstrokes 10%, dinking 15%, third shot 15%, net game 15%,
+    positioning 10%, strategy 15%, consistency 10%) plus 3 calibration questions
+    (playing history, competitive experience, self-reported competitive level).
+  - Every skill ladder scores 2.0 / 2.5 / 3.0 / 4.0 / 5.0 directly on the rating scale;
+    knowing a shot never scores like executing it.
+  - Rating = weighted mean, then bounded by: execution cap `mean(consistency, strategy) + 0.5`;
+    playing-history cap (3.0 / 3.5 / 4.5 / 5.5); competition cap (4.5 without organised play,
+    5.0 with, 5.5 with open/regional medals or pro results, which also add +0.25 / +0.5 once
+    the technical score is already ≥ 4.75); self-reported level blended at 15% when it agrees
+    (±0.5), ignored and flagged when higher, blended at 25% when lower. Clamped to 2.0–5.5,
+    rounded to 0.1.
+  - Reliability (high / medium / low) from dimension spread, playing history, self-report
+    agreement and competition; seeds `player_ratings.confidence_score` at 0.85 / 1.0 / 1.2
+    (the variance parameter — 1.0 is the pre-existing default). UNCONFIRMED placeholder
+    constants, same standing as the K-factor values below.
+  - Every submission is stored in `rating_assessments` (064) with answers, dimension scores,
+    flags and version, so the initial estimate stays distinguishable from the match-derived
+    rating and can be re-scored. Transition to match evidence is the existing provisional
+    K-factor schedule; nothing in the match algorithm changed.
   - Tiers: Beginner (2.0-2.49), Novice (2.5-2.99), Intermediate (3.0-3.49), Advanced (3.5-3.99),
     Skilled (4.0-4.49), Expert (4.5-4.99), Pro (5.0-5.49), Elite (5.5-5.99), Champion (6.0+).
   - Both singles and doubles ratings initialized to the same questionnaire result.

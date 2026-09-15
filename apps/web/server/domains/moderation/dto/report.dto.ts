@@ -20,6 +20,8 @@ export type ReportReason =
 
 export type ReportStatus = 'pending' | 'reviewed' | 'actioned' | 'dismissed'
 
+export const REPORT_STATUSES: ReportStatus[] = ['pending', 'reviewed', 'actioned', 'dismissed']
+
 export const REPORT_REASONS: ReportReason[] = [
   'harassment',
   'cheating',
@@ -46,6 +48,20 @@ export const REPORT_REASON_LABELS: Record<ReportReason, string> = {
   impersonation: 'Impersonating someone else',
   spam: 'Spam or unwanted promotion',
   other: 'Other'
+}
+
+/**
+ * The body of the warning a reported player receives, built from the reason
+ * code and the moderator's note and nothing else. Shared with the moderation
+ * queue so the SuperAdmin previews the exact sentence that will be sent,
+ * rather than a paraphrase that could drift from it.
+ */
+export function warningBody(reason: string, moderatorNote: string | null | undefined): string {
+  const label = REPORT_REASON_LABELS[reason as ReportReason] ?? 'Community guidelines'
+  const note = moderatorNote?.trim() ?? ''
+  return note
+    ? `Your account was reported for: ${label}. From the moderation team: ${note}`
+    : `Your account was reported for: ${label}. Please review the community guidelines - repeated reports can lead to your account being suspended.`
 }
 
 export function isReportReason(value: unknown): value is ReportReason {
@@ -83,6 +99,22 @@ export interface AdminPlayerReportDto extends PlayerReportDto {
   reviewed_at: string | null
   resolution_note: string | null
   updated_at: string
+}
+
+/** How many reports sit in each status — the queue's tab counts. */
+export type ReportStatusCounts = Record<ReportStatus, number>
+
+/** One page of the SuperAdmin queue plus what the moderator needs to weigh it. */
+export interface AdminReportQueueDto {
+  items: AdminPlayerReportDto[]
+  /** Reports matching the status filter, across every page. */
+  total: number
+  counts: ReportStatusCounts
+  /**
+   * Every report ever filed against each reported player on this page, keyed
+   * by player id. A first complaint and a fifth are not the same decision.
+   */
+  report_counts: Record<string, number>
 }
 
 export function toPlayerReportDto(record: PlayerReportRecord): PlayerReportDto {

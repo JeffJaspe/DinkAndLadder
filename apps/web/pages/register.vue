@@ -193,24 +193,15 @@ async function handleGoogleSignUp() {
             />
           </div>
 
-          <div>
-            <label
-              for="register-password"
-              class="mb-1.5 block text-sm font-medium text-fg-secondary"
-              >Password</label
-            >
-            <input
-              id="register-password"
-              v-model="password"
-              type="password"
-              required
-              autocomplete="new-password"
-              minlength="8"
-              placeholder="Create a password"
-              class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
-            />
-            <p class="mt-1.5 text-xs text-fg-muted">Minimum 8 characters</p>
-          </div>
+          <AuthPasswordField
+            id="register-password"
+            v-model="password"
+            label="Password"
+            autocomplete="new-password"
+            :minlength="8"
+            placeholder="Create a password"
+            hint="Minimum 8 characters"
+          />
 
           <TurnstileWidget
             v-if="publicConfig.turnstileSiteKey"

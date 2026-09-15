@@ -98,7 +98,7 @@ Deliver:
 - production algorithm only after ADR finalization
 - exhaustive unit tests
 
-**COMPLETED sub-item**: initial/unrated-player self-assessment questionnaire implemented with user-provided question bank (31 questions across 5 categories: Experience, Skill, Strategy, Competition, Self-Assessment). See `apps/web/server/domains/rating/data/question-bank.ts` and ADR-001.
+**COMPLETED sub-item**: initial/unrated-player Initial Skill Rating questionnaire — rebuilt 2026-09-16 as 20 fixed scenario questions with a weighted, capped provisional-rating model (`apps/web/server/domains/rating/services/initial-rating.service.ts`, v2) and a stored `rating_assessments` row per submission. See `question-bank.ts` and ADR-001.
 
 ## MVP-007 Rankings
 Deliver:

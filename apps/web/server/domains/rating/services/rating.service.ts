@@ -158,6 +158,13 @@ export interface RatingService {
   getTransactionsForMatch(
     matchId: string
   ): Promise<import('../dto/rating.dto').RatingTransactionRecord[]>
+  /**
+   * SuperAdmin tool: puts a player back to "unrated" so they retake the Initial
+   * Skill Rating questionnaire (the assessment endpoint refuses while a rating
+   * exists). Returns the rows as they were, for the audit log. Refuses when
+   * there is nothing to reset, so a double-click cannot log a phantom reset.
+   */
+  resetPlayerRatings(playerId: string): Promise<PlayerRatingRecord[]>
 }
 
 export function createRatingService(repository: RatingRepository): RatingService {
@@ -165,6 +172,24 @@ export function createRatingService(repository: RatingRepository): RatingService
     getRating: (playerId, ratingType) => repository.getRating(playerId, ratingType),
     getRatingHistory: (playerId, ratingType) => repository.getRatingHistory(playerId, ratingType),
     getTransactionsForMatch: (matchId) => repository.findTransactionsByMatch(matchId),
+
+    async resetPlayerRatings(playerId) {
+      const previous = (
+        await Promise.all([
+          repository.getRating(playerId, 'singles'),
+          repository.getRating(playerId, 'doubles')
+        ])
+      ).filter((r): r is PlayerRatingRecord => r !== null && r.rating_value !== null)
+      if (previous.length === 0) {
+        throw new RatingServiceError(
+          409,
+          'NOT_RATED',
+          'This player has no rating to reset — they can take the assessment already.'
+        )
+      }
+      await repository.resetRatings(playerId)
+      return previous
+    },
 
     async applyMatchResult(input) {
       if (await repository.hasTransactionsForMatch(input.match_id)) {

@@ -218,11 +218,9 @@ const adminNavItems = computed<NavItem[]>(() => {
     { name: 'Sponsors', href: '/admin/sponsors', icon: 'star' },
     { name: 'Account security', href: '/admin/security', icon: 'shield' }
   ]
-  // Development only — the backfill endpoint refuses to run anywhere else, so
-  // in production this would be a button that can only return 403.
-  if (import.meta.dev) {
-    items.push({ name: 'Rating tools', href: '/admin/ratings', icon: 'rankings' })
-  }
+  // The rating reset works everywhere; only the backfill on that page is
+  // development-only, and the page labels that itself.
+  items.push({ name: 'Rating tools', href: '/admin/ratings', icon: 'rankings' })
   return items
 })
 

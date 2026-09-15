@@ -44,14 +44,18 @@ export default defineEventHandler(async (event) => {
   )
 
   try {
-    const { items, total } = await service.listForAdmin({ status, limit, offset })
+    const { items, total, counts, report_counts } = await service.listForAdmin({
+      status,
+      limit,
+      offset
+    })
 
     // Names for both sides, resolved here rather than in the repository: the
     // queue is the only caller that needs them, and a join in the repository
     // would put reporter identity into a shape other callers could reach for.
     const enriched = await withPlayerNames(client, items)
 
-    return { data: enriched, total, request_id: crypto.randomUUID() }
+    return { data: enriched, total, counts, report_counts, request_id: crypto.randomUUID() }
   } catch (err) {
     console.error('[GET /api/v1/admin/reports] failed:', err)
     throw apiError(500, 'INTERNAL_ERROR', 'Could not load reports.')

@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 064-rating-assessments: persist the Initial Skill Rating questionnaire.
+
+     Until now the questionnaire result was written straight into
+     player_ratings.rating_value and the answers were thrown away, so once a
+     player had rated matches nothing distinguished "the estimate they started
+     from" from "where their results have taken them", and the model could not
+     be re-scored against real answers.
+
+     One row per submission. `answers` holds the resolved choices
+     ([{question_id, choice_index, score}]) and `dimension_scores` the per-skill
+     means, both as jsonb: the questionnaire content is versioned application
+     code (question-bank.ts, INITIAL_RATING_ALGORITHM_VERSION), not a table, so
+     a relational answer store would only duplicate that versioning here.
+
+     RLS: a player may read their own assessments (their own answers are not a
+     secret from them). No INSERT/UPDATE/DELETE policy for `authenticated` —
+     rows are written only by the server through the service role, the same
+     posture as player_ratings. -->
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+    <changeSet id="0001-create-rating-assessments" author="rating-engine">
+        <createTable tableName="rating_assessments">
+            <column name="id" type="uuid" defaultValueComputed="gen_random_uuid()">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="player_id" type="uuid">
+                <constraints nullable="false"
+                             foreignKeyName="fk_rating_assessments_player"
+                             references="player_profiles(id)"
+                             deleteCascade="true"/>
+            </column>
+            <column name="answers" type="jsonb">
+                <constraints nullable="false"/>
+            </column>
+            <column name="dimension_scores" type="jsonb">
+                <constraints nullable="false"/>
+            </column>
+            <column name="technical_rating" type="numeric(5,3)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="provisional_rating" type="numeric(5,3)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="self_reported_level" type="numeric(5,3)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="reliability" type="text">
+                <constraints nullable="false"/>
+            </column>
+            <column name="flags" type="text[]" defaultValueComputed="'{}'::text[]">
+                <constraints nullable="false"/>
+            </column>
+            <column name="calculation_version" type="int">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_at" type="timestamptz" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <sql>
+            ALTER TABLE rating_assessments ADD CONSTRAINT ck_rating_assessments_reliability
+                CHECK (reliability IN ('high', 'medium', 'low'));
+            ALTER TABLE rating_assessments ADD CONSTRAINT ck_rating_assessments_provisional_range
+                CHECK (provisional_rating >= 2.000 AND provisional_rating &lt;= 8.000);
+        </sql>
+        <rollback>
+            <dropTable tableName="rating_assessments"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="0002-rating-assessments-index" author="rating-engine">
+        <createIndex tableName="rating_assessments" indexName="idx_rating_assessments_player_created">
+            <column name="player_id"/>
+            <column name="created_at"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="0003-rating-assessments-rls" author="rating-engine">
+        <sql>
+            ALTER TABLE rating_assessments ENABLE ROW LEVEL SECURITY;
+            CREATE POLICY rating_assessments_select_own ON rating_assessments
+                FOR SELECT
+                USING (player_id IN (SELECT id FROM player_profiles WHERE user_id = auth.uid()));
+        </sql>
+        <rollback>
+            <sql>
+                DROP POLICY IF EXISTS rating_assessments_select_own ON rating_assessments;
+                ALTER TABLE rating_assessments DISABLE ROW LEVEL SECURITY;
+            </sql>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

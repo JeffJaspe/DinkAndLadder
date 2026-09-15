@@ -85,8 +85,8 @@ interface BadgeResponse {
 const currentUserQuery = useFetch<UserDto>('/api/v1/auth/me')
 const myProfileQuery = useFetch<PlayerProfileDto>('/api/v1/players/me')
 const ratingsQuery = useFetch<{
-  singles?: { rating_value: number }
-  doubles?: { rating_value: number }
+  singles?: { rating_value: number | null } | null
+  doubles?: { rating_value: number | null } | null
 }>('/api/v1/players/me/ratings')
 const myClubsQuery = useFetch<{ items: MyClubMembershipDto[] }>('/api/v1/clubs/mine')
 /**
@@ -122,7 +122,20 @@ await Promise.all([
 
 const { data: currentUser, pending, error } = currentUserQuery
 const { data: myProfile } = myProfileQuery
-const { data: ratingsData } = ratingsQuery
+const { data: ratingsData, pending: ratingsPending } = ratingsQuery
+
+/**
+ * A player with a profile but no rating — either an assessment that never
+ * persisted, or a SuperAdmin reset so they retake it — has no other route back
+ * to the questionnaire from here (only the account switcher sends them). Shown
+ * once the ratings request has answered, so it does not flash while loading.
+ */
+const needsAssessment = computed(
+  () =>
+    !ratingsPending.value &&
+    ratingsData.value != null &&
+    ratingsData.value.singles?.rating_value == null
+)
 const { data: myClubsData } = myClubsQuery
 const { data: recentMatches } = recentMatchesQuery
 const { data: upcomingEvents } = upcomingEventsQuery
@@ -515,6 +528,22 @@ const dashboardLinks: ReadonlyArray<{ to: string; label: string; line: string }>
 
     <div v-else-if="currentUser" class="page-shell space-y-5">
       <SecurityMfaReminder />
+
+      <!-- Sent back to the questionnaire: no rating on file (see needsAssessment). -->
+      <section
+        v-if="needsAssessment"
+        data-testid="assessment-nudge"
+        class="flex flex-col gap-3 rounded-card border border-primary/40 bg-primary-soft p-4 sm:flex-row sm:items-center sm:justify-between"
+      >
+        <div>
+          <p class="font-medium text-fg">Take the skill assessment</p>
+          <p class="mt-0.5 text-body-2 text-fg-secondary">
+            You have no rating on file yet. A few quick questions give you a provisional rating so
+            your matches can count.
+          </p>
+        </div>
+        <UiButton to="/onboarding?flow=rate-only&redirect=/dashboard">Start</UiButton>
+      </section>
 
       <!-- STANDING. Who you are and where you stand. -->
       <section class="rounded-card border border-border bg-surface p-5 shadow-card sm:p-6">

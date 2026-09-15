@@ -1,5 +1,10 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import type { CreatePlayerReportInput, PlayerReportRecord } from '../dto/report.dto'
+import {
+  REPORT_STATUSES,
+  type CreatePlayerReportInput,
+  type PlayerReportRecord,
+  type ReportStatusCounts
+} from '../dto/report.dto'
 
 export interface ReportRepository {
   create(input: CreatePlayerReportInput): Promise<PlayerReportRecord>
@@ -15,6 +20,10 @@ export interface ReportRepository {
     limit: number
     offset: number
   }): Promise<{ items: PlayerReportRecord[]; total: number }>
+  /** Reports per status, for the queue's tab counts. */
+  countByStatus(): Promise<ReportStatusCounts>
+  /** Every report ever filed against each of these players, keyed by player id. */
+  countByReportedPlayer(playerIds: string[]): Promise<Record<string, number>>
   resolve(
     id: string,
     updates: {
@@ -92,6 +101,41 @@ export function createReportRepository(client: SupabaseClient): ReportRepository
         throw new Error(`Failed to list reports: ${error.message}`)
       }
       return { items: (data ?? []) as PlayerReportRecord[], total: count ?? 0 }
+    },
+
+    async countByStatus() {
+      // Four head-only counts rather than one select of every status column:
+      // the queue is small, and this stays O(1) rows over the wire as it grows.
+      const entries = await Promise.all(
+        REPORT_STATUSES.map(async (status) => {
+          const { count, error } = await client
+            .from('player_reports')
+            .select('id', { count: 'exact', head: true })
+            .eq('status', status)
+          if (error) {
+            throw new Error(`Failed to count ${status} reports: ${error.message}`)
+          }
+          return [status, count ?? 0] as const
+        })
+      )
+      return Object.fromEntries(entries) as ReportStatusCounts
+    },
+
+    async countByReportedPlayer(playerIds) {
+      if (playerIds.length === 0) return {}
+      const { data, error } = await client
+        .from('player_reports')
+        .select('reported_player_id')
+        .in('reported_player_id', playerIds)
+
+      if (error) {
+        throw new Error(`Failed to count reports by player: ${error.message}`)
+      }
+      const counts: Record<string, number> = {}
+      for (const row of (data ?? []) as { reported_player_id: string }[]) {
+        counts[row.reported_player_id] = (counts[row.reported_player_id] ?? 0) + 1
+      }
+      return counts
     },
 
     async resolve(id, updates) {

@@ -36,6 +36,7 @@ function createFakeRatingRepository(seed: PlayerRatingRecord[] = []) {
   for (const row of seed) ratings.set(`${row.player_id}:${row.rating_type}`, row)
   const ratedMatchIds = new Set<string>()
   const appliedCalls: unknown[] = []
+  const resetCalls: string[] = []
 
   const repository: RatingRepository = {
     async getRating(playerId, ratingType) {
@@ -58,10 +59,18 @@ function createFakeRatingRepository(seed: PlayerRatingRecord[] = []) {
     async applyRatingUpdates(matchId, _ratingType, _calculationVersion, updates) {
       ratedMatchIds.add(matchId)
       appliedCalls.push(updates)
+    },
+    async resetRatings(playerId) {
+      resetCalls.push(playerId)
+      for (const [key, row] of ratings) {
+        if (row.player_id === playerId) {
+          ratings.set(key, { ...row, rating_value: null, matches_played: 0, confidence_score: 1.0 })
+        }
+      }
     }
   }
 
-  return { repository, ratings, appliedCalls }
+  return { repository, ratings, appliedCalls, resetCalls }
 }
 
 describe('rating.service pure calculation helpers', () => {
@@ -292,5 +301,52 @@ describe('rating.service applyMatchResult', () => {
 
     await service.applyMatchResult(input)
     await expect(service.applyMatchResult(input)).rejects.toMatchObject({ code: 'ALREADY_RATED' })
+  })
+})
+
+describe('rating.service resetPlayerRatings', () => {
+  it('clears both rating rows and returns them as they were, for the audit log', async () => {
+    const { repository, ratings, resetCalls } = createFakeRatingRepository([
+      makeRating({
+        player_id: 'p1',
+        rating_type: 'singles',
+        rating_value: 3.8,
+        matches_played: 12
+      }),
+      makeRating({
+        player_id: 'p1',
+        rating_type: 'doubles',
+        rating_value: 4.1,
+        matches_played: 20
+      }),
+      makeRating({ player_id: 'p2', rating_type: 'singles', rating_value: 3.0 })
+    ])
+    const service = createRatingService(repository)
+
+    const previous = await service.resetPlayerRatings('p1')
+
+    expect(previous.map((r) => [r.rating_type, r.rating_value, r.matches_played])).toEqual([
+      ['singles', 3.8, 12],
+      ['doubles', 4.1, 20]
+    ])
+    expect(resetCalls).toEqual(['p1'])
+    expect(ratings.get('p1:singles')?.rating_value).toBeNull()
+    expect(ratings.get('p1:doubles')?.matches_played).toBe(0)
+    // Nobody else was touched.
+    expect(ratings.get('p2:singles')?.rating_value).toBe(3.0)
+  })
+
+  it('refuses when the player is already unrated, so nothing phantom gets logged', async () => {
+    const { repository, resetCalls } = createFakeRatingRepository([
+      makeRating({ player_id: 'p1', rating_type: 'singles', rating_value: null })
+    ])
+    const service = createRatingService(repository)
+
+    await expect(service.resetPlayerRatings('p1')).rejects.toMatchObject({
+      status: 409,
+      code: 'NOT_RATED'
+    })
+    await expect(service.resetPlayerRatings('nobody')).rejects.toMatchObject({ code: 'NOT_RATED' })
+    expect(resetCalls).toEqual([])
   })
 })
