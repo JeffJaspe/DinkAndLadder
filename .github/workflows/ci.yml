@@ -14,12 +14,17 @@ jobs:
     name: Web (lint, typecheck, unit, e2e, build)
     runs-on: ubuntu-latest
     env:
-      # Placeholder Supabase config — no real project exists yet, and none of the
-      # web/e2e checks below exercise a live auth flow. Without *some* value here
-      # the Supabase client throws on missing URL and the app fails to boot.
-      NUXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
-      NUXT_PUBLIC_SUPABASE_KEY: placeholder-anon-key
-      NUXT_SUPABASE_SECRET_KEY: placeholder-service-key
+      # Supabase config for the e2e run. With the three E2E_SUPABASE_* secrets
+      # set (repository Settings -> Secrets), the app runs against the DEV
+      # project and the whole Playwright suite runs, authenticated journeys
+      # included (tests/e2e/auth/seed.ts refuses any project but dev). Without
+      # them these fall back to placeholders that let the app boot, and only
+      # the signed-out `public` project runs - the seeder cannot mint a session
+      # against a URL nothing answers on.
+      NUXT_PUBLIC_SUPABASE_URL: ${{ secrets.E2E_SUPABASE_URL || 'http://127.0.0.1:54321' }}
+      NUXT_PUBLIC_SUPABASE_KEY: ${{ secrets.E2E_SUPABASE_ANON_KEY || 'placeholder-anon-key' }}
+      NUXT_SUPABASE_SECRET_KEY: ${{ secrets.E2E_SUPABASE_SECRET_KEY || 'placeholder-service-key' }}
+      E2E_HAS_SUPABASE: ${{ secrets.E2E_SUPABASE_SECRET_KEY != '' }}
       # Cloudflare's officially documented dummy Turnstile test keypair
       # (always passes) — not a secret, safe to commit. See
       # https://developers.cloudflare.com/turnstile/troubleshooting/testing/
@@ -57,7 +62,15 @@ jobs:
       - name: E2E tests
         env:
           CI: true
-        run: pnpm --filter web run test:e2e
+        working-directory: apps/web
+        run: |
+          if [ "$E2E_HAS_SUPABASE" = "true" ]; then
+            echo "Dev Supabase secrets present: running the full suite (public + authed + mfa)."
+            pnpm exec playwright test
+          else
+            echo "::warning::E2E_SUPABASE_* secrets are not set; running only the signed-out 'public' project."
+            pnpm exec playwright test --project=public
+          fi
 
       - name: Upload Playwright report
         if: failure()

@@ -35,7 +35,14 @@ interface Env {
 }
 
 export function loadEnv(): Env {
-  const raw = readFileSync(resolve(process.cwd(), '.env'), 'utf8')
+  // Env vars first (CI sets them as secrets); the .env file is the local
+  // developer convenience and may not exist at all on a runner.
+  let raw = ''
+  try {
+    raw = readFileSync(resolve(process.cwd(), '.env'), 'utf8')
+  } catch {
+    raw = ''
+  }
   const get = (k: string) =>
     process.env[k] ??
     raw
