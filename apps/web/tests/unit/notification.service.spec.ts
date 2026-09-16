@@ -65,6 +65,20 @@ function createFakeRepository(): NotificationRepository & { records: Notificatio
         .forEach((r) => {
           r.read_at = new Date().toISOString()
         })
+    },
+    // Retention is exercised in notification-retention.spec.ts, against the
+    // service's batching loop. Here it only has to exist so this fake stays a
+    // complete NotificationRepository.
+    async deleteExpired(cutoffs, limit) {
+      const doomed = records
+        .filter((r) =>
+          r.read_at !== null ? r.read_at < cutoffs.readBefore : r.created_at < cutoffs.createdBefore
+        )
+        .slice(0, limit)
+      for (const record of doomed) {
+        records.splice(records.indexOf(record), 1)
+      }
+      return doomed.length
     }
   }
 }

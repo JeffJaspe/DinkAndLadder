@@ -1,9 +1,10 @@
-import { serverSupabaseClient } from '#supabase/server'
+import { serverSupabaseClient, serverSupabaseServiceRole } from '#supabase/server'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
 import { createPlayerProfileService } from '~/server/domains/player/services/player-profile.service'
 import { PlayerProfileValidationError } from '~/server/domains/player/dto/player-profile.dto'
 import { apiError } from '~/server/utils/api-error'
 import { getOptionalUser } from '~/server/utils/optional-user'
+import { awardAchievements } from '~/server/utils/award-achievements'
 
 interface OnboardingInput {
   display_name?: string
@@ -41,6 +42,22 @@ export default defineEventHandler(async (event) => {
     // ensureProfile, not saveOwnProfile: re-entering onboarding must never
     // rename someone who already picked a display name.
     const profile = await service.ensureProfile(claims.sub, body?.display_name)
+
+    /**
+     * The first badge, earned by arriving.
+     *
+     * A gallery that opens with sixteen locked rows and nothing held reads as
+     * a broken page rather than as something to play for, so 'newcomer' is
+     * true the moment the profile exists. Re-entering onboarding awards
+     * nothing further — the evaluator is idempotent — and this is also the
+     * one place a player who joined before achievements were ever granted
+     * picks theirs up.
+     *
+     * Awaited rather than floated: onboarding is a one-off request with no
+     * latency budget worth protecting, and the player lands on a dashboard
+     * that reads the badge straight afterwards.
+     */
+    await awardAchievements(serverSupabaseServiceRole(event), profile.id, claims.sub)
 
     return {
       data: profile,

@@ -48,6 +48,17 @@ const currentQuestion = computed(() => questions.value[currentQuestionIndex.valu
 const progress = computed(() => ((currentQuestionIndex.value + 1) / questions.value.length) * 100)
 const isLastQuestion = computed(() => currentQuestionIndex.value === questions.value.length - 1)
 
+/**
+ * The skill statements all share one short scale (Never … Always), so their
+ * answers fit on a single row instead of five stacked blocks — which is the
+ * point of the scale: read the statement, tap a frequency, move on. The three
+ * calibration questions still have sentence-length options and keep the
+ * stacked layout, so this is measured from the choices rather than hardcoded.
+ */
+const compactChoices = computed(
+  () => currentQuestion.value?.choices.every((choice) => choice.length <= 12) ?? false
+)
+
 onMounted(async () => {
   if (!user.value) {
     await navigateTo('/login')
@@ -341,14 +352,20 @@ const categoryLabel = (category: string) => {
             {{ currentQuestion.question }}
           </h2>
 
-          <div class="space-y-3">
+          <div
+            data-testid="question-choices"
+            :class="compactChoices ? 'grid grid-cols-1 gap-2 sm:grid-cols-5' : 'space-y-3'"
+          >
             <button
               v-for="(choice, index) in currentQuestion.choices"
               :key="index"
               type="button"
               :disabled="loading"
-              class="w-full rounded-lg border-2 border-border-strong bg-canvas p-4 text-left text-fg transition-all hover:border-primary hover:bg-surface-2 disabled:opacity-50"
-              :class="{ 'border-primary bg-surface-2': answers[currentQuestion.id] === index }"
+              class="w-full rounded-lg border-2 border-border-strong bg-canvas text-fg transition-all hover:border-primary hover:bg-surface-2 disabled:opacity-50"
+              :class="[
+                compactChoices ? 'px-3 py-3 text-center text-sm font-medium' : 'p-4 text-left',
+                { 'border-primary bg-surface-2': answers[currentQuestion.id] === index }
+              ]"
               @click="selectAnswer(index)"
             >
               {{ choice }}

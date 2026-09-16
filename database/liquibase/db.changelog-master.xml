@@ -69,5 +69,6 @@
     <include file="062-mfa/062-mfa.changelog.xml" relativeToChangelogFile="true"/>
     <include file="063-images-bucket/063-images-bucket.changelog.xml" relativeToChangelogFile="true"/>
     <include file="064-rating-assessments/064-rating-assessments.changelog.xml" relativeToChangelogFile="true"/>
+    <include file="065-achievement-integrity/065-achievement-integrity.changelog.xml" relativeToChangelogFile="true"/>
 
 </databaseChangeLog>

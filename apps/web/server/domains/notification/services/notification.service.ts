@@ -5,6 +5,7 @@ import type {
   NotificationQuery
 } from '../dto/notification.dto'
 import { toNotificationDto } from '../dto/notification.dto'
+import { retentionCutoffs } from './notification-retention'
 
 export class NotificationServiceError extends Error {
   constructor(
@@ -23,6 +24,13 @@ export interface NotificationService {
   countUnread(userId: string): Promise<number>
   markAsRead(userId: string, notificationId: string): Promise<NotificationDto>
   markAllAsRead(userId: string): Promise<void>
+  /**
+   * Apply the retention policy platform-wide. Loops in batches until a sweep
+   * comes back short or the batch ceiling is reached, so the first run against
+   * a table that has never been pruned finishes in bounded work rather than one
+   * enormous statement.
+   */
+  purgeExpired(options?: { batchSize?: number; maxBatches?: number }): Promise<number>
 }
 
 export function createNotificationService(repository: NotificationRepository): NotificationService {
@@ -71,6 +79,24 @@ export function createNotificationService(repository: NotificationRepository): N
 
     async markAllAsRead(userId) {
       await repository.markAllAsRead(userId)
+    },
+
+    async purgeExpired(options) {
+      const batchSize = options?.batchSize ?? 500
+      const maxBatches = options?.maxBatches ?? 40
+
+      // The cutoffs are computed once, not per batch: a sweep that recomputed
+      // "now" each round would move its own target mid-run, which makes the
+      // result impossible to reason about in a log.
+      const cutoffs = retentionCutoffs()
+
+      let total = 0
+      for (let batch = 0; batch < maxBatches; batch++) {
+        const deleted = await repository.deleteExpired(cutoffs, batchSize)
+        total += deleted
+        if (deleted < batchSize) break
+      }
+      return total
     }
   }
 }

@@ -1,7 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import {
   createAchievementService,
-  createAchievementUnlocker,
   AchievementServiceError
 } from '../../server/domains/achievement/services/achievement.service'
 import type { AchievementRepository } from '../../server/domains/achievement/repositories/achievement.repository'
@@ -146,83 +145,6 @@ describe('AchievementService', () => {
       const result = await service.getPlayerPoints('player-1')
 
       expect(result).toBe(85)
-    })
-  })
-})
-
-describe('AchievementUnlocker', () => {
-  describe('checkAndUnlock', () => {
-    it('unlocks an achievement', async () => {
-      const definition = makeDefinitionRecord()
-      const newAchievement = makePlayerAchievementRecord()
-
-      const repo = createFakeRepository({
-        findDefinitionByKey: vi.fn().mockResolvedValue(definition),
-        findPlayerAchievement: vi.fn().mockResolvedValue(null),
-        createPlayerAchievement: vi.fn().mockResolvedValue(newAchievement)
-      })
-      const unlocker = createAchievementUnlocker(repo)
-
-      const result = await unlocker.checkAndUnlock('player-1', 'first_match')
-
-      expect(result).toBe(true)
-      expect(repo.createPlayerAchievement).toHaveBeenCalledWith('player-1', 'achievement-1')
-    })
-
-    it('returns false if already unlocked', async () => {
-      const definition = makeDefinitionRecord()
-      const existing = makePlayerAchievementRecord()
-
-      const repo = createFakeRepository({
-        findDefinitionByKey: vi.fn().mockResolvedValue(definition),
-        findPlayerAchievement: vi.fn().mockResolvedValue(existing)
-      })
-      const unlocker = createAchievementUnlocker(repo)
-
-      const result = await unlocker.checkAndUnlock('player-1', 'first_match')
-
-      expect(result).toBe(false)
-    })
-
-    it('returns false if definition not found', async () => {
-      const repo = createFakeRepository()
-      const unlocker = createAchievementUnlocker(repo)
-
-      const result = await unlocker.checkAndUnlock('player-1', 'nonexistent')
-
-      expect(result).toBe(false)
-    })
-  })
-
-  describe('checkMatchMilestones', () => {
-    it('unlocks first_match at 1 match', async () => {
-      const definition = makeDefinitionRecord()
-      const repo = createFakeRepository({
-        findDefinitionByKey: vi.fn().mockResolvedValue(definition),
-        findPlayerAchievement: vi.fn().mockResolvedValue(null),
-        createPlayerAchievement: vi.fn().mockResolvedValue(makePlayerAchievementRecord())
-      })
-      const unlocker = createAchievementUnlocker(repo)
-
-      const result = await unlocker.checkMatchMilestones('player-1', 1)
-
-      expect(result).toContain('first_match')
-    })
-  })
-
-  describe('checkRatingMilestones', () => {
-    it('unlocks rated_player when rated', async () => {
-      const definition = makeDefinitionRecord({ key: 'rated_player' })
-      const repo = createFakeRepository({
-        findDefinitionByKey: vi.fn().mockResolvedValue(definition),
-        findPlayerAchievement: vi.fn().mockResolvedValue(null),
-        createPlayerAchievement: vi.fn().mockResolvedValue(makePlayerAchievementRecord())
-      })
-      const unlocker = createAchievementUnlocker(repo)
-
-      const result = await unlocker.checkRatingMilestones('player-1', 3.0)
-
-      expect(result).toContain('rated_player')
     })
   })
 })

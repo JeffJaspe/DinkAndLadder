@@ -67,116 +67,19 @@ export function createAchievementService(achievements: AchievementRepository): A
   }
 }
 
-export function createAchievementUnlocker(achievements: AchievementRepository) {
-  return {
-    async checkAndUnlock(playerId: string, achievementKey: string): Promise<boolean> {
-      try {
-        const definition = await achievements.findDefinitionByKey(achievementKey)
-        if (!definition) return false
-
-        const existing = await achievements.findPlayerAchievement(playerId, definition.id)
-        if (existing) return false
-
-        await achievements.createPlayerAchievement(playerId, definition.id)
-        return true
-      } catch {
-        return false
-      }
-    },
-
-    async checkMatchMilestones(playerId: string, matchCount: number): Promise<string[]> {
-      const unlocked: string[] = []
-
-      if (matchCount >= 1 && (await this.checkAndUnlock(playerId, 'first_match'))) {
-        unlocked.push('first_match')
-      }
-      if (matchCount >= 10 && (await this.checkAndUnlock(playerId, 'regular_player'))) {
-        unlocked.push('regular_player')
-      }
-      if (matchCount >= 50 && (await this.checkAndUnlock(playerId, 'dedicated_player'))) {
-        unlocked.push('dedicated_player')
-      }
-      if (matchCount >= 100 && (await this.checkAndUnlock(playerId, 'match_master'))) {
-        unlocked.push('match_master')
-      }
-
-      return unlocked
-    },
-
-    async checkWinMilestones(playerId: string, winCount: number): Promise<string[]> {
-      const unlocked: string[] = []
-
-      if (winCount >= 1 && (await this.checkAndUnlock(playerId, 'first_victory'))) {
-        unlocked.push('first_victory')
-      }
-      if (winCount >= 10 && (await this.checkAndUnlock(playerId, 'winner'))) {
-        unlocked.push('winner')
-      }
-      if (winCount >= 50 && (await this.checkAndUnlock(playerId, 'champion'))) {
-        unlocked.push('champion')
-      }
-
-      return unlocked
-    },
-
-    async checkRatingMilestones(playerId: string, rating: number | null): Promise<string[]> {
-      const unlocked: string[] = []
-
-      if (rating !== null) {
-        if (await this.checkAndUnlock(playerId, 'rated_player')) {
-          unlocked.push('rated_player')
-        }
-        if (rating >= 3.5 && (await this.checkAndUnlock(playerId, 'rising_star'))) {
-          unlocked.push('rising_star')
-        }
-        if (rating >= 4.0 && (await this.checkAndUnlock(playerId, 'skilled_player'))) {
-          unlocked.push('skilled_player')
-        }
-        if (rating >= 4.5 && (await this.checkAndUnlock(playerId, 'elite_player'))) {
-          unlocked.push('elite_player')
-        }
-      }
-
-      return unlocked
-    },
-
-    async checkSocialMilestones(playerId: string, followerCount: number): Promise<string[]> {
-      const unlocked: string[] = []
-
-      if (followerCount >= 5 && (await this.checkAndUnlock(playerId, 'social_butterfly'))) {
-        unlocked.push('social_butterfly')
-      }
-
-      return unlocked
-    },
-
-    async checkClubMilestones(playerId: string, isCreator: boolean): Promise<string[]> {
-      const unlocked: string[] = []
-
-      if (await this.checkAndUnlock(playerId, 'community_member')) {
-        unlocked.push('community_member')
-      }
-      if (isCreator && (await this.checkAndUnlock(playerId, 'club_founder'))) {
-        unlocked.push('club_founder')
-      }
-
-      return unlocked
-    },
-
-    async checkTournamentMilestones(
-      playerId: string,
-      registrationCount: number
-    ): Promise<string[]> {
-      const unlocked: string[] = []
-
-      if (registrationCount >= 1 && (await this.checkAndUnlock(playerId, 'tournament_debut'))) {
-        unlocked.push('tournament_debut')
-      }
-      if (registrationCount >= 5 && (await this.checkAndUnlock(playerId, 'competitor'))) {
-        unlocked.push('competitor')
-      }
-
-      return unlocked
-    }
-  }
-}
+/**
+ * `createAchievementUnlocker` was removed here.
+ *
+ * It offered six entry points — checkMatchMilestones, checkWinMilestones,
+ * checkRatingMilestones, checkSocialMilestones, checkClubMilestones,
+ * checkTournamentMilestones — each of which had to be remembered at a
+ * different call site, each swallowing its own errors, and **not one of them
+ * was ever called from application code.** Sixteen achievements were seeded,
+ * rendered on a page, and awarded to nobody, for as long as the feature
+ * existed.
+ *
+ * Its replacement is one idempotent function that re-reads the player's whole
+ * record and grants the difference: achievement-evaluator.service.ts, reached
+ * through server/utils/award-achievements.ts. Six things to remember became
+ * one, which is the only version of this that stays wired up.
+ */

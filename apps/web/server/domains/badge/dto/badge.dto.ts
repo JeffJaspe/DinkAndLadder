@@ -1,5 +1,8 @@
+import type { AchievementTier } from '~/server/domains/achievement/dto/achievement.dto'
+
 export interface BadgeShowcaseRecord {
   player_id: string
+  /** achievement_definitions.key — see 065-achievement-integrity. */
   selected_badge_id: string | null
   updated_at: string
 }
@@ -14,86 +17,32 @@ export interface SetBadgeInput {
   badge_id: string | null
 }
 
-export interface BadgeDefinition {
+/**
+ * A badge, as the profile shows it.
+ *
+ * There used to be a hard-coded `AVAILABLE_BADGES` array here: ten badges with
+ * names like "Tournament Champion" and "Match Master", offered to every player
+ * unconditionally, saved without a single check, and connected to nothing. A
+ * player who had never recorded a match could wear "Completed 100+ matches" on
+ * their profile, and eight of the ten duplicated an achievement that already
+ * existed in `achievement_definitions` with the same key and a different
+ * description.
+ *
+ * A badge is now exactly one thing: an achievement this player has unlocked.
+ * There is no second list to keep in step, and nothing to display that the
+ * record does not support.
+ */
+export interface BadgeDto {
+  /** The achievement key. Stable across environments; this is what is stored. */
   id: string
   name: string
-  icon: string
+  /** The definition's glyph — the badge's own identity, not an icon-system entry. */
+  icon: string | null
   description: string
-  category: 'achievement' | 'milestone' | 'social' | 'special'
+  tier: AchievementTier
+  /** When the player earned it. */
+  earnedAt: string
 }
-
-export const AVAILABLE_BADGES: BadgeDefinition[] = [
-  {
-    id: 'tournament_winner',
-    name: 'Tournament Champion',
-    icon: '🏆',
-    description: 'Won first place in a tournament',
-    category: 'achievement'
-  },
-  {
-    id: 'tournament_runner_up',
-    name: 'Runner Up',
-    icon: '🥈',
-    description: 'Placed second in a tournament',
-    category: 'achievement'
-  },
-  {
-    id: 'tournament_third',
-    name: 'Third Place',
-    icon: '🥉',
-    description: 'Placed third in a tournament',
-    category: 'achievement'
-  },
-  {
-    id: 'match_master',
-    name: 'Match Master',
-    icon: '🎾',
-    description: 'Completed 100+ matches',
-    category: 'milestone'
-  },
-  {
-    id: 'dedicated_player',
-    name: 'Dedicated Player',
-    icon: '⭐',
-    description: 'Completed 50+ matches',
-    category: 'milestone'
-  },
-  {
-    id: 'regular_player',
-    name: 'Regular Player',
-    icon: '🌟',
-    description: 'Completed 10+ matches',
-    category: 'milestone'
-  },
-  {
-    id: 'club_founder',
-    name: 'Club Founder',
-    icon: '🏛️',
-    description: 'Created a club',
-    category: 'social'
-  },
-  {
-    id: 'social_butterfly',
-    name: 'Social Butterfly',
-    icon: '🦋',
-    description: 'Has 5+ followers',
-    category: 'social'
-  },
-  {
-    id: 'rising_star',
-    name: 'Rising Star',
-    icon: '📈',
-    description: 'Reached 3.5+ rating',
-    category: 'milestone'
-  },
-  {
-    id: 'elite_player',
-    name: 'Elite Player',
-    icon: '💎',
-    description: 'Reached 4.5+ rating',
-    category: 'milestone'
-  }
-]
 
 export function badgeShowcaseRecordToDto(record: BadgeShowcaseRecord): BadgeShowcaseDto {
   return {
@@ -101,8 +50,4 @@ export function badgeShowcaseRecordToDto(record: BadgeShowcaseRecord): BadgeShow
     selectedBadgeId: record.selected_badge_id,
     updatedAt: record.updated_at
   }
-}
-
-export function getBadgeById(badgeId: string): BadgeDefinition | undefined {
-  return AVAILABLE_BADGES.find((b) => b.id === badgeId)
 }

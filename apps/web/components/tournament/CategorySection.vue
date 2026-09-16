@@ -396,16 +396,42 @@ function toggle(category: TournamentCategoryDto | null) {
 }
 
 /**
+ * Bring a card arrived at by link into view, once it has rendered.
+ *
+ * Client-only and best-effort: the element does not exist during SSR, and a
+ * card that cannot be found is not worth an error — the query still opened it,
+ * so the page is correct either way, just not scrolled.
+ *
+ * `smooth` unless the visitor asked for less motion, in which case it jumps.
+ */
+function scrollToCategory(categoryId: string) {
+  if (import.meta.server) return
+  nextTick(() => {
+    const element = document.getElementById(`category-${categoryId}`)
+    if (!element) return
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    element.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'start' })
+  })
+}
+
+/**
  * `?category=` used to select a tab on the old two-level page. Those links are
  * in the wild, so they now open that card instead of landing on a page with
  * everything shut.
+ *
+ * A champion badge on a player's profile links here the same way, which made
+ * scrolling the point rather than a nicety: on a tournament with eight
+ * categories the card that opened was reliably below the fold, so following
+ * "champion of the 4.0 mixed" landed on a page that looked unchanged.
  */
 watch(
   [categories, () => route.query.category],
   ([cats, fromQuery]) => {
     const wanted = Array.isArray(fromQuery) ? fromQuery[0] : fromQuery
     if (wanted && cats.some((c) => c.id === wanted)) {
+      const changed = openId.value !== wanted
       openId.value = wanted
+      if (changed) scrollToCategory(wanted)
     } else if (openId.value === null && cats.length === 1) {
       // A single category has nothing to choose between; leaving it shut would
       // be one pointless click on every visit.
@@ -792,6 +818,7 @@ function openPlayer(playerId: string) {
     <div v-else class="space-y-3">
       <TournamentCategoryCard
         v-for="category in cards"
+        :id="category ? `category-${category.id}` : undefined"
         :key="keyFor(category)"
         :category="category"
         :tournament="tournament"

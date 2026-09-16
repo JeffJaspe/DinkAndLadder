@@ -9,6 +9,7 @@ import { createNotificationService } from '~/server/domains/notification/service
 import type { NotificationType } from '~/server/domains/notification/dto/notification.dto'
 import { createActivityRepository } from '~/server/domains/activity/repositories/activity.repository'
 import { createActivityLogger } from '~/server/domains/activity/services/activity.service'
+import { awardAchievementsForPlayers } from '~/server/utils/award-achievements'
 
 /**
  * Everything that follows a match becoming verified, in one place.
@@ -71,4 +72,22 @@ export async function settleVerifiedMatch(
       })
     }
   }
+
+  /**
+   * A settled match is the richest achievement trigger in the product: it can
+   * move a player across the match-count, win-count and rating milestones in
+   * one go, for up to four people at once.
+   *
+   * Last, and after the rating has been applied, so the rating milestones are
+   * decided on the new number rather than the old one. Every participant is
+   * re-evaluated rather than only the winners — matches played is a milestone
+   * too, and 'first_match' belongs to whoever lost it just as much.
+   */
+  const participantProfiles = await playerRepo.findByIds(
+    match.participants.map((p) => p.player_id)
+  )
+  await awardAchievementsForPlayers(
+    serviceClient,
+    participantProfiles.map((profile) => ({ playerId: profile.id, userId: profile.user_id }))
+  )
 }

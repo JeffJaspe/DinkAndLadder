@@ -177,6 +177,8 @@ function getNotificationLink(notification: Notification): string | null {
       return '/community?tab=team'
     case 'event':
       return `/events/${id}`
+    case 'achievement':
+      return '/achievements'
     case 'player_rating':
       return '/dashboard'
     case 'player_report':
@@ -326,6 +328,10 @@ function formatTime(dateStr: string): string {
             />
           </component>
         </section>
+
+        <p class="mt-6 border-t border-border pt-4 text-caption text-fg-muted">
+          {{ RETENTION_NOTICE }}
+        </p>
       </div>
     </div>
   </div>

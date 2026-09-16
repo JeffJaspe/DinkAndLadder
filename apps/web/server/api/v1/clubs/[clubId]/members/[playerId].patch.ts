@@ -10,6 +10,7 @@ import { createNotificationService } from '~/server/domains/notification/service
 import { apiError } from '~/server/utils/api-error'
 import type { UpdateMembershipInput } from '~/server/domains/club/dto/club-membership.dto'
 import { getOptionalUser } from '~/server/utils/optional-user'
+import { awardAchievements } from '~/server/utils/award-achievements'
 
 function parseUpdateInput(body: unknown): UpdateMembershipInput {
   if (typeof body !== 'object' || body === null) {
@@ -110,6 +111,10 @@ export default defineEventHandler(async (event) => {
           reference_type: 'club_membership',
           reference_id: membership.id
         })
+        // Approval is the moment the membership becomes real, so it is the
+        // moment 'community_member' can be true — not when the request was
+        // filed, which the club may never act on.
+        await awardAchievements(serviceClient, targetPlayerId, targetProfile.user_id)
       } else if (input.status === 'rejected' && oldMembership.status === 'invited') {
         /**
          * Withdrawing an invitation, not declining a request (051).

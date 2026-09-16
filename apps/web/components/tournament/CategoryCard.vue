@@ -330,7 +330,7 @@ function confirmTrash() {
        lifted surface, because on a list of six the reader needs to see at a
        glance which one they are inside. -->
   <div
-    class="overflow-hidden rounded-xl shadow-card transition-colors"
+    class="overflow-hidden rounded-xl scroll-mt-20 shadow-card transition-colors lg:scroll-mt-6"
     :class="expanded ? 'bg-surface ring-2 ring-primary' : 'bg-surface'"
   >
     <!-- Summary. Always visible, always enough to decide whether to open it. -->

@@ -32,6 +32,13 @@ export type NotificationType =
    * housekeeping fact about the club's own session.
    */
   | 'event.auto_closed'
+  /**
+   * A badge this player just earned. Sent by server/utils/award-achievements.ts,
+   * which is the only thing that grants one — an achievement notification and
+   * the achievement row are written in the same pass, so the two can never
+   * disagree about what somebody holds.
+   */
+  | 'achievement.unlocked'
 
 export type NotificationReferenceType =
   | 'club_membership'
@@ -50,6 +57,8 @@ export type NotificationReferenceType =
   | 'player_report'
   /** An events row. Deep-links to the event page. */
   | 'event'
+  /** An achievement_definitions row. Deep-links to the achievements gallery. */
+  | 'achievement'
 
 export interface NotificationRecord {
   id: string

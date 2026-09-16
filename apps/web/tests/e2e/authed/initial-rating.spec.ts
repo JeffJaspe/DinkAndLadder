@@ -47,11 +47,19 @@ test('the rate-only flow steps through every scenario', async ({ page }) => {
 
   await expect(page.getByText(`Question 1 of ${QUESTION_COUNT}`)).toBeVisible()
   await expect(page.getByRole('heading', { level: 2 })).toContainText(/serve/i)
+  // Every skill statement offers the same five-word scale.
+  await expect(page.getByTestId('question-choices').getByRole('button')).toHaveText([
+    'Never',
+    'Rarely',
+    'Sometimes',
+    'Usually',
+    'Always'
+  ])
 
   // Answer the first, check Back returns, then walk to the last question
   // without answering it (answering the last one submits, which this
   // already-rated account cannot do).
-  const firstChoice = page.getByRole('button', { name: /often miss/i }).first()
+  const firstChoice = page.getByTestId('question-choices').getByRole('button').first()
   await firstChoice.click()
   await expect(page.getByText(`Question 2 of ${QUESTION_COUNT}`)).toBeVisible()
 
@@ -61,9 +69,9 @@ test('the rate-only flow steps through every scenario', async ({ page }) => {
 
   for (let n = 2; n < QUESTION_COUNT; n++) {
     await expect(page.getByText(`Question ${n} of ${QUESTION_COUNT}`)).toBeVisible()
-    // The first answer on every ladder is the novice rung.
-    await page.locator('.space-y-3 > button').first().click()
+    // The first answer on every scale is "Never".
+    await page.getByTestId('question-choices').getByRole('button').first().click()
   }
   await expect(page.getByText(`Question ${QUESTION_COUNT} of ${QUESTION_COUNT}`)).toBeVisible()
-  await expect(page.getByRole('heading', { level: 2 })).toContainText(/compete against/i)
+  await expect(page.getByRole('heading', { level: 2 })).toContainText(/even game against/i)
 })

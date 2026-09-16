@@ -16,6 +16,16 @@ export interface NotificationRepository {
   countUnread(userId: string): Promise<number>
   markAsRead(notificationId: string): Promise<NotificationRecord>
   markAllAsRead(userId: string): Promise<void>
+  /**
+   * Delete expired notifications, up to `limit` rows, and report how many went.
+   * Batched rather than one unbounded DELETE so the first sweep over a table
+   * that has never been pruned cannot hold a long write lock or time the
+   * request out; the caller loops until a batch comes back short.
+   */
+  deleteExpired(
+    cutoffs: { readBefore: string; createdBefore: string },
+    limit: number
+  ): Promise<number>
 }
 
 export function createNotificationRepository(client: SupabaseClient): NotificationRepository {
@@ -118,6 +128,41 @@ export function createNotificationRepository(client: SupabaseClient): Notificati
         .is('read_at', null)
 
       if (error) throw error
+    },
+
+    async deleteExpired(cutoffs, limit) {
+      // Two passes rather than one `.or()`: PostgREST's or() cannot express
+      // "read and old" AND "unread and older" as two independent conjunctions,
+      // and getting that wrong deletes unread notifications on the read clock.
+      // Each pass selects its own ids first so the delete is by primary key and
+      // bounded — the partial indexes from 065 cover both predicates.
+      let deleted = 0
+
+      for (const pass of [
+        { column: 'read_at', notNull: true, before: cutoffs.readBefore },
+        { column: 'created_at', notNull: false, before: cutoffs.createdBefore }
+      ] as const) {
+        const remaining = limit - deleted
+        if (remaining <= 0) break
+
+        let selection = client.from('notifications').select('id').limit(remaining)
+        selection = pass.notNull
+          ? selection.not('read_at', 'is', null).lt('read_at', pass.before)
+          : selection.is('read_at', null).lt('created_at', pass.before)
+
+        const { data, error } = await selection
+        if (error) throw error
+
+        const ids = (data ?? []).map((row) => (row as { id: string }).id)
+        if (!ids.length) continue
+
+        const { error: deleteError } = await client.from('notifications').delete().in('id', ids)
+        if (deleteError) throw deleteError
+
+        deleted += ids.length
+      }
+
+      return deleted
     }
   }
 }

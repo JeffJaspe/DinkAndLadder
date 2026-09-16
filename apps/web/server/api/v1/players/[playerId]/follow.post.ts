@@ -9,6 +9,7 @@ import { createActivityRepository } from '~/server/domains/activity/repositories
 import { createActivityLogger } from '~/server/domains/activity/services/activity.service'
 import { getOptionalUser } from '~/server/utils/optional-user'
 import { apiError } from '~/server/utils/api-error'
+import { awardAchievements } from '~/server/utils/award-achievements'
 
 export default defineEventHandler(async (event) => {
   const user = await getOptionalUser(event)
@@ -39,6 +40,16 @@ export default defineEventHandler(async (event) => {
     const serviceClient = serverSupabaseServiceRole(event)
     const activityLogger = createActivityLogger(createActivityRepository(serviceClient))
     await activityLogger.logStartedFollowing(profile.id, targetPlayerId)
+
+    /**
+     * The person gaining a follower is the one whose record changed, so they
+     * are the one re-evaluated — not the follower, whose own standing is
+     * untouched by following somebody.
+     */
+    const target = await createPlayerProfileRepository(serviceClient).findById(targetPlayerId)
+    if (target) {
+      await awardAchievements(serviceClient, target.id, target.user_id)
+    }
 
     return relationship
   } catch (err) {

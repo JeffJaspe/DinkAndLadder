@@ -8236,3 +8236,186 @@ copy question.
   Policy" names two documents that do not exist (`/legal` has only the cookie
   policy) and links nothing. Either publish them or soften the line; not
   changed here because it is factual copy.
+
+## 2026-09-16 — Questionnaire answers simplified to one frequency scale
+
+Twenty questions each carrying five paragraphs of prose was exhausting to read.
+The questions stay at 20; the answers became uniform.
+
+- Every skill question is now a short **statement** ("My serve lands in and
+  reaches deep in the box") answered on the same five-point scale every time:
+  **Never · Rarely · Sometimes · Usually · Always**. Nothing to compare, nothing
+  to weigh up — read the statement, tap a frequency.
+- Scoring moved from per-question prose ladders to two statement tiers
+  (`TIER_SCORES` in question-bank.ts): core 2.0/2.4/3.0/3.8/4.5, advanced
+  2.0/2.6/3.4/4.5/5.5. Each dimension has one core statement and one advanced
+  one, so the pair separates the levels rather than one question spanning the
+  whole range — a beginner answers "Usually" to core and "Never" to advanced.
+  Basic competence, however reliable, tops out at 4.5; only advanced statements
+  reach the ceiling. `AssessmentQuestion.tier` records which is which.
+- The three calibration questions (playing history, competition, self-level)
+  keep short option lists — they are not frequency questions — with the labels
+  shortened.
+- `initial-rating.service.ts` is unchanged: same weights, caps, flags,
+  reliability and version. Scenario bands still land where they did (novice 2.0,
+  advanced beginner 3.1, intermediate 3.6, advanced intermediate 3.9, advanced
+  4.5, expert 5.2, pro 5.5; strong strokes with weak consistency still capped at
+  3.0).
+- UI: when every option is a short word the choices render as one row of five
+  (`grid sm:grid-cols-5`) instead of five stacked blocks; the calibration
+  questions keep the stacked layout. Measured from the choice text, not
+  hardcoded.
+- Tests: question-bank spec now asserts the shared scale, tier scoring and
+  core+advanced coverage per dimension; the scoring spec's profiles are
+  expressed as a core frequency plus an advanced frequency. Unit 1496/1496,
+  e2e 6/6 (needed `npm run build` first — the preview server was still serving
+  a Sep-12 build).
+
+---
+
+## Achievements audit: badges now correspond to something earned (2026-09-17)
+
+**The bug.** `createAchievementUnlocker` existed, was tested, and was **never
+called from application code**. Sixteen achievements were seeded, rendered on
+`/achievements`, and awarded to nobody — every row was locked for every player,
+permanently. In parallel, `server/domains/badge/` shipped a hard-coded
+`AVAILABLE_BADGES` array of ten badges offered to every account and saved with
+no check at all, so a player who had never recorded a match could wear
+"Completed 100+ matches" on their public profile. Eight of the ten duplicated an
+achievement key that already existed with a different description.
+
+**A badge is now exactly one thing: an achievement this player has unlocked.**
+
+### Database — `065-achievement-integrity`
+- Seeds `newcomer` ("New Around Here", bronze, 5pts) so a new account's gallery
+  opens with something of its own rather than sixteen padlocks.
+- Retires `tournament_third` and `open_play_leader` (`is_active = false`). Third
+  place needs a consolation-match rule that is an unresolved product decision
+  (CLAUDE.md §7, now ADR-010); open play publishes no final standing. Deactivated, not
+  deleted — `player_achievements` has an FK, and they can come back when the
+  rules settle.
+- Clears every `player_badge_showcase.selected_badge_id` not backed by an
+  unlocked achievement. Since nothing had ever been unlocked, that is every
+  showcased badge on the platform; all of them were self-assigned.
+- Two partial indexes for the notification retention sweep, and
+  `ON DELETE CASCADE` on `notification_deliveries` so the sweep can run.
+
+### Server
+- `achievement-stats.repository.ts` — one read-only projection of a player's
+  record across matches, ratings, follows, clubs and tournament brackets. All
+  `head: true` counts. Tournament 1st/2nd derived from the highest bracket round
+  (the final); third place deliberately not derived.
+- `achievement-requirements.ts` — the executable rule per achievement key, with
+  the requirement sentence and countable progress. The `criteria` jsonb column
+  stays as the record of intent; three of its rows use shapes no evaluator could
+  execute. `unmappedKeys()` reports any active definition with no rule.
+- `achievement-evaluator.service.ts` — **one** idempotent function replacing the
+  unlocker's six. Re-reads the record, grants the difference, treats a `23505`
+  race as success.
+- `achievement-gallery.service.ts` — the whole earnable set marked earned/locked
+  with hint, progress and `pending` (requirement met, grant not yet run).
+- `server/utils/award-achievements.ts` — evaluate + notify, best-effort, wired
+  into **five** hooks: `settleVerifiedMatch` (all participants, after the rating
+  applies), onboarding, club creation, membership approval, follow, tournament
+  registration (both halves of a doubles entry).
+- `BadgeService.setSelectedBadge` now rejects anything unearned (403
+  `BADGE_NOT_EARNED`); `getSelectedBadge` resolves against what the player holds,
+  so a retired or revoked achievement stops rendering on the profile.
+- `createAchievementUnlocker` deleted.
+
+### Notifications: retention (read 14d / unread 90d)
+- `utils/notification-retention.ts` holds the policy and the sentence shown on
+  the notifications page, so the copy and the sweep read one constant.
+- The read clock starts when it was **read**, not sent — nothing is deleted from
+  under somebody who has not looked. Unread gets 90 days.
+- `NotificationService.purgeExpired` batches (500 × 40 max) with cutoffs
+  computed once per sweep. `POST /api/v1/tasks/purge-notifications`, guarded by
+  `CRON_SECRET`, on the Vercel cron at 16:30 UTC daily.
+- New type `achievement.unlocked` + reference type `achievement`, deep-linking
+  to `/achievements`.
+
+### SuperAdmin: per-player recalculation (Admin → Ratings)
+No bulk backfill, by decision — achievements are awarded from here forward and
+everybody else sees the locked gallery with its requirements.
+`POST /api/v1/admin/players/{playerId}/achievements-recalc` is the escape hatch
+for a badge somebody plainly earned but does not hold. SuperAdmin + aal2,
+audit-logged (`achievement.admin_recalculated`) with what it granted and the
+numbers it decided on. Grants only, never revokes. Notification is opt-in and
+off by default. The panel reuses the existing email lookup and reports the
+stats plus any unmapped definitions.
+
+### UI
+- `pages/achievements.vue` rebuilt. Earned badges are raised cards; locked ones
+  are flat dashed tiles with a grayscaled glyph, a padlock, the requirement, and
+  a progress bar only where the requirement is genuinely a count (a rating is a
+  level, not a total). **The old `opacity-70` took body copy below AA contrast
+  to signal "locked"** — locked is now structural, and all text stays at full
+  strength. "Show on profile" acts straight from the gallery.
+- Dashboard "My badge" offers only earned badges, with "N more to earn" linking
+  to the gallery; with none earned the control is a link, not an empty picker.
+- Profile badge payload is the earned achievement (tier + earnedAt), with an
+  sr-only description.
+
+**Validation.** Unit 1521/1521 (34 new across evaluator, gallery, badge service
+and retention). `npm run typecheck` clean, `npm run lint` clean (8 pre-existing
+`require-default-prop` warnings), `check:tokens` clean, `npm run build` clean.
+Visual pass: `/achievements`, `/dashboard`, `/notifications` at 1280 and 390,
+light and dark. Two defects found and fixed in that pass — a full progress bar
+under a padlock (now the `pending` line) and the category chips clipping at
+390px.
+
+**Not verified visually:** the admin recalculation panel; the e2e owner account
+is not a SuperAdmin, so `/admin/ratings` redirects.
+
+**Lands on push.** `065-achievement-integrity` runs against dev on merge to
+main, which is when `newcomer` appears and the two unevaluable badges leave the
+gallery. Until then the page shows 21 definitions including "Third Place" and
+"Open Play Leader" as "Not available yet".
+
+### Champion badges link to the draw they were won in (2026-09-17)
+
+Follow-up to the achievements audit above. A player's profile showed at most one
+showcase glyph; "Tournament Champion" said somebody won something, which is the
+least interesting part of winning it.
+
+- **`tournament-placement.repository.ts`** — placements derived from the bracket,
+  now carrying the event, tournament, category and date rather than a tally.
+  **It also fixes a real bug in the version shipped earlier today:** the last
+  round was computed per *tournament*, but a tournament runs several categories
+  in one `bracket_matches` table, so a 4-entry category's final is round 2 while
+  a 16-entry one's is round 4. Taking the tournament's max round disqualified
+  the champion of every smaller category and could promote a semi-finalist of
+  the largest. The draw key is now `(tournament_id, category_id)`.
+  The bracket read is bounded by `.in('tournament_id', …)` from ids the caller
+  already holds, rather than an `or()` chain two conditions long per
+  registration.
+- **`championship.service.ts`** + `GET /api/v1/players/{playerId}/championships`
+  — titles only, most recent first, each with a `label`
+  ("Summer Slam — 4.0 Mixed Doubles") and a resolved `href`. A tournament with
+  no event row gets `href: null` rather than a URL that 404s. Matches both
+  `player_id` and `partner_player_id`, since a doubles title belongs to both.
+- **Profile** — one trophy per title beside the name, each a link to
+  `/events/{eventId}?category={categoryId}`, `title` (and sr-only text) reading
+  "Champion — {event} — {category} · {month year}". Separate from the showcase
+  badge, which remains the one the player chose.
+- **`CategorySection.vue`** — `?category=` already opened the right card; it now
+  scrolls it into view (reduced-motion aware, client-only, best-effort), and
+  `CategoryCard` carries `scroll-mt` to clear the fixed mobile bar. Without this
+  a tournament with eight categories opened a card below the fold, so following
+  the badge looked like it did nothing.
+
+**Validation.** Unit 1532/1532 (11 new covering the per-category final, the
+semi-finalist case, runner-up, undecided finals, ordering, and link
+resolution). Typecheck, lint, tokens, build clean.
+
+Verified end to end against dev data: a two-title player's profile renders two
+linked trophies, and clicking the first lands on the Taguig Championship #3
+event with the Beginner card open, ringed and scrolled to, showing
+"CHAMPION [DEMO] Luna Cruz".
+
+**One defect the type system could not catch.** The badges were first written as
+`<component :is="championship.href ? 'NuxtLink' : 'span'">`. That string does not
+resolve here — Vue rendered a literal `<nuxtlink>` custom element carrying the
+href as an inert attribute. It typechecked, it passed lint, and it looked
+correct in the DOM; only clicking the badge revealed that nothing happened. Now
+a plain `NuxtLink` / `span` pair under `v-if`/`v-else`.

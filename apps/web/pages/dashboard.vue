@@ -55,12 +55,22 @@ interface PendingActionsResponse {
   total: number
 }
 
+/**
+ * A badge this player has earned. Mirrors BadgeDto.
+ *
+ * This list used to be a hard-coded ten-badge catalogue the API handed to
+ * everybody, selectable without any check — so a player could wear "Completed
+ * 100+ matches" having played none. It is now only what they hold, and
+ * `lockedCount` carries the rest as a link to the gallery rather than as a
+ * second copy of it in a dashboard card.
+ */
 interface BadgeDefinition {
   id: string
   name: string
-  icon: string
+  icon: string | null
   description: string
-  category: string
+  tier: string
+  earnedAt: string
 }
 
 interface BadgeShowcaseDto {
@@ -71,7 +81,10 @@ interface BadgeShowcaseDto {
 
 interface BadgeResponse {
   showcase: BadgeShowcaseDto | null
+  /** Earned badges only. */
   availableBadges: BadgeDefinition[]
+  /** How many earnable badges are still locked. */
+  lockedCount: number
 }
 
 /**
@@ -248,8 +261,14 @@ const selectedBadge = computed(() => {
   )
 })
 
+const badgeError = ref('')
+
+const earnedBadges = computed(() => badgeData.value?.data?.availableBadges ?? [])
+const lockedBadgeCount = computed(() => badgeData.value?.data?.lockedCount ?? 0)
+
 async function selectBadge(badgeId: string | null) {
   badgeSaving.value = true
+  badgeError.value = ''
   try {
     await $fetch('/api/v1/players/me/badge', {
       method: 'PUT',
@@ -257,6 +276,11 @@ async function selectBadge(badgeId: string | null) {
     })
     await refreshBadge()
     badgeSelectorOpen.value = false
+  } catch (err) {
+    // The server re-checks ownership on every write, so this is reachable
+    // even from a correct client — a badge can be shown in a list that was
+    // fetched before something changed.
+    badgeError.value = apiErrorMessage(err, 'Could not update your badge.')
   } finally {
     badgeSaving.value = false
   }
@@ -964,7 +988,15 @@ const dashboardLinks: ReadonlyArray<{ to: string; label: string; line: string }>
 
             <div class="mt-6 flex items-baseline justify-between gap-4">
               <h2 class="font-display text-heading-3 text-fg">My badge</h2>
+              <NuxtLink
+                v-if="!earnedBadges.length"
+                to="/achievements"
+                class="text-body-2 font-semibold text-fg underline decoration-border-strong underline-offset-4 transition-colors hover:text-primary hover:decoration-primary"
+              >
+                See badges
+              </NuxtLink>
               <button
+                v-else
                 class="text-body-2 font-semibold text-fg underline decoration-border-strong underline-offset-4 transition-colors hover:text-primary hover:decoration-primary"
                 @click="badgeSelectorOpen = !badgeSelectorOpen"
               >
@@ -985,7 +1017,11 @@ const dashboardLinks: ReadonlyArray<{ to: string; label: string; line: string }>
             </div>
 
             <p v-else-if="!badgeSelectorOpen" class="mt-3 text-body-2 text-fg-secondary">
-              Pick a badge to show on your profile.
+              <template v-if="earnedBadges.length">Pick a badge to show on your profile.</template>
+              <template v-else>
+                No badges yet. They are earned from your record — your first arrives the day an
+                organiser records a match you played.
+              </template>
             </p>
 
             <ul v-else class="mt-3">
@@ -999,7 +1035,7 @@ const dashboardLinks: ReadonlyArray<{ to: string; label: string; line: string }>
                   Remove badge
                 </button>
               </li>
-              <li v-for="badge in badgeData?.data?.availableBadges" :key="badge.id">
+              <li v-for="badge in earnedBadges" :key="badge.id">
                 <button
                   class="flex w-full items-center gap-3 border-t border-border py-3 text-left transition-colors first:border-t-0 first:pt-0 disabled:opacity-60"
                   :disabled="badgeSaving"
@@ -1021,7 +1057,35 @@ const dashboardLinks: ReadonlyArray<{ to: string; label: string; line: string }>
                   />
                 </button>
               </li>
+
+              <!-- What is still locked stays a count and a link. The gallery
+                   is the surface that shows each locked badge and what it
+                   takes; repeating that inside a dashboard card would bury
+                   the badges the player can actually use right now. -->
+              <li v-if="lockedBadgeCount">
+                <NuxtLink
+                  to="/achievements"
+                  class="flex w-full items-center gap-3 border-t border-border py-3 text-left text-body-2 text-fg-secondary transition-colors first:border-t-0 first:pt-0 hover:text-primary"
+                >
+                  <UiIcon name="lock" size="h-4 w-4" :stroke-width="2" aria-hidden="true" />
+                  <span class="min-w-0 flex-1">
+                    <span class="tabular-nums">{{ lockedBadgeCount }}</span>
+                    more to earn — see what each one takes
+                  </span>
+                  <UiIcon
+                    name="chevron-right"
+                    size="h-4 w-4"
+                    :stroke-width="2"
+                    class="shrink-0"
+                    aria-hidden="true"
+                  />
+                </NuxtLink>
+              </li>
             </ul>
+
+            <p v-if="badgeError" role="alert" class="mt-3 text-body-2 text-danger">
+              {{ badgeError }}
+            </p>
           </div>
         </div>
       </section>

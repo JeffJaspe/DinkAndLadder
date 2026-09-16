@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { RatingBackfillReport } from '~/server/domains/rating/services/rating-backfill.service'
+import type { AchievementRecalcReport } from '~/server/api/v1/admin/players/[playerId]/achievements-recalc.post'
 
 /**
  * Two SuperAdmin rating tools.
@@ -8,7 +9,13 @@ import type { RatingBackfillReport } from '~/server/domains/rating/services/rati
  *    Initial Skill Rating questionnaire (it refuses while a rating exists).
  *    Works on every environment; audit-logged server-side.
  *
- * 2. Recalculating the ratings that were never calculated (development only).
+ * 2. Recalculate a player's achievements from their record — the escape hatch
+ *    for a badge somebody plainly earned but does not hold. There is no bulk
+ *    backfill by decision: achievements are awarded from here forward, and
+ *    everybody else sees the locked gallery with its requirements. This is for
+ *    the case that is genuinely wrong rather than merely old.
+ *
+ * 3. Recalculating the ratings that were never calculated (development only).
  *
  * Until 2026-09-01 the rating trigger lived inside the match-verification
  * endpoint, so the other route to a verified match — an organiser recording a
@@ -72,6 +79,8 @@ async function lookup() {
   searchError.value = ''
   resetDone.value = ''
   found.value = null
+  recalcReport.value = null
+  recalcError.value = ''
   if (!email.value.trim()) return
   searching.value = true
   try {
@@ -109,6 +118,59 @@ async function resetRating() {
     resetError.value = apiErrorMessage(err, 'Could not reset the rating.')
   } finally {
     resetting.value = false
+  }
+}
+
+// ── Recalculate a player's achievements ──────────────────────────────────
+const recalcNotify = ref(false)
+const recalculating = ref(false)
+const recalcError = ref('')
+const recalcReport = ref<AchievementRecalcReport | null>(null)
+
+/** The stats the grant was decided on, as readable rows. The operator's evidence. */
+const STAT_LABELS: Record<string, string> = {
+  matches_played: 'Matches played',
+  matches_won: 'Matches won',
+  best_rating: 'Best rating',
+  is_rated: 'Rated',
+  followers: 'Followers',
+  clubs_joined: 'Clubs joined',
+  created_a_club: 'Created a club',
+  tournament_registrations: 'Tournaments entered',
+  tournament_wins: 'Tournaments won',
+  tournament_runner_ups: 'Tournament finals lost'
+}
+
+const recalcStatRows = computed(() => {
+  const stats = recalcReport.value?.stats
+  if (!stats) return []
+  return Object.entries(STAT_LABELS)
+    .filter(([key]) => key in stats)
+    .map(([key, label]) => {
+      const value = stats[key]
+      return {
+        key,
+        label,
+        value: typeof value === 'boolean' ? (value ? 'Yes' : 'No') : (value ?? '—')
+      }
+    })
+})
+
+async function recalculateAchievements() {
+  if (!found.value?.player) return
+  recalcError.value = ''
+  recalcReport.value = null
+  recalculating.value = true
+  try {
+    const response = await $fetch<{ data: AchievementRecalcReport }>(
+      `/api/v1/admin/players/${found.value.player.id}/achievements-recalc`,
+      { method: 'POST', body: { notify: recalcNotify.value } }
+    )
+    recalcReport.value = response.data
+  } catch (err) {
+    recalcError.value = apiErrorMessage(err, 'Could not recalculate achievements.')
+  } finally {
+    recalculating.value = false
   }
 }
 
@@ -169,8 +231,9 @@ async function run(dryRun: boolean) {
     <header class="mb-6">
       <h1 class="font-display text-heading-1 text-fg">Ratings</h1>
       <p class="mt-1 max-w-prose text-body-2 text-fg-secondary">
-        Super admin only. Reset a player's rating so they retake the skill assessment, or
-        recalculate ratings for matches recorded before the rating engine could see them.
+        Super admin only. Reset a player's rating so they retake the skill assessment, repair a
+        player's achievements, or recalculate ratings for matches recorded before the rating engine
+        could see them.
       </p>
     </header>
 
@@ -250,6 +313,92 @@ async function run(dryRun: boolean) {
       >
         <p v-if="resetError" role="alert" class="text-body-2 text-danger">{{ resetError }}</p>
       </UiModal>
+    </section>
+
+    <!-- Recalculate a player's achievements -->
+    <section class="mb-6 rounded-card border border-border bg-surface p-5 shadow-card">
+      <h2 class="font-display text-heading-3 text-fg">Recalculate a player's achievements</h2>
+      <p class="mt-3 max-w-prose text-body-2 text-fg-secondary">
+        Re-checks every badge against the player's actual record — matches, wins, rating, clubs,
+        followers, tournaments — and awards anything they have earned but do not hold. Grants only:
+        it never takes a badge away. Safe to run twice; the second run awards nothing. Audit-logged
+        with what it granted and the numbers it decided on.
+      </p>
+      <p class="mt-2 max-w-prose text-body-2 text-fg-muted">
+        Look a player up in the panel above first.
+      </p>
+
+      <div
+        v-if="!found?.player"
+        class="mt-5 rounded-button bg-canvas px-4 py-3 text-body-2 text-fg-muted"
+      >
+        No player selected.
+      </div>
+
+      <div v-else class="mt-5">
+        <label class="flex items-start gap-3 text-body-2 text-fg-secondary">
+          <input
+            v-model="recalcNotify"
+            type="checkbox"
+            class="mt-0.5 h-4 w-4 shrink-0 rounded border-border-strong text-primary focus:ring-2 focus:ring-primary/40"
+          />
+          <span>
+            Notify {{ found.player.display_name }} about anything this awards.
+            <span class="block text-caption text-fg-muted">
+              Off by default — a player repaired months after the fact would get every badge at once
+              as fresh news.
+            </span>
+          </span>
+        </label>
+
+        <UiButton class="mt-4" :disabled="recalculating" @click="recalculateAchievements">
+          {{ recalculating ? 'Recalculating…' : `Recalculate for ${found.player.display_name}` }}
+        </UiButton>
+      </div>
+
+      <p v-if="recalcError" role="alert" class="mt-4 text-body-2 text-danger">{{ recalcError }}</p>
+
+      <div v-if="recalcReport" class="mt-5 border-t border-border pt-5">
+        <p
+          v-if="recalcReport.awarded.length"
+          role="status"
+          class="rounded-button bg-primary-soft px-4 py-3 text-body-2 text-primary"
+        >
+          Awarded {{ recalcReport.awarded.length }}
+          {{ recalcReport.awarded.length === 1 ? 'badge' : 'badges' }} to
+          {{ recalcReport.display_name }}: {{ recalcReport.awarded.join(', ') }}.
+          <template v-if="recalcReport.notified"> They have been notified.</template>
+        </p>
+        <p v-else role="status" class="text-body-2 text-fg-secondary">
+          Nothing to award — {{ recalcReport.display_name }} already holds every badge their record
+          supports ({{ recalcReport.already_held }} held).
+        </p>
+
+        <!-- An active badge with no rule behind it can never be earned by
+             anybody, which is invisible from the outside. It is surfaced here
+             because this is the only screen that ever looks. -->
+        <p
+          v-if="recalcReport.unmapped.length"
+          class="mt-3 rounded-button bg-warning-soft px-4 py-3 text-body-2 text-warning"
+        >
+          {{ recalcReport.unmapped.length }} active
+          {{ recalcReport.unmapped.length === 1 ? 'achievement has' : 'achievements have' }} no rule
+          behind {{ recalcReport.unmapped.length === 1 ? 'it' : 'them' }} and can never be earned:
+          {{ recalcReport.unmapped.join(', ') }}. Add a rule in achievement-requirements.ts or
+          deactivate the definition.
+        </p>
+
+        <dl class="mt-4 grid gap-x-6 gap-y-2 sm:grid-cols-2">
+          <div
+            v-for="row in recalcStatRows"
+            :key="row.key"
+            class="flex items-baseline justify-between gap-4 border-b border-border pb-1"
+          >
+            <dt class="text-body-2 text-fg-muted">{{ row.label }}</dt>
+            <dd class="text-body-2 tabular-nums text-fg">{{ row.value }}</dd>
+          </div>
+        </dl>
+      </div>
     </section>
 
     <div

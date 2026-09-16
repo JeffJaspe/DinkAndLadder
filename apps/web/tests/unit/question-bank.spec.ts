@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
+  FREQUENCY_LABELS,
+  TIER_SCORES,
   getAssessmentQuestions,
   getTierForRating,
   QUESTION_BANK,
@@ -37,15 +39,37 @@ describe('question-bank', () => {
       }
     })
 
-    it('every skill ladder climbs strictly from novice to expert', () => {
+    it('every skill statement uses the one frequency scale, scored by its tier', () => {
       for (const q of QUESTION_BANK) {
         if (!(SKILL_DIMENSIONS as readonly string[]).includes(q.category)) continue
-        expect(q.choices.length, q.id).toBe(5)
-        for (let i = 1; i < q.choices.length; i++) {
-          expect(q.choices[i].score, `${q.id} choice ${i}`).toBeGreaterThan(q.choices[i - 1].score)
-        }
-        expect(q.choices[0].score, q.id).toBe(RATING_MIN)
-        expect(q.choices[q.choices.length - 1].score, q.id).toBe(5.0)
+        expect(q.tier, q.id).toBeTruthy()
+        expect(
+          q.choices.map((c) => c.label),
+          q.id
+        ).toEqual([...FREQUENCY_LABELS])
+        expect(
+          q.choices.map((c) => c.score),
+          q.id
+        ).toEqual([...TIER_SCORES[q.tier!]])
+      }
+    })
+
+    it('both tiers climb strictly, starting at the rating floor', () => {
+      for (const scores of Object.values(TIER_SCORES)) {
+        expect(scores[0]).toBe(RATING_MIN)
+        for (let i = 1; i < scores.length; i++) expect(scores[i]).toBeGreaterThan(scores[i - 1])
+      }
+      // Basic competence, however reliable, is not elite play; only the
+      // advanced statements reach the top of the questionnaire's range.
+      expect(TIER_SCORES.core[4]).toBeLessThan(TIER_SCORES.advanced[4])
+      expect(TIER_SCORES.advanced[4]).toBe(INITIAL_RATING_MAX)
+    })
+
+    it('covers each dimension with a core statement and an advanced one', () => {
+      for (const dimension of SKILL_DIMENSIONS) {
+        const tiers = QUESTION_BANK.filter((q) => q.category === dimension).map((q) => q.tier)
+        expect(tiers, dimension).toContain('core')
+        expect(tiers, dimension).toContain('advanced')
       }
     })
 

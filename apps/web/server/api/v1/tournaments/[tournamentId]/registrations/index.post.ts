@@ -15,6 +15,7 @@ import { createRatingRepository } from '~/server/domains/rating/repositories/rat
 import { createPartnershipRepository } from '~/server/domains/partnership/repositories/partnership.repository'
 import { getOptionalUser } from '~/server/utils/optional-user'
 import { apiError } from '~/server/utils/api-error'
+import { awardAchievementsForPlayers } from '~/server/utils/award-achievements'
 
 export default defineEventHandler(async (event) => {
   const user = await getOptionalUser(event)
@@ -70,12 +71,25 @@ export default defineEventHandler(async (event) => {
   }
 
   try {
-    return await service.register(
+    const registration = await service.register(
       profile.id,
       tournamentId,
       body?.partner_player_id ?? null,
       categoryId
     )
+
+    // Both halves of a doubles entry are registered by this call, and both
+    // count toward 'tournament_debut' — evaluating only the player who filled
+    // the form would leave their partner's record wrong.
+    const partnerId = body?.partner_player_id ?? null
+    const entrants = partnerId ? [profile.id, partnerId] : [profile.id]
+    const entrantProfiles = await createPlayerProfileRepository(serviceClient).findByIds(entrants)
+    await awardAchievementsForPlayers(
+      serviceClient,
+      entrantProfiles.map((p) => ({ playerId: p.id, userId: p.user_id }))
+    )
+
+    return registration
   } catch (err) {
     if (err instanceof EventServiceError) {
       throw apiError(err.status, err.code, err.message)

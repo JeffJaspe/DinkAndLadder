@@ -9,6 +9,8 @@ export type AuditEventType =
   | 'rating.correction'
   | 'identity.mfa_admin_reset'
   | 'rating.admin_reset'
+  /** A SuperAdmin re-ran the achievement evaluator for one player. Grants only. */
+  | 'achievement.admin_recalculated'
 
 export type AuditTargetType =
   | 'club_membership'
@@ -16,6 +18,7 @@ export type AuditTargetType =
   | 'match_verification'
   | 'player_profile'
   | 'player_rating'
+  | 'player_achievement'
   | 'user'
 
 export interface AuditLogInput {

@@ -21,12 +21,15 @@ Decided so far (not final until the remaining open items below are resolved):
   `apps/web/server/domains/rating/services/initial-rating.service.ts`,
   `INITIAL_RATING_ALGORITHM_VERSION = 2`, replacing the v1 7-of-31 random-draw average on
   2026-09-16). It is a *provisional* starting estimate, never presented as an official rating.
-  - 20 fixed scenario questions: 17 skill questions across 8 weighted dimensions
+  - 20 fixed questions: 17 skill statements across 8 weighted dimensions
     (serve/return 10%, groundstrokes 10%, dinking 15%, third shot 15%, net game 15%,
     positioning 10%, strategy 15%, consistency 10%) plus 3 calibration questions
     (playing history, competitive experience, self-reported competitive level).
-  - Every skill ladder scores 2.0 / 2.5 / 3.0 / 4.0 / 5.0 directly on the rating scale;
-    knowing a shot never scores like executing it.
+  - Every skill statement is answered on ONE frequency scale — Never / Rarely / Sometimes /
+    Usually / Always — scored by statement tier directly on the rating scale: core
+    (basic competence) 2.0 / 2.4 / 3.0 / 3.8 / 4.5, advanced 2.0 / 2.6 / 3.4 / 4.5 / 5.5.
+    Each dimension carries one core statement and one advanced one, which is what separates
+    the levels. Statements describe execution in a real game, never knowledge of a term.
   - Rating = weighted mean, then bounded by: execution cap `mean(consistency, strategy) + 0.5`;
     playing-history cap (3.0 / 3.5 / 4.5 / 5.5); competition cap (4.5 without organised play,
     5.0 with, 5.5 with open/regional medals or pro results, which also add +0.25 / +0.5 once
@@ -352,6 +355,40 @@ Consequences:
 - The e2e suite plays the authenticator (`tests/e2e/helpers/totp.ts`, pinned to
   the RFC vectors) and runs the MFA journey in its own Playwright project after
   every other authed spec, because an enrolled test account refuses `aal1`.
+
+
+## ADR-010: Achievement placement rules — OPEN
+
+Status: **OPEN**. Two seeded achievements were retired in
+`065-achievement-integrity` rather than guessed at, because neither has an
+evaluable source in this schema and inventing one would mean a badge that claims
+a result the product never determined.
+
+- **`tournament_third` ("Third Place").** Single elimination produces two losing
+  semi-finalists and no ordering between them. Awarding third place requires a
+  consolation-match rule, which is part of the unfinalised tournament rule
+  variations (CLAUDE.md §7). First and second ARE derived — from the highest
+  bracket round's `winner_registration_id` and the other side of that match —
+  so only third is blocked.
+- **`open_play_leader` ("Open Play Leader").** Open play records scores but
+  publishes no final standing; there is no standings table and no defined
+  tiebreak.
+
+Decision deferred. Both definitions are `is_active = false`, which removes them
+from the gallery and the evaluator without touching `player_achievements`
+history. Reactivating is one `UPDATE` plus a rule in
+`achievement-requirements.ts`; the evaluator reports any active definition with
+no rule behind it (`unmappedKeys`), surfaced on the SuperAdmin recalculation
+panel, so a definition can never again be added without the code that grants it
+and go unnoticed.
+
+Consequences:
+- The executable rule lives in `achievement-requirements.ts`, not in the
+  `achievement_definitions.criteria` jsonb. That column is the human-readable
+  record of intent; three of its rows use shapes no evaluator could execute, and
+  interpreting it would silently award nothing for the rows it failed to parse.
+- `multi_champion` (win 5 tournaments) is live and reads the same derived
+  first-place count, so it inherits whatever the final bracket says.
 
 
 ## ADR Rule

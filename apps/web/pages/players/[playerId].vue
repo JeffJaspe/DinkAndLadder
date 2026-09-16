@@ -31,13 +31,39 @@ interface MatchSummary {
   scores: Array<{ set_number: number; team1_score: number; team2_score: number }>
 }
 
+/**
+ * The badge on this player's profile.
+ *
+ * Mirrors BadgeDto (server/domains/badge/dto/badge.dto.ts). It is resolved
+ * server-side against the achievements this player actually holds, so anything
+ * that arrives here is earned — the endpoint returns null rather than a badge
+ * the record does not support.
+ */
 interface SelectedBadge {
+  /** The achievement key. */
   id: string
   name: string
-  icon: string
+  icon: string | null
   description: string
-  category: string
-  selectedAt: string
+  tier: string
+  earnedAt: string
+}
+
+/**
+ * A tournament title. Mirrors ChampionshipDto
+ * (server/domains/achievement/services/championship.service.ts).
+ */
+interface ChampionshipDto {
+  placement: 1 | 2
+  tournament_id: string
+  category_id: string | null
+  /** "Summer Slam — 3.5 Mixed Doubles". */
+  label: string
+  event_name: string | null
+  category_name: string | null
+  decided_at: string | null
+  /** Null when the tournament has no event page to link to. */
+  href: string | null
 }
 
 const route = useRoute()
@@ -200,6 +226,51 @@ const { data: achievementsData } = achievementsQuery
 const { data: stats } = statsQuery
 const { data: ratingHistoryData } = ratingHistoryQuery
 const { data: activitiesData } = activitiesQuery
+
+/**
+ * Titles this player holds — one badge each, each linking to the draw it was
+ * won in.
+ *
+ * Separate from the showcase badge on purpose. The showcase is one badge the
+ * player picked; this is the record. A single "Tournament Champion" glyph can
+ * say that somebody won something, which is the least interesting part of
+ * winning it — these say which tournament, in which category, and take you
+ * there.
+ */
+const { data: championshipsData } = useFetch<{ data: ChampionshipDto[] }>(
+  () => `/api/v1/players/${playerId.value}/championships`,
+  { server: false, default: () => ({ data: [] }) }
+)
+
+const championships = computed(() =>
+  achievementsEnabled.value ? (championshipsData.value?.data ?? []) : []
+)
+
+/**
+ * A title's hover text, and its accessible name.
+ *
+ * The event is the part somebody is actually looking for, so it leads; the
+ * category qualifies it. `label` already carries both, joined.
+ */
+/**
+ * Shared between the linked and unlinked trophy.
+ *
+ * Two elements rather than `<component :is>`: `:is="'NuxtLink'"` does not
+ * resolve here and renders a literal `<nuxtlink>` custom element — markup that
+ * looks right in the DOM, carries the href as an inert attribute, and cannot be
+ * clicked. It typechecked and rendered; only following the badge revealed it.
+ */
+const TROPHY_CLASS = 'inline-flex items-center rounded-badge text-xl leading-none'
+
+function championshipTitle(championship: ChampionshipDto): string {
+  const when = championship.decided_at
+    ? new Date(championship.decided_at).toLocaleDateString(undefined, {
+        year: 'numeric',
+        month: 'short'
+      })
+    : null
+  return `Champion — ${championship.label}${when ? ` · ${when}` : ''}`
+}
 
 const { data: badgeData } = useFetch<{ data: SelectedBadge | null }>(
   () => `/api/v1/players/${playerId.value}/badge`,
@@ -691,14 +762,40 @@ function formatActivityText(activity: ProfileActivity): string {
               class="h-20 w-20 text-3xl ring-4 ring-primary"
             />
             <div>
-              <div class="flex items-center gap-2">
+              <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
                 <h1 class="font-display text-heading-1 text-fg">{{ profile.display_name }}</h1>
                 <span
                   v-if="achievementsEnabled && selectedBadge"
-                  :title="selectedBadge.name"
                   class="text-xl"
-                  >{{ selectedBadge.icon }}</span
+                  :title="`${selectedBadge.name} — ${selectedBadge.description}`"
+                  >{{ selectedBadge.icon || '🏅' }}
+                  <span class="sr-only"
+                    >Badge earned: {{ selectedBadge.name }}. {{ selectedBadge.description }}</span
+                  ></span
                 >
+
+                <!-- One trophy per title, each going to the draw it was won in.
+                     A title with no event row has nowhere to go, so it renders
+                     as a plain glyph rather than a link that 404s. -->
+                <template
+                  v-for="championship in championships"
+                  :key="`${championship.tournament_id}-${championship.category_id ?? 'all'}`"
+                >
+                  <NuxtLink
+                    v-if="championship.href"
+                    :to="championship.href"
+                    :title="championshipTitle(championship)"
+                    :class="TROPHY_CLASS"
+                    class="transition-transform hover:-translate-y-0.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+                  >
+                    🏆
+                    <span class="sr-only">{{ championshipTitle(championship) }}</span>
+                  </NuxtLink>
+                  <span v-else :title="championshipTitle(championship)" :class="TROPHY_CLASS">
+                    🏆
+                    <span class="sr-only">{{ championshipTitle(championship) }}</span>
+                  </span>
+                </template>
               </div>
               <p v-if="profile.city || profile.province" class="mt-1 text-sm text-fg-muted">
                 {{ [profile.city, profile.province].filter(Boolean).join(', ') }}

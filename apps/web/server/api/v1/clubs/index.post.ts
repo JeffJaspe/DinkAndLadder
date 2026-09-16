@@ -1,4 +1,4 @@
-import { serverSupabaseClient } from '#supabase/server'
+import { serverSupabaseClient, serverSupabaseServiceRole } from '#supabase/server'
 import { createClubRepository } from '~/server/domains/club/repositories/club.repository'
 import { createClubMembershipRepository } from '~/server/domains/club/repositories/club-membership.repository'
 import { createClubService } from '~/server/domains/club/services/club.service'
@@ -7,6 +7,7 @@ import { apiError } from '~/server/utils/api-error'
 import type { ClubVisibility, CreateClubInput } from '~/server/domains/club/dto/club.dto'
 import { slugProblemMessage, validateSlug } from '~/server/domains/club/dto/club-slug'
 import { getOptionalUser } from '~/server/utils/optional-user'
+import { awardAchievements } from '~/server/utils/award-achievements'
 
 function parseCreateInput(body: unknown): CreateClubInput {
   if (typeof body !== 'object' || body === null) {
@@ -75,6 +76,12 @@ export default defineEventHandler(async (event) => {
 
   try {
     const club = await service.createClub(claims.sub, playerProfile.id, input)
+
+    // 'club_founder', and 'community_member' via the owner membership the
+    // service creates alongside the club. Best-effort by contract — a badge
+    // must never be able to fail a club that already exists.
+    await awardAchievements(serverSupabaseServiceRole(event), playerProfile.id, claims.sub)
+
     return {
       data: club,
       message: 'Club created',

@@ -4,6 +4,10 @@
     {
       "path": "/api/v1/tasks/close-stale-open-play",
       "schedule": "0 15 * * *"
+    },
+    {
+      "path": "/api/v1/tasks/purge-notifications",
+      "schedule": "30 16 * * *"
     }
   ]
 }

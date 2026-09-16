@@ -1,0 +1,163 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <!-- ═══════════════════════════════════════════════════════════════════════
+         065-achievement-integrity
+
+         Three related repairs to the achievements/badges system.
+
+         1. Every badge a player can display must be one they earned. The
+            showcase previously let anyone select any badge from a hard-coded
+            list that no unlock logic ever touched, so "Tournament Champion"
+            was a decoration, not a record.
+         2. Two seeded achievements have no evaluable source in this schema and
+            could never be unlocked honestly. They are retired rather than left
+            in the gallery as permanently locked.
+         3. Notifications now expire. The table only ever grew.
+         ═══════════════════════════════════════════════════════════════════════ -->
+
+    <!-- 0001: the achievement every account starts with.
+
+         A brand-new player's gallery is otherwise sixteen locked rows, which
+         reads as a broken page rather than as an invitation. This one is true
+         the moment the profile exists, so it is the first thing they own. -->
+    <changeSet id="0001-seed-newcomer-achievement" author="claude">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">
+                SELECT count(*) FROM achievement_definitions WHERE key = 'newcomer'
+            </sqlCheck>
+        </preConditions>
+        <sql>
+            INSERT INTO achievement_definitions (key, category, tier, name, description, icon, criteria, points) VALUES
+            ('newcomer', 'milestone', 'bronze', 'New Around Here', 'Create your player profile and join DinkAndLadder', '🎉', '{"type":"exists","entity":"profile"}', 5);
+        </sql>
+        <rollback>
+            DELETE FROM achievement_definitions WHERE key = 'newcomer';
+        </rollback>
+    </changeSet>
+
+    <!-- 0002: retire the two achievements nothing can award.
+
+         `tournament_third` needs a third-place result. A single-elimination
+         bracket does not produce one without a consolation match, and the
+         consolation rule is an unresolved product decision (CLAUDE.md §7), so
+         there is no honest way to award it.
+         `open_play_leader` needs an open-play leaderboard result; open play
+         records scores but publishes no final standing.
+
+         Deactivated rather than deleted: player_achievements has a foreign key
+         to this table, and a definition may yet come back when the rules are
+         settled. is_active = false removes it from the gallery and from the
+         evaluator without touching history. -->
+    <changeSet id="0002-retire-unevaluable-achievements" author="claude">
+        <sql>
+            UPDATE achievement_definitions
+            SET is_active = false
+            WHERE key IN ('tournament_third', 'open_play_leader');
+        </sql>
+        <rollback>
+            UPDATE achievement_definitions
+            SET is_active = true
+            WHERE key IN ('tournament_third', 'open_play_leader');
+        </rollback>
+    </changeSet>
+
+    <!-- 0003: the showcase now points at an achievement key.
+
+         selected_badge_id already holds the achievement key for every badge the
+         old hard-coded list shared with achievement_definitions, so no value
+         needs rewriting. What does need clearing is the selections themselves:
+         no player has ever unlocked an achievement (the unlocker was never
+         called from application code), so every showcased badge on the platform
+         is currently self-assigned and unearned.
+
+         Clearing is the safe direction. A player re-picks in one tap from a
+         gallery that now only offers what they hold. -->
+    <changeSet id="0003-clear-unearned-badge-showcases" author="claude">
+        <sql>
+            UPDATE player_badge_showcase s
+            SET selected_badge_id = NULL,
+                updated_at = now()
+            WHERE s.selected_badge_id IS NOT NULL
+              AND NOT EXISTS (
+                SELECT 1
+                FROM player_achievements pa
+                JOIN achievement_definitions ad ON ad.id = pa.achievement_id
+                WHERE pa.player_id = s.player_id
+                  AND ad.key = s.selected_badge_id
+              );
+        </sql>
+        <rollback>
+            <comment>Not reversible: the cleared selections were unearned and are not retained.</comment>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="0004-badge-showcase-column-comment" author="claude">
+        <sql>
+            COMMENT ON COLUMN player_badge_showcase.selected_badge_id IS
+                'achievement_definitions.key of the badge shown on the profile. Must be one the player has unlocked; BadgeService enforces this on write.';
+        </sql>
+        <rollback>
+            <comment>Comment only.</comment>
+        </rollback>
+    </changeSet>
+
+    <!-- 0005: notification retention.
+
+         Notifications are disposable by nature - "your rating moved", "someone
+         asked to team up" - and the table had no ceiling, so it grew forever
+         for a value that decays within days. A daily sweep now deletes them on
+         the policy in
+         server/domains/notification/services/notification-retention.ts:
+         read rows after 14 days, unread rows after 90.
+
+         Unread lives longer on purpose: 14 days from being READ means the clock
+         only starts once the notification has done its job, and a player away
+         for a month still finds what waited for them.
+
+         Partial indexes so the sweep's two predicates are index scans rather
+         than a nightly sequential scan of the whole table. -->
+    <changeSet id="0005-notification-retention-indexes" author="claude">
+        <sql>
+            CREATE INDEX IF NOT EXISTS idx_notifications_read_at_expiry
+                ON notifications (read_at)
+                WHERE read_at IS NOT NULL;
+
+            CREATE INDEX IF NOT EXISTS idx_notifications_unread_expiry
+                ON notifications (created_at)
+                WHERE read_at IS NULL;
+        </sql>
+        <rollback>
+            DROP INDEX IF EXISTS idx_notifications_read_at_expiry;
+            DROP INDEX IF EXISTS idx_notifications_unread_expiry;
+        </rollback>
+    </changeSet>
+
+    <!-- 0006: deliveries must go with their notification.
+
+         notification_deliveries has an unqualified FK to notifications, so the
+         retention sweep would fail on any notification that ever had a delivery
+         row. ON DELETE CASCADE lets the sweep do its job; a delivery record for
+         a notification that no longer exists has no meaning anyway. -->
+    <changeSet id="0006-cascade-notification-deliveries" author="claude">
+        <sql>
+            ALTER TABLE notification_deliveries
+                DROP CONSTRAINT IF EXISTS fk_notification_deliveries_notification;
+            ALTER TABLE notification_deliveries
+                ADD CONSTRAINT fk_notification_deliveries_notification
+                FOREIGN KEY (notification_id) REFERENCES notifications(id) ON DELETE CASCADE;
+        </sql>
+        <rollback>
+            ALTER TABLE notification_deliveries
+                DROP CONSTRAINT IF EXISTS fk_notification_deliveries_notification;
+            ALTER TABLE notification_deliveries
+                ADD CONSTRAINT fk_notification_deliveries_notification
+                FOREIGN KEY (notification_id) REFERENCES notifications(id);
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>
