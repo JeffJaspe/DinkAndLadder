@@ -10,6 +10,9 @@ export default defineEventHandler(() => {
       id: q.id,
       category: q.category,
       question: q.question,
+      // Presentation shape travels with the question instead of being guessed
+      // from label length in the client — see QuestionKind.
+      kind: q.kind,
       choices: q.choices.map((c) => c.label)
     })),
     request_id: crypto.randomUUID()

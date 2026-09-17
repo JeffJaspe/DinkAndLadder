@@ -150,8 +150,7 @@ export default defineEventHandler(async (event) => {
       flags: result.flags,
       tier: {
         name: tier.name,
-        description: tier.description,
-        color: tier.color
+        description: tier.description
       }
     },
     message: 'Assessment complete',

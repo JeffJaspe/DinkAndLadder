@@ -102,17 +102,16 @@ interface NavItem {
  * visible, the way a friend request behaves everywhere else.
  */
 const { incomingCount: partnerRequestCount } = usePartnerRequestCount()
-const { incomingCount: teamUpRequestCount } = useTeamUpRequestCount()
 
 /**
- * One badge for both kinds of ask.
+ * The badge counts duo requests only.
  *
- * The nav item is Community, and both a duo request and a team-up invitation
- * live behind it waiting on an answer — so the badge counts both. Only duo
- * requests were counted before, which meant a team-up invitation arrived with
- * no sign of it anywhere in the nav.
+ * It used to add team-up invitations too. Follow replaced team-up in 066 and
+ * deliberately has nothing to answer — following somebody needs no permission,
+ * so there is no pending state and nothing to badge. A duo request is the one
+ * relationship left on Community that waits on a person.
  */
-const communityRequestCount = computed(() => partnerRequestCount.value + teamUpRequestCount.value)
+const communityRequestCount = computed(() => partnerRequestCount.value)
 
 // Achievements is a switchable surface (feature_flags, 'achievements.enabled').
 // A nav item pointing at a feature the SuperAdmin turned off is a dead link.

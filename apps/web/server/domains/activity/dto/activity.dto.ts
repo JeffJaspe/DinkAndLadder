@@ -18,7 +18,7 @@ export type ActivityVisibility = 'public' | 'followers' | 'club' | 'private'
  *
  * `club` is the one kind that names something: `feed_reason_name` is the club.
  */
-export type FeedReason = 'club' | 'self' | 'partner' | 'team_up' | 'opponent'
+export type FeedReason = 'club' | 'self' | 'partner' | 'follow' | 'opponent'
 
 export interface ActivityRecord {
   id: string

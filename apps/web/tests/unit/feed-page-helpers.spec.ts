@@ -16,7 +16,7 @@ describe('describeFeedReason', () => {
 
   it('uses the community page vocabulary for the player kinds', () => {
     expect(describeFeedReason('partner')).toBe('Your duo partner')
-    expect(describeFeedReason('team_up')).toBe("You've teamed up")
+    expect(describeFeedReason('follow')).toBe('You follow each other')
     expect(describeFeedReason('opponent')).toBe("You've played each other")
     expect(describeFeedReason('self')).toBe('Your own activity')
   })

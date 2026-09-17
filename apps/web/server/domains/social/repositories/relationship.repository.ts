@@ -28,6 +28,15 @@ export interface RelationshipRepository {
   isBlocked(fromPlayerId: string, toPlayerId: string): Promise<boolean>
   countFollowers(playerId: string): Promise<number>
   countFollowing(playerId: string): Promise<number>
+  /**
+   * Which of `otherPlayerIds` follow `playerId` back AND are followed by them.
+   *
+   * Bulk, because its one caller asks about a whole group at once — registering
+   * four people into a session should be one round trip, not four.
+   */
+  findMutualFollows(playerId: string, otherPlayerIds: string[]): Promise<string[]>
+  /** Everyone this player mutually follows. The unbounded form of the above. */
+  findAllMutualFollows(playerId: string): Promise<string[]>
 }
 
 export function createRelationshipRepository(client: SupabaseClient): RelationshipRepository {
@@ -141,6 +150,52 @@ export function createRelationshipRepository(client: SupabaseClient): Relationsh
 
       if (error) throw error
       return count ?? 0
+    },
+
+    async findAllMutualFollows(playerId) {
+      const { data, error } = await client
+        .from('player_relationships')
+        .select('from_player_id, to_player_id')
+        .eq('relationship_type', 'follow')
+        .eq('status', 'active')
+        .or(`from_player_id.eq.${playerId},to_player_id.eq.${playerId}`)
+
+      if (error) throw error
+
+      const outgoing = new Set<string>()
+      const incoming = new Set<string>()
+      for (const row of (data ?? []) as { from_player_id: string; to_player_id: string }[]) {
+        if (row.from_player_id === playerId) outgoing.add(row.to_player_id)
+        if (row.to_player_id === playerId) incoming.add(row.from_player_id)
+      }
+
+      return [...outgoing].filter((id) => incoming.has(id))
+    },
+
+    async findMutualFollows(playerId, otherPlayerIds) {
+      if (otherPlayerIds.length === 0) return []
+
+      const { data, error } = await client
+        .from('player_relationships')
+        .select('from_player_id, to_player_id')
+        .eq('relationship_type', 'follow')
+        .eq('status', 'active')
+        .or(
+          `and(from_player_id.eq.${playerId},to_player_id.in.(${otherPlayerIds.join(',')})),` +
+            `and(to_player_id.eq.${playerId},from_player_id.in.(${otherPlayerIds.join(',')}))`
+        )
+
+      if (error) throw error
+
+      // A follow is one row per direction, so mutual means both rows exist.
+      const outgoing = new Set<string>()
+      const incoming = new Set<string>()
+      for (const row of (data ?? []) as { from_player_id: string; to_player_id: string }[]) {
+        if (row.from_player_id === playerId) outgoing.add(row.to_player_id)
+        else incoming.add(row.from_player_id)
+      }
+
+      return otherPlayerIds.filter((id) => outgoing.has(id) && incoming.has(id))
     },
 
     async countFollowing(playerId) {

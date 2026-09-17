@@ -7,6 +7,10 @@
  * - **Partners** — formal, mutual duo partnerships and their requests. This was
  *   the standalone `/partners` page; it lives here whole (see
  *   `CommunityDuoPartnersPanel`), and `/partners` now redirects to this tab.
+ * - **Follows** — who you follow and who follows you. Replaced the TeamUp tab
+ *   in 066: team-up was a roster you built by asking and waiting, and follow
+ *   carries the same job without the waiting. A mutual follow is what lets
+ *   either of you enter the other into an open play session.
  * - **Teammates** — anyone you have actually played alongside, open play
  *   included. No agreement required: playing one doubles match together is
  *   enough. This is the tab that used to be called "Partners", which was
@@ -33,21 +37,21 @@ interface OpponentEntry extends PlayHistoryEntry {
   losses: number
 }
 
-type CommunityTab = 'partners' | 'team' | 'teammates' | 'opponents'
+type CommunityTab = 'partners' | 'follows' | 'teammates' | 'opponents'
 
 const route = useRoute()
 const router = useRouter()
 
 const TABS: Array<{ id: CommunityTab; label: string }> = [
   { id: 'partners', label: 'Partners' },
-  // Distinct from Teammates below, which is a record of who you have played
-  // with. This is the roster you may register FOR an open play session.
+  // Distinct from Teammates below, which is a record of who you have PLAYED
+  // with. This is who you have chosen to keep up with — and, where the follow
+  // runs both ways, who you may enter into an open play session.
   //
-  // Labelled TeamUp, which is what the rest of the product calls this
-  // relationship — the API path, the table and the notification type all say
-  // team-up, and "Team" here was the only place that did not. The tab ID stays
-  // `team` so existing links and the ?tab= query keep working.
-  { id: 'team', label: 'TeamUp' },
+  // Replaced the TeamUp tab in 066-follow-and-kudos. The id changed with it:
+  // a `?tab=team` link now falls through to Partners, which is the safe
+  // landing rather than a tab that no longer exists.
+  { id: 'follows', label: 'Follows' },
   { id: 'teammates', label: 'Teammates' },
   { id: 'opponents', label: 'Opponents' }
 ]
@@ -71,16 +75,14 @@ watch(
   }
 )
 
-// The Partners and TeamUp tabs carry the same counts the sidebar badge sums,
-// so the number a player saw in the nav resolves to a tab once they arrive.
+// Partners carries the count the sidebar badge shows, so the number a player
+// saw in the nav resolves to a tab once they arrive. Follows has no count by
+// design: following needs no permission, so nothing there waits on an answer.
 const { incomingCount } = usePartnerRequestCount()
-const { incomingCount: teamUpCount } = useTeamUpRequestCount()
 
 /** The waiting-for-an-answer count for a tab, or 0 where a tab has none. */
 function pendingCountFor(tab: CommunityTab): number {
-  if (tab === 'partners') return incomingCount.value
-  if (tab === 'team') return teamUpCount.value
-  return 0
+  return tab === 'partners' ? incomingCount.value : 0
 }
 
 /**
@@ -133,14 +135,21 @@ function formatRelativeTime(dateStr: string): string {
   <div class="min-h-screen bg-canvas p-4 lg:p-6">
     <div class="page-shell">
       <h1 class="font-display text-heading-1 text-fg">Community</h1>
-      <p class="mt-1 text-sm text-fg-muted">Your duo partners, teammates and opponents</p>
+      <p class="mt-1 text-sm text-fg-muted">
+        Your duo partners, who you follow, and everyone you have played
+      </p>
 
-      <!-- Tabs -->
-      <div class="my-6 flex gap-1 rounded-xl bg-surface p-1 shadow-card">
+      <!-- Tabs.
+
+           Scrolls on a phone and splits evenly from `sm`. Four `flex-1` tabs in
+           a fixed strip squeezed the last label until it clipped mid-word at
+           390px — "Opponent" with the s cut off, which reads as a rendering
+           fault rather than a tab. -->
+      <div class="my-6 flex gap-1 overflow-x-auto rounded-xl bg-surface p-1 shadow-card">
         <button
           v-for="tab in TABS"
           :key="tab.id"
-          class="flex-1 rounded-lg px-3 py-2 text-sm font-medium transition-colors"
+          class="shrink-0 rounded-lg px-3 py-2 text-sm font-medium transition-colors sm:flex-1"
           :class="
             activeTab === tab.id
               ? 'bg-primary text-on-primary'
@@ -166,7 +175,7 @@ function formatRelativeTime(dateStr: string): string {
       <!-- Partners Tab — the whole former /partners page -->
       <CommunityDuoPartnersPanel v-if="activeTab === 'partners'" />
 
-      <CommunityTeamPanel v-else-if="activeTab === 'team'" />
+      <CommunityFollowPanel v-else-if="activeTab === 'follows'" />
 
       <!-- Teammates Tab -->
       <div v-else-if="activeTab === 'teammates'">

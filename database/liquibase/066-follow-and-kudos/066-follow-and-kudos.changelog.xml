@@ -1,0 +1,232 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <!-- ═══════════════════════════════════════════════════════════════════════
+         066-follow-and-kudos
+
+         Two changes to how players relate to each other.
+
+         1. **Team-up becomes mutual follow.** Following was built and never
+            wired up: the API, the /following page and the achievement all
+            existed, but no screen in the product could create a follow, so
+            nobody ever followed anybody. Team-up occupied the space instead.
+            Follow now carries it, and the one thing team-up did that follow
+            could not — gate registering somebody ELSE into an open-play
+            session — is expressed as a MUTUAL follow, because two people
+            following each other is consent and one person following is not.
+
+         2. **Kudos.** An opponent may credit one skill per match. Six skills,
+            fixed, shown as totals on the player's profile.
+         ═══════════════════════════════════════════════════════════════════════ -->
+
+    <!-- 0001: carry accepted team-ups across as mutual follows.
+
+         An accepted team-up is "this owner may register this member, and the
+         member agreed". The nearest honest thing in the follow model is that
+         both follow each other, so both rows are written.
+
+         This WIDENS each relationship by one direction: the member could not
+         previously register the owner, and afterwards they can. That is the
+         cost of moving from a directional model to a symmetric one, and it is
+         the safe direction — the alternative is silently revoking rosters
+         people rely on to enter their group for a session.
+
+         Pending and rejected team-ups are deliberately not carried: a request
+         nobody accepted is not consent, and inventing a follow from one would
+         be the same mistake as the unearned badges in 065. -->
+    <changeSet id="0001-team-ups-to-mutual-follows" author="claude">
+        <preConditions onFail="MARK_RAN">
+            <tableExists tableName="team_ups"/>
+        </preConditions>
+        <sql>
+            INSERT INTO player_relationships (from_player_id, to_player_id, relationship_type, status)
+            SELECT t.owner_player_id, t.member_player_id, 'follow', 'active'
+            FROM team_ups t
+            WHERE t.status = 'accepted'
+              AND t.owner_player_id &lt;&gt; t.member_player_id
+            ON CONFLICT ON CONSTRAINT uq_player_relationship DO NOTHING;
+
+            INSERT INTO player_relationships (from_player_id, to_player_id, relationship_type, status)
+            SELECT t.member_player_id, t.owner_player_id, 'follow', 'active'
+            FROM team_ups t
+            WHERE t.status = 'accepted'
+              AND t.owner_player_id &lt;&gt; t.member_player_id
+            ON CONFLICT ON CONSTRAINT uq_player_relationship DO NOTHING;
+        </sql>
+        <rollback>
+            <comment>
+                Not reversible: the follows written here are indistinguishable from
+                follows a player created themselves, and deleting them would take
+                real relationships with them.
+            </comment>
+        </rollback>
+    </changeSet>
+
+    <!-- 0002: retire the team-up tables.
+
+         Kept, not dropped. The rosters above were carried across, but a
+         DROP TABLE is the one migration that cannot be undone if the mapping
+         turns out to have been wrong, and the data is small. Renaming takes it
+         out of the application's way — nothing queries `team_ups` after this
+         change — while leaving the evidence on disk for as long as anyone
+         wants it. -->
+    <changeSet id="0002-retire-team-up-tables" author="claude">
+        <preConditions onFail="MARK_RAN">
+            <tableExists tableName="team_ups"/>
+        </preConditions>
+        <sql>
+            ALTER TABLE team_ups RENAME TO team_ups_retired_066;
+            COMMENT ON TABLE team_ups_retired_066 IS
+                'Retired 2026-09-17 by 066-follow-and-kudos. Accepted rows were carried across as mutual follows in player_relationships. Nothing reads this table; drop it once the follow model has been live long enough to trust.';
+        </sql>
+        <rollback>
+            ALTER TABLE team_ups_retired_066 RENAME TO team_ups;
+        </rollback>
+    </changeSet>
+
+    <!-- 0003: kudos.
+
+         One row per (match, giver, receiver). The unique constraint IS the
+         "once per match" rule — enforcing it in the service alone would let two
+         concurrent taps both pass the check and write two rows, and a tally
+         that can be doubled by double-tapping is not a tally. -->
+    <changeSet id="0003-create-match-kudos" author="claude">
+        <createTable tableName="match_kudos">
+            <column name="id" type="uuid" defaultValueComputed="gen_random_uuid()">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="match_id" type="uuid">
+                <constraints nullable="false"
+                             foreignKeyName="fk_match_kudos_match"
+                             references="matches(id)"
+                             deleteCascade="true"/>
+            </column>
+            <column name="from_player_id" type="uuid">
+                <constraints nullable="false"
+                             foreignKeyName="fk_match_kudos_from"
+                             references="player_profiles(id)"
+                             deleteCascade="true"/>
+            </column>
+            <column name="to_player_id" type="uuid">
+                <constraints nullable="false"
+                             foreignKeyName="fk_match_kudos_to"
+                             references="player_profiles(id)"
+                             deleteCascade="true"/>
+            </column>
+            <!-- The six skills. Constrained in the database as well as in code:
+                 the totals on a profile are only meaningful if the set they are
+                 counted over is closed. -->
+            <column name="skill" type="varchar(32)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_at" type="timestamptz" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+
+        <sql>
+            ALTER TABLE match_kudos
+                ADD CONSTRAINT chk_match_kudos_skill
+                CHECK (skill IN ('dink', 'serve', 'third_shot_drop', 'drive', 'volley', 'sportsmanship'));
+
+            ALTER TABLE match_kudos
+                ADD CONSTRAINT chk_match_kudos_not_self
+                CHECK (from_player_id &lt;&gt; to_player_id);
+        </sql>
+
+        <addUniqueConstraint
+            tableName="match_kudos"
+            columnNames="match_id,from_player_id,to_player_id"
+            constraintName="uq_match_kudos_once_per_match"/>
+    </changeSet>
+
+    <changeSet id="0004-match-kudos-indexes" author="claude">
+        <!-- The profile's tally: every kudos a player has received, grouped by
+             skill. This is the read that happens most and the one a player
+             waits on. -->
+        <createIndex tableName="match_kudos" indexName="idx_match_kudos_to_player">
+            <column name="to_player_id"/>
+            <column name="skill"/>
+        </createIndex>
+        <!-- "Have I already given kudos in this match?" -->
+        <createIndex tableName="match_kudos" indexName="idx_match_kudos_match_from">
+            <column name="match_id"/>
+            <column name="from_player_id"/>
+        </createIndex>
+    </changeSet>
+
+    <!-- 0005: RLS.
+
+         Kudos totals are public — they are a decoration on a public profile,
+         and hiding who praised whom would make the tally unverifiable.
+
+         No INSERT policy: kudos are written by the service role only, after it
+         has checked that the giver actually played the match, that the receiver
+         was on the other side, and that they have not already given kudos
+         there. Those are three facts a row-level policy cannot express without
+         duplicating the whole eligibility rule in SQL, and a policy that
+         disagreed with the service would be the worst of both. -->
+    <changeSet id="0005-match-kudos-rls" author="claude">
+        <sql>
+            ALTER TABLE match_kudos ENABLE ROW LEVEL SECURITY;
+
+            CREATE POLICY match_kudos_select_all ON match_kudos
+                FOR SELECT
+                USING (true);
+        </sql>
+        <rollback>
+            DROP POLICY IF EXISTS match_kudos_select_all ON match_kudos;
+            ALTER TABLE match_kudos DISABLE ROW LEVEL SECURITY;
+        </rollback>
+    </changeSet>
+
+    <!-- 0006: let a player actually follow somebody.
+
+         `player_relationships` has had RLS enabled since 009-social with a
+         SELECT policy and **nothing else** — no INSERT, no UPDATE, no DELETE.
+         Every follow and unfollow the API has ever attempted was refused by the
+         database and surfaced as a 500.
+
+         That is the deepest of the three reasons following never worked. The
+         other two were in the app: no screen offered a Follow button (the
+         profile's was replaced by the team-up control), and `/following` was
+         linked from no navigation. All three are fixed together in 066 —
+         repairing any one alone would have left the feature just as dead.
+
+         Scoped to the row's author: you may create and remove relationships you
+         are the FROM side of, and nothing else. Being followed is not something
+         you consent to, so there is deliberately no policy letting the target
+         delete the row; blocking is the answer to an unwanted follower and it
+         already removes both directions (RelationshipService.block). -->
+    <changeSet id="0006-player-relationships-write-policies" author="claude">
+        <sql>
+            CREATE POLICY relationships_insert_own ON player_relationships
+                FOR INSERT
+                WITH CHECK (
+                    from_player_id IN (SELECT id FROM player_profiles WHERE user_id = auth.uid())
+                );
+
+            CREATE POLICY relationships_update_own ON player_relationships
+                FOR UPDATE
+                USING (
+                    from_player_id IN (SELECT id FROM player_profiles WHERE user_id = auth.uid())
+                );
+
+            CREATE POLICY relationships_delete_own ON player_relationships
+                FOR DELETE
+                USING (
+                    from_player_id IN (SELECT id FROM player_profiles WHERE user_id = auth.uid())
+                );
+        </sql>
+        <rollback>
+            DROP POLICY IF EXISTS relationships_delete_own ON player_relationships;
+            DROP POLICY IF EXISTS relationships_update_own ON player_relationships;
+            DROP POLICY IF EXISTS relationships_insert_own ON player_relationships;
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

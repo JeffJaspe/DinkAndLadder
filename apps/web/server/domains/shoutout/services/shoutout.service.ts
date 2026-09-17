@@ -50,7 +50,7 @@ function validateMessage(message: string | undefined): string {
     throw new ShoutoutServiceError(
       400,
       'CONTACT_INFO_NOT_ALLOWED',
-      'Shout-outs cannot include phone numbers. Use a team-up or a duo request so people can reach you in the app.'
+      'Shout-outs cannot include phone numbers. Follow each other or send a duo request so people can reach you in the app.'
     )
   }
 

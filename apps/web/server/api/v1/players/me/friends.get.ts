@@ -1,7 +1,7 @@
 import { serverSupabaseServiceRole } from '#supabase/server'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
 import { createPartnershipRepository } from '~/server/domains/partnership/repositories/partnership.repository'
-import { createTeamUpRepository } from '~/server/domains/partnership/repositories/team-up.repository'
+import { createRelationshipRepository } from '~/server/domains/social/repositories/relationship.repository'
 import { createFriendsService } from '~/server/domains/partnership/services/friends.service'
 import type { FriendDto } from '~/server/domains/event/dto/event-co-organizer.dto'
 import { apiError } from '~/server/utils/api-error'
@@ -10,7 +10,7 @@ import { describePlayers } from '~/server/utils/co-organizers'
 
 /**
  * The people this player may appoint as co-organisers: duo partners and
- * accepted team-ups. One list, sorted by name, so the picker is the same set
+ * mutual follows. One list, sorted by name, so the picker is the same set
  * the server will accept.
  */
 export default defineEventHandler(async (event) => {
@@ -24,7 +24,7 @@ export default defineEventHandler(async (event) => {
 
   const friends = await createFriendsService(
     createPartnershipRepository(client),
-    createTeamUpRepository(client)
+    createRelationshipRepository(client)
   ).listFriends(profile.id)
   const people = await describePlayers(
     client,

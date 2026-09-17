@@ -23,5 +23,5 @@ export interface FriendDto {
   display_name: string
   avatar_url: string | null
   /** Why they are a friend. A person can be both; the first that applies wins. */
-  via: 'partner' | 'team_up'
+  via: 'partner' | 'follow'
 }

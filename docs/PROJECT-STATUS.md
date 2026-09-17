@@ -8419,3 +8419,184 @@ resolve here — Vue rendered a literal `<nuxtlink>` custom element carrying the
 href as an inert attribute. It typechecked, it passed lint, and it looked
 correct in the DOM; only clicking the badge revealed that nothing happened. Now
 a plain `NuxtLink` / `span` pair under `v-if`/`v-else`.
+
+---
+
+## Follow replaces Team Up, and kudos (2026-09-17)
+
+### Following never worked — three faults, all load-bearing
+
+Asked whether following worked, the answer was no, and not for one reason:
+
+1. **The database refused every write.** `player_relationships` has had RLS on
+   since 009-social with a **SELECT policy and nothing else** — no INSERT, no
+   UPDATE, no DELETE. Every follow and unfollow the API ever attempted came back
+   `42501 new row violates row-level security policy` and surfaced as a bare 500
+   with no message. Reproduced directly against dev before fixing.
+2. **No screen could follow anyone.** The profile's Follow button had been
+   replaced by the team-up control — the source still said
+   `<!-- Partner button (replaces Follow) -->`.
+3. **`/following` was linked from no navigation**, and its rows rendered
+   `display_name`, a field `/players/me/followers` has never sent.
+
+Repairing any one alone would have left the feature just as dead. All three are
+fixed together. `social_butterfly` (5 followers) was unearnable in consequence.
+
+### Team Up → Follow (066-follow-and-kudos)
+
+Team-up was not only a Community tab: `assertCanRegister` was the **consent gate
+for entering somebody else into an open-play session**, which commits their
+evening and, once payments land, their entry fee. Follow is unilateral, so it
+cannot carry that as-is. **The gate is now a mutual follow** — you each follow
+each other — which is the nearest thing the new model has to both parties
+agreeing. `RelationshipService.assertCanRegister` replaces the team-up version.
+
+- Accepted team-ups are **carried across as mutual follows** (both directions)
+  before the tables are retired. This widens each by one direction, which is the
+  safe direction — the alternative silently revokes rosters people rely on.
+  Pending and rejected team-ups are not carried: a request nobody accepted is
+  not consent.
+- `team_ups` is **renamed, not dropped** (`team_ups_retired_066`). Nothing reads
+  it; the evidence stays until the follow model has been live long enough.
+- `FriendsService` (co-organiser eligibility) now reads duo partners + mutual
+  follows. Deliberately mutual, not one-way: a team-up needed the other person
+  to accept, and dropping to a one-way follow would have let anyone appoint a
+  stranger as co-organiser.
+- Deleted: the team-up DTO, repository, service, four endpoints, the panel, the
+  composable and its spec. `team_up.*` notification types can no longer be
+  created; `categoryOf` still matches the prefix so rows already sent stay in the
+  right tab until retention clears them.
+- UI: profile shows **Follow / Follow back / Following**, with a line saying when
+  mutual ("You can enter each other into open play"); Community's TeamUp tab is
+  now **Follows** with Following/Followers and follow-back in place. The nav
+  badge counts duo requests only — following needs no permission, so nothing
+  there waits on an answer.
+
+### Kudos
+
+An opponent credits **one skill per opponent per match**, on a verified result.
+Six fixed skills: **Dink, Serve, Third-shot drop, Drive, Volley, Sportsmanship**.
+
+- `match_kudos` with a unique `(match_id, from_player_id, to_player_id)` — the
+  constraint *is* the once-per-match rule, since two taps racing each other both
+  pass a service-level check. Skill set closed by a CHECK too: a tally is only
+  readable if the set it counts over cannot grow underneath it.
+- Eligibility in one place (`KudosService`): opponent only, verified match only,
+  not already given. The match screen renders what the server tells it rather
+  than re-deriving the rules.
+- No undo, by decision. Kudos is somebody's opinion recorded at the time;
+  withdrawable kudos is leverage.
+- Profile card shows **all six, zeroes included**, as bars scaled to the
+  player's own peak — the interesting fact is the shape, and six numbers in a
+  column do not carry it. The card falls back to six zeroes if its fetch fails,
+  so it cannot collapse to a heading.
+
+**Validation.** Unit 1535/1535 (19 new across kudos eligibility, the six-skill
+set, and the mutual-follow gate). Typecheck, lint, tokens, build clean. Visual
+pass on the profile and Community at 1280 and 390, light and dark.
+
+**Two defects found in that pass**, both invisible to typecheck and lint:
+- `<KudosKudosCard>` — Nuxt dedupes a repeated path prefix, so
+  `components/kudos/KudosCard.vue` is `KudosCard`. The wrong name rendered
+  nothing at all. (Same class of failure as the `<nuxtlink>` bug earlier today:
+  an unknown component name fails silently.)
+- Community's four `flex-1` tabs clipped "Opponents" mid-word at 390px. The
+  strip now scrolls on a phone and splits evenly from `sm`.
+
+**Not verified end to end:** the follow *write*. `match_kudos` and the
+`player_relationships` write policies both arrive with 066, so until it lands on
+push, clicking Follow still returns the 500 documented above and the kudos
+endpoint 500s (the card degrades to six zeroes, as designed). Everything up to
+the database write is verified, and the exact denial it fixes was reproduced.
+
+---
+
+## 2026-09-17 — Initial-rating questionnaire: audit and fixes
+
+An `/impeccable audit` of the questionnaire (`pages/onboarding.vue`), prompted by
+"the UI is off on the middle option", followed by all of its recommendations.
+
+**The reported bug.** The middle option is literally the word *Sometimes*. The
+five-stop scale rendered as `sm:grid-cols-5` — `repeat(5, minmax(0,1fr))`, so a
+track cannot grow past its container. At `max-w-lg` with `p-6`/`px-3`/`text-sm`
+each option got a 58.4px content box, and "Sometimes" measures **74.66px** in
+Inter 500/14 (verified with a Range rect and `canvas.measureText`). It overflowed
+by ~16px and the glyphs ran under the 2px border — worst when selected, because
+the green stroke then cut the final *s*.
+
+It was intermittent because `@font-face` uses `font-display: swap`: in the
+fallback face the label measures 70px and fits, so the defect appeared only once
+Inter had painted. It also vanished at browser text-scaling ≥18px root, because
+`max-w-lg` is rem-based and grows while `text-sm` does not.
+
+**Root cause, fixed at the layer that owned it.** The page chose its layout with
+`choices.every((c) => c.length <= 12)` — a character count standing in for a
+width budget, never reconciled with five columns. Presentation shape is now
+declared by the question itself (`QuestionKind = 'scale' | 'list'` in
+`question-bank.ts`) and travels through `GET /api/v1/rating/assessment-questions`.
+
+**What changed**
+
+- **New `components/onboarding/ChoiceScale.vue`** — one bordered radiogroup with
+  ruled divisions instead of five separate boxes. Horizontal from `sm` where
+  position carries the order; stacked below it with a small ascending meter,
+  because five identical full-width blocks are not a scale. Measured headroom on
+  "Sometimes" is now 13px of an 88px content box (18px with the fallback face,
+  36px at 20px root), and the block is ~230px tall on a phone instead of ~400px.
+- **Column widened to `max-w-xl`.** At 512px the widest label had 1.3px of slack,
+  which is a coincidence, not a fix. 576px is the width the control needs.
+- **WCAG 2.2 SC 1.4.11.** The old per-option `border-2 border-border-strong` over
+  `bg-canvas` measured **1.50:1** against the card in light and **1.80:1** in
+  dark, with a 1.06:1 / 1.38:1 fill behind it — the most-used control in a
+  20-screen flow had no compliant boundary in either theme. Now `border-fg-muted`
+  per the Visible-Line Rule: **5.18:1** light, **6.42:1** dark. Selected is a
+  solid `primary` fill (5.08:1 / 6.91:1 label contrast).
+- **Radiogroup semantics** — `role="radiogroup"`/`role="radio"`/`aria-checked`,
+  `aria-labelledby` to the question, roving tabindex, Arrow/Home/End. Selection
+  is *manual* (arrows move focus, Enter/Space commits) because committing
+  advances the questionnaire; automatic selection would fire the next question
+  on the first arrow press.
+- **Auto-advance now moves focus and announces.** Focus follows to the new
+  question's answer group, and a polite live region states "Question N of 20"
+  plus the question text. Previously the `v-for` reused the buttons, so focus sat
+  on a control whose meaning had silently changed.
+- **Error paths, which did not exist.** Both `loadQuestions` and
+  `submitAssessment` were `try/finally` with no `catch`: a failed fetch pinned
+  the step on `'loading'` (spinner forever) and a failed submit left the player
+  on the last question with 50%-opacity buttons, no message and no retry. Both
+  now render `UiErrorState` with a working retry.
+- **Answers are drafted to `localStorage`**, keyed by user and validated against
+  the question ids they were answering, and cleared on success. Twenty answers
+  held only in a ref did not survive a refresh, a reclaimed tab or a failed
+  submit — on court wifi that is the likely case, not the edge case.
+- **The submit spinner was unreachable**: its branch sat after
+  `step === 'questionnaire'` in the same `v-if` chain, so it never matched while
+  submitting. Scoring is now its own step with a "Scoring your answers…" label.
+- **Progress**: `role="progressbar"` with `aria-valuenow`/`aria-valuetext`; the
+  bar now measures questions *completed* (it used to read 100% with the last
+  question still unanswered); the track is `bg-fg-muted/35` because `bg-surface`
+  on the canvas was **1.06:1** — invisible — and the green fill now clears 3:1
+  against it (3.02 light, 3.58 dark); the fill animates `scaleX`, not `width`.
+- **Confetti** animates `translate3d` instead of `top`, which was relaying out 50
+  absolutely-positioned nodes every frame for three seconds.
+- **Heading order**: the question is now the step's `<h1>` (it was an `<h2>` with
+  no `<h1>` on the step). Focus rings follow the DESIGN.md spec. `rounded-xl` /
+  `rounded-lg` replaced with the named `rounded-card` / `rounded-button` tokens.
+- **`RATING_TIERS` lost its `color`** — a second nine-step hex ladder that no
+  token backed, that could not follow the theme, and that nothing rendered
+  (every surface uses `tierForRating`). It shipped through the API as a trap.
+  `tier.color` is gone from the `submit-assessment` response.
+
+**Validation.** Unit 1537/1537 (2 new: question `kind`, and that tiers carry no
+colour). Typecheck, ESLint, Prettier clean. Impeccable detector clean on all
+three changed UI files (it previously flagged the 6 tier hexes). Measured and
+screenshotted at 1280/640/390, light and dark, against the project's own
+compiled Tailwind and the shipped Inter/Lexend faces.
+
+**Not verified:** no live browser walkthrough — the flow needs an account with no
+rating, and both dev test accounts already hold one (409 `ALREADY_RATED`). The
+e2e spec was updated for the radiogroup roles and the `h1`, but was not run.
+
+**Left alone, deliberately:** the 🏓/🏆 emoji standing in for icons on the
+account-type step. DESIGN.md bans glyphs as icons, but that step was outside the
+audited surface and replacing them is a separate change.

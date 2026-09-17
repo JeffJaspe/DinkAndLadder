@@ -21,6 +21,19 @@ describe('question-bank', () => {
       expect(QUESTION_BANK.length).toBeLessThanOrEqual(20)
     })
 
+    it('declares how each question should be presented', () => {
+      // The client used to infer this from label length. Presentation shape is
+      // a property of the question, and the five-stop scale is exactly the set
+      // of questions that carry the frequency labels.
+      for (const q of QUESTION_BANK) {
+        const isStatement = (SKILL_DIMENSIONS as readonly string[]).includes(q.category)
+        expect(q.kind, q.id).toBe(isStatement ? 'scale' : 'list')
+      }
+      for (const q of QUESTION_BANK.filter((q) => q.kind === 'scale')) {
+        expect(q.choices, q.id).toHaveLength(FREQUENCY_LABELS.length)
+      }
+    })
+
     it('has unique ids', () => {
       const ids = QUESTION_BANK.map((q) => q.id)
       expect(new Set(ids).size).toBe(ids.length)
@@ -177,7 +190,15 @@ describe('question-bank', () => {
       for (const tier of RATING_TIERS) {
         expect(tier.name).toBeTruthy()
         expect(tier.description).toBeTruthy()
-        expect(tier.color).toMatch(/^#[0-9A-Fa-f]{6}$/)
+      }
+    })
+
+    it('carries no colour of its own', () => {
+      // Tier colour belongs to the token system (utils/rating-tiers.ts), not to
+      // the domain table: a literal hex here could not follow the theme, and
+      // shipping one through the API invited a consumer to render it.
+      for (const tier of RATING_TIERS) {
+        expect(tier, tier.name).not.toHaveProperty('color')
       }
     })
   })

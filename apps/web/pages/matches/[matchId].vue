@@ -494,8 +494,12 @@ const { goBack } = useAppBack('/matches')
           {{ actionError }}
         </div>
 
+        <!-- Credit an opponent. Renders nothing for a reader who did not play,
+             which is most of them, so it is safe this far down the page. -->
+        <KudosGiveKudos v-if="match" :match-id="matchId" :players="match.players ?? {}" />
+
         <!-- Back Link -->
-        <div class="text-center">
+        <div class="mt-6 text-center">
           <button type="button" class="text-sm text-primary hover:underline" @click="goBack">
             Back
           </button>

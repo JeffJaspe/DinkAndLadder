@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import type { PlayerProfileDto } from '~/server/domains/player/dto/player-profile.dto'
+import type { QuestionKind } from '~/server/domains/rating/data/question-bank'
 
 interface AssessmentQuestion {
   id: string
   category: string
   question: string
+  /** How to present the choices. Declared by the question, not guessed here. */
+  kind: QuestionKind
   choices: string[]
 }
 
@@ -15,7 +18,6 @@ interface RatingResult {
   tier: {
     name: string
     description: string
-    color: string
   }
 }
 
@@ -34,7 +36,7 @@ const redirectAfter = computed(() =>
   typeof route.query.redirect === 'string' ? route.query.redirect : '/dashboard'
 )
 
-const step = ref<'loading' | 'type' | 'questionnaire' | 'result' | 'club'>('loading')
+const step = ref<'loading' | 'type' | 'questionnaire' | 'submitting' | 'result' | 'club'>('loading')
 const accountType = ref<'player' | 'club' | null>(null)
 const loading = ref(false)
 
@@ -44,20 +46,104 @@ const answers = ref<Record<string, number>>({})
 const ratingResult = ref<RatingResult | null>(null)
 const showCelebration = ref(false)
 
+/** Set when the questions could not be fetched; the step becomes a retry. */
+const loadError = ref<string | null>(null)
+/** Set when scoring failed. The answers survive it — this is only the message. */
+const submitError = ref<string | null>(null)
+
 const currentQuestion = computed(() => questions.value[currentQuestionIndex.value])
-const progress = computed(() => ((currentQuestionIndex.value + 1) / questions.value.length) * 100)
 const isLastQuestion = computed(() => currentQuestionIndex.value === questions.value.length - 1)
 
 /**
- * The skill statements all share one short scale (Never … Always), so their
- * answers fit on a single row instead of five stacked blocks — which is the
- * point of the scale: read the statement, tap a frequency, move on. The three
- * calibration questions still have sentence-length options and keep the
- * stacked layout, so this is measured from the choices rather than hardcoded.
+ * Questions *completed*, not reached. The old `(index + 1) / length` filled the
+ * bar to 100% while the last question was still unanswered, which told the
+ * player they were finished one tap before they were.
  */
-const compactChoices = computed(
-  () => currentQuestion.value?.choices.every((choice) => choice.length <= 12) ?? false
+const answeredCount = computed(
+  () => questions.value.filter((question) => answers.value[question.id] !== undefined).length
 )
+const progress = computed(() =>
+  questions.value.length ? answeredCount.value / questions.value.length : 0
+)
+
+/** Ties the answer group to the question it answers, for assistive tech. */
+const QUESTION_HEADING_ID = 'assessment-question'
+const choiceScale = ref<{ focusFirst: () => void } | null>(null)
+/**
+ * Announces the question change. Advancing is automatic and reuses the same
+ * controls, so without this a screen-reader user answers a question they were
+ * never told had changed.
+ */
+const announcement = ref('')
+
+/**
+ * Twenty questions, on a phone, on court wifi. Held only in a ref, a refresh, a
+ * backgrounded tab the OS reclaims, or a failed submit threw all of them away
+ * and restarted the flow at question one. Draft locally, clear on success.
+ */
+const DRAFT_VERSION = 1
+const draftKey = computed(() => (user.value ? `dnl:assessment-draft:${user.value.id}` : null))
+
+interface AssessmentDraft {
+  version: number
+  questionIds: string[]
+  answers: Record<string, number>
+  index: number
+}
+
+function saveDraft() {
+  const key = draftKey.value
+  if (!key) return
+  try {
+    const draft: AssessmentDraft = {
+      version: DRAFT_VERSION,
+      questionIds: questions.value.map((question) => question.id),
+      answers: answers.value,
+      index: currentQuestionIndex.value
+    }
+    localStorage.setItem(key, JSON.stringify(draft))
+  } catch {
+    // Private mode, blocked site data, quota — a draft is a convenience, and
+    // losing it must never take the questionnaire down with it.
+  }
+}
+
+function clearDraft() {
+  const key = draftKey.value
+  if (!key) return
+  try {
+    localStorage.removeItem(key)
+  } catch {
+    // See saveDraft.
+  }
+}
+
+/**
+ * Only restored against the same bank the draft was taken on: the draft carries
+ * the question ids it was answering, so a changed bank is discarded rather than
+ * having its answers mis-applied to questions that have moved.
+ */
+function restoreDraft() {
+  const key = draftKey.value
+  if (!key) return
+  let draft: AssessmentDraft | null = null
+  try {
+    const raw = localStorage.getItem(key)
+    draft = raw ? (JSON.parse(raw) as AssessmentDraft) : null
+  } catch {
+    draft = null
+  }
+  if (!draft || draft.version !== DRAFT_VERSION) return
+
+  const ids = questions.value.map((question) => question.id)
+  if (draft.questionIds.length !== ids.length || draft.questionIds.some((id, i) => id !== ids[i])) {
+    clearDraft()
+    return
+  }
+
+  answers.value = { ...draft.answers }
+  currentQuestionIndex.value = Math.min(Math.max(draft.index, 0), ids.length - 1)
+}
 
 onMounted(async () => {
   if (!user.value) {
@@ -124,6 +210,8 @@ function selectAccountType(type: 'player' | 'club') {
 
 async function loadQuestions() {
   loading.value = true
+  loadError.value = null
+  step.value = 'loading'
   try {
     const response = await $fetch<{ data: AssessmentQuestion[] }>(
       '/api/v1/rating/assessment-questions'
@@ -131,26 +219,55 @@ async function loadQuestions() {
     questions.value = response.data
     currentQuestionIndex.value = 0
     answers.value = {}
+    restoreDraft()
     step.value = 'questionnaire'
+  } catch (err) {
+    // Without this the step stayed on 'loading' and the player watched a
+    // spinner forever — the single most likely failure on court wifi.
+    loadError.value = apiErrorMessage(
+      err,
+      'We could not load the questions. Check your connection and try again.'
+    )
   } finally {
     loading.value = false
   }
 }
 
-function selectAnswer(choiceIndex: number) {
+async function announceCurrentQuestion() {
+  const question = currentQuestion.value
+  if (!question) return
+  announcement.value = `Question ${currentQuestionIndex.value + 1} of ${questions.value.length}. ${question.question}`
+  await nextTick()
+  // Keep the keyboard inside the answer group rather than dropping it back to
+  // the top of the document on every one of twenty questions.
+  choiceScale.value?.focusFirst()
+}
+
+async function selectAnswer(choiceIndex: number) {
   if (!currentQuestion.value) return
+  // Two taps on the last option, closer together than Vue's next DOM update,
+  // would otherwise fire two POSTs and the second would come back 409
+  // ALREADY_RATED — an error screen on top of a successful submission.
+  // `submitAssessment` moves the step synchronously, so this catches it.
+  if (step.value !== 'questionnaire') return
   answers.value[currentQuestion.value.id] = choiceIndex
 
   if (isLastQuestion.value) {
-    submitAssessment()
-  } else {
-    currentQuestionIndex.value++
+    saveDraft()
+    await submitAssessment()
+    return
   }
+  currentQuestionIndex.value++
+  saveDraft()
+  await announceCurrentQuestion()
 }
 
 async function goBack() {
   if (currentQuestionIndex.value > 0) {
+    submitError.value = null
     currentQuestionIndex.value--
+    saveDraft()
+    await announceCurrentQuestion()
   } else if (isRateOnlyFlow.value) {
     await navigateTo(redirectAfter.value)
   } else {
@@ -159,7 +276,8 @@ async function goBack() {
 }
 
 async function submitAssessment() {
-  loading.value = true
+  submitError.value = null
+  step.value = 'submitting'
   try {
     const answerPayload = Object.entries(answers.value).map(([questionId, choiceIndex]) => ({
       questionId,
@@ -172,14 +290,21 @@ async function submitAssessment() {
     })
 
     ratingResult.value = response.data
+    clearDraft()
     step.value = 'result'
 
     await nextTick()
     setTimeout(() => {
       showCelebration.value = true
     }, 100)
-  } finally {
-    loading.value = false
+  } catch (err) {
+    // The answers are still in memory and in the draft, so this returns to the
+    // last question rather than to a dead end: retry, or change the answer.
+    submitError.value = apiErrorMessage(
+      err,
+      'We could not save your rating. Your answers are safe — try again.'
+    )
+    step.value = 'questionnaire'
   }
 }
 
@@ -204,11 +329,9 @@ async function goToDashboard() {
 }
 
 /**
- * The tier's *tokens*, not the raw hex the API sends alongside its name.
- * `tier.color` is a fixed literal: it stays the same value in dark mode, and
- * the celebration was painting `text-fg` on top of it without anyone having
- * measured the pair. `tierForRating` is the same ladder the rating badge,
- * the rankings board and the profile header already draw from.
+ * The tier's *tokens*. `tierForRating` is the same ladder the rating badge,
+ * the rankings board and the profile header already draw from — the API sends
+ * no colour of its own (see RATING_TIERS).
  */
 const tierTokens = computed(() =>
   ratingResult.value ? tierForRating(ratingResult.value.rating) : null
@@ -250,7 +373,11 @@ const categoryLabel = (category: string) => {
 
 <template>
   <div class="flex min-h-screen items-center justify-center bg-canvas px-4 py-12">
-    <div class="w-full max-w-lg">
+    <!-- max-w-xl, not lg: the five-stop scale is the widest thing this
+         flow has to lay out, and at 512px each segment gave "Sometimes"
+         (74.7px in Inter 500/14) a 76px content box. 576px takes that to
+         89px — measured headroom rather than a coincidence. -->
+    <div class="w-full max-w-xl">
       <!-- Logo -->
       <div class="mb-8 text-center">
         <UiBrandMark size="2xl" :show-name="false" class="justify-center" />
@@ -263,7 +390,7 @@ const categoryLabel = (category: string) => {
           <p class="mt-2 text-fg-muted">First, what should we call you?</p>
         </div>
 
-        <div class="rounded-xl bg-surface p-5 shadow-card">
+        <div class="rounded-card bg-surface p-5 shadow-card">
           <label for="display-name" class="block text-sm font-medium text-fg"> Display name </label>
           <input
             id="display-name"
@@ -272,7 +399,7 @@ const categoryLabel = (category: string) => {
             maxlength="50"
             autocomplete="nickname"
             placeholder="e.g. Jeff J."
-            class="mt-2 w-full rounded-lg border border-border-strong bg-canvas px-3 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
+            class="mt-2 w-full rounded-button border border-border-strong bg-canvas px-3 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
             @input="displayNameError = ''"
           />
           <p v-if="displayNameError" class="mt-2 text-sm text-danger">
@@ -290,7 +417,7 @@ const categoryLabel = (category: string) => {
           <button
             type="button"
             :disabled="loading"
-            class="group rounded-xl border-2 border-border-strong bg-surface p-6 text-left transition-all hover:border-primary hover:bg-surface-2 disabled:opacity-50 shadow-card hover:shadow-card-hover"
+            class="group rounded-card border-2 border-border-strong bg-surface p-6 text-left transition-all hover:border-primary hover:bg-surface-2 disabled:opacity-50 shadow-card hover:shadow-card-hover"
             @click="selectAccountType('player')"
           >
             <div
@@ -306,7 +433,7 @@ const categoryLabel = (category: string) => {
 
           <button
             type="button"
-            class="group rounded-xl border-2 border-border-strong bg-surface p-6 text-left transition-all hover:border-primary hover:bg-surface-2 shadow-card hover:shadow-card-hover"
+            class="group rounded-card border-2 border-border-strong bg-surface p-6 text-left transition-all hover:border-primary hover:bg-surface-2 shadow-card hover:shadow-card-hover"
             @click="selectAccountType('club')"
           >
             <div
@@ -328,68 +455,96 @@ const categoryLabel = (category: string) => {
 
       <!-- Step: Questionnaire -->
       <div v-else-if="step === 'questionnaire' && currentQuestion" class="space-y-6">
-        <!-- Progress Bar -->
+        <!-- Progress -->
         <div class="space-y-2">
           <div class="flex items-center justify-between text-sm">
             <span class="text-fg-muted"
               >Question {{ currentQuestionIndex + 1 }} of {{ questions.length }}</span
             >
-            <span class="rounded-full bg-primary-soft px-3 py-1 text-xs text-primary">
+            <span class="rounded-pill bg-primary-soft px-3 py-1 text-xs text-primary">
               {{ categoryLabel(currentQuestion.category) }}
             </span>
           </div>
-          <div class="h-2 overflow-hidden rounded-full bg-surface">
+          <!-- The track is tinted from the foreground, not filled with `surface`:
+               white on the near-white canvas measured 1.06:1, so the unfilled
+               remainder was invisible and the bar read as a floating stub with
+               no scale. At 35% the track sits at 1.59:1 on canvas while the
+               green fill still clears 3:1 against it (3.02 light, 3.58 dark) —
+               which is the pair SC 1.4.11 actually asks about. -->
+          <div
+            class="h-2 overflow-hidden rounded-pill bg-fg-muted/35"
+            role="progressbar"
+            :aria-valuemin="0"
+            :aria-valuemax="questions.length"
+            :aria-valuenow="answeredCount"
+            :aria-valuetext="`Question ${currentQuestionIndex + 1} of ${questions.length}`"
+          >
+            <!-- scaleX, not width: the same movement off the layout thread. -->
             <div
-              class="h-full rounded-full bg-primary transition-all duration-500"
-              :style="{ width: `${progress}%` }"
+              class="h-full w-full origin-left bg-primary transition-transform duration-500 ease-out motion-reduce:transition-none"
+              :style="{ transform: `scaleX(${progress})` }"
             />
           </div>
         </div>
 
-        <!-- Question Card -->
-        <div class="rounded-xl bg-surface p-6 shadow-card">
-          <h2 class="mb-6 font-display text-heading-3 text-fg">
-            {{ currentQuestion.question }}
-          </h2>
+        <UiErrorState
+          v-if="submitError"
+          compact
+          title="We could not save your rating"
+          :message="submitError"
+          retry-label="Try again"
+          @retry="submitAssessment"
+        />
 
-          <div
+        <!-- Question -->
+        <div class="rounded-card bg-surface p-6 shadow-card">
+          <h1 :id="QUESTION_HEADING_ID" class="mb-6 font-display text-heading-3 text-fg">
+            {{ currentQuestion.question }}
+          </h1>
+
+          <OnboardingChoiceScale
+            ref="choiceScale"
             data-testid="question-choices"
-            :class="compactChoices ? 'grid grid-cols-1 gap-2 sm:grid-cols-5' : 'space-y-3'"
-          >
-            <button
-              v-for="(choice, index) in currentQuestion.choices"
-              :key="index"
-              type="button"
-              :disabled="loading"
-              class="w-full rounded-lg border-2 border-border-strong bg-canvas text-fg transition-all hover:border-primary hover:bg-surface-2 disabled:opacity-50"
-              :class="[
-                compactChoices ? 'px-3 py-3 text-center text-sm font-medium' : 'p-4 text-left',
-                { 'border-primary bg-surface-2': answers[currentQuestion.id] === index }
-              ]"
-              @click="selectAnswer(index)"
-            >
-              {{ choice }}
-            </button>
-          </div>
+            :choices="currentQuestion.choices"
+            :kind="currentQuestion.kind"
+            :model-value="answers[currentQuestion.id] ?? null"
+            :labelled-by="QUESTION_HEADING_ID"
+            @select="selectAnswer"
+          />
         </div>
 
-        <!-- Navigation -->
-        <div class="flex gap-3">
+        <!-- Back is a way out, not the action of the screen; full-bleed it
+             outweighed the answers it sits under. -->
+        <div class="flex">
           <button
             type="button"
-            class="flex-1 rounded-lg border border-border-strong py-3 text-sm text-fg-secondary hover:bg-surface-2"
+            class="rounded-button border border-border-strong px-5 py-3 text-sm text-fg-secondary transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
             @click="goBack"
           >
             Back
           </button>
         </div>
+
+        <p class="sr-only" role="status" aria-live="polite">{{ announcement }}</p>
+      </div>
+
+      <!-- Step: Scoring -->
+      <div
+        v-else-if="step === 'submitting'"
+        class="flex flex-col items-center justify-center gap-4 py-16"
+        role="status"
+      >
+        <div
+          class="h-12 w-12 animate-spin rounded-full border-4 border-primary border-t-transparent"
+        />
+        <p class="text-body-2 text-fg-muted">Scoring your answers…</p>
       </div>
 
       <!-- Step: Result with Celebration -->
       <div v-else-if="step === 'result' && ratingResult" class="space-y-6">
         <!-- Celebration Modal -->
         <div
-          class="relative overflow-hidden rounded-xl bg-surface p-8 text-center shadow-card"
+          class="relative overflow-hidden rounded-card bg-surface p-8 text-center shadow-card"
           :class="{ 'animate-celebration': showCelebration }"
         >
           <!-- Confetti Effect -->
@@ -464,7 +619,7 @@ const categoryLabel = (category: string) => {
         <!-- Continue Button -->
         <button
           type="button"
-          class="w-full rounded-lg bg-primary py-4 text-lg font-semibold text-on-primary transition-colors hover:bg-primary-hover"
+          class="w-full rounded-button bg-primary py-4 text-lg font-semibold text-on-primary transition-colors hover:bg-primary-hover"
           @click="goToDashboard"
         >
           Start Playing
@@ -483,7 +638,7 @@ const categoryLabel = (category: string) => {
           <p class="mt-2 text-fg-muted">Set up your club and start organizing events</p>
         </div>
 
-        <div class="rounded-xl bg-surface p-6 shadow-card">
+        <div class="rounded-card bg-surface p-6 shadow-card">
           <div class="space-y-4">
             <div class="flex items-start gap-3">
               <div
@@ -523,7 +678,7 @@ const categoryLabel = (category: string) => {
           <button
             type="button"
             :disabled="loading"
-            class="mt-6 w-full rounded-lg bg-primary py-3 font-semibold text-on-primary transition-colors hover:bg-primary-hover disabled:opacity-50"
+            class="mt-6 w-full rounded-button bg-primary py-3 font-semibold text-on-primary transition-colors hover:bg-primary-hover disabled:opacity-50"
             @click="continueToClubCreation"
           >
             {{ loading ? 'Setting up...' : 'Create Your Club' }}
@@ -531,7 +686,7 @@ const categoryLabel = (category: string) => {
 
           <button
             type="button"
-            class="mt-3 w-full rounded-lg border border-border-strong py-3 text-sm text-fg-secondary hover:bg-surface-2"
+            class="mt-3 w-full rounded-button border border-border-strong py-3 text-sm text-fg-secondary hover:bg-surface-2"
             @click="step = 'type'"
           >
             Back
@@ -539,8 +694,18 @@ const categoryLabel = (category: string) => {
         </div>
       </div>
 
-      <!-- Loading State (initial check or action in progress) -->
-      <div v-else-if="step === 'loading' || loading" class="flex items-center justify-center py-12">
+      <!-- The questions could not be fetched. Previously this state did not
+           exist and the spinner below simply never stopped. -->
+      <UiErrorState
+        v-else-if="loadError"
+        title="We could not load the questions"
+        :message="loadError"
+        retry-label="Try again"
+        @retry="loadQuestions"
+      />
+
+      <!-- Loading State (initial check or questions in flight) -->
+      <div v-else class="flex items-center justify-center py-12">
         <div
           class="h-12 w-12 animate-spin rounded-full border-4 border-primary border-t-transparent"
         />
@@ -644,7 +809,6 @@ const categoryLabel = (category: string) => {
   border-radius: 2px;
   animation: confetti-fall 3s ease-out forwards;
   animation-delay: calc(var(--i) * 0.02s);
-  transform: rotate(calc(var(--i) * 10deg));
 }
 
 .confetti:nth-child(3n + 2) {
@@ -670,16 +834,17 @@ const categoryLabel = (category: string) => {
   }
 }
 
+/* Falls on the compositor. This used to animate `top` from -10px to 100%,
+   which relaid out fifty absolutely-positioned nodes on every frame for three
+   seconds. The container clips the overshoot. */
 @keyframes confetti-fall {
   0% {
-    top: -10px;
     opacity: 1;
-    transform: rotate(0deg) translateX(0);
+    transform: translate3d(0, 0, 0) rotate(0deg);
   }
   100% {
-    top: 100%;
     opacity: 0;
-    transform: rotate(720deg) translateX(calc((var(--i) - 25) * 2px));
+    transform: translate3d(calc((var(--i) - 25) * 2px), 100vh, 0) rotate(720deg);
   }
 }
 </style>

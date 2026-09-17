@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { PlayerProfileDto } from '~/server/domains/player/dto/player-profile.dto'
 import type { PlayerRatingDto } from '~/server/domains/rating/dto/rating.dto'
+import type { PlayerKudosDto } from '~/server/domains/kudos/dto/kudos.dto'
 import type {
   PlayerStatsDto,
   RatingHistoryPointDto
@@ -72,7 +73,7 @@ const user = useSupabaseUser()
 /**
  * Duo and TeamUp are player-to-player relationships. A club is not a party to
  * either, so while acting as one the whole block is replaced rather than
- * disabled — a club pressing "Team Up" had nothing sensible to mean, and the
+ * disabled — a club pressing "Follow" has nothing sensible to mean, and the
  * request it sent would have come from the person behind the club account
  * rather than the club.
  *
@@ -458,53 +459,31 @@ const incomingRequest = computed(() => {
 const partnerLoading = ref(false)
 
 /**
- * Team Up: whether this player is on the reader's roster — the people they may
- * register for an open play session.
+ * Follow.
  *
- * A separate concept from the duo partnership above, and deliberately shown
- * beside it rather than in place of it. Directional, so the question is only
- * ever "is this player on MY team", never the reverse.
+ * Replaces the Team Up control (066-follow-and-kudos). Team-up was a
+ * directional roster — "you may register me for a session" — which follow now
+ * carries in a symmetric form: when you both follow each other, either of you
+ * can enter the other. That is why mutual is called out on screen rather than
+ * left for people to work out.
  */
-const { data: myTeamData, refresh: refreshTeam } = useFetch<{
-  team: { id: string; player_id: string; status: string }[]
-}>('/api/v1/players/me/team', {
-  server: false,
-  ignoreResponseError: true,
-  default: () => ({ team: [] })
-})
-
-const teamEntry = computed(
-  () => myTeamData.value?.team?.find((t) => t.player_id === playerId.value) ?? null
+/**
+ * What opponents credit this player with. Public, and read on every profile,
+ * so it is fetched with the rest of the page rather than on tab change — the
+ * card is the first thing under Overview.
+ */
+const { data: kudosData } = useFetch<{ data: PlayerKudosDto }>(
+  () => `/api/v1/players/${playerId.value}/kudos`,
+  { server: false, ignoreResponseError: true }
 )
-const teamStatus = computed(() => teamEntry.value?.status ?? null)
-const teamLoading = ref(false)
 
-async function sendTeamUp() {
-  teamLoading.value = true
-  try {
-    await $fetch(`/api/v1/players/${playerId.value}/team-up`, { method: 'POST' })
-    await refreshTeam()
-    useToast().success('Team-up request sent.')
-  } catch (err) {
-    useToast().error(apiErrorMessage(err, 'Could not send the team-up request.'))
-  } finally {
-    teamLoading.value = false
-  }
-}
-
-async function leaveTeam() {
-  const entry = teamEntry.value
-  if (!entry) return
-  teamLoading.value = true
-  try {
-    await $fetch(`/api/v1/team-ups/${entry.id}`, { method: 'DELETE' })
-    await refreshTeam()
-  } catch (err) {
-    useToast().error(apiErrorMessage(err, 'Could not update your team.'))
-  } finally {
-    teamLoading.value = false
-  }
-}
+const {
+  state: followState,
+  isMutual,
+  label: followLabel,
+  pending: followPending,
+  toggle: toggleFollow
+} = useFollow(() => playerId.value)
 
 const PROFILE_TABS = computed(() => [
   { value: 'overview', label: 'Overview' },
@@ -890,19 +869,22 @@ function formatActivityText(activity: ProfileActivity): string {
                 {{ partnerLoading ? '...' : 'Pending' }}
               </button>
               <!--
-                Not partners, and only offered to someone already teamed up.
+                Not partners, and only offered to someone you mutually follow.
 
                 A duo is who you enter a doubles DRAW with, which is a bigger
-                commitment than a team-up and made no sense to offer a stranger:
-                the button appeared on every profile, and pressing it sent a
-                request to somebody with no relationship to the sender at all.
+                commitment than a follow and makes no sense to offer a stranger:
+                the button used to appear on every profile, and pressing it sent
+                a request to somebody with no relationship to the sender at all.
+                The bar used to be an accepted team-up; it is now a mutual
+                follow, which is the same agreement in the new model.
+
                 Existing duos, incoming requests and pending ones above are all
-                still shown whatever the team-up state — withdrawing the way to
+                still shown whatever the follow state — withdrawing the way to
                 answer a request you already have would be worse than never
                 offering it.
               -->
               <button
-                v-else-if="teamStatus === 'accepted'"
+                v-else-if="isMutual"
                 class="rounded-lg bg-primary px-5 py-2 text-sm font-medium text-on-primary transition-colors hover:bg-primary-hover"
                 :disabled="partnerLoading"
                 @click="sendPartnerRequest"
@@ -910,40 +892,35 @@ function formatActivityText(activity: ProfileActivity): string {
                 {{ partnerLoading ? '...' : 'Request as Duo Partner' }}
               </button>
 
-              <!-- Team Up sits BESIDE the duo control, not instead of it: a duo
-                   partner is who you pair with in a doubles draw, a team-up is
-                   who you may bring to an open play session. Being one does not
-                   make you the other, and plenty of people are both. -->
+              <!-- Follow sits BESIDE the duo control, not instead of it: a duo
+                   partner is who you pair with in a doubles draw, following is
+                   how you keep up with somebody and — once it is mutual — how
+                   either of you may enter the other into an open play session.
+                   Being one does not make you the other. -->
               <button
-                v-if="teamStatus === 'accepted'"
                 type="button"
-                class="rounded-lg border border-accent px-5 py-2 text-sm font-medium text-fg-secondary transition-colors hover:border-danger hover:text-danger disabled:opacity-50"
-                :disabled="teamLoading"
-                @click="leaveTeam"
+                class="rounded-lg px-5 py-2 text-sm font-medium transition-colors disabled:opacity-50"
+                :class="
+                  followState.following
+                    ? 'border border-primary text-primary hover:border-danger hover:text-danger'
+                    : 'bg-primary text-on-primary hover:bg-primary-hover'
+                "
+                :disabled="followPending"
+                :aria-pressed="followState.following"
+                @click="toggleFollow"
               >
-                {{ teamLoading ? '...' : 'On your team' }}
-              </button>
-              <button
-                v-else-if="teamStatus === 'pending'"
-                type="button"
-                class="rounded-lg border border-warning-fill px-5 py-2 text-sm font-medium text-warning transition-colors hover:border-danger hover:text-danger disabled:opacity-50"
-                :disabled="teamLoading"
-                @click="leaveTeam"
-              >
-                {{ teamLoading ? '...' : 'Team-up pending' }}
-              </button>
-              <button
-                v-else
-                type="button"
-                class="rounded-lg border border-border-strong px-5 py-2 text-sm font-medium text-fg-secondary transition-colors hover:border-primary hover:text-fg disabled:opacity-50"
-                :disabled="teamLoading"
-                @click="sendTeamUp"
-              >
-                {{ teamLoading ? '...' : 'Team Up' }}
+                {{ followPending ? '…' : followLabel }}
               </button>
 
+              <!-- Said out loud because it is the thing that unlocks entering
+                   each other into a session, and nothing else on the page would
+                   tell you it had happened. -->
+              <p v-if="isMutual" class="text-caption text-fg-muted">
+                You can enter each other into open play
+              </p>
+
               <!-- Quiet on purpose. Reporting is a last resort, not a peer of
-                   "Team Up", and giving it equal weight invites use as a
+                   "Follow", and giving it equal weight invites use as a
                    reaction to losing a match. -->
               <button
                 type="button"
@@ -993,6 +970,13 @@ function formatActivityText(activity: ProfileActivity): string {
       <div class="space-y-4">
         <!-- Overview Tab -->
         <template v-if="activeTab === 'overview'">
+          <KudosCard
+            class="mb-4"
+            :kudos="kudosData?.data ?? null"
+            :display-name="profile.display_name"
+            :is-own-profile="isOwnProfile"
+          />
+
           <!-- Rating History -->
           <div class="rounded-card border border-border bg-surface p-5 shadow-card">
             <div class="mb-4 flex items-center justify-between">

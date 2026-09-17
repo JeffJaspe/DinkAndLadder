@@ -5,7 +5,7 @@ import type { EventRepository } from '../../server/domains/event/repositories/ev
 import type { EventCoOrganizerRecord } from '../../server/domains/event/dto/event-co-organizer.dto'
 import { createFriendsService } from '../../server/domains/partnership/services/friends.service'
 import type { PartnershipRepository } from '../../server/domains/partnership/repositories/partnership.repository'
-import type { TeamUpRepository } from '../../server/domains/partnership/repositories/team-up.repository'
+import type { RelationshipRepository } from '../../server/domains/social/repositories/relationship.repository'
 
 const CREATOR = 'creator-1'
 const FRIEND = 'friend-1'
@@ -59,10 +59,10 @@ function friends() {
         : []
     )
   } as unknown as PartnershipRepository
-  const teamUps = {
-    findAcceptedPeerIds: vi.fn(async () => [])
-  } as unknown as TeamUpRepository
-  return createFriendsService(partnerships, teamUps)
+  const relationships = {
+    findAllMutualFollows: vi.fn(async () => [])
+  } as unknown as RelationshipRepository
+  return createFriendsService(partnerships, relationships)
 }
 
 function build() {
@@ -130,19 +130,19 @@ describe('EventCoOrganizerService', () => {
 })
 
 describe('FriendsService', () => {
-  it('merges partners and accepted team-ups, partner winning when both apply', async () => {
+  it('merges duo partners and mutual follows, partner winning when both apply', async () => {
     const partnerships = {
       findPartners: vi.fn(async () => [
         { id: 'p1', player1_id: 'me', player2_id: 'a', created_at: '' }
       ])
     } as unknown as PartnershipRepository
-    const teamUps = {
-      findAcceptedPeerIds: vi.fn(async () => ['a', 'b', 'me'])
-    } as unknown as TeamUpRepository
-    const list = await createFriendsService(partnerships, teamUps).listFriends('me')
+    const relationships = {
+      findAllMutualFollows: vi.fn(async () => ['a', 'b', 'me'])
+    } as unknown as RelationshipRepository
+    const list = await createFriendsService(partnerships, relationships).listFriends('me')
     expect(list).toEqual([
       { player_id: 'a', via: 'partner' },
-      { player_id: 'b', via: 'team_up' }
+      { player_id: 'b', via: 'follow' }
     ])
   })
 })

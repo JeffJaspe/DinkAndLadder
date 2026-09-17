@@ -16,8 +16,7 @@ export type NotificationType =
   | 'club.announcement'
   // Being entered into a session by somebody else commits your evening, so it
   // has to announce itself rather than being discovered on the day.
-  | 'team_up.invited'
-  | 'team_up.accepted'
+
   /**
    * The outcome of a report about this player.
    *
@@ -48,7 +47,6 @@ export type NotificationReferenceType =
   | 'partner_request'
   | 'partnership'
   | 'club_announcement'
-  | 'team_up'
   /**
    * Points at the player_reports row. Only the SuperAdmin can read that row,
    * so this is an opaque id to the recipient - deliberately, since resolving

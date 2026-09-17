@@ -46,7 +46,9 @@ function createFakeRelationshipRepository(): RelationshipRepository {
     delete: vi.fn().mockResolvedValue(undefined),
     isBlocked: vi.fn().mockResolvedValue(false),
     countFollowers: vi.fn().mockResolvedValue(0),
-    countFollowing: vi.fn().mockResolvedValue(0)
+    countFollowing: vi.fn().mockResolvedValue(0),
+    findMutualFollows: vi.fn().mockResolvedValue([]),
+    findAllMutualFollows: vi.fn().mockResolvedValue([])
   }
 }
 

@@ -5,7 +5,7 @@ import { createEventRepository } from '~/server/domains/event/repositories/event
 import { createEventCoOrganizerRepository } from '~/server/domains/event/repositories/event-co-organizer.repository'
 import { createEventCoOrganizerService } from '~/server/domains/event/services/event-co-organizer.service'
 import { createPartnershipRepository } from '~/server/domains/partnership/repositories/partnership.repository'
-import { createTeamUpRepository } from '~/server/domains/partnership/repositories/team-up.repository'
+import { createRelationshipRepository } from '~/server/domains/social/repositories/relationship.repository'
 import { createFriendsService } from '~/server/domains/partnership/services/friends.service'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
 import { createBrandingAssetRepository } from '~/server/domains/platform/repositories/branding-asset.repository'
@@ -25,7 +25,10 @@ export function buildCoOrganizerService(event: H3Event) {
     service: createEventCoOrganizerService(
       createEventRepository(client),
       createEventCoOrganizerRepository(client),
-      createFriendsService(createPartnershipRepository(client), createTeamUpRepository(client))
+      createFriendsService(
+        createPartnershipRepository(client),
+        createRelationshipRepository(client)
+      )
     )
   }
 }

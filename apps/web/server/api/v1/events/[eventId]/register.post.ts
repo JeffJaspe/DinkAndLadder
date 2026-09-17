@@ -1,11 +1,11 @@
 import { serverSupabaseClient, serverSupabaseServiceRole } from '#supabase/server'
 import { createEventRegistrationRepository } from '~/server/domains/event/repositories/event-registration.repository'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
-import { createTeamUpRepository } from '~/server/domains/partnership/repositories/team-up.repository'
+import { createRelationshipRepository } from '~/server/domains/social/repositories/relationship.repository'
 import {
-  createTeamUpService,
-  TeamUpServiceError
-} from '~/server/domains/partnership/services/team-up.service'
+  createRelationshipService,
+  RelationshipServiceError
+} from '~/server/domains/social/services/relationship.service'
 import { apiError } from '~/server/utils/api-error'
 import { getOptionalUser } from '~/server/utils/optional-user'
 
@@ -45,14 +45,26 @@ export default defineEventHandler(async (event) => {
   // The caller is always in, and the set dedupes a client that sends them twice.
   const everyone = [...new Set([playerProfile.id, ...requested])]
 
-  // Consent: registering somebody commits their evening, so it takes an
-  // accepted team-up. Self-registration needs no permission and is skipped.
+  /**
+   * Consent: registering somebody commits their evening, so it takes a MUTUAL
+   * follow — they follow you and you follow them.
+   *
+   * This was an accepted team-up until 066-follow-and-kudos. A one-way follow
+   * deliberately does not count: following is public and unilateral, so if it
+   * were enough, anyone could follow you and then enter you into a session and,
+   * once payments are live, commit your entry fee. Requiring both directions
+   * keeps the agreement the team-up used to carry.
+   *
+   * Self-registration needs no permission and is skipped.
+   */
   if (everyone.length > 1) {
-    const teamService = createTeamUpService(createTeamUpRepository(serviceClient))
+    const relationships = createRelationshipService(createRelationshipRepository(serviceClient))
     try {
-      await teamService.assertCanRegister(playerProfile.id, everyone)
+      await relationships.assertCanRegister(playerProfile.id, everyone)
     } catch (err) {
-      if (err instanceof TeamUpServiceError) throw apiError(err.status, err.code, err.message)
+      if (err instanceof RelationshipServiceError) {
+        throw apiError(err.status, err.code, err.message)
+      }
       throw err
     }
   }

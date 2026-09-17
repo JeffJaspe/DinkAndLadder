@@ -25,8 +25,8 @@ export function describeFeedReason(
       return 'Your own activity'
     case 'partner':
       return 'Your duo partner'
-    case 'team_up':
-      return "You've teamed up"
+    case 'follow':
+      return 'You follow each other'
     case 'opponent':
       return "You've played each other"
     default:

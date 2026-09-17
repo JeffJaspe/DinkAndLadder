@@ -87,10 +87,27 @@ export interface QuestionChoice {
   score: number
 }
 
+/**
+ * How the client should present the choices.
+ *
+ * Declared here rather than inferred in the UI. The page used to guess from
+ * label length (`every(label.length <= 12)`) — a character count standing in
+ * for a width budget. At five columns in a 512px container each label gets
+ * 76px of content box, and "Sometimes" needs 59px in Inter 500/14 but only
+ * once the webfont has swapped in, so the layout the page chose was correct
+ * or clipped depending on font timing. The question knows which shape it is.
+ */
+export type QuestionKind =
+  /** One ordered frequency scale, presented as a single 5-stop control. */
+  | 'scale'
+  /** Distinct, sentence-length options, presented as a stacked list. */
+  | 'list'
+
 export interface AssessmentQuestion {
   id: string
   category: QuestionCategory
   question: string
+  kind: QuestionKind
   /** Set on skill statements; absent on the three calibration questions. */
   tier?: StatementTier
   choices: QuestionChoice[]
@@ -106,6 +123,7 @@ function statement(
     id,
     category,
     tier,
+    kind: 'scale',
     question: text,
     choices: FREQUENCY_LABELS.map((label, i) => ({ label, score: TIER_SCORES[tier][i] }))
   }
@@ -230,6 +248,7 @@ export const QUESTION_BANK: AssessmentQuestion[] = [
   {
     id: 'EXP-001',
     category: 'experience',
+    kind: 'list',
     question: 'How long have you been playing pickleball?',
     choices: [
       { label: 'Just started — a few sessions', score: 3.0 },
@@ -242,6 +261,7 @@ export const QUESTION_BANK: AssessmentQuestion[] = [
   {
     id: 'COMP-001',
     category: 'competition',
+    kind: 'list',
     question: 'Have you played organised competition — leagues or tournaments?',
     choices: [
       { label: 'No, only casual games', score: 4.5 },
@@ -255,6 +275,7 @@ export const QUESTION_BANK: AssessmentQuestion[] = [
   {
     id: 'LVL-001',
     category: 'self_level',
+    kind: 'list',
     question: 'Who could you play an even game against today?',
     choices: [
       { label: 'Other beginners still learning to rally', score: 2.25 },
@@ -279,49 +300,52 @@ export interface RatingTier {
   max: number
   name: string
   description: string
-  color: string
 }
 
+/**
+ * The named bands the provisional rating falls into.
+ *
+ * Deliberately no `color`: each tier used to carry a literal hex, which was a
+ * second nine-step colour ladder that no token backed and that stayed the same
+ * value in dark mode. Nothing rendered it — every surface draws from
+ * `tierForRating` instead — so it shipped through the API as a trap rather
+ * than a contract. Tier colour belongs to the token system, not to this table.
+ */
 export const RATING_TIERS: RatingTier[] = [
   {
     min: 2.0,
     max: 2.49,
     name: 'Beginner',
-    description: 'Just starting your pickleball journey',
-    color: '#6B7B75'
+    description: 'Just starting your pickleball journey'
   },
   {
     min: 2.5,
     max: 2.99,
     name: 'Novice',
-    description: 'Learning the fundamentals',
-    color: '#8B9B95'
+    description: 'Learning the fundamentals'
   },
   {
     min: 3.0,
     max: 3.49,
     name: 'Intermediate',
-    description: 'Developing consistent play',
-    color: '#4DB175'
+    description: 'Developing consistent play'
   },
   {
     min: 3.5,
     max: 3.99,
     name: 'Advanced',
-    description: 'Strong recreational player',
-    color: '#3D9B65'
+    description: 'Strong recreational player'
   },
   {
     min: 4.0,
     max: 4.49,
     name: 'Skilled',
-    description: 'Competitive club player',
-    color: '#2D8B55'
+    description: 'Competitive club player'
   },
-  { min: 4.5, max: 4.99, name: 'Expert', description: 'Tournament-ready player', color: '#1D7B45' },
-  { min: 5.0, max: 5.49, name: 'Pro', description: 'Elite competitive player', color: '#F5A623' },
-  { min: 5.5, max: 5.99, name: 'Elite', description: 'Top-tier competitor', color: '#E59513' },
-  { min: 6.0, max: 8.0, name: 'Champion', description: 'Professional level', color: '#D58503' }
+  { min: 4.5, max: 4.99, name: 'Expert', description: 'Tournament-ready player' },
+  { min: 5.0, max: 5.49, name: 'Pro', description: 'Elite competitive player' },
+  { min: 5.5, max: 5.99, name: 'Elite', description: 'Top-tier competitor' },
+  { min: 6.0, max: 8.0, name: 'Champion', description: 'Professional level' }
 ]
 
 export function getTierForRating(rating: number): RatingTier {

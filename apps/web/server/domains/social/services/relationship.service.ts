@@ -23,6 +23,18 @@ export interface RelationshipService {
   isFollowing(fromPlayerId: string, toPlayerId: string): Promise<boolean>
   isBlocked(fromPlayerId: string, toPlayerId: string): Promise<boolean>
   getStats(playerId: string): Promise<{ followers: number; following: number }>
+  /**
+   * Consent to enter somebody into a session.
+   *
+   * Mutual follow, not a one-way one. Following is public and unilateral — if
+   * it were enough, anybody could follow you and then commit your evening and,
+   * once payments are live, your entry fee. Two people following each other is
+   * the nearest thing this model has to both of them agreeing, and it replaces
+   * the accepted team-up that used to carry this (066-follow-and-kudos).
+   *
+   * Throws naming the players who have not, so the caller can say which.
+   */
+  assertCanRegister(actingPlayerId: string, playerIds: string[]): Promise<void>
 }
 
 export function createRelationshipService(
@@ -130,6 +142,25 @@ export function createRelationshipService(
 
     async isBlocked(fromPlayerId, toPlayerId) {
       return relationships.isBlocked(fromPlayerId, toPlayerId)
+    },
+
+    async assertCanRegister(actingPlayerId, playerIds) {
+      // Registering yourself needs nobody's permission.
+      const others = [...new Set(playerIds)].filter((id) => id !== actingPlayerId)
+      if (others.length === 0) return
+
+      const mutual = new Set(await relationships.findMutualFollows(actingPlayerId, others))
+      const missing = others.filter((id) => !mutual.has(id))
+
+      if (missing.length) {
+        throw new RelationshipServiceError(
+          403,
+          'NOT_MUTUAL_FOLLOWERS',
+          missing.length === 1
+            ? 'You can only enter someone who follows you and who you follow back.'
+            : `${missing.length} of these players do not follow you back. You can only enter someone you each follow.`
+        )
+      }
     },
 
     async getStats(playerId) {

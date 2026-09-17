@@ -37,6 +37,15 @@ export default defineEventHandler(async (event) => {
     if (err instanceof RelationshipServiceError) {
       throw apiError(err.status, err.code, err.message)
     }
-    throw err
+    /**
+     * Anything else is a database error, and for this endpoint it was always
+     * the same one: `player_relationships` had RLS enabled with a SELECT
+     * policy and no INSERT or DELETE, so every follow and unfollow was refused
+     * with 42501 and surfaced as a bare 500 with no message. 066 adds the
+     * missing policies; this log is so the next such failure names itself
+     * instead of being invisible for another release.
+     */
+    console.error('[DELETE /api/v1/players/:playerId/follow] failed:', err)
+    throw apiError(500, 'INTERNAL_ERROR', 'Could not update the follow.')
   }
 })

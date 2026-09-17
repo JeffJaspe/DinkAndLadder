@@ -18,6 +18,8 @@ function createFakeRepository(overrides?: Partial<RelationshipRepository>): Rela
     isBlocked: vi.fn().mockResolvedValue(false),
     countFollowers: vi.fn().mockResolvedValue(0),
     countFollowing: vi.fn().mockResolvedValue(0),
+    findMutualFollows: vi.fn().mockResolvedValue([]),
+    findAllMutualFollows: vi.fn().mockResolvedValue([]),
     ...overrides
   }
 }
@@ -220,5 +222,51 @@ describe('RelationshipService', () => {
       expect(followers[0].player_id).toBe('player-2')
       expect(followers[1].player_id).toBe('player-3')
     })
+  })
+})
+
+describe('RelationshipService.assertCanRegister', () => {
+  /**
+   * The consent gate that replaced the accepted team-up in 066.
+   *
+   * Mutual, never one-way: following is public and unilateral, so if a one-way
+   * follow were enough, anybody could follow you and then commit your evening
+   * and your entry fee.
+   */
+  it('allows registering someone you mutually follow', async () => {
+    const repo = createFakeRepository({
+      findMutualFollows: vi.fn().mockResolvedValue(['friend'])
+    })
+
+    await expect(
+      createRelationshipService(repo).assertCanRegister('me', ['me', 'friend'])
+    ).resolves.toBeUndefined()
+  })
+
+  it('refuses someone who only follows you', async () => {
+    const repo = createFakeRepository({ findMutualFollows: vi.fn().mockResolvedValue([]) })
+
+    await expect(
+      createRelationshipService(repo).assertCanRegister('me', ['me', 'fan'])
+    ).rejects.toMatchObject({ code: 'NOT_MUTUAL_FOLLOWERS' })
+  })
+
+  it('needs no permission to register only yourself', async () => {
+    const repo = createFakeRepository()
+
+    await expect(
+      createRelationshipService(repo).assertCanRegister('me', ['me'])
+    ).resolves.toBeUndefined()
+    expect(repo.findMutualFollows).not.toHaveBeenCalled()
+  })
+
+  it('refuses the whole group when one of them does not qualify', async () => {
+    const repo = createFakeRepository({
+      findMutualFollows: vi.fn().mockResolvedValue(['a'])
+    })
+
+    await expect(
+      createRelationshipService(repo).assertCanRegister('me', ['me', 'a', 'b'])
+    ).rejects.toMatchObject({ code: 'NOT_MUTUAL_FOLLOWERS' })
   })
 })

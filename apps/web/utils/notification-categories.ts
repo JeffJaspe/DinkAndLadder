@@ -31,9 +31,13 @@ export function categoryOf(type: string): NotificationCategory {
   if (type.startsWith('club.')) return 'club'
   if (type.startsWith('moderation.')) return 'moderation'
 
-  // Partner requests and team-ups are both "another player wants something
-  // with you", which is one question however the product names the two
-  // relationships.
+  // Another player wanting something with you, which is one question however
+  // the product names the relationship.
+  //
+  // `team_up.` is kept although nothing writes it any more (066 replaced
+  // team-ups with follows). Notifications already sent are still in the table
+  // until retention clears them, and dropping the prefix would send them to
+  // 'account' — the wrong tab, and unfindable for whoever was waiting on one.
   if (type.startsWith('partner.') || type.startsWith('team_up.')) return 'community'
 
   // match.* and rating.* are things that happened to YOUR record. They belong
