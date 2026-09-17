@@ -995,15 +995,12 @@ const { goBack } = useAppBack('/my-clubs')
               class="flex items-center justify-between rounded-lg bg-canvas p-3"
             >
               <div class="flex items-center gap-3">
-                <div class="flex h-8 w-8 items-center justify-center rounded-full bg-surface-2 p-1">
-                  <UiBrandImage />
-                </div>
-                <NuxtLink
-                  :to="`/players/${member.player_id}`"
+                <UiAvatar :name="member.display_name" :identity-key="member.player_id" size="sm" />
+                <UiPlayerLink
+                  :player-id="member.player_id"
+                  :name="member.display_name"
                   class="font-medium text-fg hover:text-primary"
-                >
-                  {{ member.display_name }}
-                </NuxtLink>
+                />
               </div>
               <div class="flex gap-2">
                 <button

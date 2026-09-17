@@ -27,6 +27,12 @@ export interface TransactionRepository {
     reference: string
   ): Promise<PaymentTransactionRecord | null>
   updateStatus(id: string, status: TransactionStatus): Promise<PaymentTransactionRecord>
+  /**
+   * Ties a transaction to the subscription it paid for. Separate from `create`
+   * because the transaction is written BEFORE the subscription exists — see
+   * `startCheckout` — so the id is not known at insert time.
+   */
+  updateSubscription(id: string, subscriptionId: string): Promise<PaymentTransactionRecord>
   listByPlayer(playerId: string, limit?: number): Promise<PaymentTransactionRecord[]>
   listByClub(clubId: string, limit?: number): Promise<PaymentTransactionRecord[]>
 }
@@ -110,6 +116,18 @@ export function createTransactionRepository(client: SupabaseClient): Transaction
       const { data, error } = await client
         .from('payment_transactions')
         .update({ status, updated_at: new Date().toISOString() })
+        .eq('id', id)
+        .select(COLUMNS)
+        .single()
+
+      if (error) throw error
+      return data as unknown as PaymentTransactionRecord
+    },
+
+    async updateSubscription(id, subscriptionId) {
+      const { data, error } = await client
+        .from('payment_transactions')
+        .update({ subscription_id: subscriptionId, updated_at: new Date().toISOString() })
         .eq('id', id)
         .select(COLUMNS)
         .single()

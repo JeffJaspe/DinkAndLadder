@@ -12,6 +12,7 @@ import type {
   TournamentMatchType
 } from '~/server/domains/event/dto/tournament.dto'
 import { TOURNAMENT_FORMATS } from '~/utils/tournament-formats'
+import { limitUpsell, type LimitUpsell } from '~/utils/limit-upsell'
 
 interface MineResponse {
   items: MyClubMembershipDto[]
@@ -287,6 +288,7 @@ watch(
 
 const submitting = ref(false)
 const errorMessage = ref('')
+const upsell = ref<LimitUpsell | null>(null)
 const router = useRouter()
 const route = useRoute()
 
@@ -545,6 +547,9 @@ async function submit() {
     router.push(`/events/${created.id}`)
   } catch (e) {
     errorMessage.value = apiErrorMessage(e, 'Something went wrong.')
+    // A plan limit is the one error with a way out: the sentence plus a link,
+    // never a modal. The message stays exactly what the server said.
+    upsell.value = limitUpsell(e, form.club_id)
   } finally {
     submitting.value = false
   }
@@ -1450,6 +1455,14 @@ async function submit() {
         <!-- Error -->
         <div v-if="errorMessage" class="rounded-xl bg-danger-soft p-4 text-danger">
           {{ errorMessage }}
+          <NuxtLink
+            v-if="upsell"
+            :to="upsell.to"
+            class="mt-2 inline-block text-sm font-medium underline underline-offset-2"
+            data-testid="limit-upsell"
+          >
+            {{ upsell.ctaLabel }}
+          </NuxtLink>
         </div>
 
         <!-- Actions -->

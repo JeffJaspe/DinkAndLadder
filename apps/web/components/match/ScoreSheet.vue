@@ -128,7 +128,12 @@ function setScore(index: number, side: 1 | 2, raw: string) {
               :key="player.name"
               class="text-sm font-medium text-fg"
             >
-              <UiPlayerLink :player-id="player.playerId" :name="player.name" />
+              <UiPlayerLink
+                :player-id="player.playerId"
+                :name="player.name"
+                avatar
+                avatar-size="xs"
+              />
             </div>
             <div v-if="subtitles" class="mt-0.5 text-caption text-fg-muted">
               {{ subtitles[side - 1] }}

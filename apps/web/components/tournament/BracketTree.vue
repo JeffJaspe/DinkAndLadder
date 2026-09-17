@@ -59,12 +59,17 @@ const columns = computed<Column[]>(() =>
   }))
 )
 
-const championLine = computed(() => {
+const hasChampion = computed(() => Boolean(props.champion?.display_name))
+
+/** The champion, and their partner when the draw is doubles. */
+const championPlayers = computed(() => {
   const champion = props.champion
-  if (!champion) return null
-  return champion.partner_display_name
-    ? `${champion.display_name} / ${champion.partner_display_name}`
-    : champion.display_name
+  if (!champion) return []
+  const players = [{ id: champion.player_id, name: champion.display_name }]
+  if (champion.partner_display_name) {
+    players.push({ id: champion.partner_player_id, name: champion.partner_display_name })
+  }
+  return players
 })
 </script>
 
@@ -109,15 +114,21 @@ const championLine = computed(() => {
         <div
           class="rounded-xl border-2 p-4 text-center"
           :class="
-            championLine
+            hasChampion
               ? 'border-primary bg-primary/10'
               : 'border-dashed border-border-strong bg-canvas'
           "
         >
           <UiIcon name="trophy" size="h-7 w-7" class="mx-auto text-primary" />
           <p class="mt-2 text-xs font-semibold uppercase tracking-wide text-fg-muted">Champion</p>
-          <p v-if="championLine" class="mt-1 break-words text-sm font-semibold text-fg">
-            {{ championLine }}
+          <p
+            v-if="hasChampion"
+            class="mt-1 flex flex-wrap items-center justify-center gap-x-1.5 gap-y-1 break-words text-sm font-semibold text-fg"
+          >
+            <template v-for="(player, i) in championPlayers" :key="player.id ?? i">
+              <span v-if="i > 0" class="text-fg-muted">/</span>
+              <UiPlayerLink :player-id="player.id" :name="player.name" avatar avatar-size="xs" />
+            </template>
           </p>
           <p v-else class="mt-1 text-sm text-fg-muted">To be decided</p>
         </div>

@@ -299,7 +299,7 @@ const activeList = computed(() => {
             :to="`/players/${member.player_id}`"
             class="flex min-w-0 flex-1 items-center gap-3 hover:text-primary"
           >
-            <UiAvatar :name="member.display_name" size="sm" />
+            <UiAvatar :name="member.display_name" :identity-key="member.player_id" size="sm" />
             <span class="min-w-0">
               <span class="block truncate text-sm font-medium text-fg">
                 {{ member.display_name }}

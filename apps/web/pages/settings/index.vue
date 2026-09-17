@@ -105,6 +105,12 @@ const adminLinks: SettingsLink[] = [
     icon: 'stats'
   },
   {
+    title: 'Subscriptions',
+    description: 'Club plans, billing mode and grants',
+    href: '/admin/subscriptions',
+    icon: 'card'
+  },
+  {
     title: 'Theme',
     description: 'Platform colours and the default appearance',
     href: '/admin/theme',

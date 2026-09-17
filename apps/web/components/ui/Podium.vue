@@ -108,6 +108,7 @@ const tierFor = (entry: PodiumEntry) => (entry.rating === null ? null : tierForR
             <UiAvatar
               :name="entryFor(place.rank)!.name"
               :src="entryFor(place.rank)!.avatarUrl"
+              :identity-key="entryFor(place.rank)!.id"
               :size="place.avatar"
               shape="square"
               class="ring-2 ring-offset-2 ring-offset-canvas"

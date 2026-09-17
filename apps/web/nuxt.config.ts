@@ -127,6 +127,9 @@ export default defineNuxtConfig({
         // Policies are for everyone, most of all the visitor deciding whether
         // to sign up.
         '/legal/*',
+        // What a club would pay is for the visitor deciding whether to bring
+        // their club here; driven by the public plan rows only.
+        '/pricing',
         // Dev-only token preview; it 404s outside dev, so there is nothing to guard.
         '/dev/*',
         '/api/webhooks/*'

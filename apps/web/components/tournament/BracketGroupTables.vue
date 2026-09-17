@@ -72,6 +72,7 @@ const groups = computed(() => computeStandingsGroups(props.bracket, props.confir
                 <span class="w-4 shrink-0 text-xs tabular-nums text-fg-muted">
                   {{ entry.rank }}
                 </span>
+                <UiAvatar :name="entry.display_name" :identity-key="entry.player_id" size="xs" />
                 <span class="truncate text-fg">{{ entry.display_name }}</span>
               </button>
             </td>

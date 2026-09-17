@@ -113,6 +113,19 @@ const STATUS_PILL: Record<string, { label: string; klass: string }> = {
   cancelled: { label: 'Cancelled', klass: 'bg-surface-2 text-fg-muted' }
 }
 
+/**
+ * The one opponent, or null in doubles.
+ *
+ * The avatar beside this row used to be built from `opponents()`, which joins
+ * names — so a doubles row rendered the initials of a person who does not
+ * exist. A pair has no face; only a single opponent does.
+ */
+function soleOpponentId(match: MatchSummary): string | null {
+  const myTeam = match.participants.find((p) => p.player_id === myProfile.value?.id)?.team_number
+  const others = match.participants.filter((p) => p.team_number !== myTeam)
+  return others.length === 1 ? (others[0]?.player_id ?? null) : null
+}
+
 function opponents(match: MatchSummary): string {
   const myTeam = match.participants.find((p) => p.player_id === myProfile.value?.id)?.team_number
   const others = match.participants.filter((p) => p.team_number !== myTeam)
@@ -235,7 +248,7 @@ function clearDates() {
           :to="`/matches/${match.id}`"
           class="flex items-center gap-3 rounded-card border border-border bg-surface p-4 transition-colors hover:bg-surface-2 shadow-card hover:shadow-card-hover"
         >
-          <UiAvatar :name="opponents(match)" size="md" />
+          <UiAvatar :name="opponents(match)" :identity-key="soleOpponentId(match)" size="md" />
 
           <div class="min-w-0 flex-1">
             <p class="truncate text-body-2 font-medium text-fg">vs {{ opponents(match) }}</p>

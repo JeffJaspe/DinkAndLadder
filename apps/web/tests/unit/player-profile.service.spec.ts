@@ -41,6 +41,7 @@ function createFakePlayerProfileRepository(
         dominant_hand: input.dominant_hand ?? existing?.dominant_hand ?? null,
         preferred_position: input.preferred_position ?? existing?.preferred_position ?? null,
         profile_visibility: input.profile_visibility ?? existing?.profile_visibility ?? 'public',
+        show_match_history: input.show_match_history ?? existing?.show_match_history ?? false,
         avatar_path: existing?.avatar_path ?? null,
         created_at: existing?.created_at ?? now,
         updated_at: now

@@ -56,6 +56,7 @@ export interface SubscriptionRepository {
    * cannot honour it. Repositories fetch; services judge.
    */
   findLatestForClub(clubId: string): Promise<ClubSubscriptionRecord | null>
+  findClubSubscriptionById(id: string): Promise<ClubSubscriptionRecord | null>
   getClubSubscriptionByStripeId(stripeSubId: string): Promise<ClubSubscriptionRecord | null>
   createClubSubscription(input: CreateClubSubscriptionInput): Promise<ClubSubscriptionRecord>
   updateClubSubscription(
@@ -63,6 +64,16 @@ export interface SubscriptionRepository {
     input: UpdateSubscriptionInput
   ): Promise<ClubSubscriptionRecord>
   listClubSubscriptions(filter?: ClubSubscriptionFilter): Promise<ClubSubscriptionRecord[]>
+  /**
+   * Subscriptions whose paid period ended before `before` and that nobody has
+   * closed yet (`ended_at IS NULL`). What the lapse sweep reads.
+   *
+   * No gateway means no webhook will ever flip a status, so an admin grant of
+   * three months would entitle the club forever without this. The service
+   * decides which of these rows has actually lapsed (grace applies to
+   * `past_due`); the repository only finds the candidates.
+   */
+  findLapsedCandidates(before: string, limit?: number): Promise<ClubSubscriptionRecord[]>
 
   /* --- Club plans (056). Service-role callers only; see 0008's RLS note. --- */
 
@@ -372,6 +383,17 @@ export function createSubscriptionRepository(client: SupabaseClient): Subscripti
       return data as unknown as ClubSubscriptionRecord | null
     },
 
+    async findClubSubscriptionById(id) {
+      const { data, error } = await client
+        .from('club_subscriptions')
+        .select(CLUB_SUB_COLUMNS)
+        .eq('id', id)
+        .maybeSingle()
+
+      if (error) throw error
+      return data as unknown as ClubSubscriptionRecord | null
+    },
+
     async getClubSubscriptionByStripeId(stripeSubId) {
       const { data, error } = await client
         .from('club_subscriptions')
@@ -426,6 +448,21 @@ export function createSubscriptionRepository(client: SupabaseClient): Subscripti
       query = query.limit(filter.limit ?? 100)
 
       const { data, error } = await query
+      if (error) throw error
+      return (data ?? []) as unknown as ClubSubscriptionRecord[]
+    },
+
+    async findLapsedCandidates(before, limit = 200) {
+      const { data, error } = await client
+        .from('club_subscriptions')
+        .select(CLUB_SUB_COLUMNS)
+        .is('ended_at', null)
+        .not('current_period_end', 'is', null)
+        .lt('current_period_end', before)
+        .in('status', [...LIVE_SUBSCRIPTION_STATUSES, 'canceled'])
+        .order('current_period_end', { ascending: true })
+        .limit(limit)
+
       if (error) throw error
       return (data ?? []) as unknown as ClubSubscriptionRecord[]
     }

@@ -864,3 +864,32 @@ text ships flagged *DRAFT — pending legal review* until a lawyer signs off.
 - [ ] ADR-008 — legal policy versioning and acceptance.
 - [ ] Refund policy sections gated on ADR-006 (entry-fee settlement) and
       ADR-007 (subscription refund window) — do not write until decided.
+
+## Club subscriptions (plan: club-subscriptions §1–9; steps 1–8 shipped 2026-09-10 → 2026-09-17)
+
+Done: schema 056, DTOs, repositories, entitlements resolver (wired into
+create/publish), simulated gateway, `club-subscription.service.ts`,
+`subscription-plan-admin.service.ts`, lapse sweep task, all controllers,
+`/admin/subscriptions`, `/club/{id}/billing`, `/pricing`, limit upsell, Go
+Premium entry points, 068 RLS tightening. See `PROJECT-STATUS.md`.
+
+- [ ] Run `tests/e2e/authed/subscriptions.spec.ts` green on dev after the
+      next push (blocked in-session by the unpushed 067 column).
+- [ ] ADR-007 — Premium price; refund window (none / 7-day / pro-rata);
+      whether the badge is purchasable; proration; grandfathering; keep or
+      revise the interim lapse rule. Publishing Premium is a SuperAdmin
+      action after this closes, never a migration.
+- [ ] Discounts — a real rule (percent-off column + validation) behind the
+      "Discount label" placeholder.
+- [ ] Vouchers — `vouchers` table + redemption behind the checkout field that
+      today refuses every code with `VOUCHER_UNKNOWN`.
+- [ ] `max_members` enforcement (column shipped; refusal deliberately not).
+- [ ] Real gateway (ADR-006) + webhook handlers; failure injection in the
+      simulated gateway; a `requires_redirect` flow.
+- [ ] Integration specs against a real Postgres for
+      `ux_club_subscriptions_one_live` and
+      `ck_payment_transactions_simulated_is_test` (unit specs cover the
+      service's handling; the constraints themselves are only exercised by CI's
+      `liquibase validate`).
+- [ ] Notify the club when the sweep restricts events (today it is visible on
+      the billing page only).

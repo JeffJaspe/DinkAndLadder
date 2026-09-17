@@ -4,9 +4,10 @@
  * Achievements / Activity), Club Page, Match Details.
  *
  * The mockup's tabs are navigation, not just local state, so the selected tab
- * is written to a route query by default (`?tab=matches`). That makes a tab
- * linkable and makes the browser back button behave the way users expect,
- * which is the whole reason §5.4 called for it.
+ * is written to a route query by default (`?tab=matches`), which is what makes
+ * a tab linkable and is the whole reason §5.4 called for it. It is written with
+ * `replace`, so Back leaves the page rather than stepping through tabs — see
+ * `select()` for why. (This block used to claim the opposite.)
  *
  * Keyboard behaviour follows the ARIA tabs pattern: arrows move between tabs,
  * Home/End jump to the ends.
@@ -26,9 +27,21 @@ const props = withDefaults(
     modelValue?: string
     /** Query param to sync with. Pass null to keep the tab purely local. */
     queryKey?: string | null
+    /**
+     * Namespace for the generated tab/panel ids. Pass it and give the panel
+     * container `role="tabpanel"`, `:id="panelId"` and `:aria-labelledby="tabId"`
+     * to complete the ARIA tabs pattern; without it the strip behaves exactly
+     * as before.
+     */
+    idPrefix?: string
   }>(),
-  { modelValue: undefined, queryKey: 'tab' }
+  { modelValue: undefined, queryKey: 'tab', idPrefix: undefined }
 )
+
+/** Stable ids so a panel can point back at the tab that labels it. */
+const tabDomId = (value: string) => (props.idPrefix ? `${props.idPrefix}-tab-${value}` : undefined)
+const panelDomId = (value: string) =>
+  props.idPrefix ? `${props.idPrefix}-panel-${value}` : undefined
 
 const emit = defineEmits<{ 'update:modelValue': [string] }>()
 
@@ -77,7 +90,11 @@ onMounted(() => {
   if (strip.value) observer.observe(strip.value)
   onBeforeUnmount(() => observer.disconnect())
 })
-watch(() => props.tabs, () => nextTick(measure), { deep: true })
+watch(
+  () => props.tabs,
+  () => nextTick(measure),
+  { deep: true }
+)
 
 function onKeydown(event: KeyboardEvent) {
   const keys = ['ArrowLeft', 'ArrowRight', 'Home', 'End']
@@ -114,10 +131,12 @@ function onKeydown(event: KeyboardEvent) {
   >
     <button
       v-for="tab in tabs"
+      :id="tabDomId(tab.value)"
       :key="tab.value"
       type="button"
       role="tab"
       :aria-selected="tab.value === active"
+      :aria-controls="tab.value === active ? panelDomId(tab.value) : undefined"
       :tabindex="tab.value === active ? 0 : -1"
       class="relative shrink-0 whitespace-nowrap border-b-2 px-4 py-2.5 text-body-2 font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
       :class="

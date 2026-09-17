@@ -294,7 +294,11 @@ describe('BracketTree', () => {
       global: { components: { BracketMatchCard }, stubs: { UiRatingBadge: true, UiIcon: true } }
     })
 
-    expect(wrapper.text()).toContain('Ana / Ben')
+    // Both halves, in order, separated. Matched loosely on whitespace because
+    // the pair is no longer one text node: each name is its own UiPlayerLink so
+    // it can be tapped, and the space between them is now a flex gap rather
+    // than a character.
+    expect(wrapper.text().replace(/\s+/g, '')).toContain('Ana/Ben')
   })
 
   // A losers draw crowns nobody, so two panels must never appear at once.

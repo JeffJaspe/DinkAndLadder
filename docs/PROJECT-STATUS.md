@@ -8600,3 +8600,810 @@ e2e spec was updated for the radiogroup roles and the `h1`, but was not run.
 **Left alone, deliberately:** the 🏓/🏆 emoji standing in for icons on the
 account-type step. DESIGN.md bans glyphs as icons, but that step was outside the
 audited surface and replacing them is a separate change.
+
+---
+
+## 2026-09-17 — Public player profile: critique, and doubles made primary
+
+`/impeccable critique` on `pages/players/[playerId].vue`, run as two isolated
+assessments (design review; detector + deterministic measurement), then the
+change the review's P0 called for. Snapshot:
+`.impeccable/critique/2026-09-17T06-57-57Z__apps-web-pages-players-playerid-vue.md`.
+**Design Health Score 19/40** — below the usual 20–32 band, pulled down by
+Consistency (1/4), Error Recovery (1/4) and Help (1/4).
+
+**The P0, and what shipped.** The header rendered one unlabelled number:
+`displayRating = Math.max(singles ?? 0, doubles ?? 0)`, formatted `toFixed(2)`,
+above a rating chart hardcoded to `type: 'singles'`. Three compounding faults:
+
+1. It never said which format it was, and silently showed whichever was higher —
+   a flattering artefact, not a fact. Doubles is the dominant format in this
+   sport and was the one that could be hidden.
+2. Two decimals, where `formatRating` is three everywhere else — including
+   `players/index.vue:212`, which lists `singles_rating`. **The same player read
+   as 3.150 in the directory and 4.42 on their profile.** PRODUCT.md's first
+   principle is "a number nobody disputes."
+3. `provisional` and `matches_played` were fetched and discarded, so a two-match
+   rating rendered with exactly the confidence of a two-hundred-match one.
+
+Now: both formats, always present, always named, doubles leading at `stat-md` in
+brand green and singles at `stat-sm` in `fg-secondary`. Each carries its tier
+name from `tierForRating` and its own match count, with `provisional` appended
+when the engine flags it. An unrated format shows `—` and "No rated singles yet"
+rather than being hidden, so the header keeps its shape across profiles.
+
+The Rating History chart now takes a `UiSegmented` Doubles/Singles toggle
+(`historyType` is a ref inside the `useFetch` query, so Nuxt refetches), defaults
+to doubles, and its caption no longer hardcodes a format. Its title became an
+`h3` — it was the one panel title on the page that was a `<span>`, invisible to
+heading navigation while its five siblings were reachable.
+
+**A trend arrow was specified and deliberately not shipped.** The approved
+mockup showed `▲+.05` per format. `PlayerStatsDto` carries a single
+`rating_trend` for the whole player, not one per format, so an arrow on each
+number would have been invented. Match count and provisional state are real
+per-format facts and carry more useful information anyway.
+
+**Validation.** Prettier, ESLint, detector (0 findings) clean on the changed
+file. Unit 1537/1537. Measured and screenshotted at 1280/390/320, light and
+dark, against the project's own compiled Tailwind and the shipped Inter/Lexend
+faces: no overflow at any width, the ratings group is 241px wide, and a
+fixed-height number row was added after the first round showed the two figures
+not sharing a baseline.
+
+**Typecheck: 2 pre-existing errors, not from this work.**
+`tests/unit/club-entitlements.service.spec.ts:70` and
+`tests/unit/subscription.service.spec.ts:62` fail because the uncommitted
+payments work made `provider` required on `ClubSubscriptionRecord`
+(`payment/dto/subscription.dto.ts:113`) without updating those two fixtures.
+Neither file was touched here and the changed file type-checks clean. **This also
+corrects the 2026-09-17 questionnaire entry above, which reported "Typecheck …
+clean" — that run's output was tailed too short to show these two errors. They
+predate both tasks.**
+
+### Still open on this page (from the critique, not addressed here)
+
+- [ ] **[P1]** Seven data regions render their own failure as a believable fact.
+      Only `profileQuery` has an error branch; `statsQuery` failing renders
+      "0 Matches / — / —", telling an organiser a real player is inactive when
+      the request timed out. Five partner mutations (`:511, 522, 533, 544, 557`)
+      are `try/finally` with no `catch` — silent failure. `UiErrorState` exists
+      and is used zero times here.
+- [ ] **[P1]** Matches is a dead tab for every non-self visitor, while
+      `players/[playerId]/head-to-head.vue` exists and is linked only from
+      `community.vue` — the most decision-relevant screen in the product,
+      unreachable from the profile.
+- [ ] **[P2]** Eleven statements of nothing with zero actions on an empty
+      profile — the launch default. It reads as the *player's* failure, though
+      only an organiser can record a match. `UiEmptyState` is used zero times.
+- [ ] **[P2]** `grid-cols-4` at `:937` has no mobile fallback (~48px/tile at
+      320px) and hardcodes 4 columns for a grid whose fourth child is
+      `v-if="achievementsEnabled"`.
+- [ ] **[P2]** Avatar class conflict at `:741`: `size="xl"` (`h-24 w-24`) and the
+      passed `class="h-20 w-20"` land on the same element; CSS source order wins,
+      so it renders 96px and the markup does nothing. The skeleton is 16px short.
+- [ ] **[P2]** `h1 → h3` skip on 5 of 6 tabs. Tabs carry full `role="tablist"`
+      ARIA but the panels have no `role="tabpanel"`/`aria-controls`.
+- [ ] **[P2]** Emoji without `aria-hidden` at `:750, :1111, :1133` — announced by
+      CLDR name before every row. `KudosCard.vue:69` does it correctly.
+- [ ] **[P2]** Form-control borders at `:1221/:1240` measure 1.42:1 light /
+      2.47:1 dark — WCAG 1.4.11 wants 3:1. Modal error at `:1245` is 4.49:1 dark,
+      missing AA by 0.01 by using raw `bg-danger/10` where `bg-danger-soft`
+      measures 5.89:1.
+- [ ] **[P3]** `:1136` `capitalize` on user-generated text — a shout-out renders
+      as `Shouts: "Great Game Out There Today"`.
+- [ ] **[P3]** Header shows `achievements_count`; the tab shows `slice(0, 6)`.
+- [ ] **[P3]** `:722` has no `v-else` — a null profile with no error renders an
+      empty div.
+- [ ] Unrelated but blocking a clean `npm run typecheck`: the two payments spec
+      fixtures above.
+
+---
+
+## 2026-09-17 — Public player profile: error states (critique P1)
+
+Follow-on to the entry above. The critique's P1 was that seven data regions
+rendered their own failure as a believable fact, and five mutations failed
+silently. All of it is now handled.
+
+**The five duo mutations** (`sendPartnerRequest`, `cancelPartnerRequest`,
+`removePartner`, `acceptPartnerRequest`, `declinePartnerRequest`) were
+`try/finally` with no `catch`: the request rejected unhandled, the spinner
+cleared, the button reverted to its old label, and the user was told nothing.
+Each now catches and surfaces `apiErrorMessage` through `useToast().error` — the
+pattern `inviteToClub` already used correctly twenty lines away in the same file.
+
+**Seven regions now distinguish empty from failed.** Previously only
+`profileQuery` had an error branch, so on a failed request the page asserted
+things it had no evidence for — and PRODUCT.md names courtside mobile data as a
+real operating constraint, which makes partial failure the normal case:
+
+| Region | Used to render on failure | Now |
+|---|---|---|
+| `statsQuery` (header strip) | "0 Matches / — / —" | "Stats didn't load." + Retry |
+| `statsQuery` (Stats tab) | every tile `?? 0` | `UiErrorState` + Retry |
+| `ratingsQuery` (header) | "No rated singles yet" | "Rating unavailable" |
+| `ratingHistoryQuery` | "Not enough rating history yet — play a verified match" | `UiErrorState` + Retry |
+| `achievementsQuery` | "No achievements yet" | `UiErrorState` + Retry |
+| `activitiesQuery` | "No recent activity." | `UiErrorState` + Retry |
+| `clubsData` | "Not a member of any clubs." | `UiErrorState` + Retry |
+| `kudosData` | six zeroes | `UiErrorState` + Retry |
+| `myMatchesData` | "No matches yet." | `UiErrorState` + Retry |
+
+The worst of these was `statsQuery`: an organiser deciding whether to recruit
+someone read "0 matches, 0 tournaments, no clubs" and declined an active player
+because a request timed out.
+
+**Kudos keeps `ignoreResponseError: true`** — that flag is deliberate and keeps a
+500 from taking the whole profile down while the endpoint's migration is
+pending. But it hands the card an error body, and the card's null-safe fallback
+then renders six zeroes, which is a statement about what opponents think of this
+player. The flag stays; `kudosFailed` detects the swallowed error and the page
+renders an error state instead.
+
+**Matches also gained a pending guard.** `myMatchesData` is
+`immediate: false, server: false`, so your own Matches tab rendered "No matches
+yet." for the whole in-flight request before swapping to the list.
+`loadingMoreMatches` only ever covered page 2+.
+
+**Two things the visual round changed.** The header's stats error started as a
+full `UiErrorState` panel, which is much louder than the four small tiles it
+replaces — it is now one quiet line with a Retry link, and withholding the
+zeroes is what does the work. And the copy explained the design's own reasoning
+to the user ("this is not a record of how much this player has played"); errors
+name the problem and the recovery, so that clause is gone.
+
+**One real bug caught by typecheck**, not just a type complaint:
+`@click="refreshStats"` on a native button passes the `PointerEvent` straight
+into `refresh(opts)` as `AsyncDataExecuteOptions`. Now `@click="() => refreshStats()"`.
+The `@retry` handlers on `UiErrorState` are unaffected — that event carries no
+payload.
+
+**Validation.** Prettier, ESLint, detector (0 findings), typecheck **0 errors**,
+unit **1611/1611**. Rendered at 1280 and 390, light and dark, against the
+project's compiled Tailwind and shipped faces; no overflow.
+
+**Correction to the entry above.** It reported two pre-existing typecheck
+failures in the payments specs. Those fixtures were fixed on disk while this
+task ran (along with a new `webhooks-501.spec.ts` whose
+`resolve(process.cwd(), …)` briefly resolved to `C:\server\…`), so the tree is
+now green. The correction itself was accurate when written; the situation moved.
+
+### Still open on this page
+
+- [ ] **[P1]** Matches is a dead tab for every non-self visitor, while
+      `players/[playerId]/head-to-head.vue` exists and is linked only from
+      `community.vue`.
+- [ ] **[P2]** Eleven statements of nothing with zero actions on an empty
+      profile — the launch default. `UiEmptyState` is still used zero times.
+- [ ] **[P2]** `grid-cols-4` in the header strip has no mobile fallback
+      (~48px/tile at 320px) and hardcodes 4 columns for a conditionally-3-child
+      grid.
+- [ ] **[P2]** Avatar class conflict: `size="xl"` (`h-24 w-24`) silently beats
+      the passed `class="h-20 w-20"` on source order; renders 96px.
+- [ ] **[P2]** `h1 → h3` skip on 5 of 6 tabs; panels have no `role="tabpanel"`
+      or `aria-controls`.
+- [ ] **[P2]** Emoji without `aria-hidden` at the badge, achievement and
+      activity rows.
+- [ ] **[P2]** Form-control borders in the report modal at 1.42:1 / 2.47:1
+      (WCAG 1.4.11 wants 3:1); modal error text at 4.49:1 dark.
+- [ ] **[P3]** `capitalize` on user-generated activity text.
+- [ ] **[P3]** Header `achievements_count` vs the tab's `slice(0, 6)`.
+- [ ] **[P3]** No `v-else` for a null profile with no error.
+
+---
+
+## 2026-09-17 — Public player profile: the measured P2/P3 cluster
+
+Third pass on `pages/players/[playerId].vue`, clearing every remaining finding
+from the critique except the two that need design work (head-to-head, and the
+empty profile). Also touches `components/ui/Tabs.vue`.
+
+**Responsive stat strip.** `grid-cols-4` had no mobile fallback: at 320px that
+was ~48px per tile for a 24px figure and a 12px label, where "Achievements"
+alone needs ~84px. It also hardcoded four columns while the fourth tile is
+`v-if="achievementsEnabled"`, so with the flag off three tiles stretched across
+four columns. Now `grid-cols-2` with `sm:grid-cols-4` / `sm:grid-cols-3` driven
+by the flag. Measured: 112px per tile at 320px, labels on one line, "128-17"
+unclipped, no overflow.
+
+**Avatar class conflict.** `<UiAvatar size="xl" class="h-20 w-20 text-3xl
+ring-4 ring-primary">` put two size declarations on the same element; CSS source
+order decided, `h-24` won, and the `h-20 w-20` in the markup did nothing. Now
+`size="xl"` alone plus the component's own `highlighted` prop, which is
+`ring-2 ring-primary ring-offset-2 ring-offset-canvas` — the app's standard
+highlighted avatar rather than a hand-rolled double-weight ring with no offset.
+The loading skeleton went 80px → 96px to match what it stands in for.
+
+**Tabs are fully wired now.** `Tabs.vue` had correct `role="tablist"`,
+`aria-selected` and roving tabindex, but the content it controlled was not
+associated with it. It takes an optional `idPrefix` and emits stable tab ids
+with `aria-controls` on the active tab; the profile passes `id-prefix="profile"`
+and its panel container carries `role="tabpanel"`, a matching `id` and
+`aria-labelledby`. The prop is optional, so every other `UiTabs` consumer is
+unchanged.
+
+**`Tabs.vue`'s docblock was the thing that was wrong**, not its code. It claimed
+the query sync "makes the browser back button behave the way users expect" while
+`select()` deliberately uses `router.replace` and says why ("flipping between
+tabs should not stack a dozen history entries"). The inline comment settles it;
+the stale claim is gone and the behaviour is untouched.
+
+**Heading order.** Five of six tabs jumped `h1 → h3`, and `KudosCard` on
+Overview already used `h2`. All six panel titles are now `h2` under the player's
+`h1` — including "Rating History", which was a `<span>` and invisible to heading
+navigation.
+
+**Decorative emoji are hidden from assistive tech**: the showcase badge, the
+achievement tile glyph and both championship-trophy branches (each of which read
+the glyph's CLDR name aloud *and then* its own `sr-only` title), plus the nine
+activity icons. `KudosCard.vue:69` was already doing this correctly.
+
+**Two measured contrast fixes.** The report modal's `<select>` and `<textarea>`
+carried `border-border-strong` on a `bg-canvas` fill — 1.42:1 light, 2.47:1
+dark, against the 3:1 that WCAG 1.4.11 asks of a control boundary, and on these
+two fields the border is the whole affordance. Now `border-fg-muted` (4.90:1 on
+canvas). The modal's error message used a raw `bg-danger/10` and measured
+4.49:1 in dark — AA by 0.01 — where `bg-danger-soft`, the token that exists for
+exactly this, measures 5.89:1 in the same slot.
+
+**Three P3s.** `capitalize` on activity text was title-casing every word of
+user-generated content, so a shout-out rendered as
+`Shouts: "Great Game Out There Today"`. The Achievements tab's `slice(0, 6)` is
+gone — the header counts all of them, so a player with fourteen saw "14" above a
+tab showing six with nothing saying it was cut. And the `v-if` chain ended at
+`v-else-if="profile"`, so a null profile with no error rendered the page wrapper
+and nothing inside it; there is now a fallback with a retry and a link to the
+directory.
+
+**Validation.** Prettier, ESLint, detector (0 findings on both files), typecheck
+**0 errors**, unit **1611/1611**. Rendered and measured at 320/390/1280, light
+and dark.
+
+### Still open on this page
+
+- [ ] **[P1]** Matches is a dead tab for every non-self visitor, while
+      `players/[playerId]/head-to-head.vue` exists and is linked only from
+      `community.vue`. Needs a design decision about what that tab becomes.
+- [ ] **[P2]** The empty profile: eleven statements of nothing with zero
+      actions, and it is the state every account is in at launch. `UiEmptyState`
+      is still used zero times here. DESIGN.md asks for an invitation; it
+      currently reads as the player's failure, though only an organiser can
+      record a match.
+
+### Open questions, not defects
+
+- Every avatar renders the brand mark because `USE_BRAND_DEFAULTS = true`
+  (`utils/brand-assets.ts:20-31`) — a deliberate, reversible presentation
+  choice. Its cost is highest on this surface: the 96px ring is the largest
+  element on a page whose job is telling people apart.
+- The profile's 404 branch says "This profile is private or does not exist,"
+  conflating a recoverable situation with an unrecoverable one.
+
+---
+
+## 2026-09-17 — Match history is now the player's decision (067)
+
+Closes the last P1 from the profile critique. The Matches tab told every
+visitor "match history is only visible to the player themselves" — a system
+rule, on a *public* profile, where that means everyone. It is now an opt-in the
+player owns.
+
+**The rule, and why it is not RLS.** A doubles match carries four names.
+Publishing your record necessarily shows the matches you played, but it must not
+name the people you played them against unless they publish too — their
+participation is their fact, not yours. So the rule splits:
+
+- the match **row** is publishable by any one participant who opted in;
+- each participant's **name** is gated by that participant.
+
+RLS decides whole rows and column grants are not per-row, so the second half
+cannot be a policy. **067 therefore adds no policy at all**:
+`matches_select_participant` (008-security, 0016) is untouched, a direct
+PostgREST query still returns only matches the caller played in, and
+`GET /api/v1/players/{playerId}/matches` is the sole path to anyone else's
+history. That is what makes the redaction real rather than cosmetic. The
+reasoning is written into the changelog header.
+
+**Database.** `067-match-history-visibility` adds
+`player_profiles.show_match_history boolean not null default false`, with a
+`columnExists` precondition and a rollback. **Default false preserves today's
+behaviour exactly** — no existing player's history becomes visible because the
+column arrived. Lands on the next push to main.
+
+**Domain.** `match/services/match-history-visibility.ts` is pure and holds the
+whole rule: `mayPublishMatchHistory` (public profile **and** the opt-in),
+`isMatchPublishable`, and `redactParticipants`. Redaction drops the `player_id`
+along with the name — an id is one lookup away from the name it was meant to
+hide, and `player_profiles` is publicly readable by design. It fails closed: a
+participant the privacy map never mentions is redacted, never assumed.
+
+**API.** The new endpoint checks three things nothing below it can: the profile
+exists and is public; that player opted in; and every other participant is named
+only if they opted in too. A profile that has not opted in returns
+`MATCH_HISTORY_PRIVATE` rather than a bare `FORBIDDEN` — nothing is wrong and
+retrying will not help.
+
+**UI.**
+- `profile/edit.vue` gains the switch in the existing Privacy card, reusing the
+  house pattern from `admin/features.vue`. It disables itself when the profile
+  is private, because a private profile publishes nothing either way.
+- The two visibility hints were rewritten: "Public profile" used to promise
+  "anyone can view your profile, your rating **and your match history**", which
+  stopped being true the moment the toggle existed.
+- The profile page now picks its endpoint — `/players/me/matches` unredacted for
+  your own record, `/players/{id}/matches` for anyone else's.
+- **`getOpponentNames` and `didIWin` both read "my team" from the signed-in
+  viewer**, which is the wrong reference as soon as the tab can show someone
+  else's matches. Both now key off the profile being viewed
+  (`subjectPlayerId`); `didIWin` became `didSubjectWin` because the name no
+  longer described what it did.
+
+**Empty states, per decision.** Simple placeholders — "No record yet." — across
+Matches, Achievements, Activity, Clubs and the rating chart, and "This player
+keeps their match history private." when the toggle is off. The
+invitation-with-CTA version proposed in the critique was dropped: a call to
+action aimed at the profile's *owner* makes no sense to the stranger reading
+the page.
+
+**Validation.** Unit **1622/1622** (11 new, covering the redaction rule —
+per-participant gating, id dropped with the name, fail-closed on an unknown
+participant, singles and doubles). Typecheck **0 errors** — it caught two
+fixtures missing the new required column, which is the `OptionalTextField`
+guard and the `PlayerProfileRecord` type working as designed. ESLint, Prettier,
+detector clean. Changelog verified: 67 includes, 0 missing files, unique
+changeSet id, rollback and precondition present.
+
+**Not verified end to end.** The column does not exist in dev until this lands
+on push, so the endpoint has not been exercised against a real row. What is
+covered by tests is the rule itself; what is not is the query plumbing around
+it.
+
+### Still open on this page
+
+- [ ] The header `grid-cols-4` / avatar / heading / ARIA / contrast cluster is
+      done; the remaining critique item is the profile-level empty state, which
+      this entry's decision has now largely settled — placeholders, not CTAs.
+- [ ] `USE_BRAND_DEFAULTS = true` means every avatar is the brand mark. A
+      deliberate, reversible choice, but its cost is highest on this surface.
+- [ ] The 404 branch still conflates "private" with "does not exist".
+
+---
+
+## 2026-09-17 — Players get a face, and their name goes somewhere
+
+Request: everywhere a player's name appears, show their picture and name, and
+make it open their profile — brackets, seeding and the open play queue included.
+
+**The finding that changed the shape of this.** Every avatar in the app renders
+the DinkAndLadder mark. `Avatar.vue` deliberately replaced tinted initials with
+it ("so a photoless profile reads as part of the platform"), and
+`USE_BRAND_DEFAULTS = true` stops uploaded photos rendering at all. That is fine
+on a profile header, where there is one of them, and wrong everywhere a list
+repeats it: a bracket would have shown **sixteen identical logos**, a queue
+eight. An avatar that cannot tell two people apart is weight without
+information. Decision taken with the user: generated initials on a per-player
+gradient.
+
+**`utils/avatar-identity.ts`.** A gradient derived from the player id — the same
+person is the same colour on the bracket, in the queue, on the feed and on their
+profile, across devices, with nothing stored.
+
+- **Generated in OKLCH, not HSL.** The initials must stay legible on every
+  gradient this can produce and AA is an enforced floor here. HSL lightness is
+  not perceived lightness — yellow and blue at `L=50%` differ by more than 4:1
+  in luminance — so a fixed ink would pass on one hue and fail on another. OKLCH
+  lightness is perceptual, so holding L and spinning hue keeps contrast nearly
+  flat. The constants were **solved numerically, not picked**: at `C=0.16`,
+  white clears 4.5:1 at all 360 hues, worst case **4.98:1** at hue ~192 (cyan).
+- **A real distribution bug, caught by looking.** The first version used plain
+  FNV-1a. Two keys differing in the last character produce hashes differing by a
+  fixed delta, and `2 × 16777619 mod 360` is −2 — so `player-0`, `player-2` and
+  `player-4` came out two degrees apart (three identical olives in a row), and
+  the high bits moved so little that **every avatar in the app shared one 315°
+  angle**. UUIDs would have hidden it; a seeded roster would not. Fixed with a
+  MurmurHash3 finalizer and three independently mixed draws.
+- **The first tests passed anyway.** They bucketed by dominant channel, which is
+  too coarse to see a 2° stride. They now read the hue back out of the generated
+  hex and assert sector coverage, stride variety and all eight angles across
+  *sequential* keys — the case that actually failed.
+
+**`Avatar.vue`** gains opt-in `identity-key`. Clubs and events keep the mark: a
+gradient of a club's initials would claim a brand the club did not choose. The
+`xs` variant's `text-[10px]` — below the ramp's 12px floor, and flagged by the
+detector — was dead while the only content was an image and became live the
+moment initials came back, so `xs` moved onto the ramp at `text-caption` and
+renders **one** initial; two at 10px is a smudge at bracket size.
+
+**`PlayerLink.vue`** gains `avatar` / `avatar-size` / `avatar-url`, off by
+default so a name inside a sentence ("verified by Ana Lim") stays a name. Only
+the name carries the hover underline — underlining a 24px circle reads as
+damage, not as a link.
+
+**Applied.** Bracket slots (`BracketMatchCard`, xs), score sheets and the live
+court view (`ScoreSheet`, `MatchShell`, xs), the category entry/seeding list,
+follow and community rows, club members, and the **rankings board** — whose
+whole purpose is "who are these people" and whose name was plain text with no
+link at all.
+
+**Validation.** Unit **1655/1655** (14 new). Typecheck 0, ESLint, Prettier,
+detector clean. Rendered at 1000/390 in both themes: six distinct colours,
+legible initials at xs/sm/md, no overflow. The avatar carries its own ground, so
+it is theme-independent by construction.
+
+### Not done, deliberately or otherwise
+
+- [ ] **`avatar_url` is still not threaded through most DTOs.** Only player
+      profile and event co-organizer carry it, so real photos will not appear on
+      these surfaces even when `USE_BRAND_DEFAULTS` flips. The gradient covers
+      the gap; the plumbing is a separate pass across ~12 endpoints.
+- [ ] `MatchCard`'s collapsed line is a *team* label ("Ana / Ben"), joined into
+      one string by design, with individuals listed in the expanded sheet. Left
+      as is rather than half-restructured.
+- [ ] Partner sub-lines in brackets and the seeding list ("with <name>") are
+      links but carry no avatar — a second 24px circle inside a 12px caption
+      would outweigh the line it sits in.
+- [ ] Still rendering plain, unlinked names: `matches/index`, `matches/[matchId]`,
+      `head-to-head`, `feed`, `dashboard`, `community`, `clubs/[clubId]`,
+      `CourtCard`, `BracketTree`'s champion line, `BracketGroupTables`,
+      `CategoryStandings`, `CoOrganizersPanel` (has an avatar, no identity key),
+      `Podium`, and the admin pages.
+- [ ] Pickers stay unlinked on purpose — `matches/submit` and `create-event`
+      select a player rather than navigate to one, and a tap that left a
+      half-filled form would lose it.
+
+---
+
+## 2026-09-17 — Player identity sweep, second batch
+
+Continues the entry above, down the list it left open. The pattern that kept
+recurring: **a hand-rolled brand-mark circle sitting next to a link that already
+worked.** The row navigated correctly; the circle just never said who it was.
+Those are now identified avatars — community teammates and opponents, the club
+member list, and the head-to-head header (which also had its own hand-written
+link to `/players/:id` and now uses `UiPlayerLink`).
+
+**Where the tap already means something else.** `Podium` and
+`BracketGroupTables` both wrap the name in a `<button>` that emits `select` —
+picking a player inside a group table or on the podium, not visiting them.
+Nesting a link inside a button is invalid HTML and would hijack an interaction
+that already has a meaning, so both got the avatar for identity and kept their
+click. Same call for `CoOrganizersPanel`'s friend list, which appoints somebody
+rather than visiting them, and for `MatchGameConfirmDialog`, where the names
+label the action being confirmed.
+
+**A real defect found on the way.** `matches/index.vue` rendered
+`<UiAvatar :name="opponents(match)">`, and `opponents()` *joins* names — so a
+doubles row drew the initials of "Ana & Ben", an identity belonging to nobody.
+It is now keyed to the opponent only when there is exactly one; a pair has no
+face, so doubles keeps the mark. Added `soleOpponentId()` with the reasoning.
+
+**Left as team labels, deliberately.** `MatchCard`'s collapsed line,
+`CourtCard`'s `sideLabel`, and the club page's recent-matches rows all join a
+side into one string, and all three sit inside a row that is itself a link to
+the match. The individuals are listed — and linked, with avatars — on the
+expanded score sheet and the match page. Splitting a collapsed summary into
+per-player links would mean restructuring the row and nesting links inside a
+link.
+
+**Validation.** Unit 1655/1655, typecheck 0, ESLint, Prettier, detector clean
+across both batches.
+
+### Still plain, unlinked names
+
+- [ ] `pages/feed.vue` — actor names in activity lines. The row is a link to the
+      subject of the activity, so this needs the same judgement as the match
+      rows and was not rushed.
+- [ ] `pages/dashboard.vue` — joins opponents into a label, same team-label
+      case; the signed-in user's own name needs no link.
+- [ ] `components/tournament/BracketTree.vue` champion line, and
+      `CategoryStandings`, which delegates its rows to a child table.
+- [ ] `pages/matches/[matchId].vue`, `components/event/LiveBoard.vue`,
+      `components/event/CourtCard.vue`.
+- [ ] Admin pages (`admin/ratings`, `admin/reports`) — internal surface per
+      PRODUCT.md.
+- [ ] **`avatar_url` still isn't threaded through most DTOs**, so real photos
+      will not appear on these surfaces even when `USE_BRAND_DEFAULTS` flips.
+      Unchanged from the entry above; it remains the largest single item.
+
+---
+
+## 2026-09-17 — Player identity sweep, third batch (and a correction)
+
+**Correction to the two entries above.** They listed `LiveBoard`,
+`matches/[matchId]` and `CourtCard` as still carrying plain names. Two of those
+were wrong. Tracing the data showed:
+
+- `LiveBoard` already builds `{ name, playerId }` per player and passes it
+  through `BoxScoreMatch.teams` → `MatchScoreSheet`, which the first batch gave
+  links and `xs` avatars. **The open play queue was already covered.**
+- `matches/[matchId]` builds `scoreSheetTeams` the same way. Also covered.
+- `CourtCard`'s on-court sides render through `MatchShell`, done in batch one.
+
+The lesson is that the `PlayerLine` seam did more work than the file-by-file
+grep suggested — a name being plain text in a component does not mean it reaches
+the screen that way.
+
+**What was genuinely missing, and is now done.**
+
+- **`CourtCard`'s "Up next" queue.** `sideLabel()` joined each waiting side into
+  one string and dropped the player ids with it, so the one list whose entire
+  job is "am I next" was the one place you could not tap yourself. Now one
+  `UiPlayerLink` per player with an `xs` avatar, `&` between them, and an
+  explicit `TBC` when a side has no players yet.
+- **`BracketTree`'s champion banner.** `championLine` joined champion and
+  partner into `"Ana / Ben"` and threw away `player_id` and
+  `partner_player_id`, which the DTO carries — on the one card in a tournament
+  everybody looks at. Split into `hasChampion` (which still drives the banner's
+  filled/dashed border) and `championPlayers`, rendered as people.
+
+**A test caught the change, correctly.** `bracket-tree.spec.ts` asserted
+`wrapper.text()` contains the literal `'Ana / Ben'`. Both names still render —
+the failure was `"ChampionAna/Ben"`, because the pair is no longer one text node
+and the space between them is a flex gap rather than a character. The assertion
+now normalises whitespace, so it still guarantees both halves appear in order
+and stops asserting on incidental spacing.
+
+**Validation.** Unit **1655/1655**, typecheck 0, ESLint, Prettier, detector
+clean. Rendered at 390 and 1000 in both themes: the queue is scannable by colour
+before the name is read, and neither surface overflows.
+
+### Genuinely still plain
+
+- [ ] `pages/feed.vue` — the actor name **is** already a link, with recorded
+      reasoning about spending green only on hover. What it has no room for is
+      an avatar: the row has no avatar column at all, so adding one is a layout
+      change to the app's highest-traffic surface rather than a swap. Left for a
+      deliberate pass.
+- [ ] `pages/dashboard.vue` — joins opponents into a team label, same case as
+      `MatchCard`; the signed-in user's own name needs no link.
+- [ ] `CategoryStandings` delegates its rows to a child table.
+- [ ] Admin pages — internal surface per PRODUCT.md.
+- [ ] **`avatar_url` still isn't threaded through most DTOs.** Unchanged across
+      all three batches and still the largest single item, though worth stating
+      plainly: it changes nothing visible until `USE_BRAND_DEFAULTS` flips,
+      because `Avatar.vue` suppresses photos while that flag is on.
+
+---
+
+## 2026-09-17 — Player identity sweep, closing pass
+
+Works the rest of the list. Two of the three items closed by **not** shipping
+the change, which is the honest outcome in both cases.
+
+**A regression I introduced in batch one, now reverted.** `RankingBoard`'s name
+was made a `UiPlayerLink`. But `DataTable` renders those rows with
+`clickable-rows`, and the click bubbles — so the name both navigated *and* fired
+`select`. What `select` means is the consumer's decision: `/rankings` navigates
+to the profile (making the link redundant), but **`CategoryStandings` uses it to
+highlight that player in the bracket**, so the link navigated away from the
+tournament. The name is plain text again, with the reason recorded inline; the
+identity avatar stays. `CategoryStandings` is therefore covered through
+`RankingBoard` and needed no change of its own.
+
+**The feed row: tried, measured, reverted.** An inline avatar before the actor's
+name breaks the sentence — the smallest avatar is 24px against a ~21px line box,
+so the rest of the line rides high against the name and the first line grows
+taller than the ones beneath it. Confirmed in a render at 390px before reverting.
+The row's leading gutter is the obvious home, but that slot is the
+activity-type mark, whose placement is deliberate and documented ("there to be
+skipped past until the reader wants it"). Giving the actor a face means
+redesigning the row — avatar in the gutter with the type as a badge on it — not
+swapping a component. The name keeps its link; the reasoning is now in the file
+so the next person does not retry it blind.
+
+**Left as team labels, consistent with the rest.** `dashboard.vue`'s match rows
+join opponents into one string inside a `NuxtLink` to the match — same case as
+`MatchCard`, `CourtCard`'s `sideLabel` and the club page. The match page they
+open has linked, avatared participants.
+
+**Admin.** `admin/reports.vue` already links both the reported player and the
+reporter, so the functional half is done. PRODUCT.md calls admin an internal
+surface and not a design priority, so it keeps the brand mark.
+
+**Validation.** Unit **1655/1655**, typecheck 0, ESLint, Prettier, detector
+clean.
+
+### Coverage, as it now stands
+
+Named in the request and done: **tournament brackets** (match cards, group
+tables, champion banner), **seeding** (category entry list, standings via
+`RankingBoard`), **open play queue** (score sheets, on-court sides via
+`MatchShell`, and the "Up next" list).
+
+Also done: rankings board, club members, club page member list, community
+teammates and opponents, follow rows, co-organizers, podium, head-to-head
+header, matches list.
+
+### Genuinely remaining
+
+- [ ] The feed row redesign described above — the only surface where a face is
+      wanted and the layout will not take one as-is.
+- [ ] `dashboard.vue` and the other team-label lines, if those should become
+      per-player rows. That is a row redesign per surface, not a sweep.
+- [ ] **`avatar_url` through the DTOs.** Unchanged throughout: it shows nothing
+      until `USE_BRAND_DEFAULTS` flips, because `Avatar.vue` suppresses photos
+      while that flag is on. The two only pay off together.
+
+## Club subscriptions, steps 5–8 of 9 — buy flow, Go Premium, SuperAdmin page (2026-09-17)
+
+Steps 1–4 (schema 056, DTOs, repositories, entitlements resolver) had shipped
+with nothing wired to a person: no controller injected the resolver, no club
+could be put on a plan, and there was no page to reach. This closes that.
+Plan file: `~/.claude/plans/tender-wondering-stallman.md`, which follows the
+parent club-subscriptions plan's §4.5–§8 without reopening its decisions.
+
+### What a club can do now
+
+- **Hit the limit → see the way out.** `CLUB_DRAFT_LIMIT` / `CLUB_EVENT_LIMIT`
+  on create-event and on publish now render the server's sentence **plus a
+  "See plans" link** to `/club/{id}/billing` (`utils/limit-upsell.ts`). No
+  modal, no redirect — the parent plan's rule.
+- **Go Premium.** Club mode gains a **Billing & plan** sidebar item, Club
+  Settings gains a Plan card with a "Go Premium" / "Manage plan" button, and
+  the club dashboard shows a Go Premium callout **only** while there is
+  something to buy (free tier + a public paid plan + billing not off).
+- **`/club/{id}/billing`** — current plan with its `origin` in words, four
+  `BillingUsageMeter`s reading the exact `ClubEntitlements` the server
+  refuses against, events held by a lapse, the plan chooser (`BillingPlanCard`
+  grid, monthly/yearly toggle only when a group has a twin), `BillingCheckoutModal`,
+  cancel with the end date named, and payment history with a Test tag.
+- **`/pricing`** — public, plan rows only, zero copy in the file. Until a paid
+  plan is published it shows Free and "Paid plans are not on sale yet."
+
+### The write path (step 5)
+
+- `gateways/payment-gateway.ts` (interface; `list_price_cents` and
+  `charged_cents` are separate on purpose), `simulated.gateway.ts` (always
+  succeeds, **`charged_cents: 0` unconditionally**, `is_test`), `index.ts`
+  (`off` → 503 `BILLING_DISABLED`; `live` → 501 `GATEWAY_NOT_CONFIGURED`,
+  never a silent fallback).
+- `club-subscription.service.ts` — `getForClub`, `startCheckout` (billing
+  mode → plan → gateway → **transaction first** → close live rows → insert
+  `active` → link → clear restrictions → queue verification; `23505` on the
+  provider reference returns `already_processed`), `cancel` (at period end),
+  SuperAdmin `grant` / `extend` / `adminCancel` (immediate),
+  `applyDowngradeRestrictions` / `clearDowngradeRestrictions` (oldest
+  unfinished per type survives; `status` never written), and **`sweepLapsed`**.
+- **`sweepLapsed` is new relative to the parent plan.** With no gateway no
+  webhook ever flips a status, so an admin grant of three months would have
+  entitled the club forever (`entitlesNow` treats `active` as entitled
+  regardless of period end). The daily task
+  `/api/v1/tasks/sweep-lapsed-subscriptions` (vercel.json, 17:00 UTC) closes
+  rows past their period end (+grace for `past_due`), restricts events and
+  revokes a subscription-sourced badge. `findLapsedCandidates` was added to
+  the repository for it.
+- `subscription-plan-admin.service.ts` — plan CRUD (no delete), refusals as
+  sentences, warnings alongside a success, billing settings with `live`
+  refused server-side (501) even from a well-formed request.
+- `club-verification.service.ts` gains `requestVerificationFromSubscription`
+  and `onSubscriptionLapsed`; approval now preserves `verification_source`.
+  ADR-011.
+- **Discount + voucher are placeholders, not features.** "Discount label" in
+  the editor is `savings_label`; the checkout's voucher field POSTs
+  `voucher_code`, which the server refuses with `VOUCHER_UNKNOWN`. No column,
+  no table, no rule — recorded in ADR-007.
+
+### Controllers (step 6)
+
+`createRequestEntitlements(serviceClient)` (`server/utils/club-entitlements.ts`)
+is now injected by `events/index.post.ts` and `events/[eventId]/publish.post.ts`
+— **plan rows mean something from this commit.** The first ten cases of
+`club-event-limits.spec.ts` still pass untouched, which is the proof Free is
+still 1/1/1. `clubs/[clubId]/subscription.get.ts` was rewritten to return
+`ClubBillingDto` (the legacy `features` blob is gone from it); `checkout.post`,
+`cancel.post`, `platform/subscription-plans.get` (public; typed so a draft
+plan's price cannot leak), and seven `admin/*` routes behind
+`server/utils/subscription-admin.ts`.
+
+### SuperAdmin UI (step 7)
+
+`pages/admin/subscriptions.vue`, three tabs. *Plans*: per-plan editor with
+pesos-in/cents-out, an Unlimited checkbox per limit that writes `null` (never
+-1), bullets/figures editors, discount label with the computed saving as
+placeholder, visibility toggles, "Create yearly twin", and a **live
+`BillingPlanCard` preview of the unsaved draft** — the same component the
+pricing page renders. *Billing*: Off / Test, Live shown struck through with
+"ADR-006 is open", notice with a live banner, grace days. *Clubs*: table with
+payment state, Grant (club search), Extend, Cancel.
+
+### Tests
+
+New: `payment-gateway.spec.ts` (7), `club-subscription.service.spec.ts` (38),
+`subscription-plan-admin.service.spec.ts` (19), `webhooks-501.spec.ts` (2,
+source tripwire), `plan-card.spec.ts` (6), `billing-components.spec.ts` (13),
+plus 8 verification cases. **1655 tests / 112 files green**; typecheck clean;
+lint 0 errors; `check:tokens` clean; `pnpm build` clean.
+
+`tests/e2e/authed/subscriptions.spec.ts` covers the three journeys against
+dev (limit → See plans → billing; simulated checkout with banner, both
+figures, voucher refused, ₱0 activation, verification queued, second draft
+accepted; cancel names the end date) plus the mocked admin page. **It could
+not be run green in this session**: the working tree also carries the
+unpushed 067 match-history work, whose `player_profiles.show_match_history`
+column is not on dev yet, so every profile read 500s against dev until that
+lands. Run it after the next push.
+
+### Security (step 9)
+
+`subscription_plans` has SELECT on `is_public` only and no write policy; every
+admin route is service-role. **Finding, fixed in 068:** 013's
+`club_subscriptions_select_own` / `payment_transactions_select_own` let any
+membership row — pending, left, plain MEMBER — read a club's subscription and
+payments via a user-scoped client. `068-subscription-rls-admin-only` narrows
+both to active OWNER/ADMIN. Lands on push.
+
+### Still owed
+
+- [ ] Run `subscriptions.spec.ts` once 067 is on dev.
+- [ ] ADR-007: price, refund window, whether the badge is purchasable.
+- [ ] `max_members` enforcement (column shipped, refusal not — parent §10).
+- [ ] Real gateway + webhooks; failure injection in the simulated gateway.
+
+---
+
+## 2026-09-17 — Uploaded player photos now display (the upload was never broken)
+
+Reported as "check the upload state, I think it's not working". Traced the whole
+path. **Every step of the upload works**; the photo was being suppressed at the
+last hop.
+
+**What was verified, in order:**
+
+1. `pages/profile/edit.vue` builds a `FormData` with the field named `file` and
+   posts it — correct.
+2. `POST /api/v1/players/me/avatar` reads that field, size-guards it, and hands
+   it to the service with the caller's own client for the profile row and the
+   service role for Storage — correct.
+3. `player-avatar.service.ts` checks the content type against the allow-list,
+   writes to `players/{id}/avatar-{timestamp}.{ext}`, updates `avatar_path`,
+   then removes the previous object — correct, and the timestamp in the path is
+   what makes a replacement actually visible past a CDN.
+4. The `Images` bucket exists and is created by `063-images-bucket` with
+   `public: true` and PNG/JPEG in `allowed_mime_types` — correct.
+5. `player-profile.service.ts` resolves `avatar_path` into `avatar_url` on both
+   `GET /players/me` and `GET /players/{playerId}` — correct.
+6. `UiAvatar` then refused to render it, because `USE_BRAND_DEFAULTS` was true.
+
+Step 6 is the bug, and it is why this looked like a broken uploader rather than
+a display setting: **the profile editor's own preview goes through the same
+component**, so a successful upload showed the brand mark back. There was no
+point in the flow where a working upload looked like one.
+
+**The flag is now two flags.** `USE_BRAND_DEFAULTS` keeps club logos, covers and
+the platform mark on brand artwork, unchanged. `USE_BRAND_DEFAULT_AVATARS` is
+new and **false**: a player's photo displays. They were never really one
+decision — a club logo standing in as the brand mark is branding; a player
+avatar that renders the same mark for everybody cannot tell two people apart,
+which is its only job in a bracket, a queue or a roster.
+
+**Precedence, now covered by tests** (`ui-components.spec.ts`): uploaded photo →
+generated identity gradient → brand mark. Three cases, so "my photo is not
+showing" cannot come back silently.
+
+**Two avatars were missing their identity key**, found while checking that every
+site actually receives `:src`: the public profile header and the player
+directory both passed `avatar_url` but no key, so a photoless player still fell
+through to the mark. The directory also carried `class="h-12 w-12"` against
+`size="lg"` (`h-16 w-16`) — the same source-order conflict as the profile
+header's old `h-20`/`h-24` pair, so the class did nothing. Removed.
+
+**Validation.** Unit **1658/1658** (3 new), typecheck 0, ESLint, Prettier,
+detector clean. Precedence rendered and confirmed in both themes.
+
+**Not verified:** no real file was uploaded. The app needs an authenticated
+session and no dev server was running, so steps 1–5 above were read, not
+exercised. If a photo still does not appear after this, the next thing to check
+is whether the dev project's hand-created `Images` bucket is actually public —
+`063` only inserts the bucket where it is missing, and the code falls back to a
+signed URL if `getBucket` says private, so either way should work.
+
+### Where photos will and will not appear
+
+`avatar_url` is only threaded through a few endpoints, so photos show on the
+profile header, the player directory, follow rows, co-organizers, the podium and
+search. **Everywhere else falls to the generated gradient** — which is now the
+designed fallback rather than a gap, but it does mean a player's photo will not
+follow them into a bracket or a queue until `avatar_url` is threaded through
+those DTOs. That remains the open item it has been all along; it is now the only
+thing standing between a photo and every surface.

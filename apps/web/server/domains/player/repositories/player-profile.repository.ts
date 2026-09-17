@@ -9,7 +9,8 @@ import type {
 
 const PROFILE_COLUMNS =
   'id, user_id, display_name, first_name, last_name, bio, province, city, barangay, ' +
-  'dominant_hand, preferred_position, profile_visibility, avatar_path, created_at, updated_at'
+  'dominant_hand, preferred_position, profile_visibility, show_match_history, avatar_path, ' +
+  'created_at, updated_at'
 
 export interface PlayerProfileRepository {
   findById(profileId: string): Promise<PlayerProfileRecord | null>

@@ -12,6 +12,7 @@ import type { BoxScoreMatch } from '~/components/match/BoxScore.vue'
 import type { PlayerProfileDto } from '~/server/domains/player/dto/player-profile.dto'
 import type { EventCoOrganizerDto } from '~/server/domains/event/dto/event-co-organizer.dto'
 import { apiErrorMessage } from '~/utils/api-error-message'
+import { limitUpsell, type LimitUpsell } from '~/utils/limit-upsell'
 import { championOf, stageLabels } from '~/utils/bracket-rounds'
 import { rulesForEvent, rulesForRound } from '~/utils/game-rules'
 import type { BracketDto, BracketMatchDto } from '~/server/domains/event/dto/bracket.dto'
@@ -1379,11 +1380,15 @@ async function handlePublishEvent() {
     await refreshEvent()
   } catch (err) {
     toast.error(apiErrorMessage(err, 'Could not publish the event.'))
+    // A toast cannot carry a link; a plan limit needs one. It persists on the
+    // page until dismissed or until the event is actually published.
+    publishUpsell.value = limitUpsell(err, event.value?.club_id)
   } finally {
     publishing.value = false
     publishOpen.value = false
   }
 }
+const publishUpsell = ref<LimitUpsell | null>(null)
 
 // Deleting is draft-only and irreversible, so it asks twice as loudly as
 // publishing does. The server enforces the same rule regardless — a published
@@ -1498,6 +1503,21 @@ const { goBack } = useAppBack('/events')
   <div class="min-h-screen bg-canvas p-4 lg:p-6">
     <div class="page-shell">
       <UiPageHeader to="/events" />
+
+      <!-- A plan limit stopped the publish. Persistent, with the way out. -->
+      <div
+        v-if="publishUpsell"
+        role="alert"
+        class="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-warning-soft px-4 py-3 text-sm text-warning"
+      >
+        <span>{{ publishUpsell.message }}</span>
+        <span class="flex items-center gap-3">
+          <NuxtLink :to="publishUpsell.to" class="font-medium underline underline-offset-2" data-testid="limit-upsell">{{ publishUpsell.ctaLabel }}</NuxtLink>
+          <button type="button" class="text-warning/80 hover:text-warning" aria-label="Dismiss" @click="publishUpsell = null">
+            <UiIcon name="x" size="h-4 w-4" />
+          </button>
+        </span>
+      </div>
 
       <!-- Loading -->
       <div v-if="eventPending" class="space-y-4">

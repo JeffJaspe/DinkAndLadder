@@ -198,8 +198,8 @@ function clearFilters() {
         <UiAvatar
           :name="player.display_name"
           :src="player.avatar_url"
+          :identity-key="player.id"
           size="lg"
-          class="h-12 w-12 text-lg"
         />
         <div class="min-w-0 flex-1">
           <h2 class="text-body-1 font-medium text-fg">{{ player.display_name }}</h2>

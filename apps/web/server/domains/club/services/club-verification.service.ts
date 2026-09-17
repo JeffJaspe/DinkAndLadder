@@ -25,6 +25,31 @@ export interface ClubVerificationService {
   approveVerification(actingUserId: string, clubId: string): Promise<ClubDto>
   rejectVerification(actingUserId: string, clubId: string): Promise<ClubDto>
   listVerifiedClubs(limit: number, offset: number): Promise<ClubDto[]>
+
+  /**
+   * A plan with `verified_badge_eligible` was activated for this club.
+   *
+   * Paying enters the queue; it does not grant the badge. The club joins the
+   * same `pending` list the OWNER-initiated request uses, marked
+   * `verification_source = 'subscription'` so the reviewer can see it is paying
+   * and so a later lapse knows it may take the badge back. Returns true when
+   * the club was actually moved; a club already `pending` or `verified` is
+   * left alone.
+   *
+   * Not gated on the caller: the subscription service has already established
+   * that the acting player is a club admin who just completed checkout.
+   */
+  requestVerificationFromSubscription(clubId: string): Promise<boolean>
+
+  /**
+   * The club's subscription stopped entitling it.
+   *
+   * Only a badge that came from a subscription is taken back. A club a human
+   * verified by hand keeps its badge no matter what it stops paying —
+   * `verification_source = 'admin_review'` means "no write" here, always. A
+   * `pending` club that got there by paying drops out of the queue.
+   */
+  onSubscriptionLapsed(clubId: string): Promise<void>
 }
 
 export function createClubVerificationService(
@@ -82,10 +107,19 @@ export function createClubVerificationService(
 
     async approveVerification(actingUserId, clubId) {
       await requireSuperAdmin(actingUserId)
+      const club = await clubs.findById(clubId)
+      if (!club) {
+        throw new ClubVerificationServiceError(404, 'NOT_FOUND', 'Club not found.')
+      }
       const updated = await clubs.updateVerification(clubId, {
         verification_status: 'verified',
         verified_at: new Date().toISOString(),
-        verified_by_user_id: actingUserId
+        verified_by_user_id: actingUserId,
+        // Provenance survives approval. A club that queued itself by paying
+        // stays 'subscription' so a lapse can take the badge back; every other
+        // route is a human's decision and is kept for good.
+        verification_source:
+          club.verification_source === 'subscription' ? 'subscription' : 'admin_review'
       })
       return toClubDto(updated)
     },
@@ -94,7 +128,8 @@ export function createClubVerificationService(
       await requireSuperAdmin(actingUserId)
       const updated = await clubs.updateVerification(clubId, {
         verification_status: 'unverified',
-        verification_requested_at: null
+        verification_requested_at: null,
+        verification_source: 'none'
       })
       return toClubDto(updated)
     },
@@ -102,6 +137,35 @@ export function createClubVerificationService(
     async listVerifiedClubs(limit, offset) {
       const rows = await clubs.findVerifiedClubs(limit, offset)
       return rows.map(toClubDto)
+    },
+
+    async requestVerificationFromSubscription(clubId) {
+      const club = await clubs.findById(clubId)
+      if (!club) return false
+      if (club.verification_status !== 'unverified') return false
+
+      await clubs.updateVerification(clubId, {
+        verification_status: 'pending',
+        verification_requested_at: new Date().toISOString(),
+        verification_source: 'subscription'
+      })
+      return true
+    },
+
+    async onSubscriptionLapsed(clubId) {
+      const club = await clubs.findById(clubId)
+      if (!club) return
+      // The whole rule in one line: a badge a human granted is never touched.
+      if (club.verification_source !== 'subscription') return
+      if (club.verification_status === 'unverified') return
+
+      await clubs.updateVerification(clubId, {
+        verification_status: 'unverified',
+        verification_requested_at: null,
+        verified_at: null,
+        verified_by_user_id: null,
+        verification_source: 'none'
+      })
     }
   }
 }

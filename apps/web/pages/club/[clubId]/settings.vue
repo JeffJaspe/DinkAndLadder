@@ -8,6 +8,8 @@ import {
   validateSlug
 } from '~/server/domains/club/dto/club-slug'
 import { apiErrorMessage } from '~/utils/api-error-message'
+import type { ClubBillingDto } from '~/server/domains/payment/dto/club-billing.dto'
+import { describeEntitlements } from '~/utils/subscription-plan'
 
 /**
  * Club settings.
@@ -28,6 +30,27 @@ const clubId = computed(() => route.params.clubId as string)
 useHead({ title: 'Club settings' })
 
 const toast = useToast()
+
+/**
+ * The plan card at the top of settings — the "Go Premium" entry point an owner
+ * reaches without knowing the billing page exists. Lazy and non-blocking: a
+ * billing read failing must not take the rest of settings down with it.
+ */
+const { data: billingInfo } = useFetch<ClubBillingDto>(() => `/api/v1/clubs/${clubId.value}/subscription`, {
+  lazy: true,
+  server: false
+})
+const planSummary = computed(() => {
+  const ent = billingInfo.value?.entitlements
+  if (!ent) return null
+  const rows = describeEntitlements(ent)
+  return {
+    name: ent.plan_name,
+    onPaid: ent.origin === 'plan',
+    verified: ent.origin === 'verified_override',
+    line: rows.slice(0, 3).map((r) => r.value).join(' · ')
+  }
+})
 
 const {
   data: club,
@@ -290,6 +313,27 @@ onBeforeRouteLeave(() => {
       </div>
 
       <div v-else-if="club" class="space-y-6">
+        <!-- Plan -->
+        <section v-if="planSummary" class="rounded-card bg-surface p-5 shadow-card">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 class="font-display text-heading-3 text-fg">Plan</h2>
+              <p class="mt-1 text-body-2 text-fg">
+                <span class="font-medium">{{ planSummary.name }}</span>
+                <span v-if="planSummary.verified" class="ml-2 text-caption text-fg-muted">verified club</span>
+              </p>
+              <p class="mt-0.5 text-caption text-fg-muted">{{ planSummary.line }}</p>
+            </div>
+            <NuxtLink
+              :to="`/club/${clubId}/billing`"
+              class="rounded-lg px-4 py-2 text-sm font-medium"
+              :class="planSummary.onPaid || planSummary.verified ? 'border border-border-strong text-fg-secondary hover:bg-surface-2' : 'bg-primary text-on-primary hover:bg-primary-hover'"
+            >
+              {{ planSummary.onPaid || planSummary.verified ? 'Manage plan' : 'Go Premium' }}
+            </NuxtLink>
+          </div>
+        </section>
+
         <!-- Images -->
         <section class="rounded-card bg-surface p-5 shadow-card">
           <h2 class="font-display text-heading-3 text-fg">Cover photo &amp; logo</h2>

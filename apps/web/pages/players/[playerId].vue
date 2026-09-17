@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { PlayerProfileDto } from '~/server/domains/player/dto/player-profile.dto'
-import type { PlayerRatingDto } from '~/server/domains/rating/dto/rating.dto'
+import type { PlayerRatingDto, RatingType } from '~/server/domains/rating/dto/rating.dto'
 import type { PlayerKudosDto } from '~/server/domains/kudos/dto/kudos.dto'
 import type {
   PlayerStatsDto,
@@ -28,7 +28,17 @@ interface MatchSummary {
   match_type: 'singles' | 'doubles'
   status: string
   played_at: string
-  participants: Array<{ player_id: string; team_number: 1 | 2; display_name: string }>
+  /**
+   * `player_id` and `display_name` are null for a participant who has not
+   * published their own history (067). The id goes with the name — keeping it
+   * would leave the hidden player one public lookup away.
+   */
+  participants: Array<{
+    player_id: string | null
+    team_number: 1 | 2
+    display_name: string | null
+    redacted?: boolean
+  }>
   scores: Array<{ set_number: number; team1_score: number; team2_score: number }>
 }
 
@@ -184,9 +194,19 @@ const achievementsQuery = useFetch<{ achievements: PlayerAchievement[] }>(
   () => `/api/v1/players/${playerId.value}/achievements`
 )
 const statsQuery = useFetch<PlayerStatsDto>(() => `/api/v1/players/${playerId.value}/stats`)
+/**
+ * Doubles first, here as everywhere else on this page.
+ *
+ * This was pinned to `type: 'singles'` and captioned as such, directly beneath
+ * a headline number that was `Math.max(singles, doubles)` — so on any player
+ * whose doubles rating led, the chart and the number above it described
+ * different formats without saying so. `historyType` is a ref in the query, so
+ * Nuxt refetches when the toggle moves.
+ */
+const historyType = ref<RatingType>('doubles')
 const ratingHistoryQuery = useFetch<{ history: RatingHistoryPointDto[] }>(
   () => `/api/v1/players/${playerId.value}/rating-history`,
-  { query: { type: 'singles', days: 180 } }
+  { query: { type: historyType, days: 180 } }
 )
 /** The profile's activity rows carry the shout-out's linked event, same as the feed. */
 type ProfileActivity = ActivityDto & { event?: LinkedEvent | null }
@@ -222,11 +242,32 @@ await Promise.all([
 ])
 
 const { data: profile, pending, error } = profileQuery
-const { data: ratings } = ratingsQuery
-const { data: achievementsData } = achievementsQuery
-const { data: stats } = statsQuery
-const { data: ratingHistoryData } = ratingHistoryQuery
-const { data: activitiesData } = activitiesQuery
+/**
+ * Every region gets its own `error`, because until now only `profile` had one.
+ *
+ * A failed `stats` call rendered "0 Matches / — / —". A failed `activities`
+ * call rendered "No recent activity." A failed `clubs` call rendered "Not a
+ * member of any clubs." Courtside connectivity on mobile data is a documented
+ * constraint of this product, so partial failure is the normal case, not the
+ * edge case — and every one of those strings is a factual claim about a real
+ * person that the page had no evidence for. An organiser reading them declines
+ * to invite an active player because a request timed out.
+ *
+ * Empty and failed are different states and now render differently.
+ */
+const { data: ratings, error: ratingsError } = ratingsQuery
+const {
+  data: achievementsData,
+  error: achievementsError,
+  refresh: refreshAchievements
+} = achievementsQuery
+const { data: stats, error: statsError, refresh: refreshStats } = statsQuery
+const {
+  data: ratingHistoryData,
+  error: ratingHistoryError,
+  refresh: refreshRatingHistory
+} = ratingHistoryQuery
+const { data: activitiesData, error: activitiesError, refresh: refreshActivities } = activitiesQuery
 
 /**
  * Titles this player holds — one badge each, each linking to the draw it was
@@ -349,13 +390,39 @@ async function submitReport() {
 /** The first page. 10 at a time, appended by `loadMoreMatches` below. */
 const MATCH_PAGE_SIZE = 10
 
-const { data: myMatchesData, execute: fetchMyMatches } = useFetch<{ data: MatchSummary[] }>(
-  '/api/v1/players/me/matches',
-  { query: { limit: MATCH_PAGE_SIZE, offset: 0 }, immediate: false, server: false }
+/**
+ * Two endpoints, one tab.
+ *
+ * Your own history comes from `/players/me/matches` and is never redacted —
+ * you are entitled to your own record in full. Someone else's comes from
+ * `/players/:id/matches`, which publishes only if they opted in and names only
+ * the participants who did. The tab used to have no second case at all: it told
+ * every visitor "match history is only visible to the player themselves", which
+ * on a public profile is everyone.
+ */
+const matchesEndpoint = computed(() =>
+  isOwnProfile.value ? '/api/v1/players/me/matches' : `/api/v1/players/${playerId.value}/matches`
 )
 
+/** Whether there is anything to ask for. The page never calls an endpoint it
+ *  knows will refuse — the server still enforces it either way. */
+const matchHistoryVisible = computed(
+  () => isOwnProfile.value || Boolean(profile.value?.show_match_history)
+)
+
+const {
+  data: myMatchesData,
+  error: myMatchesError,
+  pending: myMatchesPending,
+  execute: fetchMyMatches
+} = useFetch<{ data: MatchSummary[] }>(() => matchesEndpoint.value, {
+  query: { limit: MATCH_PAGE_SIZE, offset: 0 },
+  immediate: false,
+  server: false
+})
+
 watch(
-  isOwnProfile,
+  matchHistoryVisible,
   (val) => {
     if (val) fetchMyMatches()
   },
@@ -388,7 +455,7 @@ async function loadMoreMatches() {
   if (loadingMoreMatches.value || matchesEnd.value) return
   loadingMoreMatches.value = true
   try {
-    const response = await $fetch<{ data: MatchSummary[] }>('/api/v1/players/me/matches', {
+    const response = await $fetch<{ data: MatchSummary[] }>(matchesEndpoint.value, {
       query: { limit: MATCH_PAGE_SIZE, offset: allMyMatches.value.length }
     })
     const batch = response.data ?? []
@@ -472,10 +539,25 @@ const partnerLoading = ref(false)
  * so it is fetched with the rest of the page rather than on tab change — the
  * card is the first thing under Overview.
  */
-const { data: kudosData } = useFetch<{ data: PlayerKudosDto }>(
-  () => `/api/v1/players/${playerId.value}/kudos`,
-  { server: false, ignoreResponseError: true }
+const { data: kudosData, refresh: refreshKudos } = useFetch<{
+  data: PlayerKudosDto
+  statusCode?: number
+}>(() => `/api/v1/players/${playerId.value}/kudos`, {
+  server: false,
+  ignoreResponseError: true
+})
+
+/**
+ * `ignoreResponseError` keeps a failing kudos endpoint from taking the whole
+ * profile down, which is deliberate — but it also hands the card an error body
+ * instead of data, and the card's null-safe fallback then renders six zeroes.
+ * Six zeroes is a statement about what opponents think of this player. Keep the
+ * flag; detect the swallowed error and say so instead.
+ */
+const kudosFailed = computed(() =>
+  Boolean(kudosData.value && (kudosData.value as { statusCode?: number }).statusCode)
 )
+const kudos = computed(() => (kudosFailed.value ? null : (kudosData.value?.data ?? null)))
 
 const {
   state: followState,
@@ -500,7 +582,11 @@ const activeTab = ref<string>(
   PROFILE_TABS.value.some((t) => t.value === route.query.tab) ? String(route.query.tab) : 'overview'
 )
 
-const { data: clubsData } = await useFetch<{
+const {
+  data: clubsData,
+  error: clubsError,
+  refresh: refreshClubs
+} = await useFetch<{
   items: Array<{ club: { id: string; name: string; is_verified: boolean } }>
 }>(() => `/api/v1/players/${playerId.value}/clubs`)
 
@@ -510,6 +596,8 @@ async function sendPartnerRequest() {
   try {
     await $fetch(`/api/v1/players/${playerId.value}/partner-request`, { method: 'POST' })
     await refreshOutgoing()
+  } catch (err) {
+    useToast().error(apiErrorMessage(err, 'Could not send that partner request.'))
   } finally {
     partnerLoading.value = false
   }
@@ -521,6 +609,8 @@ async function cancelPartnerRequest() {
   try {
     await $fetch(`/api/v1/partner-requests/${pendingRequest.value.id}`, { method: 'DELETE' })
     await refreshOutgoing()
+  } catch (err) {
+    useToast().error(apiErrorMessage(err, 'Could not cancel that partner request.'))
   } finally {
     partnerLoading.value = false
   }
@@ -532,6 +622,8 @@ async function removePartner() {
   try {
     await $fetch(`/api/v1/players/me/partners/${playerId.value}`, { method: 'DELETE' })
     await refreshPartners()
+  } catch (err) {
+    useToast().error(apiErrorMessage(err, 'Could not remove that partner.'))
   } finally {
     partnerLoading.value = false
   }
@@ -545,6 +637,8 @@ async function acceptPartnerRequest() {
       method: 'POST'
     })
     await Promise.all([refreshPartners(), refreshIncoming(), refreshPartnerRequestCount()])
+  } catch (err) {
+    useToast().error(apiErrorMessage(err, 'Could not accept that partner request.'))
   } finally {
     partnerLoading.value = false
   }
@@ -558,30 +652,93 @@ async function declinePartnerRequest() {
       method: 'POST'
     })
     await Promise.all([refreshIncoming(), refreshPartnerRequestCount()])
+  } catch (err) {
+    useToast().error(apiErrorMessage(err, 'Could not decline that partner request.'))
   } finally {
     partnerLoading.value = false
   }
 }
 
-const achievements = computed(() => achievementsData.value?.achievements?.slice(0, 6) ?? [])
-const displayRating = computed(() =>
-  Math.max(ratings.value?.singles?.rating_value ?? 0, ratings.value?.doubles?.rating_value ?? 0)
+/**
+ * All of them, not `slice(0, 6)`.
+ *
+ * The header stat renders `stats.achievements_count`, so a player with
+ * fourteen saw "14" above a tab showing six, with nothing indicating the list
+ * was cut. The slice was left over from a six-item Overview showcase that no
+ * longer exists.
+ */
+const achievements = computed(() => achievementsData.value?.achievements ?? [])
+/**
+ * The two ratings, doubles first.
+ *
+ * Replaces `displayRating`, which was
+ * `Math.max(singles?.rating_value ?? 0, doubles?.rating_value ?? 0)` rendered
+ * as one unlabelled number at `toFixed(2)`. Three things were wrong with it and
+ * they compounded:
+ *
+ *   1. It never said which format it was, and silently showed whichever was
+ *      higher — a flattering artefact, not a fact about the player. Doubles is
+ *      the dominant format in this sport and could be the hidden one.
+ *   2. Two decimals, where `formatRating` is three everywhere else — including
+ *      `pages/players/index.vue`, which lists `singles_rating`. The same player
+ *      read as 3.150 in the directory and 4.42 here. PRODUCT.md's first
+ *      principle is "a number nobody disputes"; a number that changes between
+ *      two screens is the definition of one that can be.
+ *   3. `provisional` and `matches_played` were fetched and thrown away, so a
+ *      two-match rating rendered with exactly the confidence of a
+ *      two-hundred-match one.
+ *
+ * Match count and provisional state are per-format facts the API already
+ * returns. A trend arrow is deliberately NOT shown: `PlayerStatsDto` carries a
+ * single `rating_trend` for the whole player, not one per format, so putting an
+ * arrow on each number would be inventing one.
+ */
+const RATING_FORMATS = [
+  { type: 'doubles', label: 'Doubles' },
+  { type: 'singles', label: 'Singles' }
+] as const
+
+const ratingFormats = computed(() =>
+  RATING_FORMATS.map(({ type, label }, index) => {
+    const record = ratings.value?.[type] ?? null
+    const value = record?.rating_value ?? null
+    return {
+      type,
+      label,
+      /** Doubles leads; singles is the same information at a quieter weight. */
+      primary: index === 0,
+      value,
+      tier: value === null ? null : tierForRating(value),
+      provisional: record?.provisional ?? false,
+      matchesPlayed: record?.matches_played ?? 0
+    }
+  })
 )
+
+const HISTORY_TYPES = RATING_FORMATS.map(({ type, label }) => ({ value: type, label }))
 const selectedBadge = computed(() => badgeData.value?.data ?? null)
 
+/** The player whose matches the tab is showing — not necessarily the viewer. */
+const subjectPlayerId = computed(() => profile.value?.id ?? myProfile.value?.id ?? null)
+
 function getOpponentNames(match: MatchSummary): string {
-  const myTeam = match.participants.find((p) => p.player_id === myProfile.value?.id)?.team_number
-  const opponents = match.participants.filter((p) => p.team_number !== myTeam)
-  return opponents.map((p) => p.display_name).join(' & ') || 'Unknown'
+  const subjectTeam = match.participants.find(
+    (p) => p.player_id && p.player_id === subjectPlayerId.value
+  )?.team_number
+  const opponents = match.participants.filter((p) => p.team_number !== subjectTeam)
+  return opponents.map((p) => p.display_name || 'Private player').join(' & ') || 'Unknown'
 }
 
-function didIWin(match: MatchSummary): boolean | null {
-  const myTeam = match.participants.find((p) => p.player_id === myProfile.value?.id)?.team_number
-  if (!myTeam || match.scores.length === 0) return null
-  const mySets = match.scores.filter((s) =>
-    myTeam === 1 ? s.team1_score > s.team2_score : s.team2_score > s.team1_score
+/** Told from the profile owner's side, same as getOpponentNames. */
+function didSubjectWin(match: MatchSummary): boolean | null {
+  const subjectTeam = match.participants.find(
+    (p) => p.player_id && p.player_id === subjectPlayerId.value
+  )?.team_number
+  if (!subjectTeam || match.scores.length === 0) return null
+  const setsWon = match.scores.filter((s) =>
+    subjectTeam === 1 ? s.team1_score > s.team2_score : s.team2_score > s.team1_score
   ).length
-  return mySets > match.scores.length / 2
+  return setsWon > match.scores.length / 2
 }
 
 function formatScore(match: MatchSummary): string {
@@ -685,7 +842,7 @@ function formatActivityText(activity: ProfileActivity): string {
     <!-- Loading -->
     <div v-if="pending" class="page-shell space-y-4">
       <div class="flex items-start gap-4">
-        <div class="h-20 w-20 animate-pulse rounded-full bg-surface" />
+        <div class="h-24 w-24 animate-pulse rounded-full bg-surface" />
         <div class="flex-1 space-y-2">
           <div class="h-6 w-48 animate-pulse rounded bg-surface" />
           <div class="h-4 w-32 animate-pulse rounded bg-surface" />
@@ -737,8 +894,9 @@ function formatActivityText(activity: ProfileActivity): string {
             <UiAvatar
               :name="profile.display_name"
               :src="profile.avatar_url"
+              :identity-key="profile.id"
               size="xl"
-              class="h-20 w-20 text-3xl ring-4 ring-primary"
+              highlighted
             />
             <div>
               <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -747,7 +905,7 @@ function formatActivityText(activity: ProfileActivity): string {
                   v-if="achievementsEnabled && selectedBadge"
                   class="text-xl"
                   :title="`${selectedBadge.name} — ${selectedBadge.description}`"
-                  >{{ selectedBadge.icon || '🏅' }}
+                  ><span aria-hidden="true">{{ selectedBadge.icon || '🏅' }}</span>
                   <span class="sr-only"
                     >Badge earned: {{ selectedBadge.name }}. {{ selectedBadge.description }}</span
                   ></span
@@ -767,11 +925,11 @@ function formatActivityText(activity: ProfileActivity): string {
                     :class="TROPHY_CLASS"
                     class="transition-transform hover:-translate-y-0.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
                   >
-                    🏆
+                    <span aria-hidden="true">🏆</span>
                     <span class="sr-only">{{ championshipTitle(championship) }}</span>
                   </NuxtLink>
                   <span v-else :title="championshipTitle(championship)" :class="TROPHY_CLASS">
-                    🏆
+                    <span aria-hidden="true">🏆</span>
                     <span class="sr-only">{{ championshipTitle(championship) }}</span>
                   </span>
                 </template>
@@ -785,13 +943,44 @@ function formatActivityText(activity: ProfileActivity): string {
 
           <!-- Rating & Action -->
           <div class="flex flex-col items-end gap-2">
-            <div class="text-right">
-              <p class="text-caption font-semibold uppercase tracking-widest text-fg-muted">
-                Rating
-              </p>
-              <p class="font-display text-stat-md tabular-nums text-primary">
-                {{ displayRating > 0 ? displayRating.toFixed(2) : '—' }}
-              </p>
+            <!-- Doubles leads. Both formats are always present and always
+                 named: an unlabelled rating is a claim, not a fact, and this
+                 is the one screen where a stranger reads the number. -->
+            <div class="flex items-start gap-6 text-right">
+              <div v-for="format in ratingFormats" :key="format.type">
+                <p class="text-caption font-semibold uppercase tracking-widest text-fg-muted">
+                  {{ format.label }}
+                </p>
+                <!-- Fixed-height number row so the two formats share a
+                     baseline. Without it the smaller singles figure rides high
+                     and every line beneath the pair — tier, match count —
+                     staggers against its opposite number. -->
+                <p
+                  class="flex h-9 items-end justify-end font-display tabular-nums"
+                  :class="
+                    format.primary ? 'text-stat-md text-primary' : 'text-stat-sm text-fg-secondary'
+                  "
+                >
+                  {{ format.value === null ? '—' : formatRating(format.value) }}
+                </p>
+                <template v-if="format.tier">
+                  <p class="text-caption text-fg-secondary">{{ format.tier.name }}</p>
+                  <!-- The rating's own receipt, in miniature: how much play is
+                       behind it. `provisional` is the engine's own flag, not a
+                       guess made here. -->
+                  <p class="text-caption text-fg-muted">
+                    {{ format.matchesPlayed }}
+                    {{ format.matchesPlayed === 1 ? 'match' : 'matches' }}
+                    <template v-if="format.provisional"> · provisional</template>
+                  </p>
+                </template>
+                <p v-else-if="ratingsError" class="text-caption text-fg-muted">
+                  Rating<br />unavailable
+                </p>
+                <p v-else class="text-caption text-fg-muted">
+                  No rated<br />{{ format.label.toLowerCase() }} yet
+                </p>
+              </div>
             </div>
             <!-- Acting as a club: one club-shaped action, not the player ones.
                  An invitation is only offered when there is nothing live
@@ -934,7 +1123,28 @@ function formatActivityText(activity: ProfileActivity): string {
         </div>
 
         <!-- Stats Row -->
-        <div class="mt-6 grid grid-cols-4 gap-4 border-t border-border-strong pt-4">
+        <!-- A failed stats call used to render "0 Matches / — / —", which is
+             exactly what a brand-new player renders. An organiser reading that
+             declines to invite an active player over a timeout. -->
+        <div
+          v-if="statsError"
+          class="mt-6 flex flex-wrap items-center justify-center gap-2 border-t border-border-strong pt-4 text-caption text-fg-muted"
+          role="alert"
+        >
+          <span>Stats didn't load.</span>
+          <button
+            type="button"
+            class="rounded-button font-medium text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+            @click="() => refreshStats()"
+          >
+            Retry
+          </button>
+        </div>
+        <div
+          v-else
+          class="mt-6 grid grid-cols-2 gap-4 border-t border-border-strong pt-4"
+          :class="achievementsEnabled ? 'sm:grid-cols-4' : 'sm:grid-cols-3'"
+        >
           <div class="text-center">
             <p class="font-display text-stat-sm tabular-nums text-fg">
               {{ stats?.total_matches ?? 0 }}
@@ -964,30 +1174,64 @@ function formatActivityText(activity: ProfileActivity): string {
 
       <!-- Tabs are route-query backed (`?tab=matches`), so a tab is linkable
            and the browser back button steps between them — docs/33 §5.4. -->
-      <UiTabs v-model="activeTab" :tabs="PROFILE_TABS" />
+      <UiTabs v-model="activeTab" :tabs="PROFILE_TABS" id-prefix="profile" />
 
       <!-- Tab Content -->
-      <div class="space-y-4">
+      <div
+        :id="`profile-panel-${activeTab}`"
+        class="space-y-4"
+        role="tabpanel"
+        :aria-labelledby="`profile-tab-${activeTab}`"
+      >
         <!-- Overview Tab -->
         <template v-if="activeTab === 'overview'">
-          <KudosCard
+          <UiErrorState
+            v-if="kudosFailed"
+            compact
             class="mb-4"
-            :kudos="kudosData?.data ?? null"
+            title="Couldn't load kudos"
+            message="Skill ratings from opponents are unavailable right now."
+            retry-label="Retry"
+            @retry="refreshKudos"
+          />
+          <KudosCard
+            v-else
+            class="mb-4"
+            :kudos="kudos"
             :display-name="profile.display_name"
             :is-own-profile="isOwnProfile"
           />
 
           <!-- Rating History -->
           <div class="rounded-card border border-border bg-surface p-5 shadow-card">
-            <div class="mb-4 flex items-center justify-between">
-              <span class="text-body-2 font-medium text-fg">Rating History</span>
-              <span class="text-caption text-fg-muted">singles · last 180 days</span>
+            <!-- h3, not a span: this was the one panel title on the page that
+                 was not a heading, so it was invisible to heading navigation
+                 while its five siblings were reachable. -->
+            <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <h2 class="text-body-2 font-medium text-fg">Rating History</h2>
+              <UiSegmented
+                :items="HISTORY_TYPES"
+                :model-value="historyType"
+                size="sm"
+                label="Rating type"
+                @update:model-value="historyType = $event as RatingType"
+              />
             </div>
-            <UiLineChart
-              :points="ratingChartPoints"
-              label="Singles rating over the last 180 days"
-              empty-message="Not enough rating history yet — play a verified match to start tracking progress."
+            <UiErrorState
+              v-if="ratingHistoryError"
+              compact
+              title="Couldn't load rating history"
+              message="The chart is unavailable right now."
+              retry-label="Retry"
+              @retry="refreshRatingHistory"
             />
+            <UiLineChart
+              v-else
+              :points="ratingChartPoints"
+              :label="`${historyType === 'doubles' ? 'Doubles' : 'Singles'} rating over the last 180 days`"
+              :empty-message="`No ${historyType} record yet.`"
+            />
+            <p class="mt-3 text-caption text-fg-muted">Last 180 days</p>
           </div>
 
           <!-- Dominant Hand & Preferred Position -->
@@ -1010,12 +1254,28 @@ function formatActivityText(activity: ProfileActivity): string {
         <!-- Matches Tab -->
         <template v-if="activeTab === 'matches'">
           <div class="rounded-xl bg-surface p-5 shadow-card">
-            <h3 class="mb-4 text-body-2 font-medium text-fg">Recent Matches</h3>
-            <div v-if="!isOwnProfile" class="py-6 text-center text-sm text-fg-muted">
-              Match history is only visible to the player themselves.
+            <h2 class="mb-4 text-body-2 font-medium text-fg">Recent Matches</h2>
+            <div v-if="!matchHistoryVisible" class="py-6 text-center text-sm text-fg-muted">
+              This player keeps their match history private.
+            </div>
+            <UiErrorState
+              v-else-if="myMatchesError"
+              compact
+              title="Couldn't load your matches"
+              message="Your match history is unavailable right now."
+              retry-label="Retry"
+              @retry="() => fetchMyMatches()"
+            />
+            <!-- The first page had no pending guard, so your own profile showed
+                 "No matches yet." until the request landed. -->
+            <div
+              v-else-if="myMatchesPending && !allMyMatches.length"
+              class="py-6 text-center text-sm text-fg-muted"
+            >
+              Loading your matches…
             </div>
             <div v-else-if="!allMyMatches.length" class="py-6 text-center text-sm text-fg-muted">
-              No matches yet.
+              No record yet.
             </div>
             <div v-else class="space-y-3">
               <NuxtLink
@@ -1032,15 +1292,19 @@ function formatActivityText(activity: ProfileActivity): string {
                   <span
                     class="rounded-md px-2 py-0.5 text-xs font-medium"
                     :class="
-                      didIWin(match) === true
+                      didSubjectWin(match) === true
                         ? 'bg-primary-soft text-primary'
-                        : didIWin(match) === false
+                        : didSubjectWin(match) === false
                           ? 'bg-danger-soft text-danger'
                           : 'bg-surface-2 text-fg-secondary'
                     "
                   >
                     {{
-                      didIWin(match) === true ? 'Won' : didIWin(match) === false ? 'Lost' : 'Played'
+                      didSubjectWin(match) === true
+                        ? 'Won'
+                        : didSubjectWin(match) === false
+                          ? 'Lost'
+                          : 'Played'
                     }}
                   </span>
                   <p class="mt-1 text-xs text-fg-muted">
@@ -1065,8 +1329,16 @@ function formatActivityText(activity: ProfileActivity): string {
         <!-- Stats Tab -->
         <template v-if="activeTab === 'stats'">
           <div class="rounded-xl bg-surface p-5 shadow-card">
-            <h3 class="mb-4 text-body-2 font-medium text-fg">Performance Stats</h3>
-            <div class="grid gap-4 sm:grid-cols-2">
+            <h2 class="mb-4 text-body-2 font-medium text-fg">Performance Stats</h2>
+            <UiErrorState
+              v-if="statsError"
+              compact
+              title="Couldn't load stats"
+              message="These numbers are unavailable right now."
+              retry-label="Retry"
+              @retry="refreshStats"
+            />
+            <div v-else class="grid gap-4 sm:grid-cols-2">
               <div class="rounded-lg bg-canvas p-3">
                 <p class="text-xs text-fg-muted">Singles / Doubles Played</p>
                 <p class="font-display text-stat-sm tabular-nums text-fg">
@@ -1098,7 +1370,7 @@ function formatActivityText(activity: ProfileActivity): string {
         <!-- Achievements Tab -->
         <template v-if="activeTab === 'achievements' && achievementsEnabled">
           <div class="rounded-xl bg-surface p-5 shadow-card">
-            <h3 class="mb-4 text-body-2 font-medium text-fg">Achievements</h3>
+            <h2 class="mb-4 text-body-2 font-medium text-fg">Achievements</h2>
             <div v-if="achievements.length > 0" class="grid grid-cols-2 gap-3 sm:grid-cols-3">
               <div
                 v-for="pa in achievements"
@@ -1107,6 +1379,7 @@ function formatActivityText(activity: ProfileActivity): string {
               >
                 <div
                   class="mx-auto mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-warning-fill/20 text-warning"
+                  aria-hidden="true"
                 >
                   🏆
                 </div>
@@ -1114,16 +1387,32 @@ function formatActivityText(activity: ProfileActivity): string {
                 <p class="text-xs text-fg-muted">+{{ pa.achievement.points }} pts</p>
               </div>
             </div>
-            <p v-else class="text-center text-fg-muted">No achievements yet</p>
+            <UiErrorState
+              v-else-if="achievementsError"
+              compact
+              title="Couldn't load achievements"
+              message="This list is unavailable right now."
+              retry-label="Retry"
+              @retry="refreshAchievements"
+            />
+            <p v-else class="py-6 text-center text-sm text-fg-muted">No record yet.</p>
           </div>
         </template>
 
         <!-- Activity Tab -->
         <template v-if="activeTab === 'activity'">
           <div class="rounded-xl bg-surface p-5 shadow-card">
-            <h3 class="mb-4 text-body-2 font-medium text-fg">Recent Activity</h3>
-            <div v-if="activities.length === 0" class="py-6 text-center text-sm text-fg-muted">
-              No recent activity.
+            <h2 class="mb-4 text-body-2 font-medium text-fg">Recent Activity</h2>
+            <UiErrorState
+              v-if="activitiesError"
+              compact
+              title="Couldn't load activity"
+              message="This feed is unavailable right now."
+              retry-label="Retry"
+              @retry="refreshActivities"
+            />
+            <div v-else-if="activities.length === 0" class="py-6 text-center text-sm text-fg-muted">
+              No record yet.
             </div>
             <div v-else class="space-y-3">
               <div
@@ -1131,9 +1420,11 @@ function formatActivityText(activity: ProfileActivity): string {
                 :key="a.id"
                 class="flex items-start gap-3 rounded-lg bg-canvas p-3"
               >
-                <span class="text-lg">{{ getActivityIcon(a.activity_type) }}</span>
+                <span class="text-lg" aria-hidden="true">{{
+                  getActivityIcon(a.activity_type)
+                }}</span>
                 <div class="min-w-0 flex-1">
-                  <p class="text-sm text-fg capitalize">{{ formatActivityText(a) }}</p>
+                  <p class="text-sm text-fg">{{ formatActivityText(a) }}</p>
                   <p class="text-xs text-fg-muted">{{ formatRelativeTime(a.created_at) }}</p>
 
                   <!-- The event this activity points at — a shout-out's, or the
@@ -1166,9 +1457,20 @@ function formatActivityText(activity: ProfileActivity): string {
         <!-- Clubs Tab -->
         <template v-if="activeTab === 'clubs'">
           <div class="rounded-xl bg-surface p-5 shadow-card">
-            <h3 class="mb-4 text-body-2 font-medium text-fg">Club Memberships</h3>
-            <div v-if="!clubsData?.items?.length" class="py-6 text-center text-sm text-fg-muted">
-              Not a member of any clubs.
+            <h2 class="mb-4 text-body-2 font-medium text-fg">Club Memberships</h2>
+            <UiErrorState
+              v-if="clubsError"
+              compact
+              title="Couldn't load clubs"
+              message="This list is unavailable right now."
+              retry-label="Retry"
+              @retry="refreshClubs"
+            />
+            <div
+              v-else-if="!clubsData?.items?.length"
+              class="py-6 text-center text-sm text-fg-muted"
+            >
+              No record yet.
             </div>
             <div v-else class="space-y-3">
               <NuxtLink
@@ -1202,6 +1504,26 @@ function formatActivityText(activity: ProfileActivity): string {
       </div>
     </div>
 
+    <!-- Neither loading, nor an error, nor a profile. Rare, but it used to
+         render the page wrapper and nothing else: a blank screen. -->
+    <div v-else class="page-shell rounded-card bg-surface p-8 text-center shadow-card">
+      <span
+        class="mx-auto flex h-12 w-12 items-center justify-center rounded-pill bg-surface-2 text-fg-muted"
+      >
+        <UiIcon name="alert" size="h-6 w-6" />
+      </span>
+      <h2 class="mt-4 font-display text-heading-2 text-fg">Profile unavailable</h2>
+      <p class="mt-2 text-sm text-fg-muted">
+        We couldn't load this player. Try again, or browse the player directory.
+      </p>
+      <div class="mt-4 flex flex-wrap justify-center gap-2">
+        <UiButton variant="secondary" size="sm" @click="() => profileQuery.refresh()">
+          Try again
+        </UiButton>
+        <UiButton variant="ghost" size="sm" to="/players">All players</UiButton>
+      </div>
+    </div>
+
     <!-- Report modal. hide-actions because the footer needs a disabled state
          driven by the reason select, which the built-in row cannot express. -->
     <UiModal
@@ -1218,7 +1540,7 @@ function formatActivityText(activity: ProfileActivity): string {
           <select
             id="report-reason"
             v-model="reportReason"
-            class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
+            class="w-full rounded-button border border-fg-muted bg-canvas px-4 py-2.5 text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
           >
             <option value="" disabled>Pick a reason…</option>
             <option v-for="r in REPORT_REASONS" :key="r.value" :value="r.value">
@@ -1237,12 +1559,12 @@ function formatActivityText(activity: ProfileActivity): string {
             rows="4"
             maxlength="1000"
             placeholder="Dates, events or matches help the moderator a lot."
-            class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
+            class="w-full rounded-button border border-fg-muted bg-canvas px-4 py-2.5 text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
           />
           <p class="mt-1 text-xs text-fg-muted">{{ reportDetails.length }}/1000</p>
         </div>
 
-        <p v-if="reportError" class="rounded-lg bg-danger/10 px-4 py-3 text-sm text-danger">
+        <p v-if="reportError" class="rounded-button bg-danger-soft px-4 py-3 text-sm text-danger">
           {{ reportError }}
         </p>
 

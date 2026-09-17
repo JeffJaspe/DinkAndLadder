@@ -2,6 +2,8 @@
 import type { ClubDto } from '~/server/domains/club/dto/club.dto'
 import type { RosterMemberDto } from '~/server/domains/club/dto/club-membership.dto'
 import type { AnnouncementDto } from '~/server/domains/announcement/dto/announcement.dto'
+import type { ClubBillingDto } from '~/server/domains/payment/dto/club-billing.dto'
+import type { ClubSubscriptionPlanDto } from '~/server/domains/payment/dto/subscription.dto'
 
 interface ClubMatchDto {
   id: string
@@ -48,6 +50,28 @@ const doublesRankingsQuery = useFetch<{ data: ClubRankingEntry[] }>(
 const announcementsQuery = useFetch<{ announcements: AnnouncementDto[] }>(
   `/api/v1/clubs/${clubId}/announcements`
 )
+
+/**
+ * The "Go Premium" callout. Client-side and non-blocking — this page must not
+ * wait on billing — and it only draws when there is something to buy: a club
+ * on the free tier, with a public paid plan on sale. A verified club is not
+ * upsold; it already has everything a plan would add except fee collection.
+ */
+const billingQuery = useFetch<ClubBillingDto>(`/api/v1/clubs/${clubId}/subscription`, {
+  lazy: true,
+  server: false
+})
+const plansQuery = useFetch<{ data: ClubSubscriptionPlanDto[]; billing: { mode: string } }>(
+  '/api/v1/platform/subscription-plans',
+  { lazy: true, server: false }
+)
+const showGoPremium = computed(() => {
+  const origin = billingQuery.data.value?.entitlements.origin
+  if (origin !== 'default_plan' && origin !== 'fallback') return false
+  const plans = plansQuery.data.value
+  if (!plans || plans.billing.mode === 'off') return false
+  return plans.data.some((p) => !p.is_default_free)
+})
 
 await Promise.all([
   clubQuery,
@@ -118,6 +142,18 @@ const newMembers = computed(() => {
           <p class="mt-1 text-sm text-fg-muted">Club dashboard</p>
         </div>
         <VerifiedBadge v-if="club.verification_status === 'verified'" />
+      </div>
+
+      <!-- Go Premium: only while there is something to buy. -->
+      <div
+        v-if="showGoPremium"
+        class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-primary/30 bg-primary-soft px-5 py-4"
+      >
+        <div>
+          <p class="text-body-2 font-medium text-fg">On the free plan</p>
+          <p class="mt-0.5 text-sm text-fg-secondary">One draft and one live event of each type at a time. Premium lifts the ceilings.</p>
+        </div>
+        <NuxtLink :to="`/club/${clubId}/billing`" class="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-on-primary hover:bg-primary-hover">Go Premium</NuxtLink>
       </div>
 
       <!-- Stats -->

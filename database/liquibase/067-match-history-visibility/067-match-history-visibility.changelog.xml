@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <!-- ═══════════════════════════════════════════════════════════════════════
+         067-match-history-visibility
+
+         One column: whether a player publishes their match history.
+
+         The profile's Matches tab was a dead end for everyone except the player
+         themselves — on a *public* profile, that is every visitor. This makes it
+         the player's own decision rather than a system rule.
+
+         WHY NO RLS POLICY HERE.
+
+         The obvious shape would be a policy widening matches_select_participant
+         (008-security, 0016) to admit any match with an opted-in participant,
+         the way matches_select_event (017, 0028) widened it by event. That is
+         deliberately NOT done, because of how this feature has to behave.
+
+         A doubles match carries four names. If one player publishes their record
+         and the other three did not, the three must still not be named — their
+         participation is their own fact. So the rule is not row-level at all: the
+         match ROW is publishable by one participant, while each participant's
+         NAME is gated by that participant. RLS is row-level and cannot express
+         per-row column masking; column grants are not per-row either.
+
+         So the gate lives in the API layer, in the one endpoint that serves this
+         (GET /api/v1/players/{playerId}/matches), which reads through the
+         service role and redacts each unopted participant before responding —
+         the same pattern, and the same reason, as the match domain's other
+         service-role paths ("checks a self-service RLS policy can't express
+         cleanly", 008-security, changeSet 0017's note).
+
+         The consequence worth stating plainly: because RLS is unchanged, a
+         direct PostgREST query still returns only matches the caller played in.
+         That endpoint is the sole path to another player's history, which is
+         what makes the redaction real rather than cosmetic.
+
+         DEFAULT false: this preserves today's behaviour exactly. No existing
+         player's history becomes visible because this column arrived; every
+         profile that publishes has opted in.
+         ═══════════════════════════════════════════════════════════════════════ -->
+
+    <changeSet id="0001-player-profiles-show-match-history" author="claude">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <columnExists tableName="player_profiles" columnName="show_match_history"/>
+            </not>
+        </preConditions>
+        <addColumn tableName="player_profiles">
+            <column name="show_match_history"
+                    type="boolean"
+                    defaultValueBoolean="false"
+                    remarks="Whether this player's match history is readable on their public profile. Enforced in GET /api/v1/players/{playerId}/matches, not in RLS — see this changelog's header for why.">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+        <rollback>
+            <dropColumn tableName="player_profiles" columnName="show_match_history"/>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

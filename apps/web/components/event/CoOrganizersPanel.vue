@@ -124,7 +124,12 @@ async function remove(person: EventCoOrganizerDto) {
         :key="person.player_id"
         class="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0"
       >
-        <UiAvatar :name="person.display_name" :src="person.avatar_url" size="sm" />
+        <UiAvatar
+          :name="person.display_name"
+          :src="person.avatar_url"
+          :identity-key="person.player_id"
+          size="sm"
+        />
         <NuxtLink
           :to="`/players/${person.player_id}`"
           class="dnl-press min-w-0 flex-1 truncate rounded-badge text-body-2 font-medium text-fg transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
@@ -178,7 +183,12 @@ async function remove(person: EventCoOrganizerDto) {
             :disabled="busyId === friend.player_id"
             @click="add(friend)"
           >
-            <UiAvatar :name="friend.display_name" :src="friend.avatar_url" size="sm" />
+            <UiAvatar
+              :name="friend.display_name"
+              :src="friend.avatar_url"
+              :identity-key="friend.player_id"
+              size="sm"
+            />
             <span class="min-w-0 flex-1">
               <span class="block truncate text-body-2 font-medium text-fg">
                 {{ friend.display_name }}

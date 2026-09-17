@@ -545,16 +545,29 @@ function reasonFor(activity: Activity): string | null {
                                which spent the page's scarcest colour twenty-five times
                                a screen and left nothing to mark what could actually be
                                opened. -->
-                          <NuxtLink
-                            v-if="activity.actor_player_id"
-                            :to="`/players/${activity.actor_player_id}`"
-                            class="dnl-press rounded-badge font-semibold text-fg transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
-                          >
-                            {{ activity.actor_display_name }}
-                          </NuxtLink>
-                          <span v-else class="font-semibold text-fg">{{
-                            activity.actor_display_name
-                          }}</span>
+                          <!-- The actor's name is identity, not an action, so it sits
+                               in ordinary ink at weight 600 and turns green only under
+                               the pointer. It used to be green at rest on every row,
+                               which spent the page's scarcest colour twenty-five times
+                               a screen and left nothing to mark what could actually be
+                               opened.
+
+                               NO AVATAR HERE, and it was tried. An inline face
+                               before the name breaks the sentence: the smallest
+                               avatar is 24px, the line box is ~21px, so the rest
+                               of the line rides high against the name and the
+                               first line grows taller than the ones under it.
+                               The row's leading gutter is the obvious home, but
+                               that slot is the activity-type mark, which is how
+                               this feed is skimmed. Giving the actor a face here
+                               means redesigning the row — avatar in the gutter
+                               with the type as a badge on it — not swapping a
+                               component. -->
+                          <UiPlayerLink
+                            :player-id="activity.actor_player_id"
+                            :name="activity.actor_display_name"
+                            class="dnl-press font-semibold text-fg transition-colors hover:text-primary focus-visible:ring-offset-surface"
+                          />
                           {{ formatActivityText(activity) }}
                           <template v-if="namedEvent(activity)">
                             <!-- A cancelled event is named, not linked: there is

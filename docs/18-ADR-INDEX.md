@@ -391,6 +391,85 @@ Consequences:
   first-place count, so it inherits whatever the final bracket says.
 
 
+## ADR-007: Club subscription pricing, entitlements and lapse — OPEN
+
+Status: **OPEN** (2026-09-17) — the full buy/cancel/lapse flow is built and
+exercisable in Test billing mode; no price is decided and nothing is on sale.
+
+Context:
+Club subscriptions (056, steps 1–8 shipped 2026-09-10 → 2026-09-17) give a
+club a plan with typed entitlements (`max_draft_events`,
+`max_live_tournaments`, `max_live_open_play`, `max_members`,
+`online_fee_collection`, `verified_badge_eligible`; NULL = unlimited). The
+Free plan is seeded at 1/1/1 — exactly the ceilings the code enforced before
+plans existed. "Club Premium" exists as a row with every ceiling lifted, but
+ships `is_active = false, is_public = false`, and its `price_cents` is the 013
+placeholder (99900), not a decision.
+
+What is decided by code, and what is not:
+
+- **Decided (interim, reversible by config):** publishing a paid plan is a
+  SuperAdmin action on `/admin/subscriptions`, never a migration. The simulated
+  gateway charges ₱0 unconditionally and tags every transaction `is_test`; the
+  database CHECK backs that up. A subscription-eligible plan puts the club in
+  the verification queue; a human still approves the badge.
+- **Decided (interim, in ADR scope):** on lapse, the **oldest unfinished event
+  of each type stays live and the rest are restricted** (`restricted_at`
+  set; `status` untouched; new registrations refused; fully reversible on
+  resubscribe). `subscription_grace_days = 7` for `past_due`. A user cancel
+  is at period end; an admin cancel is immediate.
+- **Not decided:** the price of Premium; whether the verified badge should be
+  purchasable at all (docs/36 argues fee collection is the real offer — either
+  answer is the `verified_badge_eligible` flag); the refund window (none /
+  7-day / pro-rata) that docs/38 §7 waits on; proration on plan change;
+  grandfathering; whether the lapse rule above survives contact with real
+  clubs.
+- **Explicitly deferred, placeholders shipped:** **discounts** — the plan
+  editor's "Discount label" is `savings_label`, free text that overrides the
+  computed monthly-vs-yearly saving; no percentage-off column exists because
+  no discount rule has been written. **Vouchers** — the checkout accepts
+  `voucher_code`, the server refuses every value with `VOUCHER_UNKNOWN`, and
+  no `vouchers` table exists. Both are contract placeholders so the client
+  does not change when the rule arrives.
+- **Amends ADR-006 in one respect:** a subscription charge is platform-to-club
+  — the platform bills its own customer for its own product — so it carries
+  none of the money-service-business problem that holding entry fees does.
+  Subscriptions can go live before entry-fee collection.
+
+Do not write a price into a migration, a template, or a test as fact until
+this closes.
+
+## ADR-011: Verification provenance — a paid-for badge is revocable, a human-granted one is not
+
+Status: ACCEPTED (2026-09-17)
+
+Context:
+Once paying can queue a club for verification, `verification_status =
+'verified'` alone stops answering the reviewer's real question: did a human
+check this organisation, or did a payment queue it? And when that payment
+lapses, may the badge be taken back?
+
+Decision:
+`clubs.verification_source` (`none` | `admin_review` | `subscription`) records
+how the club reached its state. `requestVerificationFromSubscription` writes
+`subscription` on entering the queue; approval preserves `subscription` if
+that is how the club arrived and writes `admin_review` otherwise; every club
+verified before 056 was backfilled to `admin_review`, which is a statement of
+fact. `onSubscriptionLapsed` reverts **only** a `subscription`-sourced club
+to `unverified`; an `admin_review` badge is never touched by billing.
+
+Denormalised rather than derived because `verification_status` is read in raw
+SQL inside changesets 039, 049 and 053 and by the feed; rewriting three feed
+changesets to join subscription state is a larger, riskier change than a
+column with exactly two guarded writers.
+
+Consequences:
+- A club a human verified keeps its badge no matter what it stops paying.
+- A club that paid, was approved, and lapsed loses the badge on the daily
+  sweep, and its `verification_requested_at` is cleared.
+- `suspended` / `revoked` remain unwritten; a lapsed payer is not a suspended
+  club.
+
 ## ADR Rule
 
 Do not silently turn an OPEN ADR into an assumed permanent business rule.

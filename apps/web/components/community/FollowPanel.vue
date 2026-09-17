@@ -118,7 +118,12 @@ function since(iso: string): string {
         :key="row.player_id"
         class="flex items-center gap-3 border-t border-border py-3 first:border-t-0 first:pt-0"
       >
-        <UiAvatar :name="row.display_name" :src="row.avatar_url" size="sm" />
+        <UiAvatar
+          :name="row.display_name"
+          :src="row.avatar_url"
+          :identity-key="row.player_id"
+          size="sm"
+        />
 
         <div class="min-w-0 flex-1">
           <UiPlayerLink

@@ -79,6 +79,14 @@ function subRecord(over: Partial<ClubSubscriptionRecord> = {}): ClubSubscription
     cancel_at_period_end: false,
     created_at: '2026-09-01T00:00:00.000Z',
     updated_at: '2026-09-01T00:00:00.000Z',
+    provider: 'manual',
+    provider_subscription_id: null,
+    provider_customer_id: null,
+    source: 'admin_grant',
+    granted_by_user_id: null,
+    notes: null,
+    canceled_at: null,
+    ended_at: null,
     ...over
   }
 }
@@ -97,6 +105,8 @@ function repoFake(over: Partial<SubscriptionRepository> = {}): SubscriptionRepos
     createClubSubscription: vi.fn(),
     updateClubSubscription: vi.fn(),
     listClubSubscriptions: vi.fn().mockResolvedValue([]),
+    findLapsedCandidates: vi.fn().mockResolvedValue([]),
+    findClubSubscriptionById: vi.fn().mockResolvedValue(null),
     listPublicClubPlans: vi.fn().mockResolvedValue([]),
     listPlansForAdmin: vi.fn().mockResolvedValue([]),
     getClubPlanById: vi.fn().mockResolvedValue(null),

@@ -14,6 +14,7 @@ import { createClubMembershipRepository } from '~/server/domains/club/repositori
 import { createClubRepository } from '~/server/domains/club/repositories/club.repository'
 import { getOptionalUser } from '~/server/utils/optional-user'
 import { apiError } from '~/server/utils/api-error'
+import { createRequestEntitlements } from '~/server/utils/club-entitlements'
 
 export default defineEventHandler(async (event) => {
   const user = await getOptionalUser(event)
@@ -54,7 +55,10 @@ export default defineEventHandler(async (event) => {
     undefined,
     undefined,
     undefined,
-    createClubRepository(serviceClient)
+    createClubRepository(serviceClient),
+    // Plan rows mean something from here on: without this the service falls
+    // back to the 1/1/1 default and a paid plan changes nothing.
+    await createRequestEntitlements(serviceClient)
   )
 
   try {

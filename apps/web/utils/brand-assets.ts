@@ -18,14 +18,36 @@ export const DAL_LOGO_DARK = '/brand/logo/dal-logo-dark.svg'
 export const DAL_CHARCOAL = '#1F2024'
 
 /**
- * While true, uploaded images — player avatars, club logos and covers, the
- * SuperAdmin's platform logo — are **not displayed**; every one of those
- * surfaces shows the brand artwork instead.
+ * While true, uploaded **club and platform** imagery — club logos and covers,
+ * the SuperAdmin's platform logo — is not displayed; those surfaces show the
+ * brand artwork instead.
  *
- * This is a deliberate presentation choice, not a feature removal. Every upload
- * path is untouched and still working: the files are stored, the URLs are still
- * resolved and still arrive in the DTOs, and the settings screens still upload
- * and remove them. Flipping this to `false` restores uploaded imagery
- * everywhere with no other change.
+ * A deliberate presentation choice, not a feature removal. Every upload path is
+ * untouched: files are stored, URLs are resolved and still arrive in the DTOs,
+ * and the settings screens still upload and remove them. Flipping this to
+ * `false` restores that imagery with no other change.
+ *
+ * This used to cover player photos too. It no longer does — see
+ * USE_BRAND_DEFAULT_AVATARS, which is the same idea held separately because the
+ * two turned out not to be one decision.
  */
 export const USE_BRAND_DEFAULTS = true
+
+/**
+ * While true, a player's uploaded photo is not displayed and their avatar is
+ * the brand mark.
+ *
+ * Split out of USE_BRAND_DEFAULTS and turned off, because the two were never
+ * really the same call. A club logo standing in as the brand mark is a
+ * branding decision. A *player* photo is identity: an avatar that renders the
+ * same mark for everybody cannot tell two people apart, which is the one job
+ * it has in a bracket, a queue or a roster.
+ *
+ * With this false, `UiAvatar` shows, in order: the uploaded photo, then — when
+ * there is none and the caller passed an `identity-key` — initials on that
+ * player's own generated gradient, then the mark. The photo was the missing
+ * step: it was uploaded, stored and resolved into `avatar_url` correctly the
+ * whole time, and suppressed at the last hop, including in the profile
+ * editor's own preview. Which is why it looked like the upload was broken.
+ */
+export const USE_BRAND_DEFAULT_AVATARS = false

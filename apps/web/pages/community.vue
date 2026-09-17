@@ -207,9 +207,11 @@ function formatRelativeTime(dateStr: string): string {
             class="flex items-center justify-between rounded-xl bg-surface p-4 transition-all hover:bg-surface-2 shadow-card hover:shadow-card-hover"
           >
             <div class="flex items-center gap-3">
-              <div class="flex h-12 w-12 items-center justify-center rounded-full bg-surface-2 p-2">
-                <UiBrandImage />
-              </div>
+              <UiAvatar
+                :name="teammate.display_name"
+                :identity-key="teammate.player_id"
+                size="lg"
+              />
               <div>
                 <p class="font-medium text-fg">{{ teammate.display_name }}</p>
                 <p class="text-sm text-fg-muted">
@@ -254,9 +256,11 @@ function formatRelativeTime(dateStr: string): string {
             class="flex items-center justify-between rounded-xl bg-surface p-4 transition-all hover:bg-surface-2 shadow-card hover:shadow-card-hover"
           >
             <div class="flex items-center gap-3">
-              <div class="flex h-12 w-12 items-center justify-center rounded-full bg-surface-2 p-2">
-                <UiBrandImage />
-              </div>
+              <UiAvatar
+                :name="opponent.display_name"
+                :identity-key="opponent.player_id"
+                size="lg"
+              />
               <div>
                 <p class="font-medium text-fg">{{ opponent.display_name }}</p>
                 <p class="text-sm text-fg-muted">

@@ -13,6 +13,14 @@ export interface PlayerProfileRecord {
   dominant_hand: string | null
   preferred_position: string | null
   profile_visibility: ProfileVisibility
+  /**
+   * Whether this player publishes their match history (067).
+   *
+   * Separate from `profile_visibility`: a public profile still hides its
+   * matches until the player says otherwise, which is what the old blanket
+   * "only visible to the player themselves" rule became.
+   */
+  show_match_history: boolean
   /** Bucket-relative object path, not a URL. See 055-player-avatar. */
   avatar_path: string | null
   created_at: string
@@ -31,6 +39,8 @@ export interface PlayerProfileDto {
   dominant_hand: string | null
   preferred_position: string | null
   profile_visibility: ProfileVisibility
+  /** See PlayerProfileRecord.show_match_history. */
+  show_match_history: boolean
   /**
    * A URL the browser can load, resolved from avatar_path by the API layer
    * (the bucket has no anon read access while it is private, so signing needs
@@ -52,6 +62,7 @@ export interface UpdatePlayerProfileInput {
   dominant_hand?: string | null
   preferred_position?: string | null
   profile_visibility?: ProfileVisibility
+  show_match_history?: boolean
 }
 
 export function toPlayerProfileDto(profile: PlayerProfileRecord): PlayerProfileDto {
@@ -67,6 +78,7 @@ export function toPlayerProfileDto(profile: PlayerProfileRecord): PlayerProfileD
     dominant_hand: profile.dominant_hand,
     preferred_position: profile.preferred_position,
     profile_visibility: profile.profile_visibility,
+    show_match_history: profile.show_match_history,
     // Resolved by the API layer via withAvatarUrl(); the DTO carries the shape
     // so no caller has to know whether a photo exists.
     avatar_url: null,
@@ -131,7 +143,7 @@ export class PlayerProfileValidationError extends Error {
 /** Every optional field of UpdatePlayerProfileInput that is a nullable string. */
 type OptionalTextField = Exclude<
   keyof UpdatePlayerProfileInput,
-  'display_name' | 'profile_visibility'
+  'display_name' | 'profile_visibility' | 'show_match_history'
 >
 
 /**
@@ -210,7 +222,10 @@ export function parseUpdatePlayerProfileInput(body: unknown): UpdatePlayerProfil
     }
     const limit = TEXT_FIELD_LIMITS[field]
     if (limit !== undefined && value !== null && value.length > limit) {
-      throw new PlayerProfileValidationError(field, `${field} must be ${limit} characters or fewer.`)
+      throw new PlayerProfileValidationError(
+        field,
+        `${field} must be ${limit} characters or fewer.`
+      )
     }
     input[field] = value
   }
@@ -223,6 +238,16 @@ export function parseUpdatePlayerProfileInput(body: unknown): UpdatePlayerProfil
       )
     }
     input.profile_visibility = record.profile_visibility
+  }
+
+  if (record.show_match_history !== undefined) {
+    if (typeof record.show_match_history !== 'boolean') {
+      throw new PlayerProfileValidationError(
+        'show_match_history',
+        'show_match_history must be true or false.'
+      )
+    }
+    input.show_match_history = record.show_match_history
   }
 
   return input

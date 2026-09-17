@@ -74,17 +74,18 @@ function formatDate(dateStr: string): string {
         <!-- Header -->
         <div class="rounded-xl bg-surface p-6 shadow-card">
           <div class="flex items-center gap-4">
-            <div class="flex h-16 w-16 items-center justify-center rounded-full bg-surface-2 p-3">
-              <UiBrandImage />
-            </div>
+            <UiAvatar
+              :name="stats.opponent.display_name"
+              :identity-key="stats.opponent.id"
+              size="lg"
+            />
             <div>
               <p class="text-sm text-fg-muted">Head-to-Head vs</p>
-              <NuxtLink
-                :to="`/players/${stats.opponent.id}`"
+              <UiPlayerLink
+                :player-id="stats.opponent.id"
+                :name="stats.opponent.display_name"
                 class="font-display text-heading-3 text-fg hover:text-primary"
-              >
-                {{ stats.opponent.display_name }}
-              </NuxtLink>
+              />
             </div>
           </div>
 

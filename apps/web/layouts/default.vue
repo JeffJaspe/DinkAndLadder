@@ -175,6 +175,13 @@ const clubNavItems = computed<NavItem[]>(() => [
     // existed. It does now.
     href: activeClubId.value ? `/club/${activeClubId.value}/settings` : '/my-clubs',
     icon: 'settings'
+  },
+  {
+    // The club's plan and what it allows. Club mode only: subscriptions are a
+    // club's, and a player has nothing to upgrade.
+    name: 'Billing & plan',
+    href: activeClubId.value ? `/club/${activeClubId.value}/billing` : '/my-clubs',
+    icon: 'card'
   }
 ])
 
@@ -212,6 +219,7 @@ const adminNavItems = computed<NavItem[]>(() => {
     { name: 'Club verification', href: '/admin/clubs/verification', icon: 'verified' },
     { name: 'Feature flags', href: '/admin/features', icon: 'settings' },
     { name: 'Fees & payments', href: '/admin/fees', icon: 'stats' },
+    { name: 'Subscriptions', href: '/admin/subscriptions', icon: 'card' },
     { name: 'Theme', href: '/admin/theme', icon: 'sun' },
     { name: 'Branding', href: '/admin/branding', icon: 'image' },
     { name: 'Sponsors', href: '/admin/sponsors', icon: 'star' },

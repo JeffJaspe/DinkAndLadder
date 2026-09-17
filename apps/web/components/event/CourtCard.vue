@@ -312,7 +312,22 @@ const deuceNote = computed(() => {
           class="flex items-baseline gap-2 text-body-2 text-fg-secondary"
         >
           <span class="text-caption tabular-nums text-fg-muted">{{ index + 1 }}.</span>
-          <span class="min-w-0 truncate">{{ sideLabel(side) }}</span>
+          <!-- The queue is read at a fence, by people looking for their own
+               name. `sideLabel` joined the side into one string and dropped the
+               ids with it, so the one list whose whole job is "am I next" was
+               the one place you could not tap yourself. -->
+          <span v-if="!side.players.length" class="min-w-0 truncate">TBC</span>
+          <span v-else class="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
+            <template v-for="(player, i) in side.players" :key="player.id ?? i">
+              <span v-if="i > 0" class="text-fg-muted">&amp;</span>
+              <UiPlayerLink
+                :player-id="player.id"
+                :name="player.display_name"
+                avatar
+                avatar-size="xs"
+              />
+            </template>
+          </span>
         </li>
       </ol>
     </div>

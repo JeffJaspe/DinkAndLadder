@@ -71,5 +71,7 @@
     <include file="064-rating-assessments/064-rating-assessments.changelog.xml" relativeToChangelogFile="true"/>
     <include file="065-achievement-integrity/065-achievement-integrity.changelog.xml" relativeToChangelogFile="true"/>
     <include file="066-follow-and-kudos/066-follow-and-kudos.changelog.xml" relativeToChangelogFile="true"/>
+    <include file="067-match-history-visibility/067-match-history-visibility.changelog.xml" relativeToChangelogFile="true"/>
+    <include file="068-subscription-rls-admin-only/068-subscription-rls-admin-only.changelog.xml" relativeToChangelogFile="true"/>
 
 </databaseChangeLog>

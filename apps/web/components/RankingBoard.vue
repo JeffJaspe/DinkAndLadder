@@ -204,12 +204,21 @@ const tierName = (rating: number) => tierForRating(rating).name
           <span class="flex items-center gap-3">
             <UiAvatar
               :name="row.display_name"
+              :identity-key="row.player_id"
               :size="compact ? 'sm' : 'md'"
               :highlighted="isHighlighted(row)"
             />
             <span class="min-w-0">
               <span class="flex items-center gap-1.5">
-                <span class="truncate font-medium text-fg">{{ row.display_name }}</span>
+                <!-- Deliberately NOT a link, though it is a name.
+                     DataTable rows here are `clickable-rows` and emit `select`,
+                     and the consumer decides what that means: /rankings
+                     navigates to the profile, but CategoryStandings uses it to
+                     highlight that player in the bracket. A link inside the row
+                     would navigate away from the tournament AND still bubble
+                     into select. The avatar carries the identity; the row keeps
+                     the one click it already had. -->
+                <span class="min-w-0 truncate font-medium text-fg">{{ row.display_name }}</span>
                 <span
                   v-if="isHighlighted(row)"
                   class="shrink-0 rounded-pill bg-primary-soft px-1.5 py-0.5 text-caption font-medium text-primary"

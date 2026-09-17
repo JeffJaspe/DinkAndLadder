@@ -14,6 +14,7 @@ import { createActivityRepository } from '~/server/domains/activity/repositories
 import { createActivityLogger } from '~/server/domains/activity/services/activity.service'
 import { getOptionalUser } from '~/server/utils/optional-user'
 import { apiError } from '~/server/utils/api-error'
+import { createRequestEntitlements } from '~/server/utils/club-entitlements'
 
 export default defineEventHandler(async (event) => {
   const user = await getOptionalUser(event)
@@ -49,7 +50,8 @@ export default defineEventHandler(async (event) => {
     undefined,
     undefined,
     undefined,
-    createClubRepository(serviceClient)
+    createClubRepository(serviceClient),
+    await createRequestEntitlements(serviceClient)
   )
 
   try {

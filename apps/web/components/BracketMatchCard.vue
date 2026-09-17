@@ -108,6 +108,8 @@ const showRatings = computed(() => !orderedScores.value.length)
               :player-id="entry.participant?.player_id"
               :name="entry.participant?.display_name"
               fallback="TBD"
+              avatar
+              avatar-size="xs"
             />
           </span>
           <span

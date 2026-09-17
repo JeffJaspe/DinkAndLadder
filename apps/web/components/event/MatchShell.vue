@@ -142,7 +142,7 @@ function sideClass(side: 1 | 2) {
             size="h-3.5 w-3.5"
             class="mr-1 inline-block align-[-2px]"
           />
-          <UiPlayerLink :player-id="player.id" :name="player.name" />
+          <UiPlayerLink :player-id="player.id" :name="player.name" avatar avatar-size="xs" />
         </p>
       </div>
 

@@ -108,6 +108,16 @@ export interface ClubSubscriptionRecord {
   cancel_at_period_end: boolean
   created_at: string
   updated_at: string
+  // 056 — provider-agnostic identity and provenance. The repository has
+  // selected these since step 3; the type just never said so.
+  provider: PaymentProvider
+  provider_subscription_id: string | null
+  provider_customer_id: string | null
+  source: SubscriptionSource
+  granted_by_user_id: string | null
+  notes: string | null
+  canceled_at: string | null
+  ended_at: string | null
 }
 
 export interface ClubSubscriptionDto {
@@ -118,6 +128,10 @@ export interface ClubSubscriptionDto {
   current_period_start: string | null
   current_period_end: string | null
   cancel_at_period_end: boolean
+  provider: PaymentProvider
+  source: SubscriptionSource
+  canceled_at: string | null
+  ended_at: string | null
   plan?: SubscriptionPlanDto
 }
 
@@ -133,6 +147,10 @@ export function toClubSubscriptionDto(
     current_period_start: record.current_period_start,
     current_period_end: record.current_period_end,
     cancel_at_period_end: record.cancel_at_period_end,
+    provider: record.provider,
+    source: record.source,
+    canceled_at: record.canceled_at,
+    ended_at: record.ended_at,
     plan: plan ? toSubscriptionPlanDto(plan) : undefined
   }
 }

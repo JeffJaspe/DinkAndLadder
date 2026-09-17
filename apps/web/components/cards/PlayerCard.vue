@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { USE_BRAND_DEFAULTS } from '~/utils/brand-assets'
+import { USE_BRAND_DEFAULT_AVATARS } from '~/utils/brand-assets'
 
 interface Props {
   id: string
@@ -23,7 +23,7 @@ const emit = defineEmits<{
   unfollow: [playerId: string]
 }>()
 
-const showAvatar = computed(() => !USE_BRAND_DEFAULTS && !!props.avatarUrl)
+const showAvatar = computed(() => !USE_BRAND_DEFAULT_AVATARS && !!props.avatarUrl)
 
 const location = computed(() => {
   if (props.city && props.province) return `${props.city}, ${props.province}`

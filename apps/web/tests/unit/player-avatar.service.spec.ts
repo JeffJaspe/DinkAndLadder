@@ -24,6 +24,7 @@ function profileRecord(overrides: Partial<PlayerProfileRecord> = {}): PlayerProf
     dominant_hand: null,
     preferred_position: null,
     profile_visibility: 'public',
+    show_match_history: false,
     avatar_path: null,
     created_at: '2026-01-01T00:00:00.000Z',
     updated_at: '2026-01-01T00:00:00.000Z',
@@ -181,10 +182,7 @@ describe('PlayerAvatarService', () => {
   })
 
   it('leaves avatar_url null when there is no stored path', async () => {
-    const dto = await service.withAvatarUrl(
-      { avatar_url: null } as never,
-      null
-    )
+    const dto = await service.withAvatarUrl({ avatar_url: null } as never, null)
     expect(dto.avatar_url).toBeNull()
   })
 })

@@ -81,6 +81,18 @@ upselling.
 
 ---
 
+## Where this stands (2026-09-17)
+
+The plan machinery is built (056 + club-subscriptions steps 5–8): a Free plan
+row carries the limits above, a "Club Premium" row lifts them and is
+`verified_badge_eligible`, and a club can buy it from `/club/{id}/billing`
+through a zero-charge simulated gateway once a SuperAdmin publishes it on
+`/admin/subscriptions`. **Paying enters the verification queue; it does not
+grant the badge** — `verification_source = 'subscription'` marks the club so
+the reviewer can see it is paying, and a lapse takes back only a badge that
+came from paying (ADR-011). Nothing is published and no price is decided
+(ADR-007); the pricing page says so in words.
+
 ## Sequencing
 
 1. **Now, free:** the limits above, which are live.

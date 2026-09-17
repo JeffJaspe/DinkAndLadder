@@ -18,7 +18,7 @@ import UiRatingBadge from '../../components/ui/RatingBadge.vue'
 import UiSegmented from '../../components/ui/Segmented.vue'
 import UiStepper from '../../components/ui/Stepper.vue'
 import UiTrendIndicator from '../../components/ui/TrendIndicator.vue'
-import { DAL_MARK_DARK, DAL_MARK_LIGHT, USE_BRAND_DEFAULTS } from '../../utils/brand-assets'
+import { DAL_MARK_DARK, DAL_MARK_LIGHT, USE_BRAND_DEFAULT_AVATARS } from '../../utils/brand-assets'
 import { ICON_PATHS } from '../../utils/icons'
 
 // Components that render icons pull `UiIcon` from Nuxt's component
@@ -102,20 +102,53 @@ describe('UiAvatar', () => {
     }
   })
 
-  it('honours USE_BRAND_DEFAULTS for an uploaded photo', () => {
+  it('honours USE_BRAND_DEFAULT_AVATARS for an uploaded photo', () => {
     const wrapper = mount(UiAvatar, {
       props: { name: 'A B', src: 'https://example.test/a.png' },
       global
     })
     const sources = wrapper.findAll('img').map((img) => img.attributes('src'))
 
-    if (USE_BRAND_DEFAULTS) {
-      // The upload is deliberately not displayed while the flag is on — but the
-      // prop is still accepted, so flipping the flag is all it takes.
+    if (USE_BRAND_DEFAULT_AVATARS) {
       expect(sources).toEqual([DAL_MARK_LIGHT, DAL_MARK_DARK])
     } else {
       expect(sources).toEqual(['https://example.test/a.png'])
     }
+  })
+
+  /**
+   * The order that makes "my photo is not showing" impossible to reproduce
+   * again: a photo beats the generated identity, and the identity beats the
+   * mark. The middle step is what a photoless player gets.
+   */
+  it('prefers an uploaded photo over the generated identity', () => {
+    const wrapper = mount(UiAvatar, {
+      props: { name: 'A B', src: 'https://example.test/a.png', identityKey: 'player-1' },
+      global
+    })
+    if (!USE_BRAND_DEFAULT_AVATARS) {
+      expect(wrapper.findAll('img').map((img) => img.attributes('src'))).toEqual([
+        'https://example.test/a.png'
+      ])
+      expect(wrapper.text()).not.toContain('AB')
+    }
+  })
+
+  it('falls back to the generated identity when there is no photo', () => {
+    const wrapper = mount(UiAvatar, {
+      props: { name: 'A B', src: null, identityKey: 'player-1' },
+      global
+    })
+    expect(wrapper.text()).toContain('AB')
+    expect(wrapper.find('img').exists()).toBe(false)
+  })
+
+  it('falls back to the mark when there is neither a photo nor a key', () => {
+    const wrapper = mount(UiAvatar, { props: { name: 'A B', src: null }, global })
+    expect(wrapper.findAll('img').map((img) => img.attributes('src'))).toEqual([
+      DAL_MARK_LIGHT,
+      DAL_MARK_DARK
+    ])
   })
 })
 

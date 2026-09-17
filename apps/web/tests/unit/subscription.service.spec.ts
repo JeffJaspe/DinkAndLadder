@@ -71,6 +71,14 @@ function createMockClubSubscription(
     cancel_at_period_end: false,
     created_at: '2024-01-01T00:00:00Z',
     updated_at: '2024-01-01T00:00:00Z',
+    provider: 'stripe',
+    provider_subscription_id: 'sub_456',
+    provider_customer_id: 'cus_456',
+    source: 'self_serve',
+    granted_by_user_id: null,
+    notes: null,
+    canceled_at: null,
+    ended_at: null,
     ...overrides
   }
 }
@@ -92,6 +100,8 @@ describe('SubscriptionService', () => {
       createClubSubscription: vi.fn(),
       updateClubSubscription: vi.fn(),
       listClubSubscriptions: vi.fn().mockResolvedValue([]),
+      findLapsedCandidates: vi.fn().mockResolvedValue([]),
+      findClubSubscriptionById: vi.fn().mockResolvedValue(null),
       listPublicClubPlans: vi.fn().mockResolvedValue([]),
       listPlansForAdmin: vi.fn().mockResolvedValue([]),
       getClubPlanById: vi.fn(),

@@ -208,4 +208,70 @@ describe('ClubVerificationService', () => {
     expect(result).toHaveLength(1)
     expect(result[0].id).toBe('club-2')
   })
+
+  describe('subscription-driven verification (056)', () => {
+    it('paying puts an unverified club in the queue, marked as a subscription', async () => {
+      const service = createService()
+      const moved = await service.requestVerificationFromSubscription('club-1')
+      expect(moved).toBe(true)
+      const club = clubs.get('club-1')!
+      expect(club.verification_status).toBe('pending')
+      expect(club.verification_source).toBe('subscription')
+      expect(club.verification_requested_at).toBeTruthy()
+    })
+
+    it('paying never grants the badge directly', async () => {
+      const service = createService()
+      await service.requestVerificationFromSubscription('club-1')
+      expect(clubs.get('club-1')!.verification_status).not.toBe('verified')
+    })
+
+    it('leaves a pending or verified club alone', async () => {
+      clubs.set('club-1', makeClub({ verification_status: 'verified', verification_source: 'admin_review' }))
+      const service = createService()
+      expect(await service.requestVerificationFromSubscription('club-1')).toBe(false)
+      expect(clubs.get('club-1')!.verification_source).toBe('admin_review')
+    })
+
+    it('approval keeps subscription provenance so a lapse can act on it', async () => {
+      clubs.set('club-1', makeClub({ verification_status: 'pending', verification_source: 'subscription' }))
+      isSuperAdminResult = true
+      const service = createService()
+      await service.approveVerification('admin-user', 'club-1')
+      expect(clubs.get('club-1')!.verification_source).toBe('subscription')
+    })
+
+    it('approval of an owner-requested club records a human decision', async () => {
+      clubs.set('club-1', makeClub({ verification_status: 'pending', verification_source: 'none' }))
+      isSuperAdminResult = true
+      const service = createService()
+      await service.approveVerification('admin-user', 'club-1')
+      expect(clubs.get('club-1')!.verification_source).toBe('admin_review')
+    })
+
+    it('a lapse takes back a badge that came from paying', async () => {
+      clubs.set('club-1', makeClub({ verification_status: 'verified', verification_source: 'subscription', verified_at: 'x' }))
+      const service = createService()
+      await service.onSubscriptionLapsed('club-1')
+      const club = clubs.get('club-1')!
+      expect(club.verification_status).toBe('unverified')
+      expect(club.verification_source).toBe('none')
+      expect(club.verified_at).toBeNull()
+    })
+
+    it('a lapse drops a paying club out of the pending queue', async () => {
+      clubs.set('club-1', makeClub({ verification_status: 'pending', verification_source: 'subscription' }))
+      const service = createService()
+      await service.onSubscriptionLapsed('club-1')
+      expect(clubs.get('club-1')!.verification_status).toBe('unverified')
+    })
+
+    it('a lapse NEVER touches a club a human verified', async () => {
+      const before = makeClub({ verification_status: 'verified', verification_source: 'admin_review', verified_at: 'x' })
+      clubs.set('club-1', before)
+      const service = createService()
+      await service.onSubscriptionLapsed('club-1')
+      expect(clubs.get('club-1')).toEqual(before)
+    })
+  })
 })

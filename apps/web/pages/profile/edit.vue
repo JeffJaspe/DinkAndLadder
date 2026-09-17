@@ -68,7 +68,8 @@ const form = reactive({
   barangay: '',
   dominant_hand: '',
   preferred_position: '',
-  profile_visibility: 'public' as ProfileVisibility
+  profile_visibility: 'public' as ProfileVisibility,
+  show_match_history: false
 })
 
 /**
@@ -115,6 +116,7 @@ watch(
     form.dominant_hand = profile.dominant_hand ?? ''
     form.preferred_position = profile.preferred_position ?? ''
     form.profile_visibility = profile.profile_visibility
+    form.show_match_history = profile.show_match_history
 
     form.province = profile.province ?? ''
     form.city = profile.city ?? ''
@@ -273,7 +275,8 @@ async function handleSave() {
         barangay: form.barangay || null,
         dominant_hand: form.dominant_hand || null,
         preferred_position: form.preferred_position || null,
-        profile_visibility: form.profile_visibility
+        profile_visibility: form.profile_visibility,
+        show_match_history: form.show_match_history
       }
     })
     baseline.value = snapshot()
@@ -303,12 +306,12 @@ const VISIBILITY_OPTIONS = [
   {
     value: 'public' as const,
     title: 'Public profile',
-    hint: 'Anyone can view your profile, your rating and your match history.'
+    hint: 'Anyone can view your profile and your rating. Your match history stays private unless you turn it on below.'
   },
   {
     value: 'private' as const,
     title: 'Private profile',
-    hint: 'Only your followers can view your profile. You still appear in match records.'
+    hint: 'Only your followers can view your profile, and your match history is never published.'
   }
 ]
 
@@ -484,7 +487,10 @@ const fieldClass =
                 />
               </div>
               <div>
-                <label for="last-name" class="mb-1.5 block text-body-2 font-medium text-fg-secondary">
+                <label
+                  for="last-name"
+                  class="mb-1.5 block text-body-2 font-medium text-fg-secondary"
+                >
                   Last name
                 </label>
                 <input
@@ -648,6 +654,45 @@ const fieldClass =
                 <span class="mt-0.5 block text-caption text-fg-muted">{{ option.hint }}</span>
               </span>
             </label>
+          </div>
+
+          <!-- Separate from the public/private choice above, because it answers
+               a different question. A public profile still says nothing about
+               who you have played until you decide it should. -->
+          <div
+            class="mt-4 flex items-start justify-between gap-4 border-t border-border pt-4"
+            :class="form.profile_visibility === 'private' ? 'opacity-50' : ''"
+          >
+            <div class="min-w-0">
+              <p id="match-history-label" class="text-body-2 font-medium text-fg">
+                Show my match history
+              </p>
+              <p class="mt-0.5 text-caption text-fg-muted">
+                Publishes your results on your profile. Opponents who have not turned this on are
+                shown as “Private player”, and yours is hidden the same way on theirs.
+              </p>
+              <p
+                v-if="form.profile_visibility === 'private'"
+                class="mt-1 text-caption text-fg-muted"
+              >
+                A private profile publishes nothing either way.
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              :aria-checked="form.show_match_history"
+              aria-labelledby="match-history-label"
+              :disabled="form.profile_visibility === 'private'"
+              class="relative inline-flex h-8 w-14 shrink-0 items-center rounded-pill border border-border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas disabled:cursor-not-allowed disabled:opacity-50"
+              :class="form.show_match_history ? 'bg-primary' : 'bg-switch-track'"
+              @click="form.show_match_history = !form.show_match_history"
+            >
+              <span
+                class="pointer-events-none absolute h-6 w-6 rounded-pill bg-switch-thumb shadow-card transition-transform"
+                :class="form.show_match_history ? 'translate-x-7' : 'translate-x-1'"
+              />
+            </button>
           </div>
         </section>
 
