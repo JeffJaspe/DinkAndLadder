@@ -1008,8 +1008,11 @@ const dashboardLinks: ReadonlyArray<{ to: string; label: string; line: string }>
               v-if="!badgeSelectorOpen && selectedBadge"
               class="mt-3 flex items-center gap-4 rounded-card bg-surface-2 p-4"
             >
-              <!-- The glyph is the badge's own data, not an icon system. -->
-              <span class="text-3xl" aria-hidden="true">{{ selectedBadge.icon }}</span>
+              <AchievementBadgeIcon
+                :achievement-key="selectedBadge.id"
+                :tier="selectedBadge.tier"
+                size="lg"
+              />
               <div>
                 <p class="text-body-1 font-medium text-fg">{{ selectedBadge.name }}</p>
                 <p class="text-body-2 text-fg-secondary">{{ selectedBadge.description }}</p>
@@ -1042,7 +1045,7 @@ const dashboardLinks: ReadonlyArray<{ to: string; label: string; line: string }>
                   :aria-pressed="badge.id === selectedBadge?.id"
                   @click="selectBadge(badge.id)"
                 >
-                  <span class="text-xl" aria-hidden="true">{{ badge.icon }}</span>
+                  <AchievementBadgeIcon :achievement-key="badge.id" :tier="badge.tier" size="sm" />
                   <span class="min-w-0 flex-1">
                     <span class="block text-body-2 font-medium text-fg">{{ badge.name }}</span>
                     <span class="block text-caption text-fg-muted">{{ badge.description }}</span>

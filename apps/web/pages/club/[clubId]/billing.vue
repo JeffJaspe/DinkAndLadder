@@ -2,7 +2,6 @@
 import type { ClubDto } from '~/server/domains/club/dto/club.dto'
 import type { ClubBillingDto, CheckoutResultDto } from '~/server/domains/payment/dto/club-billing.dto'
 import type { ClubSubscriptionPlanDto } from '~/server/domains/payment/dto/subscription.dto'
-import { groupPlans } from '~/utils/subscription-plan'
 import { apiErrorMessage } from '~/utils/api-error-message'
 
 /**
@@ -51,22 +50,15 @@ const usage = computed(() => billing.value?.usage ?? null)
 const sub = computed(() => billing.value?.subscription ?? null)
 const onPaidPlan = computed(() => ent.value?.origin === 'plan')
 
-const groups = computed(() => groupPlans(plansData.value?.data ?? []))
-const paidPublic = computed(() => (plansData.value?.data ?? []).some((p) => !p.is_default_free))
+const publicPlans = computed(() => plansData.value?.data ?? [])
+const paidPublic = computed(() => publicPlans.value.some((p) => !p.is_default_free))
 const billingMode = computed(() => billing.value?.billing.mode ?? plansData.value?.billing.mode ?? 'off')
-const hasYearly = computed(() => groups.value.some((g) => g.monthly && g.yearly))
-const interval = ref<'month' | 'year'>('month')
-const intervalItems = [
-  { value: 'month', label: 'Monthly' },
-  { value: 'year', label: 'Yearly' }
-]
-
-function cardFor(group: ReturnType<typeof groupPlans>[number]) {
-  if (interval.value === 'year' && group.yearly) return group.yearly
-  return group.monthly ?? group.primary
-}
 const disabledReason = computed(() =>
   billingMode.value === 'off' ? 'Plans cannot be purchased right now.' : null
+)
+/** The line under the button. Page-owned: it depends on billing mode, not on the plan. */
+const ctaCaption = computed(() =>
+  billingMode.value === 'live' ? null : '(test mode — nothing is charged)'
 )
 
 function fmtDate(iso: string | null): string {
@@ -221,10 +213,7 @@ const EVENT_TYPE_LABEL: Record<string, string> = {
 
         <!-- Plans -->
         <section aria-labelledby="plans">
-          <div class="flex flex-wrap items-center justify-between gap-3">
-            <h2 id="plans" class="font-display text-heading-3 text-fg">Plans</h2>
-            <UiSegmented v-if="hasYearly" v-model="interval" :items="intervalItems" size="sm" label="Billing interval" />
-          </div>
+          <h2 id="plans" class="font-display text-heading-3 text-fg">Plans</h2>
 
           <UiEmptyState
             v-if="!paidPublic"
@@ -233,17 +222,16 @@ const EVENT_TYPE_LABEL: Record<string, string> = {
             message="Every club is on the free plan for now. When a paid plan is available it will appear here."
             icon="card"
           />
-          <div v-else class="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            <BillingPlanCard
-              v-for="group in groups"
-              :key="group.key"
-              :plan="cardFor(group)"
-              :saving="interval === 'year' ? group.saving : null"
-              :current="cardFor(group).id === ent.plan_id || (cardFor(group).is_default_free && !onPaidPlan)"
-              :disabled-reason="disabledReason"
-              @choose="choose"
-            />
-          </div>
+          <BillingPlanTable
+            v-else
+            class="mt-4"
+            :plans="publicPlans"
+            :current-plan-id="ent.plan_id"
+            :on-free-tier="!onPaidPlan"
+            :disabled-reason="disabledReason"
+            :caption="ctaCaption"
+            @choose="choose"
+          />
           <p v-if="ent.origin === 'verified_override' && paidPublic" class="mt-3 text-xs text-fg-muted">
             This club is already unrestricted. A plan adds online entry-fee collection and nothing else it does not already have.
           </p>

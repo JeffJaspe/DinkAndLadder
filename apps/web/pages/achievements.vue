@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { AchievementGalleryDto } from '~/server/domains/achievement/services/achievement-gallery.service'
+import { achievementTier } from '~/utils/achievement-icons'
 
 /**
  * The trophy cabinet: every badge the platform awards, marked earned or locked.
@@ -106,16 +107,8 @@ onMounted(() => {
   requestAnimationFrame(() => requestAnimationFrame(() => (barWound.value = false)))
 })
 
-const TIER_STYLES: Record<string, { chip: string; text: string; label: string }> = {
-  bronze: { chip: 'bg-rating-bronze/15', text: 'text-rating-bronze', label: 'Bronze' },
-  silver: { chip: 'bg-rating-silver/15', text: 'text-rating-silver', label: 'Silver' },
-  gold: { chip: 'bg-rating-gold/15', text: 'text-rating-gold', label: 'Gold' },
-  platinum: { chip: 'bg-accent-soft', text: 'text-on-accent', label: 'Platinum' }
-}
-
-function tierOf(tier: string) {
-  return TIER_STYLES[tier] ?? TIER_STYLES.bronze
-}
+/** Tier colouring shared with the badge mark, so chip and glyph agree. */
+const tierOf = achievementTier
 
 function earnedOn(iso: string | null): string {
   if (!iso) return ''
@@ -225,14 +218,7 @@ async function showOnProfile(key: string) {
                 class="flex flex-col rounded-card border border-border bg-surface p-4 shadow-card"
               >
                 <div class="flex items-start gap-3">
-                  <!-- The glyph is the badge's own identity, carried in its
-                       definition row — not an entry in the icon system. -->
-                  <span
-                    class="flex h-12 w-12 shrink-0 items-center justify-center rounded-card text-2xl"
-                    :class="tierOf(entry.tier).chip"
-                    aria-hidden="true"
-                    >{{ entry.icon || '🏅' }}</span
-                  >
+                  <AchievementBadgeIcon :achievement-key="entry.key" :tier="entry.tier" />
                   <div class="min-w-0 flex-1">
                     <h3 class="text-body-1 font-medium text-fg">{{ entry.name }}</h3>
                     <p class="mt-0.5 text-body-2 text-fg-secondary">{{ entry.description }}</p>
@@ -308,15 +294,11 @@ async function showOnProfile(key: string) {
                 class="flex flex-col rounded-card border border-dashed border-border-strong bg-canvas p-4"
               >
                 <div class="flex items-start gap-3">
-                  <!-- Desaturated rather than faded. Dropping opacity on the
-                       whole tile is what took the old page's body copy below
-                       the contrast floor; the glyph is the only part carrying
-                       colour, so it is the only part greyed. -->
-                  <span
-                    class="flex h-12 w-12 shrink-0 items-center justify-center rounded-card bg-surface-2 text-2xl grayscale"
-                    aria-hidden="true"
-                    >{{ entry.icon || '🏅' }}</span
-                  >
+                  <!-- Greyed rather than faded. Dropping opacity on the whole
+                       tile is what took the old page's body copy below the
+                       contrast floor; the mark is the only part carrying
+                       colour, so it is the only part that changes. -->
+                  <AchievementBadgeIcon :achievement-key="entry.key" :tier="entry.tier" locked />
                   <div class="min-w-0 flex-1">
                     <h3 class="flex items-center gap-1.5 text-body-1 font-medium text-fg-secondary">
                       {{ entry.name }}

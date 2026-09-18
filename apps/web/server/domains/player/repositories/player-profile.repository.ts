@@ -10,6 +10,7 @@ import type {
 const PROFILE_COLUMNS =
   'id, user_id, display_name, first_name, last_name, bio, province, city, barangay, ' +
   'dominant_hand, preferred_position, profile_visibility, show_match_history, avatar_path, ' +
+  'social_facebook, social_instagram, social_x, social_tiktok, ' +
   'created_at, updated_at'
 
 export interface PlayerProfileRepository {

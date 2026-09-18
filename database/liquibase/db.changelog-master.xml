@@ -73,5 +73,7 @@
     <include file="066-follow-and-kudos/066-follow-and-kudos.changelog.xml" relativeToChangelogFile="true"/>
     <include file="067-match-history-visibility/067-match-history-visibility.changelog.xml" relativeToChangelogFile="true"/>
     <include file="068-subscription-rls-admin-only/068-subscription-rls-admin-only.changelog.xml" relativeToChangelogFile="true"/>
+    <include file="069-match-history-default-public/069-match-history-default-public.changelog.xml" relativeToChangelogFile="true"/>
+    <include file="070-player-social-links/070-player-social-links.changelog.xml" relativeToChangelogFile="true"/>
 
 </databaseChangeLog>

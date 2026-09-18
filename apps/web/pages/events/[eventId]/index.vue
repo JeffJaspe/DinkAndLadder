@@ -13,7 +13,7 @@ import type { PlayerProfileDto } from '~/server/domains/player/dto/player-profil
 import type { EventCoOrganizerDto } from '~/server/domains/event/dto/event-co-organizer.dto'
 import { apiErrorMessage } from '~/utils/api-error-message'
 import { limitUpsell, type LimitUpsell } from '~/utils/limit-upsell'
-import { championOf, stageLabels } from '~/utils/bracket-rounds'
+import { stageLabels } from '~/utils/bracket-rounds'
 import { rulesForEvent, rulesForRound } from '~/utils/game-rules'
 import type { BracketDto, BracketMatchDto } from '~/server/domains/event/dto/bracket.dto'
 import type { TournamentCategoryDto } from '~/server/domains/event/dto/tournament-category.dto'
@@ -132,17 +132,6 @@ const {
   refresh: refreshMatches
 } = firstRender(useFetch<{ data: MatchListItemDto[] }>(`/api/v1/events/${eventId}/matches`))
 
-/**
- * The spectator boxscore, below the header and above the tabs.
- *
- * Aggregates every recorded match in the event, whatever category it came from.
- * Live scores lived only inside a category before, so somebody watching the
- * whole tournament had to open each one in turn and hold the picture in their
- * head.
- *
- * Recorded matches only: a match that has not been scored has nothing to show,
- * and the running courts are already on the Courts tab with their own controls.
- */
 const isRegistered = computed(() => !!myRegistration.value)
 
 /** The person who made the event. The only one who may delete it or change its co-organisers. */
@@ -249,10 +238,28 @@ const {
  * bracket. Client-only and lazy: it is presentation for a panel that already
  * renders without it, and a non-tournament event never fetches it at all.
  */
-const { data: eventBracket, refresh: refreshEventBracket } = useLazyFetch<BracketDto>(
-  () => `/api/v1/tournaments/${primaryTournament.value?.id}/bracket`,
-  { immediate: false, server: false }
-)
+const {
+  data: eventBracket,
+  status: eventBracketStatus,
+  refresh: refreshEventBracket
+} = useLazyFetch<BracketDto>(() => `/api/v1/tournaments/${primaryTournament.value?.id}/bracket`, {
+  immediate: false,
+  server: false
+})
+
+/**
+ * Whether the draw has answered at least once.
+ *
+ * The scoreboard picks a live bracket match over the last recorded result,
+ * and the bracket arrives after the results do — so without this the board
+ * showed a finished match for a beat and then swapped it for the live one on
+ * every load. Latched on the first answer: a poll re-reading the draw must
+ * not put the skeleton back.
+ */
+const eventBracketSettled = ref(false)
+watch(eventBracketStatus, (status) => {
+  if (status === 'success' || status === 'error') eventBracketSettled.value = true
+})
 
 /**
  * The categories, purely to name the Scores panel's sections and order them.
@@ -383,36 +390,6 @@ const placementByMatchId = computed(() => {
   return byMatch
 })
 
-/** "Ana Garcia" for a singles entrant, "Ana Garcia / Ben Cruz" for a pair. */
-function entrantLine(entrant: { display_name: string; partner_display_name: string | null }) {
-  return entrant.partner_display_name
-    ? `${entrant.display_name} / ${entrant.partner_display_name}`
-    : entrant.display_name
-}
-
-/**
- * Who won each category, or nothing while its final is still to be played.
- *
- * `championOf` wants a bracket, so each category's rounds are handed over as
- * one — which is exactly what the endpoint would have returned had it been
- * asked for that category alone.
- */
-const championByCategory = computed(() => {
-  const byCategory = new Map<string, string>()
-
-  for (const draw of categoryDraws.value) {
-    const champion = championOf({
-      tournament_id: primaryTournament.value?.id ?? '',
-      category_id: draw.key || null,
-      locked: true,
-      rounds: draw.rounds
-    })
-    if (champion) byCategory.set(draw.key, entrantLine(champion))
-  }
-
-  return byCategory
-})
-
 const categoryById = computed(
   () => new Map((eventCategories.value?.data ?? []).map((category) => [category.id, category]))
 )
@@ -480,64 +457,166 @@ const finishedBoxScoreMatches = computed<FinishedScore[]>(() =>
 )
 
 /**
- * The panel, as sections: live play and open matches first, then a section per
- * category — the ones still running above the ones already decided.
+ * The scoreboard: one match, not the list.
  *
- * A decided category collapses to its champion (see `MatchScoreSection`), so
- * putting them last is what stops a finished weekend from opening on a stack of
- * folded cards with the live draw below the fold.
+ * The Scores panel used to list every recorded result the draw did not place,
+ * plus whatever was on a court, as a column of collapsed cards. On a tournament
+ * page that was the same results the category cards already carry, and the one
+ * thing a spectator actually walks up to read — the score on court right now —
+ * was a 14px line inside it. This is one match, large: whatever is live, and
+ * failing that the last result recorded. Everything else is on its category.
  */
-interface ScoreSection {
-  key: string
-  label: string | null
-  champion: string | null
-  matches: BoxScoreMatch[]
+interface FeaturedMatch extends BoxScoreMatch {
+  /** For the "also live" links, which jump to the category card. */
+  categoryId: string | null
+  /** When the source last moved, to pick between several live matches. */
+  updatedAt: number
 }
 
-const scoreSections = computed<ScoreSection[]>(() => {
-  const byCategory = new Map<string, FinishedScore[]>()
-  for (const match of finishedBoxScoreMatches.value) {
-    const bucket = byCategory.get(match.categoryKey) ?? []
-    bucket.push(match)
-    byCategory.set(match.categoryKey, bucket)
+/** "Ana Garcia" and, on a doubles entry, "Ben Cruz" on the line below. */
+function participantLines(participant: BracketMatchDto['participant1']): BoxScoreMatch['teams'][0] {
+  if (!participant) return [{ name: 'TBD' }]
+  const lines: BoxScoreMatch['teams'][0] = [
+    { name: participant.display_name, playerId: participant.player_id }
+  ]
+  if (participant.partner_display_name) {
+    lines.push({ name: participant.partner_display_name, playerId: participant.partner_player_id })
+  }
+  return lines
+}
+
+/**
+ * Bracket matches being played right now, as the board reads them.
+ *
+ * A tournament's live score lives on the bracket row, not on an event court —
+ * courts are open play's — so the court board alone never sees a tournament
+ * match in progress. This is the other half.
+ */
+const liveBracketMatches = computed<FeaturedMatch[]>(() => {
+  const live: FeaturedMatch[] = []
+
+  for (const draw of categoryDraws.value) {
+    const category = categoryById.value.get(draw.key) ?? null
+    const stages = stageLabels(draw.rounds)
+
+    for (const round of draw.rounds) {
+      for (const match of round.matches) {
+        if (!match.is_live) continue
+        const games = [...(match.live_score ?? [])]
+          .sort((a, b) => a.game_number - b.game_number)
+          .map((g) => ({ team1_score: g.team1_score, team2_score: g.team2_score }))
+
+        live.push({
+          id: `bracket-${match.id}`,
+          teams: [participantLines(match.participant1), participantLines(match.participant2)],
+          games,
+          context: [category?.name, stages.get(round.round) ?? `Round ${round.round}`]
+            .filter(Boolean)
+            .join(' · '),
+          rules: rulesForRound(category, round.round),
+          liveGame: games.length || 1,
+          complete: false,
+          categoryId: category?.id ?? null,
+          // The DTO carries `started_at` but not the score's own timestamp, so
+          // between two live matches the one started later leads.
+          updatedAt: Date.parse(match.started_at ?? '') || 0
+        })
+      }
+    }
   }
 
-  const sections: ScoreSection[] = []
-
-  // Whatever is on court now, plus anything the draw does not place. Unlabelled,
-  // so it renders as the bare round cards it always was.
-  const unplaced = [...liveBoxScoreMatches.value, ...(byCategory.get(NO_CATEGORY) ?? [])]
-  if (unplaced.length) {
-    sections.push({ key: NO_CATEGORY, label: null, champion: null, matches: unplaced })
-  }
-
-  /**
-   * A tournament's finished results are read on the category card.
-   *
-   * Each card now carries its own champion in the header, beside the band and
-   * the format, and its scores under Matches grouped by round — so listing them
-   * again up here was the same results twice on one page, with the category
-   * named in two places and its details in only one. What is on court right now
-   * stays: it is the only part of the picture no single card owns.
-   */
-  if (isTournament.value) return sections
-
-  const categorised = [...byCategory.entries()]
-    .filter(([key]) => key !== NO_CATEGORY)
-    .map(([key, matches]) => ({
-      key,
-      label: categoryById.value.get(key)?.name ?? null,
-      champion: championByCategory.value.get(key) ?? null,
-      order: categoryById.value.get(key)?.display_order ?? Number.MAX_SAFE_INTEGER,
-      // Newest round first: the final is the answer to the question being asked.
-      matches: [...matches].sort((a, b) => b.round - a.round)
-    }))
-    .sort((a, b) => Number(!!a.champion) - Number(!!b.champion) || a.order - b.order)
-
-  return [...sections, ...categorised]
+  // The most recently started leads. Two courts scoring at once is normal on
+  // a weekend, and the board has room for one.
+  return live.sort((a, b) => b.updatedAt - a.updatedAt)
 })
 
-const hasScores = computed(() => scoreSections.value.some((section) => section.matches.length))
+/** Everything in play: the draw's live rows first, then any event court. */
+const liveMatches = computed<FeaturedMatch[]>(() => [
+  ...liveBracketMatches.value,
+  ...liveBoxScoreMatches.value.map((match) => ({ ...match, categoryId: null, updatedAt: 0 }))
+])
+
+/**
+ * The last result recorded, captioned with its category and stage.
+ *
+ * `finishedBoxScoreMatches` keeps the endpoint's order — newest first. The
+ * newest match the DRAW knows about leads: a result recorded against a
+ * bracket slot is a tournament result, where one the draw cannot place (a
+ * hand-recorded match on the same event) has no category to name and no
+ * card to link to. It is only shown when there is nothing else.
+ */
+const latestResult = computed<FeaturedMatch | null>(() => {
+  const finished = finishedBoxScoreMatches.value
+  const match = finished.find((m) => m.categoryKey !== NO_CATEGORY) ?? finished[0]
+  if (!match) return null
+  const category = categoryById.value.get(match.categoryKey)
+  return {
+    ...match,
+    context: [category?.name, match.group ?? match.context].filter(Boolean).join(' · '),
+    categoryId: category?.id ?? null,
+    updatedAt: 0
+  }
+})
+
+const featuredMatch = computed<FeaturedMatch | null>(
+  () => liveMatches.value[0] ?? latestResult.value
+)
+
+/** Nothing to feature until the draw has said what is live. */
+const featuredMatchPending = computed(
+  () => tournamentsPending.value || (!!primaryTournament.value && !eventBracketSettled.value)
+)
+
+/** The route that opens a category card, which `CategorySection` scrolls to. */
+function categoryLink(categoryId: string | null): string | null {
+  return categoryId ? `?category=${categoryId}` : null
+}
+
+/**
+ * The board's category button, when the card is already open.
+ *
+ * The link sets `?category=`, and `CategorySection` opens and scrolls to the
+ * card when that changes. When it does not change — the card is open, the
+ * reader has scrolled away from it — the link is a no-op, so the scroll
+ * happens here instead.
+ */
+function viewCategory(categoryId: string | null) {
+  if (!categoryId || route.query.category !== categoryId) return
+  const element = document.getElementById(`category-${categoryId}`)
+  if (!element) return
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  element.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'start' })
+}
+
+/** The other live matches, for one line of links under the board. */
+const otherLiveMatches = computed(() => liveMatches.value.slice(1))
+
+/** "Ana Garcia / Ben Cruz", for the also-live line. */
+function boardSideLabel(match: BoxScoreMatch, side: 1 | 2): string {
+  const names = match.teams[side - 1].map((line) => (typeof line === 'string' ? line : line.name))
+  return names.length ? names.join(' / ') : 'TBC'
+}
+
+/** The current game's points, for the also-live line. */
+function boardLineScore(match: BoxScoreMatch): string {
+  const game = match.games[(match.liveGame ?? 1) - 1] ?? match.games[match.games.length - 1]
+  return game ? `${game.team1_score ?? 0}–${game.team2_score ?? 0}` : '0–0'
+}
+
+/**
+ * Keep the board moving.
+ *
+ * The bracket was fetched once, so a spectator on the event page saw the
+ * score a match was started at and nothing after it — LIVE, and frozen.
+ * Same terms as the court board: only while something is live, only while
+ * the tab is visible. When the last live match ends the results are re-read
+ * too, so the board turns into the final score rather than going blank.
+ */
+const hasLiveBracketMatch = computed(() => liveBracketMatches.value.length > 0)
+usePollWhile(hasLiveBracketMatch, refreshEventBracket)
+watch(hasLiveBracketMatch, (live, wasLive) => {
+  if (wasLive && !live) refreshMatches()
+})
 
 const { data: rankingsData, pending: rankingsPending } = firstRender(
   useFetch<{
@@ -1793,30 +1872,62 @@ const { goBack } = useAppBack('/events')
              schedule and result. Queue is deliberately absent — it is an
              open-play feature, and the tournament "Queue" tab was never one. -->
         <!--
-          Live scores, for anyone watching rather than organising.
+          The scoreboard, for anyone watching rather than organising.
 
-          Sits above the tabs on purpose: a spectator's question is "what is
-          happening", and answering it should not require choosing a tab first.
-          The same grid as the score sheet and the match view, so a result reads
-          identically wherever it is seen.
+          Sits above the categories on purpose: a spectator's question is "what
+          is the score", and answering it should not require finding the right
+          category first. One match, large — the live one, else the last result
+          — with the same two-row sheet as the entry form under it. It used to
+          be a list of every result the draw did not place, which was the
+          category cards' content again, smaller.
+
+          Tournaments only. On an open play event the Matches tab is the live
+          board already, one scroll down.
         -->
-        <!-- Tournaments only, now. On an open play event this listed exactly
-             the matches the Matches tab lists, one scroll above them, so the
-             same result appeared on the page twice — and the copy up here was
-             the worse of the two, with no rounds and no sort. A tournament is
-             a different question (every category at once, which no single tab
-             answers) so it keeps its panel. -->
-        <section v-if="hasScores && isTournament" class="mb-6">
-          <h2 class="mb-2 font-display text-heading-3 text-fg">Scores</h2>
-          <div class="space-y-4">
-            <MatchScoreSection
-              v-for="section in scoreSections"
-              :key="section.key"
-              :label="section.label"
-              :champion="section.champion"
-              :matches="section.matches"
-              :default-open="scoreSections.length === 1"
+        <section v-if="isTournament && (featuredMatchPending || featuredMatch)" class="mb-6">
+          <template v-if="featuredMatchPending">
+            <div class="mb-2 h-7 w-40 animate-pulse rounded-badge bg-surface-2" />
+            <div class="h-56 animate-pulse rounded-card bg-surface shadow-card" />
+          </template>
+          <template v-else-if="featuredMatch">
+            <h2 class="mb-2 font-display text-heading-3 text-fg">
+              {{ featuredMatch.liveGame != null ? 'On court now' : 'Latest result' }}
+            </h2>
+            <MatchScoreboard
+              :match="featuredMatch"
+              :category-to="categoryLink(featuredMatch.categoryId)"
+              @view-category="viewCategory(featuredMatch.categoryId)"
             />
+          </template>
+
+          <!-- A second court scoring at the same time gets a row, not a second
+               board: the link opens its category card, where the live row is. -->
+          <div v-if="!featuredMatchPending && otherLiveMatches.length" class="mt-3 px-1">
+            <h3 class="text-caption font-semibold uppercase tracking-wider text-fg-muted">
+              Also live
+            </h3>
+            <ul class="mt-1 divide-y divide-border">
+              <li
+                v-for="other in otherLiveMatches"
+                :key="other.id"
+                class="flex items-center justify-between gap-3 py-2 text-body-2"
+              >
+                <component
+                  :is="other.categoryId ? 'NuxtLink' : 'span'"
+                  :to="categoryLink(other.categoryId) ?? undefined"
+                  class="min-w-0 text-fg-secondary"
+                  :class="
+                    other.categoryId ? 'underline-offset-2 hover:text-fg hover:underline' : ''
+                  "
+                >
+                  {{ boardSideLabel(other, 1) }} vs {{ boardSideLabel(other, 2) }}
+                  <span v-if="other.context" class="text-fg-muted">· {{ other.context }}</span>
+                </component>
+                <span class="shrink-0 whitespace-nowrap font-semibold tabular-nums text-fg">
+                  {{ boardLineScore(other) }}
+                </span>
+              </li>
+            </ul>
           </div>
         </section>
 
@@ -2264,11 +2375,14 @@ const { goBack } = useAppBack('/events')
                 class="flex items-center justify-between rounded-lg bg-canvas p-3"
               >
                 <div class="flex items-center gap-3">
-                  <div
-                    class="flex h-10 w-10 items-center justify-center rounded-full bg-surface-2 p-1.5"
-                  >
-                    <UiBrandImage />
-                  </div>
+                  <!-- Their face, or their own identity colour — not the brand
+                       mark, which put the same logo beside every name. -->
+                  <UiAvatar
+                    :name="reg.player?.display_name"
+                    :src="reg.player?.avatar_url"
+                    :identity-key="reg.player_id"
+                    size="md"
+                  />
                   <div>
                     <NuxtLink
                       :to="`/players/${reg.player_id}`"

@@ -133,6 +133,19 @@ Files are idempotent — ids are a pure function of a text key and every insert 
 `04-matches.sql` and `06-brackets.sql` must each be run as a whole (they build
 temp tables their later statements read).
 
+### Seeded before 2026-09-18?
+
+`01-players.sql` now sets `show_match_history = true` on demo profiles (the
+product default is opt-in, so every seeded Matches tab used to read "keeps their
+match history private"). `ON CONFLICT DO NOTHING` will not touch rows that
+already exist, so bring an older seed up to date with one statement:
+
+```sql
+UPDATE player_profiles SET show_match_history = true
+WHERE id BETWEEN 'deadbeef-0000-0000-0000-000000000000'
+            AND 'deadbeef-ffff-ffff-ffff-ffffffffffff';
+```
+
 ---
 
 ## Rollback

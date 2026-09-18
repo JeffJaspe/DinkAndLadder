@@ -10,15 +10,21 @@ describe('parseUpdatePlayerProfileInput', () => {
     // Regression guard for the dropped-barangay bug: if a field is added to
     // UpdatePlayerProfileInput and the parser's map, this test covers it
     // automatically rather than needing a new case.
+    // Social handles are validated as usernames, so they get a value that
+    // passes every network's grammar; the rest take an obviously-labelled one.
+    const valueFor = (field: string) =>
+      field.startsWith('social_')
+        ? `valuefor${field.replace(/[^a-z]/g, '')}`.slice(0, 15)
+        : `value-for-${field}`
     const body: Record<string, unknown> = { display_name: 'Jeff' }
     for (const field of UPDATABLE_TEXT_FIELDS) {
-      body[field] = `value-for-${field}`
+      body[field] = valueFor(field)
     }
 
     const result = parseUpdatePlayerProfileInput(body) as unknown as Record<string, unknown>
 
     for (const field of UPDATABLE_TEXT_FIELDS) {
-      expect(result[field], `${field} was dropped by the parser`).toBe(`value-for-${field}`)
+      expect(result[field], `${field} was dropped by the parser`).toBe(valueFor(field))
     }
   })
 

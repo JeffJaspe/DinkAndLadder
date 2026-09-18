@@ -28,14 +28,6 @@ const rarityColors: Record<string, string> = {
   epic: 'text-accent',
   legendary: 'text-rating-gold'
 }
-
-const rarityBg: Record<string, string> = {
-  common: 'bg-surface-3',
-  uncommon: 'bg-success/10',
-  rare: 'bg-info/10',
-  epic: 'bg-accent/10',
-  legendary: 'bg-rating-gold/10'
-}
 </script>
 
 <template>
@@ -47,13 +39,8 @@ const rarityBg: Record<string, string> = {
     ]"
   >
     <div class="flex items-start gap-4">
-      <!-- Icon -->
-      <div
-        class="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-card text-2xl"
-        :class="rarityBg[rarity || 'common']"
-      >
-        {{ icon || '🏆' }}
-      </div>
+      <!-- The badge's drawn mark, keyed by its id (the achievement key). -->
+      <AchievementBadgeIcon :achievement-key="id" :locked="!isUnlocked" />
 
       <!-- Content -->
       <div class="min-w-0 flex-1">

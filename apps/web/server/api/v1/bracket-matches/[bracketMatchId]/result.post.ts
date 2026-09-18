@@ -1,4 +1,5 @@
 import { serverSupabaseClient, serverSupabaseServiceRole } from '#supabase/server'
+import { awardAchievementsForPlayers } from '~/server/utils/award-achievements'
 import { createBracketRepository } from '~/server/domains/event/repositories/bracket.repository'
 import { createEventRepository } from '~/server/domains/event/repositories/event.repository'
 import {
@@ -77,6 +78,29 @@ export default defineEventHandler(async (event) => {
       winner_registration_id: body.winner_registration_id,
       scores: body.scores
     })
+
+    // A draw result is a verified match, and the service rates it — but the
+    // badge evaluator lives in the API layer (it crosses into notifications),
+    // so it has to be called from here. Without this a tournament win, a
+    // first match and every count-based milestone earned on a bracket sat as
+    // "requirement met" until something else re-ran the evaluator. Best-effort:
+    // the result is already recorded and advanced.
+    const players = [bracketMatch.participant1, bracketMatch.participant2].flatMap((side) =>
+      side ? [side.player_id, side.partner_player_id] : []
+    )
+    const profiles = createPlayerProfileRepository(serviceClient)
+    await awardAchievementsForPlayers(
+      serviceClient,
+      await Promise.all(
+        players
+          .filter((id): id is string => !!id)
+          .map(async (playerId) => ({
+            playerId,
+            userId: (await profiles.findById(playerId))?.user_id ?? null
+          }))
+      )
+    )
+
     return { data: bracketMatch, request_id: crypto.randomUUID() }
   } catch (err) {
     if (err instanceof BracketServiceError) {

@@ -1,6 +1,23 @@
+import {
+  containsPhoneNumber,
+  normalizeSocialHandle,
+  PHONE_NUMBER_MESSAGE,
+  SOCIAL_COLUMNS,
+  SOCIAL_NETWORKS,
+  validateSocialHandle
+} from '~/utils/social-links'
+
 export type ProfileVisibility = 'public' | 'private'
 
-export interface PlayerProfileRecord {
+/** The four optional social handles (070), bare — no @, no URL. */
+export interface PlayerSocialLinks {
+  social_facebook: string | null
+  social_instagram: string | null
+  social_x: string | null
+  social_tiktok: string | null
+}
+
+export interface PlayerProfileRecord extends PlayerSocialLinks {
   id: string
   user_id: string
   display_name: string
@@ -27,7 +44,7 @@ export interface PlayerProfileRecord {
   updated_at: string
 }
 
-export interface PlayerProfileDto {
+export interface PlayerProfileDto extends PlayerSocialLinks {
   id: string
   display_name: string
   first_name: string | null
@@ -63,6 +80,10 @@ export interface UpdatePlayerProfileInput {
   preferred_position?: string | null
   profile_visibility?: ProfileVisibility
   show_match_history?: boolean
+  social_facebook?: string | null
+  social_instagram?: string | null
+  social_x?: string | null
+  social_tiktok?: string | null
 }
 
 export function toPlayerProfileDto(profile: PlayerProfileRecord): PlayerProfileDto {
@@ -79,6 +100,10 @@ export function toPlayerProfileDto(profile: PlayerProfileRecord): PlayerProfileD
     preferred_position: profile.preferred_position,
     profile_visibility: profile.profile_visibility,
     show_match_history: profile.show_match_history,
+    social_facebook: profile.social_facebook ?? null,
+    social_instagram: profile.social_instagram ?? null,
+    social_x: profile.social_x ?? null,
+    social_tiktok: profile.social_tiktok ?? null,
     // Resolved by the API layer via withAvatarUrl(); the DTO carries the shape
     // so no caller has to know whether a photo exists.
     avatar_url: null,
@@ -164,7 +189,11 @@ const UPDATABLE_TEXT_FIELD_MAP: Record<OptionalTextField, true> = {
   city: true,
   barangay: true,
   dominant_hand: true,
-  preferred_position: true
+  preferred_position: true,
+  social_facebook: true,
+  social_instagram: true,
+  social_x: true,
+  social_tiktok: true
 }
 
 export const UPDATABLE_TEXT_FIELDS = Object.keys(UPDATABLE_TEXT_FIELD_MAP) as OptionalTextField[]
@@ -228,6 +257,26 @@ export function parseUpdatePlayerProfileInput(body: unknown): UpdatePlayerProfil
       )
     }
     input[field] = value
+  }
+
+  // A bio is public. The product must not be the thing that publishes a
+  // player's phone number; the social links below are the sanctioned way to
+  // be reachable.
+  if (containsPhoneNumber(input.bio)) {
+    throw new PlayerProfileValidationError('bio', PHONE_NUMBER_MESSAGE)
+  }
+
+  // Handles are stored bare. Whatever shape arrived — @name, a pasted profile
+  // URL, trailing slash — is reduced to the username and then checked against
+  // that network's grammar, so the stored value can only ever link to that
+  // network's own profile page.
+  for (const network of SOCIAL_NETWORKS) {
+    const column = SOCIAL_COLUMNS[network]
+    if (input[column] === undefined) continue
+    const handle = normalizeSocialHandle(network, input[column])
+    const problem = validateSocialHandle(network, handle)
+    if (problem) throw new PlayerProfileValidationError(column, problem)
+    input[column] = handle
   }
 
   if (record.profile_visibility !== undefined) {

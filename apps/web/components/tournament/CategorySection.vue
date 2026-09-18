@@ -103,6 +103,27 @@ const {
   refresh: refreshBracket
 } = await useFetch<BracketDto>(`/api/v1/tournaments/${props.tournament.id}/bracket`)
 
+/**
+ * Keep the live rows moving.
+ *
+ * The comment on `updateLiveScore` has always said "the poll picks it up for
+ * everyone else", and there was no poll: the draw was fetched once, so a
+ * spectator with a category open saw the score a match was started at and
+ * nothing after it. Same terms as the court board and the event page's
+ * scoreboard — only while a row is live, only while the tab is visible.
+ */
+const hasLiveRow = computed(() =>
+  (wholeBracket.value?.rounds ?? []).some((round) => round.matches.some((m) => m.is_live))
+)
+usePollWhile(hasLiveRow, refreshBracket)
+
+/**
+ * Pending on the FIRST read only. `pending` flips true on every refresh, and
+ * with a poll behind it that put the up-next skeleton back on every card every
+ * five seconds.
+ */
+const bracketLoading = computed(() => bracketPending.value && !wholeBracket.value)
+
 const { data: myPartnersData } = await useFetch<{ data: PartnerDto[] }>(
   '/api/v1/players/me/partners',
   { server: false, default: () => ({ data: [] }) }
@@ -390,10 +411,32 @@ function isOpen(category: TournamentCategoryDto | null) {
   return openId.value === keyFor(category)
 }
 
+/**
+ * Open or shut a card, and keep `?category=` saying which one is open.
+ *
+ * The query used to be write-only: a link set it, the card opened, and shutting
+ * the card left the query pointing at a closed card. The next link to the same
+ * category then changed nothing — the watch below only fires on a change — so
+ * "View category" on the scoreboard worked exactly once. `replace`, not
+ * `push`: opening and shutting cards is not history anyone wants to step back
+ * through.
+ */
 function toggle(category: TournamentCategoryDto | null) {
   const key = keyFor(category)
-  openId.value = openId.value === key ? null : key
+  const next = openId.value === key ? null : key
+  openId.value = next
+
+  const wanted = next && next !== 'all' ? next : undefined
+  const current = Array.isArray(route.query.category)
+    ? route.query.category[0]
+    : route.query.category
+  if ((current ?? undefined) !== wanted) {
+    router.replace({ query: { ...route.query, category: wanted } })
+  }
 }
+
+/** The first-visit defaults below run once; after that the visitor decides. */
+let defaulted = false
 
 /**
  * Bring a card arrived at by link into view, once it has rendered.
@@ -432,12 +475,18 @@ watch(
       const changed = openId.value !== wanted
       openId.value = wanted
       if (changed) scrollToCategory(wanted)
+    } else if (defaulted) {
+      // The query was cleared by shutting a card. Nothing to open.
     } else if (openId.value === null && cats.length === 1) {
       // A single category has nothing to choose between; leaving it shut would
       // be one pointless click on every visit.
       openId.value = cats[0].id
+      defaulted = true
     } else if (openId.value === null && !cats.length) {
       openId.value = 'all'
+      defaulted = true
+    } else if (cats.length) {
+      defaulted = true
     }
   },
   { immediate: true }
@@ -823,7 +872,7 @@ function openPlayer(playerId: string) {
         :category="category"
         :tournament="tournament"
         :bracket="bracketFor(category?.id ?? null)"
-        :bracket-pending="bracketPending"
+        :bracket-pending="bracketLoading"
         :bracket-error="!!bracketError"
         :confirmed="statsFor(category).confirmed"
         :pending="statsFor(category).pending"

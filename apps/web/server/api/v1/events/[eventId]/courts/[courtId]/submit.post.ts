@@ -22,6 +22,7 @@ import type { EventQueueRecord } from '~/server/domains/event/dto/event.dto'
 import { assertCanRunEvent, assertEventIsRunning } from '~/server/utils/event-organizer'
 import { apiError } from '~/server/utils/api-error'
 import { getOptionalUser } from '~/server/utils/optional-user'
+import { settleVerifiedMatch } from '~/server/utils/settle-verified-match'
 
 /**
  * Submit the final score on a court.
@@ -88,7 +89,14 @@ export default defineEventHandler(async (event) => {
   if (team1 && team2) {
     try {
       const matchService = createMatchService(createMatchRepository(serviceClient))
-      const match = await matchService.submitMatch(profile.id, {
+      // The organiser's result, final on save — the same path as recording a
+      // match by hand. This called `submitMatch` as though the organiser were
+      // team 1, which (a) left the match pending a verification nobody would
+      // ever give and (b) failed outright unless the organiser happened to be
+      // playing, since a team-1 submitter must be a participant. So an open
+      // play court result was recorded only when the organiser was on court,
+      // and rated and badged never.
+      const match = await matchService.recordOrganizerResult(profile.id, {
         event_id: eventId,
         // The wave the court was playing, so the history groups the same way
         // the live board does.
@@ -105,6 +113,9 @@ export default defineEventHandler(async (event) => {
         }))
       })
       matchId = match.id
+      // Verified on write, so everything that follows a verification follows
+      // now: ratings, activity, notifications, achievements.
+      await settleVerifiedMatch(serviceClient, match)
     } catch (err) {
       matchError =
         err instanceof MatchServiceError
@@ -127,8 +138,11 @@ export default defineEventHandler(async (event) => {
     nextUp = await queueService.matchNextPair(profile.id, eventId, court.court_number)
   } catch (err) {
     // Nothing waiting is the ordinary case at the end of a session, not a
-    // failure worth surfacing as an error.
-    if (err instanceof EventQueueServiceError && err.status === 404) {
+    // failure worth surfacing as an error. The service says so with
+    // INSUFFICIENT_QUEUE (a 409, not the 404 this used to look for — which is
+    // why every last game of a session ended on "Could not put the next pair
+    // on." at the desk).
+    if (err instanceof EventQueueServiceError && err.code === 'INSUFFICIENT_QUEUE') {
       queueError = null
     } else {
       queueError = 'Could not put the next pair on.'

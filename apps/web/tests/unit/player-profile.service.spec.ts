@@ -43,6 +43,10 @@ function createFakePlayerProfileRepository(
         profile_visibility: input.profile_visibility ?? existing?.profile_visibility ?? 'public',
         show_match_history: input.show_match_history ?? existing?.show_match_history ?? false,
         avatar_path: existing?.avatar_path ?? null,
+        social_facebook: input.social_facebook ?? existing?.social_facebook ?? null,
+        social_instagram: input.social_instagram ?? existing?.social_instagram ?? null,
+        social_x: input.social_x ?? existing?.social_x ?? null,
+        social_tiktok: input.social_tiktok ?? existing?.social_tiktok ?? null,
         created_at: existing?.created_at ?? now,
         updated_at: now
       }

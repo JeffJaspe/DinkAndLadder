@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Social links on a player profile.
+
+     Four optional handles — Facebook, Instagram, X, TikTok — so a player can
+     be found where they already are, without the product publishing a phone
+     number for them (the bio now refuses one at the API; see
+     utils/social-links.ts).
+
+     Handles, not URLs: a stored handle cannot point anywhere but that
+     network's profile, and the URL is derived in exactly one place. Four
+     plain columns rather than a jsonb bag: the set is fixed, each column is
+     independently nullable, and the profile read path already selects by name.
+     No index — nothing looks a player up by handle.
+
+     No RLS change: player_profiles_select_public (008) governs the row, and a
+     private profile hides these with everything else. -->
+
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+    <changeSet id="0001-player-profiles-social-links" author="claude">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <columnExists tableName="player_profiles" columnName="social_facebook"/>
+            </not>
+        </preConditions>
+        <addColumn tableName="player_profiles">
+            <column name="social_facebook" type="varchar(50)"
+                    remarks="Facebook username, without the URL. Validated in utils/social-links.ts."/>
+            <column name="social_instagram" type="varchar(30)"
+                    remarks="Instagram handle, without the @."/>
+            <column name="social_x" type="varchar(15)"
+                    remarks="X (Twitter) handle, without the @."/>
+            <column name="social_tiktok" type="varchar(24)"
+                    remarks="TikTok handle, without the @."/>
+        </addColumn>
+        <rollback>
+            <dropColumn tableName="player_profiles" columnName="social_facebook"/>
+            <dropColumn tableName="player_profiles" columnName="social_instagram"/>
+            <dropColumn tableName="player_profiles" columnName="social_x"/>
+            <dropColumn tableName="player_profiles" columnName="social_tiktok"/>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

@@ -7,6 +7,7 @@ import {
   type PlayerProfileJoinRow
 } from '~/server/domains/player/dto/player-join-row.dto'
 import { getOptionalUser } from '~/server/utils/optional-user'
+import { createBrandingAssetRepository } from '~/server/domains/platform/repositories/branding-asset.repository'
 
 /**
  * The event roster.
@@ -116,6 +117,7 @@ export default defineEventHandler(async (event) => {
         id,
         display_name,
         profile_visibility,
+        avatar_path,
         player_ratings (
           rating_type,
           rating_value
@@ -139,10 +141,30 @@ export default defineEventHandler(async (event) => {
     status: string
     registered_at: string
     checked_in_at: string | null
-    player_profiles?: (PlayerProfileJoinRow & { profile_visibility?: string | null }) | null
+    player_profiles?:
+      | (PlayerProfileJoinRow & { profile_visibility?: string | null; avatar_path?: string | null })
+      | null
   }
 
-  const mapped = ((registrations ?? []) as unknown as RegistrationJoinRow[]).map((r) => {
+  const rows = (registrations ?? []) as unknown as RegistrationJoinRow[]
+
+  // Signed avatar URLs, resolved once for the roster and in parallel — the same
+  // shape as the player directory. The roster rendered the brand mark for
+  // every player because nothing here carried a photo. Private profiles are
+  // skipped: their photo is part of the profile, like their name.
+  const assets = createBrandingAssetRepository(serviceClient)
+  const avatarUrls = new Map(
+    await Promise.all(
+      rows
+        .filter((r) => r.player_profiles?.avatar_path)
+        .map(
+          async (r) =>
+            [r.player_id, await assets.resolveUrl(r.player_profiles!.avatar_path!)] as const
+        )
+    )
+  )
+
+  const mapped = rows.map((r) => {
     const profile = r.player_profiles
 
     // The service-role client bypasses RLS, so re-apply the visibility rule
@@ -166,6 +188,7 @@ export default defineEventHandler(async (event) => {
         // A private profile's rating is part of the profile, not of the
         // registration, so it stays hidden too.
         rating: canSeeProfile ? singlesRatingOf(profile) : null,
+        avatar_url: canSeeProfile ? (avatarUrls.get(r.player_id) ?? null) : null,
         private: !canSeeProfile
       }
     }

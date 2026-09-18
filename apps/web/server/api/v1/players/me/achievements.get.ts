@@ -6,6 +6,7 @@ import { createPlayerProfileRepository } from '~/server/domains/player/repositor
 import { requireFeature, FEATURE_ACHIEVEMENTS } from '~/server/utils/require-feature'
 import { getOptionalUser } from '~/server/utils/optional-user'
 import { apiError } from '~/server/utils/api-error'
+import { awardAchievements } from '~/server/utils/award-achievements'
 
 /**
  * The player's own achievement gallery: every earnable badge, marked earned or
@@ -22,6 +23,15 @@ import { apiError } from '~/server/utils/api-error'
  * and tournament brackets, several of which are not readable by their own owner
  * under RLS. The player id comes from the verified token, so the widened client
  * only ever gathers stats for the caller.
+ *
+ * The evaluator runs first. Badges are awarded when something happens — a
+ * match settles, a club is joined — and never backfilled, so a requirement met
+ * before the evaluator existed, or by a run that failed quietly, sat on this
+ * page as "Requirement met — lands the next time your record updates" with
+ * nothing ever updating it. The page that shows the player what they are owed
+ * is the one place that must not leave them owed: anything satisfied is granted
+ * here, with the same notification any other trigger sends, and the gallery
+ * then reads the result. Idempotent, best-effort, and it cannot fail the read.
  */
 export default defineEventHandler(async (event) => {
   // Off means gone, not hidden: the client gate only stops this app
@@ -44,6 +54,8 @@ export default defineEventHandler(async (event) => {
     createAchievementRepository(client),
     createAchievementStatsRepository(client)
   )
+
+  await awardAchievements(client, profile.id, user.sub)
 
   try {
     return { data: await gallery.forPlayer(profile.id, user.sub) }

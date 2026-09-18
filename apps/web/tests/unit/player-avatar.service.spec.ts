@@ -26,6 +26,10 @@ function profileRecord(overrides: Partial<PlayerProfileRecord> = {}): PlayerProf
     profile_visibility: 'public',
     show_match_history: false,
     avatar_path: null,
+    social_facebook: null,
+    social_instagram: null,
+    social_x: null,
+    social_tiktok: null,
     created_at: '2026-01-01T00:00:00.000Z',
     updated_at: '2026-01-01T00:00:00.000Z',
     ...overrides

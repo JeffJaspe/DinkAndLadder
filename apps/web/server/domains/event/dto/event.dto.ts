@@ -460,7 +460,9 @@ export interface EventRegistrationDto {
   player?: {
     id: string
     display_name: string
-    rating?: number
+    rating?: number | null
+    /** A resolved photo URL, when the roster read had one. */
+    avatar_url?: string | null
   }
 }
 

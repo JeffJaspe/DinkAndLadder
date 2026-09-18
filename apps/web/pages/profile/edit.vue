@@ -9,6 +9,16 @@ import {
   MAX_NAME_LENGTH
 } from '~/server/domains/player/dto/player-profile.dto'
 import { apiErrorMessage } from '~/utils/api-error-message'
+import {
+  containsPhoneNumber,
+  normalizeSocialHandle,
+  PHONE_NUMBER_MESSAGE,
+  SOCIAL_COLUMNS,
+  SOCIAL_META,
+  SOCIAL_NETWORKS,
+  validateSocialHandle,
+  type SocialNetwork
+} from '~/utils/social-links'
 
 useHead({ title: 'Edit profile' })
 
@@ -69,8 +79,41 @@ const form = reactive({
   dominant_hand: '',
   preferred_position: '',
   profile_visibility: 'public' as ProfileVisibility,
-  show_match_history: false
+  show_match_history: true,
+  social_facebook: '',
+  social_instagram: '',
+  social_x: '',
+  social_tiktok: ''
 })
+
+/**
+ * The bio's one rule, checked as they type so the save button never has to
+ * be the thing that tells them. The API enforces the same rule.
+ */
+const bioPhoneWarning = computed(() => (containsPhoneNumber(form.bio) ? PHONE_NUMBER_MESSAGE : ''))
+
+/**
+ * A handle field tidies itself on blur — `@name`, a pasted profile URL, a
+ * trailing slash all become the bare username — and says what is wrong with
+ * whatever is left. Same functions the API runs, so the two cannot disagree.
+ */
+const socialErrors = reactive<Record<SocialNetwork, string>>({
+  facebook: '',
+  instagram: '',
+  x: '',
+  tiktok: ''
+})
+
+function tidySocial(network: SocialNetwork) {
+  const column = SOCIAL_COLUMNS[network]
+  const handle = normalizeSocialHandle(network, form[column])
+  form[column] = handle ?? ''
+  socialErrors[network] = validateSocialHandle(network, handle) ?? ''
+}
+
+const hasFieldProblem = computed(
+  () => !!bioPhoneWarning.value || SOCIAL_NETWORKS.some((n) => !!socialErrors[n])
+)
 
 /**
  * A snapshot of the form as last loaded or saved.
@@ -117,6 +160,9 @@ watch(
     form.preferred_position = profile.preferred_position ?? ''
     form.profile_visibility = profile.profile_visibility
     form.show_match_history = profile.show_match_history
+    for (const network of SOCIAL_NETWORKS) {
+      form[SOCIAL_COLUMNS[network]] = profile[SOCIAL_COLUMNS[network]] ?? ''
+    }
 
     form.province = profile.province ?? ''
     form.city = profile.city ?? ''
@@ -276,7 +322,11 @@ async function handleSave() {
         dominant_hand: form.dominant_hand || null,
         preferred_position: form.preferred_position || null,
         profile_visibility: form.profile_visibility,
-        show_match_history: form.show_match_history
+        show_match_history: form.show_match_history,
+        social_facebook: normalizeSocialHandle('facebook', form.social_facebook),
+        social_instagram: normalizeSocialHandle('instagram', form.social_instagram),
+        social_x: normalizeSocialHandle('x', form.social_x),
+        social_tiktok: normalizeSocialHandle('tiktok', form.social_tiktok)
       }
     })
     baseline.value = snapshot()
@@ -514,10 +564,77 @@ const fieldClass =
                 rows="3"
                 :maxlength="MAX_BIO_LENGTH"
                 placeholder="How you play, where you play, who you play with."
-                :class="fieldClass"
+                :class="[
+                  fieldClass,
+                  bioPhoneWarning ? 'border-danger focus:border-danger focus:ring-danger/40' : ''
+                ]"
+                :aria-invalid="bioPhoneWarning ? 'true' : undefined"
+                :aria-describedby="bioPhoneWarning ? 'bio-phone' : undefined"
               />
-              <p class="mt-1.5 text-right text-caption tabular-nums text-fg-muted">
-                {{ form.bio.length }}/{{ MAX_BIO_LENGTH }}
+              <div class="mt-1.5 flex items-start justify-between gap-3">
+                <p v-if="bioPhoneWarning" id="bio-phone" class="text-caption text-danger">
+                  {{ bioPhoneWarning }}
+                </p>
+                <p class="ml-auto shrink-0 text-caption tabular-nums text-fg-muted">
+                  {{ form.bio.length }}/{{ MAX_BIO_LENGTH }}
+                </p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Social links. Four fields, all optional, each tidying itself on
+             blur so a pasted URL and a typed @handle end up as the same thing.
+             The mark sits inside the field as the prefix, so a row reads as
+             the network it is, not as four identical boxes. -->
+        <section class="rounded-card bg-surface p-5 shadow-card">
+          <h2 class="font-display text-heading-3 text-fg">Social links</h2>
+          <p class="mt-1 text-caption text-fg-muted">
+            Optional. Shown on your profile so people can find you where you already are — paste the
+            link or type the username.
+          </p>
+          <div class="mt-4 grid gap-4 sm:grid-cols-2">
+            <div v-for="network in SOCIAL_NETWORKS" :key="network">
+              <label
+                :for="`social-${network}`"
+                class="mb-1.5 block text-body-2 font-medium text-fg-secondary"
+              >
+                {{ SOCIAL_META[network].label }}
+              </label>
+              <div class="relative">
+                <span
+                  class="pointer-events-none absolute inset-y-0 left-0 flex items-center gap-1.5 pl-3 text-fg-muted"
+                  aria-hidden="true"
+                >
+                  <UiSocialIcon :network="network" size="h-4 w-4" />
+                  <span class="text-body-2">{{ SOCIAL_META[network].prefix }}</span>
+                </span>
+                <input
+                  :id="`social-${network}`"
+                  v-model="form[SOCIAL_COLUMNS[network]]"
+                  type="text"
+                  autocomplete="off"
+                  autocapitalize="none"
+                  spellcheck="false"
+                  :placeholder="'username'"
+                  :class="[
+                    fieldClass,
+                    network === 'facebook' ? 'pl-[7.25rem]' : 'pl-11',
+                    socialErrors[network]
+                      ? 'border-danger focus:border-danger focus:ring-danger/40'
+                      : ''
+                  ]"
+                  :aria-invalid="socialErrors[network] ? 'true' : undefined"
+                  :aria-describedby="socialErrors[network] ? `social-${network}-error` : undefined"
+                  @blur="tidySocial(network)"
+                />
+              </div>
+              <p
+                v-if="socialErrors[network]"
+                :id="`social-${network}-error`"
+                class="mt-1.5 text-caption text-danger"
+              >
+                {{ socialErrors[network] }}
               </p>
             </div>
           </div>
@@ -668,8 +785,9 @@ const fieldClass =
                 Show my match history
               </p>
               <p class="mt-0.5 text-caption text-fg-muted">
-                Publishes your results on your profile. Opponents who have not turned this on are
-                shown as “Private player”, and yours is hidden the same way on theirs.
+                On by default. Turn it off to hide your results from your profile — you will appear
+                as “Private player” in other people’s histories, and anyone who has turned theirs
+                off appears that way in yours.
               </p>
               <p
                 v-if="form.profile_visibility === 'private'"
@@ -723,7 +841,7 @@ const fieldClass =
             size="lg"
             class="justify-center"
             :loading="saving"
-            :disabled="saving || !dirty || !form.display_name.trim()"
+            :disabled="saving || !dirty || !form.display_name.trim() || hasFieldProblem"
           >
             {{ saving ? 'Saving…' : dirty ? 'Save changes' : 'Saved' }}
           </UiButton>

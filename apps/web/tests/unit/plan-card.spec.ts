@@ -39,12 +39,15 @@ describe('BillingPlanCard', () => {
   it('contains no plan copy of its own — an empty row renders name, price and limits only', () => {
     const text = mount(BillingPlanCard, { props: { plan: plan() }, global }).text()
     expect(text).toContain('Premium')
-    expect(text).toContain('₱999.00')
-    expect(text).toContain('/month')
+    // The price pill: big whole number, currency code and period set apart.
+    expect(text).toContain('999')
+    expect(text).toContain('PHP')
+    expect(text).toContain('/mo.')
+    expect(text).not.toContain('999.00')
     // Nothing invented.
     expect(text).not.toMatch(/most popular|best value|recommended/i)
     // The limits table is derived from the enforced columns, not from copy.
-    expect(text).toContain('Unlimited tournaments')
+    expect(text).toContain('Unlimited live tournaments')
     expect(text).toContain('Eligible to apply')
   })
 
@@ -68,14 +71,30 @@ describe('BillingPlanCard', () => {
     }
   })
 
-  it('shows Free, not ₱0.00, for the free plan and disables its button', () => {
+  it('sets the free plan as 0 PHP /mo. and disables its button', () => {
     const w = mount(BillingPlanCard, {
       props: { plan: plan({ price_cents: 0, is_default_free: true, name: 'Free' }) },
       global
     })
-    expect(w.text()).toContain('Free')
-    expect(w.text()).not.toContain('₱0.00')
+    expect(w.text()).toContain('0PHP/mo.')
     expect(w.find('button').attributes('disabled')).toBeDefined()
+  })
+
+  it('keeps minor units only when the price has them', () => {
+    const w = mount(BillingPlanCard, { props: { plan: plan({ price_cents: 49950 }) }, global })
+    expect(w.text()).toContain('499')
+    expect(w.text()).toContain('.50')
+  })
+
+  it('renders the caption under the button and lists the enforced limits as check rows', () => {
+    const w = mount(BillingPlanCard, {
+      props: { plan: plan(), caption: '(test mode — nothing is charged)' },
+      global
+    })
+    expect(w.text()).toContain('(test mode — nothing is charged)')
+    expect(w.text()).toContain("What's included:")
+    expect(w.text()).toContain('Unlimited live tournaments')
+    expect(w.text()).toContain('Online entry fees')
   })
 
   it('the override savings label beats the computed one', () => {

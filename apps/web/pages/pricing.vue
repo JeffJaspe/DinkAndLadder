@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import type { ClubSubscriptionPlanDto } from '~/server/domains/payment/dto/subscription.dto'
-import { groupPlans } from '~/utils/subscription-plan'
 
 /**
  * Public pricing.
@@ -21,18 +20,8 @@ const { data, pending, error, refresh } = await useFetch<{
   billing: { mode: 'off' | 'simulated' | 'live'; notice: string | null }
 }>('/api/v1/platform/subscription-plans')
 
-const groups = computed(() => groupPlans(data.value?.data ?? []))
-const paidOnSale = computed(() => (data.value?.data ?? []).some((p) => !p.is_default_free))
-const hasYearly = computed(() => groups.value.some((g) => g.monthly && g.yearly))
-const interval = ref<'month' | 'year'>('month')
-const intervalItems = [
-  { value: 'month', label: 'Monthly' },
-  { value: 'year', label: 'Yearly' }
-]
-function cardFor(group: ReturnType<typeof groupPlans>[number]) {
-  if (interval.value === 'year' && group.yearly) return group.yearly
-  return group.monthly ?? group.primary
-}
+const plans = computed(() => data.value?.data ?? [])
+const paidOnSale = computed(() => plans.value.some((p) => !p.is_default_free))
 
 const user = useSupabaseUser()
 async function choose() {
@@ -63,21 +52,14 @@ async function choose() {
       />
 
       <template v-else>
-        <div v-if="hasYearly" class="mt-6">
-          <UiSegmented v-model="interval" :items="intervalItems" size="sm" label="Billing interval" />
-        </div>
-
-        <div class="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <BillingPlanCard
-            v-for="group in groups"
-            :key="group.key"
-            :plan="cardFor(group)"
-            :saving="interval === 'year' ? group.saving : null"
-            :hide-action="cardFor(group).is_default_free"
-            :disabled-reason="data?.billing.mode === 'off' ? 'Not on sale right now.' : null"
-            @choose="choose"
-          />
-        </div>
+        <BillingPlanTable
+          class="mt-8"
+          :plans="plans"
+          :hide-action="!paidOnSale"
+          :disabled-reason="data?.billing.mode === 'off' ? 'Not on sale right now.' : null"
+          :caption="data?.billing.mode === 'live' ? null : '(test mode — nothing is charged)'"
+          @choose="choose"
+        />
 
         <UiEmptyState
           v-if="!paidOnSale"

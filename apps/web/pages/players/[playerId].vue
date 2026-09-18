@@ -903,13 +903,18 @@ function formatActivityText(activity: ProfileActivity): string {
                 <h1 class="font-display text-heading-1 text-fg">{{ profile.display_name }}</h1>
                 <span
                   v-if="achievementsEnabled && selectedBadge"
-                  class="text-xl"
+                  class="inline-flex"
                   :title="`${selectedBadge.name} — ${selectedBadge.description}`"
-                  ><span aria-hidden="true">{{ selectedBadge.icon || '🏅' }}</span>
+                >
+                  <AchievementBadgeIcon
+                    :achievement-key="selectedBadge.id"
+                    :tier="selectedBadge.tier"
+                    size="sm"
+                  />
                   <span class="sr-only"
                     >Badge earned: {{ selectedBadge.name }}. {{ selectedBadge.description }}</span
-                  ></span
-                >
+                  >
+                </span>
 
                 <!-- One trophy per title, each going to the draw it was won in.
                      A title with no event row has nowhere to go, so it renders
@@ -938,6 +943,7 @@ function formatActivityText(activity: ProfileActivity): string {
                 {{ [profile.city, profile.province].filter(Boolean).join(', ') }}
               </p>
               <p v-if="profile.bio" class="mt-2 text-sm text-fg-secondary">{{ profile.bio }}</p>
+              <PlayerSocialLinks class="mt-2 -ml-2" :links="profile" :name="profile.display_name" />
             </div>
           </div>
 
@@ -1256,7 +1262,7 @@ function formatActivityText(activity: ProfileActivity): string {
           <div class="rounded-xl bg-surface p-5 shadow-card">
             <h2 class="mb-4 text-body-2 font-medium text-fg">Recent Matches</h2>
             <div v-if="!matchHistoryVisible" class="py-6 text-center text-sm text-fg-muted">
-              This player keeps their match history private.
+              This player has hidden their match history.
             </div>
             <UiErrorState
               v-else-if="myMatchesError"

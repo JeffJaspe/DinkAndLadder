@@ -36,11 +36,17 @@ END $$;
 -- gates the RLS read, /rankings filters on it, /players/:id/stats returns
 -- 403 without it, and the feed's name lookup renders "Unknown" for a
 -- profile it cannot see.
+--
+-- show_match_history is TRUE here and false in the product (067). The
+-- product default is an opt-in, deliberately: nobody's record is published
+-- because a column arrived. A demo player has no such interest, and with
+-- the default every profile's Matches tab read "keeps their match history
+-- private" — 600 seeded matches nobody could look at.
 -- ---------------------------------------------------------------------
 INSERT INTO player_profiles (
     id, user_id, display_name, first_name, last_name, bio,
     province, city, barangay, dominant_hand, preferred_position,
-    profile_visibility, created_at, updated_at
+    profile_visibility, show_match_history, created_at, updated_at
 )
 SELECT
     p.player_id,
@@ -64,6 +70,7 @@ SELECT
     CASE WHEN p.n % 7 = 0 THEN 'left' ELSE 'right' END,
     (ARRAY['forehand', 'backhand', 'both'])[1 + (p.n % 3)],
     'public',
+    true,
     now() - (180 - (p.n % 180)) * interval '1 day',
     now() - (p.n % 14) * interval '1 day'
 FROM public.v_demo_players p

@@ -9407,3 +9407,215 @@ designed fallback rather than a gap, but it does mean a player's photo will not
 follow them into a bracket or a queue until `avatar_url` is threaded through
 those DTOs. That remains the open item it has been all along; it is now the only
 thing standing between a photo and every surface.
+
+## 2026-09-17 — Tournament event page: one scoreboard, not a list
+
+**What changed.** The "Scores" panel above a tournament's categories listed
+every recorded result the draw did not place, plus anything on a court, as a
+column of collapsed cards — the category cards' content again, smaller. It is
+now one match, large: whatever is live (the bracket row being scored), else the
+last result recorded. `components/match/Scoreboard.vue` (`MatchScoreboard`)
+draws the two sides either side of a `stat-lg`/`stat-xl` score with the same
+read-only `MatchScoreSheet` (two rows, one column per game) beneath it. Live
+shows the points of the game in progress; a finished single game shows its
+points; a series shows games won with the per-game line as a caption. On a
+phone the number drops beneath the two names rather than squeezing between
+them. Other live matches get one row each under the board, linking to their
+category card.
+
+**Live actually updates now.** The event page fetched the bracket once, so a
+spectator saw the score a match was started at and nothing after it. New
+`composables/usePollWhile.ts` (the two guards from `useLiveScores`, lifted out)
+re-reads the bracket every 5s while any bracket match is live and the tab is
+visible; when the last live match ends the results are re-read so the board
+turns into the final score. The board waits for the draw's first answer
+(skeleton) so it does not flash a finished match before swapping to the live
+one.
+
+**Removed from the page:** `scoreSections`, `championByCategory`, `hasScores`,
+the `championOf` import. `MatchScoreSection`/`MatchBoxScore` stay as components
+(their unit tests still pass) but nothing renders them now.
+
+**Tests.** `tests/unit/scoreboard.spec.ts` (7): live points, 0–0 on a just-started
+match, single-game points, series games-won with per-game caption, recorded
+winner over derived, sheet always present, doubles stacked. Unit **1667/1667**.
+
+**Validation.** vue-tsc 0, ESLint, Prettier (new files; the page carries one
+pre-existing unformatted block at the upsell banner), detector clean. Rendered
+against the dev DB's live seed tournament at 1280 and 390, no horizontal
+overflow, no console errors.
+
+**Not done.** The bracket rows inside `CategorySection` still do not poll —
+their comment says "the poll picks it up for everyone else" but no poll exists
+there; only the page-level board refreshes. Dark mode not re-captured (the app
+toggles by attribute, not `prefers-color-scheme`). No e2e for the board.
+
+**Follow-up, same day.** Three corrections from the first look: (1) the
+winner's "Won" line under one side pushed the two name blocks out of level —
+the mark is now a check on the winner's first name line, so both sides are the
+same height; (2) the "latest result" preferred whatever the event's match list
+had newest, which on the seed data was a hand-recorded match the draw does not
+place, so no category could be named — a result the draw knows about now leads,
+the unplaced one is shown only when nothing else exists; (3) a **View category**
+button on the board (and the "Also live" rows) goes to `?category=<id>`, which
+`CategorySection` already turns into "open that card and scroll to it". Scoreboard unit
+8/8, suite 1667/1668 — the one failure is `plan-card.spec.ts` ("0 PHP /mo."),
+in the in-progress billing work sitting uncommitted in the same tree, not this
+change. Verified the click opens and scrolls the card at 1280 and 390.
+
+**2026-09-18 — View category worked once.** `?category=` was write-only:
+shutting a card left the query pointing at a closed card, and the watch in
+`CategorySection` only fires on a change, so the second press did nothing.
+`toggle` now `router.replace`s the query to match the open card (cleared when
+shut), the first-visit auto-open defaults run once instead of re-opening a card
+the visitor just closed, and the board emits `viewCategory` so the page scrolls
+to a card that is already open. Exercised in Playwright: open → shut → open →
+shut → open → press-while-open all land on the card.
+
+## 2026-09-18 — Demo players publish their match history
+
+Every seeded profile's Matches tab read "This player keeps their match history
+private." Not a bug in the page: `067` made publishing an opt-in (`show_match_history`
+DEFAULT false, deliberately, so nobody's record went public because a column
+arrived) and `database/seeds/demo/01-players.sql` never opted the 100 demo
+players in. The product default stays. The seed now inserts
+`show_match_history = true`, the seed README carries the one-line UPDATE for a
+database seeded before today, and that update was applied to the dev project's
+100 `[DEMO]` rows (data only, namespaced ids, service role — the seed's own
+procedure). Verified `/players/<demo>?tab=matches` renders the list at 1280 and
+390 with no console errors.
+
+### 2026-09-18 — Pricing table + annual billing in the plan editor
+
+- `components/billing/PlanCard.vue` rewritten as a pricing-table column and
+  `PlanTable.vue` added: centered Monthly / Annually switch with a computed
+  savings note, joined equal columns with hairline dividers, big price pill
+  (`999` `PHP` `/mo.`), CTA, page-owned caption, "What's included" check
+  list. Features a plan does not include are simply not listed. Used by
+  `/pricing`, `/club/{id}/billing`, and the admin preview.
+- Yearly plans stay their own rows in the editor (Billing: Monthly / Yearly, plus
+  "Create yearly twin" on a monthly plan), tied by `plan_group`; the pricing
+  page toggles between the two. A folded "annual billing inside the monthly
+  plan" variant was tried and reverted at Jeff's request.
+
+## 2026-09-18 — Match history public by default; roster avatars
+
+**Decision (user, 2026-09-18):** match history is published by default.
+`069-match-history-default-public` flips `player_profiles.show_match_history`
+to DEFAULT true and backfills rows still on the old default (pre-launch: seed
+and test accounts; a player who already chose either way is untouched, and the
+rollback restores both). The toggle in Profile → Edit stays, starting on; its
+copy now says so. The API redaction is unchanged — an opponent who turned it
+off is still "Private player", never named — and the profile's Matches tab
+says "This player has hidden their match history." Lands on dev on push.
+
+**Open play Players tab showed the brand mark beside every name.** The row
+rendered `UiBrandImage` where an avatar belonged. It now renders `UiAvatar`
+keyed by player id (photo, else the player's own identity colour), and
+`GET /events/:id/registrations` threads `avatar_url` (signed once per roster,
+in parallel, skipped for private profiles) so an uploaded photo actually
+appears — the first roster endpoint to carry it.
+
+Unit 1668/1668, vue-tsc 0, ESLint 0. Verified the Players tab at 1280.
+
+## 2026-09-18 — Badges wear drawn icons, not emoji
+
+`achievement_definitions.icon` holds an emoji per badge (011) and every badge
+surface printed it in a `<span>`: a tennis ball for a pickleball match, a
+circus tent for a tournament debut, a butterfly for followers, a Greek temple
+for founding a club — and a glyph that renders differently on every OS,
+ignores the theme and cannot take its tier's colour. DESIGN.md already bans
+emoji standing in for an icon.
+
+- `utils/icons.ts` — ten new stroked glyphs (sparkles, flame, crown, medal,
+  award, trending-up, target, gem, flag, ticket).
+- `utils/achievement-icons.ts` — achievement KEY → glyph for all 22 defined
+  badges, plus the tier styles the gallery had inline (shared now).
+- `components/achievement/BadgeIcon.vue` (`AchievementBadgeIcon`) — the mark:
+  glyph on a tier-coloured chip, sm/md/lg, grey when locked, decorative unless
+  given a label. Used by the gallery (earned + locked), the dashboard picker
+  and showcase, the profile header showcase, and `AchievementCard`.
+- The emoji column stays as data; nothing reads it for display any more.
+
+Tests: `achievement-icons.spec.ts` (7) — every DB key mapped, every mapping a
+real registry name, fallback, tier styling, locked state, labelled state.
+Unit 1675/1675, vue-tsc 0, ESLint 0. Rendered the gallery and dashboard as
+both test accounts.
+
+**Seen while here:** both test accounts show "0 of 20 earned" with several
+tiles saying "Requirement met — this lands the next time your record
+updates", after five recorded wins. The evaluator is not catching up on its
+own; nothing on the test accounts has ever been awarded.
+
+## 2026-09-18 — "Requirement met" badges now actually land
+
+Three gaps, all in the trigger plumbing rather than the evaluator, which was
+correct once run:
+
+1. **Open play court results were never settled.** `courts/:id/submit` called
+   `submitMatch` as though the organiser were team 1 — so the match sat in
+   `pending_verification` forever (no rating, no activity, no badge), and it
+   failed outright unless the organiser was on the court, since a team-1
+   submitter must be a participant. It now calls `recordOrganizerResult` and
+   `settleVerifiedMatch`, the same path as recording by hand: verified on
+   save, rated, logged, notified, badges evaluated for everyone in it.
+2. **Bracket results rated but never evaluated badges.** `BracketService`
+   applies ratings itself; the evaluator lives in the API layer (it crosses
+   into notifications), so `bracket-matches/:id/result` now calls
+   `awardAchievementsForPlayers` for both sides (partners included).
+3. **No backfill.** Anything satisfied before a trigger existed, or by a run
+   that failed quietly, stayed "Requirement met" indefinitely.
+   `GET /players/me/achievements` now runs the evaluator before building the
+   gallery — the page that shows what you are owed is the one page that must
+   not leave you owed. Idempotent, best-effort, same notification as any
+   other trigger.
+
+Verified against dev: owner gallery went 0 → 7 earned on load, pending list
+empty. Ran a real court flow as the test accounts (join ×2 → start → score →
+submit): the match came back `verified` / `submitted_by: organizer`, and the
+member's four badges have `unlocked_at` two seconds after the match's
+`verified_at` — awarded by the settle, not by the gallery. vue-tsc 0, ESLint 0.
+
+**Seen:** `submit` returned the warning "Could not put the next pair on." with
+an empty queue — the auto-advance treats only a 404 as "nothing waiting", and
+whatever `matchNextPair` throws on an empty queue is not a 404. Cosmetic at
+the desk, but it is a wrong warning.
+
+**Follow-up:** the empty-queue warning. `matchNextPair` reports nobody waiting
+as `409 INSUFFICIENT_QUEUE`; the submit handler only forgave a 404, so every
+last game of a session ended with "Could not put the next pair on." at the
+desk. It now matches on the code. Re-ran the court round on dev with nothing
+queued behind it: `warnings: []`, `next_up: null`, match recorded and verified.
+
+## 2026-09-18 — Bio keeps phone numbers out; social links on the profile
+
+**Decision (user):** players can describe themselves, but not publish a phone
+number; instead they can link Facebook, Instagram, X and TikTok. All optional.
+
+- `070-player-social-links` — four nullable handle columns on
+  `player_profiles` (`social_facebook` 50, `social_instagram` 30, `social_x`
+  15, `social_tiktok` 24). Handles, not URLs. No RLS change; no index. Lands
+  on dev on push. **Until it lands, every profile read on dev 500s**
+  (`column player_profiles.social_facebook does not exist`) — the app now
+  selects the columns. Push first.
+- `utils/social-links.ts` — pure, shared by API and editor: `normalizeSocialHandle`
+  (accepts `@name`, bare, or a pasted profile URL incl. twitter.com/fb.com),
+  `validateSocialHandle` (per-network grammar + length), `socialProfileUrl`,
+  and `containsPhoneNumber` — runs of 2+-digit groups joined by phone
+  separators totalling 7+ digits, so "0917 123 4567" / "+63 917…" / "917-1234"
+  are caught and "11-9 11-7 11-5", "3.5", "2024" pass.
+- DTO: `PlayerSocialLinks` on Record/Dto/UpdateInput, the four columns in
+  `UPDATABLE_TEXT_FIELD_MAP` (the compile-time exhaustiveness guard), parser
+  rejects a bio with a phone number (`PHONE_NUMBER_MESSAGE`) and normalises +
+  validates every handle before it is stored. Repository selects the columns.
+- UI: `UiSocialIcon` (brand marks in currentColor — Facebook, X, TikTok solid;
+  Instagram stroked; deliberately outside the stroked icon registry),
+  `PlayerSocialLinks` (a row of 36px marks, real links, new tab, sr-named
+  "Ana on Instagram"; renders nothing when empty), a **Social links** section
+  on Profile → Edit with the mark + prefix inside each field, tidy-on-blur,
+  inline errors, and a live phone-number warning under the bio that also
+  disables Save. Links render under the bio on the public profile.
+
+Tests: `social-links.spec.ts` (24). Unit 1699/1699, vue-tsc 0, ESLint 0.
+**Not visually verified:** the editor cannot load on dev until 070 lands
+(profile read fails), so the section was checked by type, lint and unit only.

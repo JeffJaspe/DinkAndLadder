@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Match history is published by default.
+
+     067 added show_match_history as an opt-in (DEFAULT false) so that no
+     existing player's record went public because a column arrived. Decided
+     2026-09-18: the product's own promise is "a number nobody disputes", and a
+     rating whose matches nobody can see is not that. A player's history is on
+     their public profile unless they turn it off — the toggle in Profile > Edit
+     stays, it just starts on.
+
+     Two statements, both needed. The default covers every profile created from
+     now on. The UPDATE covers the ones that already exist: pre-launch, those
+     are seed and test accounts, and leaving them dark would make the flip
+     invisible on every profile anyone can actually open. Only rows still on
+     the old default are touched; a player who already chose either way keeps
+     their choice, which is what makes the rollback honest as well.
+
+     The redaction rule in the API is unchanged: an opponent who turned it off
+     still appears as "Private player", never by name. -->
+
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+    <changeSet id="0001-show-match-history-default-true" author="claude">
+        <preConditions onFail="MARK_RAN">
+            <columnExists tableName="player_profiles" columnName="show_match_history"/>
+        </preConditions>
+        <addDefaultValue tableName="player_profiles"
+                         columnName="show_match_history"
+                         columnDataType="boolean"
+                         defaultValueBoolean="true"/>
+        <rollback>
+            <addDefaultValue tableName="player_profiles"
+                             columnName="show_match_history"
+                             columnDataType="boolean"
+                             defaultValueBoolean="false"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="0002-show-match-history-backfill" author="claude">
+        <preConditions onFail="MARK_RAN">
+            <columnExists tableName="player_profiles" columnName="show_match_history"/>
+        </preConditions>
+        <!-- Pre-launch: every profile still on the old default is a seed or
+             test account that never made a choice. -->
+        <sql>
+            UPDATE player_profiles SET show_match_history = true WHERE show_match_history = false;
+        </sql>
+        <rollback>
+            <sql>UPDATE player_profiles SET show_match_history = false;</sql>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>
