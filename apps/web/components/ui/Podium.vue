@@ -29,6 +29,17 @@ export interface PodiumEntry {
   avatarUrl?: string | null
   matchesPlayed?: number | null
   trendDelta?: number | null
+  /**
+   * What the pill says, when the ladder is not ranked on rating. A record
+   * ladder has no rating to show and used to print "—" with an "Unrated"
+   * tooltip against players who were rated perfectly well — the ladder simply
+   * was not about that. Null means "show the rating".
+   */
+  label?: string | null
+  /** The tooltip behind `label`. */
+  labelTitle?: string | null
+  /** A caption under the pill — the win percentage on a record ladder. */
+  sublabel?: string | null
 }
 
 const props = withDefaults(
@@ -126,9 +137,19 @@ const tierFor = (entry: PodiumEntry) => (entry.rating === null ? null : tierForR
           <!-- The number lives here, not on the block face. -->
           <span
             class="rounded-pill border border-border bg-surface px-2.5 py-0.5 text-caption font-bold tabular-nums text-fg shadow-card"
-            :title="tierFor(entryFor(place.rank)!)?.name ?? 'Unrated'"
+            :title="
+              entryFor(place.rank)!.label != null
+                ? (entryFor(place.rank)!.labelTitle ?? undefined)
+                : (tierFor(entryFor(place.rank)!)?.name ?? 'Unrated')
+            "
           >
-            {{ formatRating(entryFor(place.rank)!.rating) }}
+            {{ entryFor(place.rank)!.label ?? formatRating(entryFor(place.rank)!.rating) }}
+          </span>
+          <span
+            v-if="entryFor(place.rank)!.sublabel"
+            class="text-caption tabular-nums text-fg-muted"
+          >
+            {{ entryFor(place.rank)!.sublabel }}
           </span>
 
           <span

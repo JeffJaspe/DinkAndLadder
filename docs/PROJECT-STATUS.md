@@ -9619,3 +9619,59 @@ number; instead they can link Facebook, Instagram, X and TikTok. All optional.
 Tests: `social-links.spec.ts` (24). Unit 1699/1699, vue-tsc 0, ESLint 0.
 **Not visually verified:** the editor cannot load on dev until 070 lands
 (profile read fails), so the section was checked by type, lint and unit only.
+
+## 2026-09-18 — Open threads closed: category polling, roster photos, scoreboard e2e
+
+- **Category cards poll the draw while a row is live** (`CategorySection`,
+  `usePollWhile(hasLiveRow, refreshBracket)`). The organiser's own taps were
+  already optimistic; everyone else's copy of the row now moves too. The
+  up-next skeleton is gated on the first read only, since `pending` flips on
+  every refresh. Cost: the event page's scoreboard and the category section
+  each hold their own `useFetch` of the same bracket, so a live tournament
+  polls it twice per 5s. Acceptable for now; sharing one key is the fix if it
+  ever matters.
+- **Tournament roster carries photos.** `findByTournamentIdWithPlayers` joins
+  `avatar_path`, the service passes it through, and the registrations endpoint
+  signs it into `avatar_url` (once per roster, in parallel) and drops the path.
+  `CategoryPlayers` passes it to `UiAvatar`. Queue rows are still on the
+  identity avatar.
+- **`tests/e2e/tournament-scoreboard.spec.ts`** (public project): finds a
+  tournament with a played or live bracket match in the target database,
+  asserts exactly one board, the state heading, a ≥48px stat score, the
+  two-row sheet, and that View category opens the card — including after it
+  has been shut. Skips with a reason on an empty database. 2/2 against dev.
+
+Unit 1699/1699, vue-tsc 0, ESLint 0.
+
+## 2026-09-18 — Podium shows the record; rankings gain a win–loss ladder
+
+**Podium said "Unrated" on record ladders.** `RankingBoard` mapped every
+podium entry's pill to `rating_value`, so on a record ladder (event
+standings, category standings) the top three wore "—" with an "Unrated"
+tooltip — against players who were rated perfectly well. `PodiumEntry` now
+takes `label`/`labelTitle`/`sublabel`; a record ladder's pill is the W–L,
+the tooltip spells it out, and the win percentage sits under the pill. The
+record table gains a **Win %** column (`utils/win-percent.ts`, derived from
+the counts when the server sends none).
+
+**Rankings by win–loss.** `071-player-records-view` — `v_player_records`,
+one row per public player per match type over verified, decided matches:
+wins, losses, matches_played, win_pct (rounded to one decimal), plus the
+profile columns the ladder filters on. Runs as owner (counts across every
+verified match, never a match row), limited to public profiles inside the
+view, SELECT granted to anon/authenticated. Lands on push. Repository
+`getRecordRankings`/`countRecordRankings`, service `getRecordRankings`,
+endpoint `GET /api/v1/rankings/record` with the identical query contract.
+Ordering: win % desc, then wins desc, then fewer matches, then name. **No
+minimum-matches floor** — ranking eligibility is an open product rule
+(CLAUDE.md §7); the ordering lives in one place for when it is decided.
+
+`/rankings` has a **Ranked by: Rating | Win–loss** control beside
+Singles/Doubles, URL-backed (`?by=record`), sharing every filter and the
+search box; one fetch per ladder, each running only while its tab shows. The
+"You are #N" callout shows W–L and percentage on the record ladder.
+
+Tests: `win-percent.spec.ts` (6). Unit 1705/1705, vue-tsc 0, ESLint 0.
+Verified the record podium on the E2E event's Scoreboard tab at 1280 and 390
+(no "Unrated" left). The record ladder itself 500s on dev until 071 lands
+("relation v_player_records does not exist"); the rating ladder is unaffected.

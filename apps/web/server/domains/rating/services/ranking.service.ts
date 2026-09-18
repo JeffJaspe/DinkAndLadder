@@ -1,5 +1,11 @@
 import type { RankingRepository } from '../repositories/ranking.repository'
-import type { RankingEntryDto, RankingPageDto, RankingQuery } from '../dto/ranking.dto'
+import type {
+  RankingEntryDto,
+  RankingPageDto,
+  RankingQuery,
+  RecordRankingEntryDto,
+  RecordRankingPageDto
+} from '../dto/ranking.dto'
 import { toRankingEntryDto } from '../dto/ranking.dto'
 
 export const RANKING_DEFAULT_LIMIT = 50
@@ -19,6 +25,8 @@ export const RANKING_TREND_DAYS = 7
 export interface RankingService {
   /** A page of rankings with real total count and per-player trend. */
   getRankings(query: RankingQuery): Promise<RankingPageDto>
+  /** The same page shape, ranked on results rather than rating. */
+  getRecordRankings(query: RankingQuery): Promise<RecordRankingPageDto>
 }
 
 export function createRankingService(repository: RankingRepository): RankingService {
@@ -50,6 +58,19 @@ export function createRankingService(repository: RankingRepository): RankingServ
         )
       )
 
+      return { data, total, limit: query.limit, offset: query.offset }
+    },
+
+    async getRecordRankings(query) {
+      const [rows, total] = await Promise.all([
+        repository.getRecordRankings(query),
+        repository.countRecordRankings(query)
+      ])
+      const data: RecordRankingEntryDto[] = rows.map((row, index) => ({
+        ...row,
+        rank: query.offset + index + 1,
+        rating_type: query.rating_type
+      }))
       return { data, total, limit: query.limit, offset: query.offset }
     }
   }

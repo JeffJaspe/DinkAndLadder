@@ -24,7 +24,11 @@
  * column, none of which exist here, so the plinths carry rating, tier, matches
  * and movement instead.
  */
-import type { RankingEntryDto } from '~/server/domains/rating/dto/ranking.dto'
+import type {
+  RankingEntryDto,
+  RecordRankingEntryDto
+} from '~/server/domains/rating/dto/ranking.dto'
+import { winPercent } from '~/utils/win-percent'
 import type { PlayerProfileDto } from '~/server/domains/player/dto/player-profile.dto'
 import { formatRating } from '~/utils/rating-tiers'
 
@@ -38,6 +42,18 @@ const router = useRouter()
 const ratingType = ref<'singles' | 'doubles'>(
   route.query.type === 'doubles' ? 'doubles' : 'singles'
 )
+
+/**
+ * Two ladders over the same players: by rating, and by results.
+ *
+ * "Who is best" and "who wins the most" are different questions with
+ * different answers — a 4.2 who plays up loses more than a 3.5 who plays
+ * down — and the page only ever answered the first. The record ladder is a
+ * second tab, URL-backed like the rest of the filters, sharing every filter
+ * and the search box.
+ */
+type RankedBy = 'rating' | 'record'
+const rankedBy = ref<RankedBy>(route.query.by === 'record' ? 'record' : 'rating')
 const searchQuery = ref('')
 
 /**
@@ -126,10 +142,11 @@ async function restoreLocationFromQuery() {
 onMounted(restoreLocationFromQuery)
 
 // Filters are URL-backed so a filtered ranking is a shareable link.
-watch([ratingType, provinceName, cityName, barangayName, page], () => {
+watch([rankedBy, ratingType, provinceName, cityName, barangayName, page], () => {
   router.replace({
     query: {
       ...route.query,
+      by: rankedBy.value === 'record' ? 'record' : undefined,
       type: ratingType.value,
       province: provinceName.value || undefined,
       city: cityName.value || undefined,
@@ -140,32 +157,62 @@ watch([ratingType, provinceName, cityName, barangayName, page], () => {
 })
 
 // Changing a filter must reset paging, or you land on page 4 of a 1-page list.
-watch([ratingType, provinceName, cityName, barangayName], () => {
+watch([rankedBy, ratingType, provinceName, cityName, barangayName], () => {
   page.value = 1
 })
 
 const offset = computed(() => (page.value - 1) * PAGE_SIZE)
 
+const ladderQuery = computed(() => ({
+  rating_type: ratingType.value,
+  province: provinceName.value || undefined,
+  city: cityName.value || undefined,
+  barangay: barangayName.value || undefined,
+  q: debouncedSearch.value || undefined,
+  limit: PAGE_SIZE,
+  offset: offset.value
+}))
+
+// One fetch per ladder, each only running while its tab is the one showing:
+// switching tabs must not cost a request for the ladder you just left.
 const {
-  data: response,
-  pending,
-  error,
-  refresh
+  data: ratingResponse,
+  pending: ratingPending,
+  error: ratingError,
+  refresh: refreshRating
 } = await useFetch<{
   data: RankingEntryDto[]
   meta: { total: number; limit: number; offset: number }
 }>('/api/v1/rankings', {
-  query: computed(() => ({
-    rating_type: ratingType.value,
-    province: provinceName.value || undefined,
-    city: cityName.value || undefined,
-    barangay: barangayName.value || undefined,
-    q: debouncedSearch.value || undefined,
-    limit: PAGE_SIZE,
-    offset: offset.value
-  })),
-  watch: [ratingType, provinceName, cityName, barangayName, debouncedSearch, offset]
+  query: ladderQuery,
+  immediate: rankedBy.value === 'rating',
+  watch: false
 })
+
+const {
+  data: recordResponse,
+  pending: recordPending,
+  error: recordError,
+  refresh: refreshRecord
+} = await useFetch<{
+  data: RecordRankingEntryDto[]
+  meta: { total: number; limit: number; offset: number }
+}>('/api/v1/rankings/record', {
+  query: ladderQuery,
+  immediate: rankedBy.value === 'record',
+  watch: false
+})
+
+watch([ladderQuery, rankedBy], () => {
+  if (rankedBy.value === 'record') refreshRecord()
+  else refreshRating()
+})
+
+const isRecord = computed(() => rankedBy.value === 'record')
+const response = computed(() => (isRecord.value ? recordResponse.value : ratingResponse.value))
+const pending = computed(() => (isRecord.value ? recordPending.value : ratingPending.value))
+const error = computed(() => (isRecord.value ? recordError.value : ratingError.value))
+const refresh = () => (isRecord.value ? refreshRecord() : refreshRating())
 
 // "Where am I?" is the first question anyone asks on a rankings page — when
 // there is a "me". The page is public, so a signed-out visitor skips the call.
@@ -175,7 +222,17 @@ const { data: myProfile } = useFetch<PlayerProfileDto>('/api/v1/players/me', {
   immediate: !!rankingsUser.value
 })
 
-const entries = computed(() => response.value?.data ?? [])
+const entries = computed<(RankingEntryDto | RecordRankingEntryDto)[]>(
+  () => response.value?.data ?? []
+)
+
+/** The reader's own row on each ladder, when they are on it. */
+const myRatingEntry = computed(
+  () => ratingResponse.value?.data.find((e) => e.player_id === myProfile.value?.id) ?? null
+)
+const myRecordEntry = computed(
+  () => recordResponse.value?.data.find((e) => e.player_id === myProfile.value?.id) ?? null
+)
 const total = computed(() => response.value?.meta?.total ?? 0)
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / PAGE_SIZE)))
 
@@ -223,9 +280,7 @@ const locationLabel = computed(
 )
 
 /** Where the reader sits, for the standing callout under the podium. */
-const myEntry = computed(
-  () => entries.value.find((e) => e.player_id === myProfile.value?.id) ?? null
-)
+const myEntry = computed(() => (isRecord.value ? myRecordEntry.value : myRatingEntry.value))
 
 function openPlayer(entry: { player_id: string }) {
   return navigateTo(`/players/${entry.player_id}`)
@@ -242,6 +297,14 @@ function openPlayer(entry: { player_id: string }) {
     </header>
 
     <div class="relative z-10 mb-6 flex flex-wrap items-end gap-3">
+      <UiSegmented
+        v-model="rankedBy"
+        label="Ranked by"
+        :items="[
+          { value: 'rating', label: 'Rating' },
+          { value: 'record', label: 'Win–loss' }
+        ]"
+      />
       <UiSegmented
         v-model="ratingType"
         label="Rating type"
@@ -291,12 +354,14 @@ function openPlayer(entry: { player_id: string }) {
 
     <template v-else>
       <h2 v-if="showPodium" class="mb-6 text-center font-display text-heading-3 text-fg">
-        Top 3 {{ ratingType === 'singles' ? 'Singles' : 'Doubles' }}
+        Top 3 {{ ratingType === 'singles' ? 'Singles' : 'Doubles'
+        }}{{ isRecord ? ' by record' : '' }}
         <span class="text-fg-secondary">· {{ locationLabel }}</span>
       </h2>
 
       <RankingBoard
         :entries="entries"
+        :variant="isRecord ? 'record' : 'rating'"
         :show-podium="showPodium"
         :highlight-id="myProfile?.id ?? null"
         :loading="pending"
@@ -334,18 +399,28 @@ function openPlayer(entry: { player_id: string }) {
               <strong class="font-semibold text-fg">#{{ myEntry.rank }}</strong>
               <span>of {{ total }} ranked {{ total === 1 ? 'player' : 'players' }}</span>
               <span class="text-fg-muted">·</span>
-              <strong class="font-semibold tabular-nums text-fg">{{
-                formatRating(myEntry.rating_value)
-              }}</strong>
-              <UiTrendIndicator
-                v-if="myEntry.trend_delta !== null"
-                :value="myEntry.trend_delta"
-                size="sm"
-                suffix="in the last 7 days"
-              />
-              <span v-else class="text-caption text-fg-muted"
-                >no rated match in the last 7 days</span
-              >
+              <template v-if="isRecord && myRecordEntry">
+                <strong class="font-semibold tabular-nums text-fg"
+                  >{{ myRecordEntry.wins }}–{{ myRecordEntry.losses }}</strong
+                >
+                <span class="text-caption tabular-nums text-fg-muted"
+                  >{{ (winPercent(myRecordEntry) ?? 0).toFixed(1) }}% won</span
+                >
+              </template>
+              <template v-else-if="myRatingEntry">
+                <strong class="font-semibold tabular-nums text-fg">{{
+                  formatRating(myRatingEntry.rating_value)
+                }}</strong>
+                <UiTrendIndicator
+                  v-if="myRatingEntry.trend_delta !== null"
+                  :value="myRatingEntry.trend_delta"
+                  size="sm"
+                  suffix="in the last 7 days"
+                />
+                <span v-else class="text-caption text-fg-muted"
+                  >no rated match in the last 7 days</span
+                >
+              </template>
             </p>
           </div>
         </template>

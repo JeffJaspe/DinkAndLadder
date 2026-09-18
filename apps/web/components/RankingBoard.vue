@@ -22,6 +22,7 @@
 import type { PodiumEntry } from '~/components/ui/Podium.vue'
 import type { Column } from '~/components/ui/DataTable.vue'
 import { formatRating, tierForRating } from '~/utils/rating-tiers'
+import { formatWinPercent, winPercent } from '~/utils/win-percent'
 
 export interface RankingBoardEntry {
   rank: number
@@ -38,6 +39,8 @@ export interface RankingBoardEntry {
   /** Record ladders only. */
   wins?: number | null
   losses?: number | null
+  /** 0–100. Derived from wins/losses when absent. */
+  win_pct?: number | null
 }
 
 const props = withDefaults(
@@ -87,7 +90,16 @@ const podium = computed<PodiumEntry[]>(() =>
         rating: entry.rating_value ?? null,
         location: entry.city ?? entry.province ?? null,
         matchesPlayed: entry.matches_played ?? null,
-        trendDelta: entry.trend_delta ?? null
+        trendDelta: entry.trend_delta ?? null,
+        // A record ladder's pill is the record. The rating pill said "—" here.
+        label: isRating.value ? null : `${entry.wins ?? 0}–${entry.losses ?? 0}`,
+        labelTitle: isRating.value
+          ? null
+          : `${entry.wins ?? 0} won, ${entry.losses ?? 0} lost · ${formatWinPercent(winPercent(entry))} won`,
+        sublabel:
+          isRating.value || winPercent(entry) == null
+            ? null
+            : `${formatWinPercent(winPercent(entry))} won`
       }))
     : []
 )
@@ -118,6 +130,7 @@ const columns = computed<Column<RankingBoardEntry>[]>(() => {
       cols.push({ key: 'matches', label: 'Played', numeric: true, hideOnMobile: true })
     }
     cols.push({ key: 'record', label: 'W–L', numeric: true })
+    cols.push({ key: 'winpct', label: 'Win %', numeric: true })
   }
   return cols
 })
@@ -269,6 +282,10 @@ const tierName = (rating: number) => tierForRating(rating).name
             <span class="mx-1 text-fg-muted">–</span>
             <span class="font-semibold text-danger">{{ row.losses ?? 0 }}</span>
           </span>
+        </template>
+
+        <template #cell-winpct="{ row }">
+          <span class="tabular-nums text-fg">{{ formatWinPercent(winPercent(row)) }}</span>
         </template>
 
         <template #empty>

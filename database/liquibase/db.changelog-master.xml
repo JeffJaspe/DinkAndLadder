@@ -75,5 +75,6 @@
     <include file="068-subscription-rls-admin-only/068-subscription-rls-admin-only.changelog.xml" relativeToChangelogFile="true"/>
     <include file="069-match-history-default-public/069-match-history-default-public.changelog.xml" relativeToChangelogFile="true"/>
     <include file="070-player-social-links/070-player-social-links.changelog.xml" relativeToChangelogFile="true"/>
+    <include file="071-player-records-view/071-player-records-view.changelog.xml" relativeToChangelogFile="true"/>
 
 </databaseChangeLog>

@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- A ladder by results, beside the ladder by rating.
+
+     /rankings ranks on rating_value. Players also ask "who wins the most",
+     which is a different question with a different answer, and nothing could
+     answer it across the whole player base: a player's wins and losses only
+     existed as a per-profile aggregate (/players/:id/stats) or per event.
+
+     PostgREST has no GROUP BY, so the aggregate is a view. It counts one row
+     per player per match type over VERIFIED matches with a decided result —
+     the same population the rating engine moves on — and carries the public
+     profile columns the ladder filters and displays, so the query needs no
+     embed.
+
+     Visibility. A view runs with its owner's rights and therefore does not
+     see matches through RLS, which is the point (a public ladder must count
+     every verified match, not just the caller's). What it exposes is bounded
+     on purpose: counts only, never a match row, and only for profiles that are
+     already public — the same facts /players/:id/stats already publishes for
+     any public profile. security_invoker is deliberately off for that reason.
+
+     Not settled, and therefore not decided here: whether a win percentage
+     needs a minimum number of matches before it ranks. Final ranking
+     eligibility is an open product rule (CLAUDE.md §7); the view exposes the
+     raw counts and the service orders them, so the rule has one place to land. -->
+
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+    <changeSet id="0001-v-player-records" author="claude">
+        <sql splitStatements="false">
+            CREATE OR REPLACE VIEW public.v_player_records AS
+            SELECT
+                mp.player_id,
+                m.match_type,
+                p.display_name,
+                p.province,
+                p.city,
+                p.barangay,
+                count(*) FILTER (WHERE mp.result_status = 'won')::int  AS wins,
+                count(*) FILTER (WHERE mp.result_status = 'lost')::int AS losses,
+                count(*)::int                                          AS matches_played,
+                round(
+                    count(*) FILTER (WHERE mp.result_status = 'won')::numeric
+                    / count(*)::numeric * 100,
+                    1
+                )                                                      AS win_pct
+            FROM match_participants mp
+            JOIN matches m          ON m.id = mp.match_id
+            JOIN player_profiles p  ON p.id = mp.player_id
+            WHERE m.status = 'verified'
+              AND mp.result_status IN ('won', 'lost')
+              AND p.profile_visibility = 'public'
+            GROUP BY mp.player_id, m.match_type,
+                     p.display_name, p.province, p.city, p.barangay;
+
+            GRANT SELECT ON public.v_player_records TO anon, authenticated;
+        </sql>
+        <rollback>
+            DROP VIEW IF EXISTS public.v_player_records;
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

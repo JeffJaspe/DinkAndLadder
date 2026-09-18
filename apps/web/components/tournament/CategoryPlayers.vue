@@ -40,7 +40,12 @@ const emit = defineEmits<{
                opened somebody else. -->
           <span class="flex min-w-0 items-center gap-3">
             <NuxtLink :to="`/players/${reg.player_id}`" class="shrink-0">
-              <UiAvatar :name="reg.display_name" :identity-key="reg.player_id" size="sm" />
+              <UiAvatar
+                :name="reg.display_name"
+                :src="reg.avatar_url"
+                :identity-key="reg.player_id"
+                size="sm"
+              />
             </NuxtLink>
             <span class="min-w-0">
               <span class="block truncate text-sm font-medium text-fg">

@@ -81,3 +81,33 @@ export function toRankingEntryDto(
     trend_delta: trendDelta
   }
 }
+
+/**
+ * One row of the record ladder — the same filters as the rating ladder, read
+ * from `v_player_records` (071), which counts verified, decided matches per
+ * player per match type.
+ */
+export interface RecordRankingRow {
+  player_id: string
+  display_name: string
+  wins: number
+  losses: number
+  matches_played: number
+  /** 0–100, one decimal, as the view rounds it. */
+  win_pct: number
+  province: string | null
+  city: string | null
+  barangay: string | null
+}
+
+export interface RecordRankingEntryDto extends RecordRankingRow {
+  rank: number
+  rating_type: RatingType
+}
+
+export interface RecordRankingPageDto {
+  data: RecordRankingEntryDto[]
+  total: number
+  limit: number
+  offset: number
+}

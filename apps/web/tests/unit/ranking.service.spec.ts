@@ -21,11 +21,22 @@ function makeRow(
   }
 }
 
+/** The record ladder is not under test here; every fake carries an empty one. */
+const noRecords = {
+  async getRecordRankings() {
+    return []
+  },
+  async countRecordRankings() {
+    return 0
+  }
+}
+
 function fakeRepository(
   rows: RankingRow[],
   options?: { total?: number; deltas?: Record<string, number> }
 ): RankingRepository {
   return {
+    ...noRecords,
     async getRankings() {
       return rows
     },
@@ -129,6 +140,7 @@ describe('ranking.service', () => {
     const getTrendDeltas = vi.fn().mockResolvedValue(new Map())
     const rows = [makeRow({ player_id: 'a', rating_value: 5.0 })]
     const service = createRankingService({
+      ...noRecords,
       async getRankings() {
         return rows
       },
@@ -157,6 +169,7 @@ describe('ranking.service', () => {
     const getRankings = vi.fn().mockResolvedValue([])
     const countRankings = vi.fn().mockResolvedValue(0)
     const service = createRankingService({
+      ...noRecords,
       getRankings,
       countRankings,
       async getTrendDeltas() {
@@ -181,6 +194,7 @@ describe('ranking.service', () => {
   it('does not query deltas when the page is empty', async () => {
     const getTrendDeltas = vi.fn().mockResolvedValue(new Map())
     const service = createRankingService({
+      ...noRecords,
       async getRankings() {
         return []
       },

@@ -164,6 +164,8 @@ export interface TournamentRegistrationWithPlayerDto extends TournamentRegistrat
   display_name: string
   rating: number | null
   partner_display_name: string | null
+  /** The entrant's photo, resolved by the API layer; null means the identity avatar. */
+  avatar_url?: string | null
 }
 
 /**

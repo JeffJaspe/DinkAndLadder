@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { escapeLikePattern } from '../../shared/escape-like'
-import type { RankingQuery, RankingRow } from '../dto/ranking.dto'
+import type { RankingQuery, RankingRow, RecordRankingRow } from '../dto/ranking.dto'
 
 interface RankingJoinRow {
   player_id: string
@@ -34,6 +34,16 @@ export interface RankingRepository {
    * Players with no rated match in the window are absent from the map — that is
    * meaningfully different from a zero delta.
    */
+  /**
+   * The ladder by results, from v_player_records (071). Ordered by win
+   * percentage, then wins, then fewest matches — so of two players on the same
+   * percentage the one with more wins ranks higher, and of two with the same
+   * wins the one who lost less. No minimum-matches floor: that is an open
+   * ranking-eligibility rule, and it belongs in one place when it is decided.
+   */
+  getRecordRankings(query: RankingQuery): Promise<RecordRankingRow[]>
+  countRecordRankings(query: RankingQuery): Promise<number>
+
   getTrendDeltas(
     playerIds: string[],
     ratingType: RankingQuery['rating_type'],
@@ -70,6 +80,50 @@ export function createRankingRepository(client: SupabaseClient): RankingReposito
       const { count, error } = await builder
       if (error) throw error
       return count ?? 0
+    },
+
+    async countRecordRankings(query) {
+      let builder = client
+        .from('v_player_records')
+        .select('player_id', { count: 'exact', head: true })
+        .eq('match_type', query.rating_type)
+
+      if (query.province) builder = builder.eq('province', query.province)
+      if (query.city) builder = builder.eq('city', query.city)
+      if (query.barangay) builder = builder.eq('barangay', query.barangay)
+      if (query.q) builder = builder.ilike('display_name', `%${escapeLikePattern(query.q)}%`)
+
+      const { count, error } = await builder
+      if (error) throw error
+      return count ?? 0
+    },
+
+    async getRecordRankings(query) {
+      let builder = client
+        .from('v_player_records')
+        .select(
+          'player_id, display_name, wins, losses, matches_played, win_pct, province, city, barangay'
+        )
+        .eq('match_type', query.rating_type)
+
+      if (query.province) builder = builder.eq('province', query.province)
+      if (query.city) builder = builder.eq('city', query.city)
+      if (query.barangay) builder = builder.eq('barangay', query.barangay)
+      if (query.q) builder = builder.ilike('display_name', `%${escapeLikePattern(query.q)}%`)
+
+      const { data, error } = await builder
+        .order('win_pct', { ascending: false })
+        .order('wins', { ascending: false })
+        .order('matches_played', { ascending: true })
+        .order('display_name', { ascending: true })
+        .range(query.offset, query.offset + query.limit - 1)
+
+      if (error) throw error
+      return ((data ?? []) as unknown as RecordRankingRow[]).map((row) => ({
+        ...row,
+        // numeric comes back as a string through PostgREST.
+        win_pct: Number(row.win_pct)
+      }))
     },
 
     async getTrendDeltas(playerIds, ratingType, sinceIso) {

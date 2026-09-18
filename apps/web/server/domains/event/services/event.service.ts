@@ -144,7 +144,14 @@ export interface EventService {
   ): Promise<TournamentRegistrationDto>
   getRegistrations(tournamentId: string): Promise<TournamentRegistrationDto[]>
   /** Same list with player names resolved, for screens that show who entered. */
-  getRegistrationsWithPlayers(tournamentId: string): Promise<TournamentRegistrationWithPlayerDto[]>
+  /**
+   * Each row also carries the entrant's `avatar_path`. The service has no
+   * storage client, so turning it into a URL is the endpoint's job — the same
+   * split as PlayerProfileService and its AvatarUrlResolver.
+   */
+  getRegistrationsWithPlayers(
+    tournamentId: string
+  ): Promise<Array<TournamentRegistrationWithPlayerDto & { avatar_path: string | null }>>
   withdrawRegistration(playerId: string, registrationId: string): Promise<TournamentRegistrationDto>
   updateRegistrationStatus(
     playerId: string,
@@ -1075,7 +1082,8 @@ export function createEventService(
             fallbackType
           )
         ),
-        partner_display_name: record.partner_display_name
+        partner_display_name: record.partner_display_name,
+        avatar_path: record.avatar_path
       }))
     },
 
