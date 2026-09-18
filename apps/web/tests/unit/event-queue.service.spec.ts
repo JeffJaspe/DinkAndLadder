@@ -270,6 +270,45 @@ describe('EventQueueService', () => {
     })
 
     /**
+     * Your open-play partner is your DUO partner, not whoever else registered.
+     * Only enforced when the caller hands over a partnership lookup — the
+     * organiser paths that move existing entries do not.
+     */
+    it('rejects a registered player who is not a linked duo partner', async () => {
+      const registrationRepo = createFakeRegistrationRepository({
+        findByEventAndPlayer: vi.fn().mockResolvedValue(makeRegistration())
+      })
+      const service = createEventQueueService(
+        createFakeQueueRepository(),
+        registrationRepo,
+        createFakeEventRepository(),
+        { findPartnershipBetween: vi.fn().mockResolvedValue(null) }
+      )
+
+      await expect(
+        service.joinQueue('event-1', 'player-1', 'doubles', 'player-2')
+      ).rejects.toMatchObject({ code: 'NOT_DUO_PARTNER' })
+    })
+
+    it('accepts a registered duo partner', async () => {
+      const registrationRepo = createFakeRegistrationRepository({
+        findByEventAndPlayer: vi.fn().mockResolvedValue(makeRegistration())
+      })
+      const findPartnershipBetween = vi.fn().mockResolvedValue({ id: 'duo-1' })
+      const service = createEventQueueService(
+        createFakeQueueRepository(),
+        registrationRepo,
+        createFakeEventRepository(),
+        { findPartnershipBetween }
+      )
+
+      await expect(
+        service.joinQueue('event-1', 'player-1', 'doubles', 'player-2')
+      ).resolves.not.toThrow()
+      expect(findPartnershipBetween).toHaveBeenCalledWith('player-1', 'player-2')
+    })
+
+    /**
      * The defect this replaces: `match_type` came straight off the request
      * body and was never compared to the event's own `match_format`. A player
      * could enter a doubles session as a singles entry, and `matchNextPair`

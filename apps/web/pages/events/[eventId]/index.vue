@@ -999,15 +999,9 @@ const joiningQueue = ref(false)
 const leavingQueue = ref(false)
 const queueError = ref('')
 
-const availablePartners = computed(() => {
-  if (!registrationsData.value?.data) return []
-  return registrationsData.value.data.filter(
-    (r) => r.status !== 'withdrawn' && r.player_id !== myProfile.value?.id
-  )
-})
-
 /**
- * The reader's default duo, used only to pre-select the partner field below.
+ * The reader's default duo, which pre-selects the partner field below,
+ * and the full duo list, which is what the field offers.
  *
  * server: false because this is a signed-in-only preference that has no
  * bearing on the public render of the page.
@@ -1016,6 +1010,23 @@ const { data: myPartnersData } = useFetch<{ data: PartnerDto[] }>('/api/v1/playe
   server: false,
   default: () => ({ data: [] })
 })
+
+/**
+ * Who you can queue with: your linked duo partners who are registered for
+ * THIS session. The list used to be the whole roster, which read as "pick
+ * anyone" and let a player name a stranger as their partner. The service
+ * enforces the same rule (NOT_DUO_PARTNER).
+ */
+const availablePartners = computed(() => {
+  if (!registrationsData.value?.data) return []
+  const duo = new Set((myPartnersData.value?.data ?? []).map((p) => p.player_id))
+  return registrationsData.value.data.filter(
+    (r) => r.status !== 'withdrawn' && r.player_id !== myProfile.value?.id && duo.has(r.player_id)
+  )
+})
+
+/** Whether the reader has any duo partner at all, to say the right thing when the list is empty. */
+const hasAnyDuoPartner = computed(() => (myPartnersData.value?.data.length ?? 0) > 0)
 
 const defaultPartnerId = computed(
   () => myPartnersData.value?.data.find((partner) => partner.is_default)?.player_id ?? null
@@ -1591,8 +1602,18 @@ const { goBack } = useAppBack('/events')
       >
         <span>{{ publishUpsell.message }}</span>
         <span class="flex items-center gap-3">
-          <NuxtLink :to="publishUpsell.to" class="font-medium underline underline-offset-2" data-testid="limit-upsell">{{ publishUpsell.ctaLabel }}</NuxtLink>
-          <button type="button" class="text-warning/80 hover:text-warning" aria-label="Dismiss" @click="publishUpsell = null">
+          <NuxtLink
+            :to="publishUpsell.to"
+            class="font-medium underline underline-offset-2"
+            data-testid="limit-upsell"
+            >{{ publishUpsell.ctaLabel }}</NuxtLink
+          >
+          <button
+            type="button"
+            class="text-warning/80 hover:text-warning"
+            aria-label="Dismiss"
+            @click="publishUpsell = null"
+          >
             <UiIcon name="x" size="h-4 w-4" />
           </button>
         </span>
@@ -2600,7 +2621,18 @@ const { goBack } = useAppBack('/events')
                              to offer and the button below would fail with a
                              message that sounds like the player's fault. -->
                         <p v-if="!availablePartners.length" class="mt-1 text-caption text-fg-muted">
-                          Nobody else is registered yet.
+                          <template v-if="hasAnyDuoPartner">
+                            None of your duo partners is registered for this session.
+                          </template>
+                          <template v-else>
+                            Link a duo partner in
+                            <NuxtLink
+                              to="/community?tab=partners"
+                              class="text-primary hover:underline"
+                              >Community</NuxtLink
+                            >
+                            to queue for doubles.
+                          </template>
                         </p>
                       </div>
                       <button

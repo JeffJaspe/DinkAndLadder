@@ -100,7 +100,14 @@ async function assertOrganizer(events: EventRepository, eventId: string, playerI
 export function createEventQueueService(
   queue: EventQueueRepository,
   registrations: EventRegistrationRepository,
-  events: EventRepository
+  events: EventRepository,
+  /**
+   * Optional: when supplied, a doubles entry may only name a linked duo
+   * partner (Community → Partners), not any registered player. The join
+   * endpoint passes it; organiser paths that move existing entries do not
+   * need it.
+   */
+  partnerships?: { findPartnershipBetween(a: string, b: string): Promise<unknown | null> }
 ): EventQueueService {
   // Named rather than returned inline so matchNextPair can delegate to
   // matchEntries without depending on `this`, which a destructured service loses.
@@ -168,6 +175,18 @@ export function createEventQueueService(
           )
         }
         await assertRegistered(registrations, eventId, partnerId)
+
+        // Your partner for open play is your DUO partner — someone who has
+        // agreed to play with you — not whoever else happens to be registered.
+        // The picker used to offer the whole roster, which let a player queue
+        // a stranger as their partner without that person knowing.
+        if (partnerships && !(await partnerships.findPartnershipBetween(playerId, partnerId))) {
+          throw new EventQueueServiceError(
+            409,
+            'NOT_DUO_PARTNER',
+            'You can only queue with a linked duo partner. Link them in Community first.'
+          )
+        }
       }
 
       return queue.create({

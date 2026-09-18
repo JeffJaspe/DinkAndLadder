@@ -113,7 +113,7 @@ export function validateSocialHandle(network: SocialNetwork, handle: string | nu
     return `${meta.label} handles are at most ${meta.maxLength} characters.`
   }
   if (!meta.pattern.test(handle)) {
-    return `That does not look like a ${meta.label} username. Paste the profile link or type the username without spaces.`
+    return `That does not look like a valid ${meta.label} username. Paste the profile link or type the username without spaces.`
   }
   return null
 }

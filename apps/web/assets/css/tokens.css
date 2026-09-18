@@ -76,6 +76,16 @@
      5.36:1 as text and carries white at the same ratio as a badge fill. */
   --dnl-coach: 3 105 161; /* #0369A1 */
 
+  /* Social brand marks on a profile. Not part of the product palette and
+     never used for anything but the mark itself, at 20px on a chip — which is
+     large-object territory (3:1), so the official brand values stand. X and
+     TikTok are drawn in the theme ink: their marks are black, and black on a
+     dark canvas is invisible. */
+  --dnl-brand-facebook: 24 119 242; /* #1877F2 */
+  --dnl-brand-instagram: 228 64 95; /* #E4405F */
+  --dnl-brand-x: 15 26 21; /* = fg */
+  --dnl-brand-tiktok: 15 26 21; /* = fg */
+
   /* Ranked play's hue.
      Open play splits in two on the cards — a casual session and a ranked one
      are different commitments, and 'info' now marks only the casual half — so
@@ -247,6 +257,12 @@
   /* Vivid on a near-black canvas, and dark-labelled like every other fill in
      this theme — see the on-primary note above. */
   --dnl-coach: 125 211 252; /* #7DD3FC */
+
+  /* Brand marks, dark: the two black marks take the theme's ink. */
+  --dnl-brand-facebook: 66 141 255; /* lifted so it clears 3:1 on the dark card */
+  --dnl-brand-instagram: 240 98 125;
+  --dnl-brand-x: 255 255 255;
+  --dnl-brand-tiktok: 255 255 255;
 
   /* Ranked play — see the light block. #6D28D9 is 2.1:1 on a near-black card,
      so dark takes the light end of the violet ramp and labels it dark, like

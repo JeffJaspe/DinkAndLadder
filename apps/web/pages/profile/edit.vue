@@ -111,6 +111,13 @@ function tidySocial(network: SocialNetwork) {
   socialErrors[network] = validateSocialHandle(network, handle) ?? ''
 }
 
+const MARK: Record<SocialNetwork, string> = {
+  facebook: 'text-brand-facebook',
+  instagram: 'text-brand-instagram',
+  x: 'text-brand-x',
+  tiktok: 'text-brand-tiktok'
+}
+
 const hasFieldProblem = computed(
   () => !!bioPhoneWarning.value || SOCIAL_NETWORKS.some((n) => !!socialErrors[n])
 )
@@ -371,6 +378,17 @@ const VISIBILITY_OPTIONS = [
  */
 const fieldClass =
   'w-full rounded-button border border-border-strong bg-canvas px-4 py-2.5 text-body-1 text-fg placeholder-fg-muted transition-colors focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40 sm:text-body-2'
+
+/**
+ * The same field in its invalid state. A separate string rather than danger
+ * classes appended to `fieldClass`: `focus:ring-danger/40` and
+ * `focus:ring-primary/40` have equal specificity and whichever Tailwind emits
+ * later wins, which left the bio ringed green while its message was red.
+ */
+const fieldClassInvalid = fieldClass
+  .replace('border-border-strong', 'border-danger')
+  .replace('focus:border-primary', 'focus:border-danger')
+  .replace('focus:ring-primary/40', 'focus:ring-danger/40')
 </script>
 
 <template>
@@ -564,10 +582,7 @@ const fieldClass =
                 rows="3"
                 :maxlength="MAX_BIO_LENGTH"
                 placeholder="How you play, where you play, who you play with."
-                :class="[
-                  fieldClass,
-                  bioPhoneWarning ? 'border-danger focus:border-danger focus:ring-danger/40' : ''
-                ]"
+                :class="bioPhoneWarning ? fieldClassInvalid : fieldClass"
                 :aria-invalid="bioPhoneWarning ? 'true' : undefined"
                 :aria-describedby="bioPhoneWarning ? 'bio-phone' : undefined"
               />
@@ -601,13 +616,24 @@ const fieldClass =
               >
                 {{ SOCIAL_META[network].label }}
               </label>
-              <div class="relative">
+              <!-- The prefix is a real flex sibling, not an absolute overlay:
+                   the overlay needed a hand-measured left padding that came
+                   out wrong at phone type size, and "facebook.com/" ran under
+                   the typed username. A flex row cannot overlap. -->
+              <div
+                class="flex items-center overflow-hidden rounded-button border border-border-strong bg-canvas transition-colors focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/40"
+                :class="
+                  socialErrors[network]
+                    ? 'border-danger focus-within:border-danger focus-within:ring-danger/40'
+                    : ''
+                "
+              >
                 <span
-                  class="pointer-events-none absolute inset-y-0 left-0 flex items-center gap-1.5 pl-3 text-fg-muted"
+                  class="flex shrink-0 items-center gap-1.5 self-stretch border-r border-border bg-surface-2 pl-3 pr-2.5 text-body-2 text-fg-secondary"
                   aria-hidden="true"
                 >
-                  <UiSocialIcon :network="network" size="h-4 w-4" />
-                  <span class="text-body-2">{{ SOCIAL_META[network].prefix }}</span>
+                  <UiSocialIcon :network="network" size="h-4 w-4" :class="MARK[network]" />
+                  <span>{{ SOCIAL_META[network].prefix }}</span>
                 </span>
                 <input
                   :id="`social-${network}`"
@@ -616,14 +642,8 @@ const fieldClass =
                   autocomplete="off"
                   autocapitalize="none"
                   spellcheck="false"
-                  :placeholder="'username'"
-                  :class="[
-                    fieldClass,
-                    network === 'facebook' ? 'pl-[7.25rem]' : 'pl-11',
-                    socialErrors[network]
-                      ? 'border-danger focus:border-danger focus:ring-danger/40'
-                      : ''
-                  ]"
+                  placeholder="username"
+                  class="min-w-0 flex-1 bg-transparent px-3 py-2.5 text-body-1 text-fg placeholder-fg-muted focus:outline-none sm:text-body-2"
                   :aria-invalid="socialErrors[network] ? 'true' : undefined"
                   :aria-describedby="socialErrors[network] ? `social-${network}-error` : undefined"
                   @blur="tidySocial(network)"

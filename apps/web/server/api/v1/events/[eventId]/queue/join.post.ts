@@ -1,4 +1,5 @@
 import { serverSupabaseClient, serverSupabaseServiceRole } from '#supabase/server'
+import { createPartnershipRepository } from '~/server/domains/partnership/repositories/partnership.repository'
 import { createEventQueueRepository } from '~/server/domains/event/repositories/event-queue.repository'
 import { createEventRegistrationRepository } from '~/server/domains/event/repositories/event-registration.repository'
 import { createEventRepository } from '~/server/domains/event/repositories/event.repository'
@@ -57,7 +58,8 @@ export default defineEventHandler(async (event) => {
   const service = createEventQueueService(
     createEventQueueRepository(serviceClient),
     createEventRegistrationRepository(serviceClient),
-    createEventRepository(serviceClient)
+    createEventRepository(serviceClient),
+    createPartnershipRepository(serviceClient)
   )
 
   try {

@@ -90,6 +90,11 @@ export default {
 
         // Coaching's hue — see the tokens.css note on why it is not 'info'.
         coach: token('coach'),
+        // Social brand marks on a profile — see tokens.css.
+        'brand-facebook': token('brand-facebook'),
+        'brand-instagram': token('brand-instagram'),
+        'brand-x': token('brand-x'),
+        'brand-tiktok': token('brand-tiktok'),
 
         // Ranked open play's hue — 'info' now marks the casual half only.
         ranked: token('ranked'),

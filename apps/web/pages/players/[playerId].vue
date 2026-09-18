@@ -943,7 +943,12 @@ function formatActivityText(activity: ProfileActivity): string {
                 {{ [profile.city, profile.province].filter(Boolean).join(', ') }}
               </p>
               <p v-if="profile.bio" class="mt-2 text-sm text-fg-secondary">{{ profile.bio }}</p>
-              <PlayerSocialLinks class="mt-2 -ml-2" :links="profile" :name="profile.display_name" />
+              <PlayerSocialLinks
+                class="mt-3"
+                :links="profile"
+                :name="profile.display_name"
+                heading
+              />
             </div>
           </div>
 

@@ -9675,3 +9675,32 @@ Tests: `win-percent.spec.ts` (6). Unit 1705/1705, vue-tsc 0, ESLint 0.
 Verified the record podium on the E2E event's Scoreboard tab at 1280 and 390
 (no "Unrated" left). The record ladder itself 500s on dev until 071 lands
 ("relation v_player_records does not exist"); the rating ladder is unaffected.
+
+## 2026-09-18 — Queue partners are duo partners; social links readable
+
+**Open play queue.** The doubles partner picker offered the whole roster,
+which read as "pick anyone" and let a player queue a stranger as their
+partner. It now lists only the reader's linked duo partners (Community →
+Partners) who are registered for that session; the empty state says which
+of the two things is missing ("none of your duo partners is registered" vs.
+"link a duo partner in Community"). `EventQueueService` takes an optional
+partnership lookup and refuses a non-partner with `409 NOT_DUO_PARTNER`; the
+join endpoint passes it. Two service tests added.
+
+**Social links.** The editor's prefix ("facebook.com/", "@") was an
+absolute overlay over a hand-measured padding and ran under the typed
+username at phone type size; the prefix is a flex sibling now, and cannot
+overlap (measured: prefix right edge == input left edge at both widths).
+Invalid fields use a separate `fieldClassInvalid` so the danger ring wins
+over the focus ring (they had equal specificity). The public profile shows a
+**Social links** heading and one labelled chip per network — brand-coloured
+mark + network name, handle in the tooltip. Brand colours are four new
+tokens (`brand-facebook`, `brand-instagram`, `brand-x`, `brand-tiktok`) in
+both themes; X and TikTok are drawn in the theme's ink since their marks are
+black. Message grammar: "a valid X username".
+
+Unit 1707/1707, vue-tsc 0, ESLint 0, token check clean. Verified the editor
+section and the profile chips on dev (070 is live). **The tailwind config
+change needs a dev-server restart** — until then the marks render in ink,
+not brand colour. The queue picker could not be screenshotted: the test
+accounts have no duo partners and the demo doubles sessions are club-only.
