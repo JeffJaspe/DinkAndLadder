@@ -22,7 +22,9 @@ export interface ScheduleEntry {
 }
 
 export interface SchedulePartition {
-  /** Playable now: both slots filled, or already on court. */
+  /** Currently being played — started and no winner yet. */
+  ongoing: ScheduleEntry[]
+  /** Playable now: both slots filled, ready to start. */
   upNext: ScheduleEntry[]
   /** Waiting on a feeder result. */
   waiting: ScheduleEntry[]
@@ -40,7 +42,8 @@ export function flattenBracket(bracket: BracketDto | null): ScheduleEntry[] {
 export function partitionSchedule(bracket: BracketDto | null): SchedulePartition {
   const all = flattenBracket(bracket)
   return {
-    upNext: all.filter((e) => e.match.status === 'ready' || e.match.status === 'in_progress'),
+    ongoing: all.filter((e) => e.match.is_live),
+    upNext: all.filter((e) => (e.match.status === 'ready' || e.match.status === 'in_progress') && !e.match.is_live),
     waiting: all.filter((e) => e.match.status === 'pending'),
     done: all.filter((e) => e.match.status === 'completed' || e.match.status === 'bye')
   }
@@ -54,8 +57,8 @@ export function partitionSchedule(bracket: BracketDto | null): SchedulePartition
  * worse than pointing them at nothing.
  */
 export function nextMatch(bracket: BracketDto | null): ScheduleEntry | null {
-  const { upNext } = partitionSchedule(bracket)
-  return upNext.find((e) => e.match.status === 'in_progress') ?? upNext[0] ?? null
+  const { ongoing, upNext } = partitionSchedule(bracket)
+  return ongoing[0] ?? upNext[0] ?? null
 }
 
 /** "A. Cruz / M. Reyes", or "TBD" for a slot nothing has reached yet. */

@@ -1,6 +1,16 @@
 import { defineConfig, devices } from '@playwright/test'
 
+import { existsSync } from 'node:fs'
+
 const authState = (role: 'owner' | 'member') => `test-results/.auth/${role}.json`
+
+/**
+ * Outside test-results on purpose: Playwright empties that directory at the
+ * start of every run, which is fine for the minted test sessions (the setup
+ * project recreates them) and would silently delete a session a person made
+ * by hand. Gitignored at the repo root.
+ */
+const ORGANIZER_STATE = '.auth/organizer.json'
 
 export default defineConfig({
   testDir: './tests/e2e',
@@ -29,7 +39,12 @@ export default defineConfig({
     {
       name: 'owner',
       testMatch: /authed\//,
-      testIgnore: [/\.member\.spec\.ts$/, /authed\/mfa\.spec\.ts$/, /authed\/mobile-audit\.spec\.ts$/],
+      testIgnore: [
+        /\.member\.spec\.ts$/,
+        /\.organizer\.spec\.ts$/,
+        /authed\/mfa\.spec\.ts$/,
+        /authed\/mobile-audit\.spec\.ts$/
+      ],
       dependencies: ['setup'],
       use: { ...devices['Desktop Chrome'], storageState: authState('owner') }
     },
@@ -38,6 +53,19 @@ export default defineConfig({
       testMatch: /authed\/.*\.member\.spec\.ts/,
       dependencies: ['setup'],
       use: { ...devices['Desktop Chrome'], storageState: authState('member') }
+    },
+    // A real person's own account, signed in by that person. No setup step
+    // mints this session and nothing here may touch the account: the file is
+    // written by hand —
+    //   pnpm exec playwright codegen --save-storage=.auth/organizer.json http://localhost:3000/login
+    // — log in, close the window. Absent, the spec skips with that instruction.
+    {
+      name: 'organizer',
+      testMatch: /authed\/.*\.organizer\.spec\.ts/,
+      use: {
+        ...devices['Desktop Chrome'],
+        storageState: existsSync(ORGANIZER_STATE) ? ORGANIZER_STATE : undefined
+      }
     },
     // Every screen at phone width. Runs the owner session in a Chromium phone
     // emulation; the guest describe inside the spec drops the session itself.

@@ -9704,3 +9704,170 @@ section and the profile chips on dev (070 is live). **The tailwind config
 change needs a dev-server restart** — until then the marks render in ink,
 not brand colour. The queue picker could not be screenshotted: the test
 accounts have no duo partners and the demo doubles sessions are club-only.
+
+## 2026-09-18 — Organiser could not resume a live match after closing the browser
+
+**Reported:** as club owner, a tournament match started and being scored
+could not be continued after exiting or logging out — still LIVE, no way to
+score.
+
+**Cause.** The scoring controls hang off `canManageEvent`, which is
+"creator AND club mode". The mode lived in `account_mode` /
+`active_club_id` cookies created with no max-age — session cookies, gone
+when the browser closes. Back in, the organiser was in player mode: the row
+still said LIVE with the running score, and the +1 buttons and Save result
+simply were not there. Nothing on the page said why. (Could not reproduce on
+the reporting account on dev — its tournaments are the demo seed and it has
+no live match here — so this is from the code path; the mechanism was then
+demonstrated with the test owner account.)
+
+**Fix, two layers.**
+1. `useAccountMode` — both cookies get a one-year max-age (`sameSite: lax`).
+   A mode is a standing choice, not a tab's state.
+2. The event page shows a `role="status"` banner to a creator in the wrong
+   mode — "You run this event. Scoring, courts and the draw are in club
+   mode — you are in player mode." — with **Switch to club mode**, which
+   switches in place (no reload; the controls appear on the same screen).
+   Applies to open play and tournaments alike.
+
+Verified with the test owner in a fresh context (no mode cookie): banner
+present, End Event absent → click → banner gone, End Event present, cookie
+`account_mode=club` expiring 2027-09-18. Unit 1707/1707, vue-tsc 0, ESLint 0.
+
+## 2026-09-18 — Playwright: a live tournament match, as the organiser's own account
+
+`tests/e2e/authed/tournament-live.organizer.spec.ts`, new `organizer`
+project. Runs as a REAL account that the person signs in as themselves:
+`pnpm exec playwright codegen --save-storage=.auth/organizer.json http://localhost:3000/login`,
+log in, close the window. `.auth/` is gitignored and sits outside
+`test-results/` (which Playwright empties every run). Nothing in the harness
+may mint that session: the existing `signInAs` rotates the password and wipes
+MFA, which is fine for the two disposable test accounts and unacceptable for
+somebody's login — so no admin-API shortcut was added, on purpose.
+
+The test finds a tournament with a live bracket match (the account's own
+first), opens it in club mode, and asserts: the scoreboard says "On court
+now" with a LIVE pill; the wrong-mode banner is absent; View category opens
+the card; the live row is labelled LIVE; and — if the account created the
+event — the row carries "Add a point for …" and "Save result". For someone
+else's tournament it asserts those controls are absent. Skips with the reason
+when the session file is missing or nothing is live.
+
+Dry-run with the test owner's session standing in (not the organiser → the
+"controls absent" branch): 1/1 passed against dev. Without a session file the
+project reports 1 skipped.
+
+## 2026-09-18 — Open play scoring: the number is the button; courts advance themselves
+
+**Audit.** Organiser scoring on open play was a link from the round feed to
+a per-court page, where the score sat above a row of four small controls:
+read the number, find the right +1 under it, hit a 40px target one-handed in
+sun. And "the next pair goes on automatically" was only half true:
+`matchNextPair` assigned the pair (queue status matched) but the court
+stayed free until the organiser pressed Start a game and picked both sides
+again — the same pairing done twice at the desk.
+
+**Built.**
+- `EventCourtCard` (organiser, in play): a vs board. Each side is one large
+  tap target carrying its own score — tap the 7 and it is 8 — `stat-lg`→`xl`
+  on the board, `xl`→`court` on the per-court page; measured 135×104px on a
+  phone, 204×120 on the board at desktop. −1 is small and beneath (the rare
+  correction). The dash and the game chip sit between; rules chip, deuce
+  note, per-game history and a full-width Submit follow. An `aria-live`
+  sentence reads the score for a screen reader since the numbers live in
+  buttons. Spectators keep the read-only score.
+- `EventLiveBoard`: in club mode, every court in play renders as a board at
+  the top, in court order (courts do not re-sort, which was the reason
+  scoring had been moved off the feed), full width for one court and two-up
+  from `xl`. The round feed stays as the record; its link is now "Open court
+  on its own screen".
+- `courts/:id/submit`: after pairing the next two, the court is started with
+  them (`startCourt` accepts `matched` entries). Verified on dev with two
+  queued players behind a live court: submit → court `playing` at 0–0 with
+  the new pair, no Start step, no warnings.
+
+Unit 1707/1707, vue-tsc 0, ESLint 0. Board and per-court page captured at
+1280 and 390; a tap on the board moved the score.
+
+## 2026-09-18 — Club staff run events: the page gate matched the creator only
+
+**Reported:** "can't edit score — it's reading player access even in club
+mode." Right diagnosis. The server has always admitted three parties to run
+an event (`assertCanRunEvent`: creator, appointed co-organiser, active
+OWNER/ADMIN/MODERATOR of the hosting club). The event page's gate recognised
+only the creator (in club mode) and co-organisers, so a club admin on a
+tournament a colleague created got the player view — no Start, no scoring —
+however hard they switched modes. And for tournaments the API was narrower
+still: `BracketService` refused everyone but the creator and co-organisers,
+so even a widened page would have hit 403 on every bracket write.
+
+**Fix.**
+- `EventRepository.isClubStaff(eventId, playerId)` (optional, like
+  `isCoOrganizer`): active staff role in the hosting club. `BracketService`'s
+  `assertEventOrganizer` and `isOrganizer` accept it — the same three parties
+  as open play. Test added: refused with staff=false, allowed with staff=true.
+- `composables/useEventRunner.ts` — the rule in one place for the client:
+  creator / co-organiser / club staff, the club-mode condition on top,
+  `lockedOut` for the wrong-mode banner, `resumeAsClub`. The event page and
+  the per-court scoring page use it; each had hand-rolled its own (the event
+  page's was the one missing staff; the score page's was creator-only).
+  `matches.vue` keeps its deliberately creator-only rule (shared screen).
+
+Verified on dev with the test member promoted to ADMIN of the test club (and
+restored afterwards): player mode → banner, no controls; club mode → End
+Event and both +1 targets present, and a score PATCH as that admin accepted.
+Unit 1708/1708, vue-tsc 0, ESLint 0.
+
+## 2026-09-18 — Mode/tier audit; Draw leads the category card
+
+**Audit of what depends on club vs player mode and on the tier.**
+
+Mode is two cookies (`account_mode`, `active_club_id`; now one-year). It
+decides: the sidebar (club nav vs player nav), the Events page's scope (the
+active club's events incl. drafts vs the public listing with location
+filters), Create Club/Create Event affordances, the draft-event view, the
+player-profile action (invite to club vs player actions), the feed's player-
+only block, `/community` (player-only middleware → `/feed`), and the
+organiser gate on the event and per-court pages (creator or hosting-club
+staff must be in club mode; co-organisers are exempt). Switching player→club
+changes nothing about the person's own rating, matches or memberships;
+club→player drops every organiser control and scopes Events back to the
+public listing. `active_club_id` can be absent with mode=club (cleared
+storage); the Events page falls back to the first club the account helps
+run and writes it back.
+
+Tier rules, server (authoritative): staff = OWNER/ADMIN/MODERATOR run
+events (courts, and now brackets), review join requests, post announcements,
+see rosters; admin = OWNER/ADMIN create events, edit the club, branding,
+billing, waive fees, promote/demote; OWNER alone requests verification.
+
+**Two inconsistencies found and fixed.**
+1. The account switcher only listed clubs where the person is OWNER/ADMIN,
+   so a **MODERATOR could never enter club mode** — the mode the product
+   requires for the one thing the server lets them do (run a court/draw).
+   `resumeAsClub` on the wrong-mode banner would also have put a moderator
+   into a club mode the switcher could not name. The switcher now lists
+   staff clubs and shows the tier under each club's name.
+2. In club mode, the Events page showed **Create Event to everyone**, so a
+   moderator got a button that failed with NOT_CLUB_ADMIN. It now requires
+   the admin tier for the active club. The club-mode scope fallback includes
+   staff clubs.
+`utils/club-roles.ts` holds the two groupings; `useEventRunner`, the
+switcher and the Events page read it.
+
+**Category card opens on the draw.** Once a category has a draw, Draw is the
+first tab and the one selected; before that Players leads (the roster is
+the whole story). A draw generated while the card is open moves an untouched
+card onto it.
+
+Verified on dev with the test member as MODERATOR of the test club (restored
+after): switcher row "Claude Test Club 4 / Moderator"; Events page in club
+mode shows no Create Event; the event page in club mode shows End Event and
+both +1 targets; the demo category opens on Draw with tabs Draw · Players ·
+Matches · Schedule. Unit 1708/1708, vue-tsc 0, ESLint 0.
+
+**Left as is, noted:** `matches.vue` (the shared-screen page) is creator-only
+by design; club-mode club pages (settings, billing) still gate by role
+individually, which is correct — a moderator in club mode sees them and gets
+a read-only or refused view rather than being hidden. Worth a later pass to
+hide what the tier cannot use.

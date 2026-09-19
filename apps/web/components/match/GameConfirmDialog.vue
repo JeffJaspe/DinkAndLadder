@@ -61,7 +61,7 @@ const winnerName = computed(() => props.teams[winningSide.value - 1].join(' / ')
         :key="side"
         :class="[
           side === 2 ? 'order-3' : '',
-          'rounded-card border p-3 text-center',
+          'min-w-[8rem] rounded-card border p-3 text-center',
           winningSide === side
             ? 'border-primary bg-primary-soft'
             : 'border-border bg-surface-2 text-fg-muted'

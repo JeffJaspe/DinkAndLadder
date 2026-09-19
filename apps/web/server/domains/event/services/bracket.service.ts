@@ -92,6 +92,8 @@ export interface BracketService {
     bracketMatchId: string,
     scores: LiveBracketScore[]
   ): Promise<BracketMatchDto>
+  /** Ends live scoring mode by clearing started_at. Keeps the live_score data. */
+  endBracketLive(playerId: string, bracketMatchId: string): Promise<BracketMatchDto>
   recordMatchResult(
     playerId: string,
     bracketMatchId: string,
@@ -205,14 +207,20 @@ export function createBracketService(
     if (!event) {
       throw new BracketServiceError(404, 'NOT_FOUND', 'Event not found.')
     }
+    // Creator, an appointed co-organiser, or the hosting club's staff — the
+    // same three parties `assertCanRunEvent` lets run an open play court. A
+    // club admin who did not personally create the tournament was refused
+    // here while the page (correctly) let them in, which read as "can't score
+    // even in club mode".
     if (
       event.created_by_player_id !== playerId &&
-      !(await events.isCoOrganizer?.(eventId, playerId))
+      !(await events.isCoOrganizer?.(eventId, playerId)) &&
+      !(await events.isClubStaff?.(eventId, playerId))
     ) {
       throw new BracketServiceError(
         403,
         'FORBIDDEN',
-        'Only the event organizer or a co-organiser can manage brackets.'
+        'Only the organiser, a co-organiser or the hosting club’s staff can manage brackets.'
       )
     }
     return event
@@ -258,7 +266,8 @@ export function createBracketService(
     const event = await events.findById(eventId)
     if (!event) return false
     if (event.created_by_player_id === playerId) return true
-    return (await events.isCoOrganizer?.(eventId, playerId)) ?? false
+    if (await events.isCoOrganizer?.(eventId, playerId)) return true
+    return (await events.isClubStaff?.(eventId, playerId)) ?? false
   }
 
   /**
@@ -362,12 +371,14 @@ export function createBracketService(
       category_id: string | null
       singles_rating: number | null
       doubles_rating: number | null
+      partner_singles_rating?: number | null
+      partner_doubles_rating?: number | null
     }
   >(
     rows: T[],
     tournamentId: string,
     tournamentMatchType: TournamentMatchType
-  ): Promise<Array<T & { rating: number | null }>> {
+  ): Promise<Array<T & { rating: number | null; partner_rating: number | null }>> {
     const byCategory = new Map<string, { match_type: TournamentMatchType | null }>()
     // Only worth asking at all when some row actually belongs to a category.
     if (categories && rows.some((row) => row.category_id)) {
@@ -376,16 +387,23 @@ export function createBracketService(
       }
     }
 
-    return rows.map((row) => ({
-      ...row,
-      rating: resolveEntrantRating(
-        row,
-        resolveMatchType(
-          row.category_id ? (byCategory.get(row.category_id) ?? null) : null,
-          tournamentMatchType
-        )
+    return rows.map((row) => {
+      const matchType = resolveMatchType(
+        row.category_id ? (byCategory.get(row.category_id) ?? null) : null,
+        tournamentMatchType
       )
-    }))
+      return {
+        ...row,
+        rating: resolveEntrantRating(row, matchType),
+        partner_rating: resolveEntrantRating(
+          {
+            singles_rating: row.partner_singles_rating ?? null,
+            doubles_rating: row.partner_doubles_rating ?? null
+          },
+          matchType
+        )
+      }
+    })
   }
 
   /**
@@ -710,6 +728,32 @@ export function createBracketService(
       // result is actually recorded.
       const updated = await brackets.setLiveScore(bracketMatchId, {
         live_score: scores,
+        live_score_updated_at: new Date().toISOString()
+      })
+
+      return toBracketMatchDto(updated)
+    },
+
+    async endBracketLive(playerId, bracketMatchId) {
+      const bracketMatch = await brackets.findById(bracketMatchId)
+      if (!bracketMatch) {
+        throw new BracketServiceError(404, 'NOT_FOUND', 'Bracket match not found.')
+      }
+
+      const tournament = await tournaments.findById(bracketMatch.tournament_id)
+      if (!tournament) {
+        throw new BracketServiceError(404, 'NOT_FOUND', 'Tournament not found.')
+      }
+      await assertEventOrganizer(playerId, tournament.event_id)
+
+      if (!bracketMatch.started_at) {
+        throw new BracketServiceError(409, 'NOT_STARTED', 'Match is not currently live.')
+      }
+
+      // Clear started_at to end live mode, but keep the live_score data
+      // so it can be used to populate the final result
+      const updated = await brackets.setLiveScore(bracketMatchId, {
+        started_at: null,
         live_score_updated_at: new Date().toISOString()
       })
 
@@ -1477,6 +1521,7 @@ function indexParticipants(
     display_name: string
     rating: number | null
     partner_display_name: string | null
+    partner_rating?: number | null
   }>
 ): Map<string, BracketParticipantDto> {
   return new Map(
@@ -1487,6 +1532,7 @@ function indexParticipants(
         display_name: entrant.display_name,
         rating: entrant.rating,
         partner_display_name: entrant.partner_display_name,
+        partner_rating: entrant.partner_rating ?? null,
         // Carried through so a name on the draw can link to its profile.
         player_id: entrant.player_id ?? null,
         partner_player_id: entrant.partner_player_id ?? null

@@ -75,6 +75,8 @@ export interface TournamentRegistrationRepository {
         singles_rating: number | null
         doubles_rating: number | null
         partner_display_name: string | null
+        partner_singles_rating: number | null
+        partner_doubles_rating: number | null
         /** Bucket-relative; the API layer turns it into a URL. */
         avatar_path: string | null
       }
@@ -267,7 +269,7 @@ export function createTournamentRegistrationRepository(
              id, display_name, avatar_path, player_ratings ( rating_type, rating_value )
            ),
            partner:player_profiles!fk_tournament_registrations_partner (
-             id, display_name
+             id, display_name, player_ratings ( rating_type, rating_value )
            )`
         )
         .eq('tournament_id', tournamentId)
@@ -282,7 +284,10 @@ export function createTournamentRegistrationRepository(
           avatar_path?: string | null
           player_ratings?: Array<{ rating_type: string; rating_value: number | null }> | null
         } | null
-        partner?: { display_name?: string | null } | null
+        partner?: {
+          display_name?: string | null
+          player_ratings?: Array<{ rating_type: string; rating_value: number | null }> | null
+        } | null
       }
 
       return ((data ?? []) as unknown as JoinedRow[]).map(({ player, partner, ...row }) => ({
@@ -293,6 +298,10 @@ export function createTournamentRegistrationRepository(
         doubles_rating:
           player?.player_ratings?.find((r) => r.rating_type === 'doubles')?.rating_value ?? null,
         partner_display_name: partner?.display_name ?? null,
+        partner_singles_rating:
+          partner?.player_ratings?.find((r) => r.rating_type === 'singles')?.rating_value ?? null,
+        partner_doubles_rating:
+          partner?.player_ratings?.find((r) => r.rating_type === 'doubles')?.rating_value ?? null,
         avatar_path: player?.avatar_path ?? null
       }))
     },

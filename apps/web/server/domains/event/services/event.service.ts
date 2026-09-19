@@ -1072,19 +1072,28 @@ export function createEventService(
         }
       }
 
-      return records.map((record) => ({
-        ...toTournamentRegistrationDto(record),
-        display_name: record.display_name,
-        rating: resolveEntrantRating(
-          record,
-          resolveMatchType(
-            record.category_id ? (byCategory.get(record.category_id) ?? null) : null,
-            fallbackType
-          )
-        ),
-        partner_display_name: record.partner_display_name,
-        avatar_path: record.avatar_path
-      }))
+      return records.map((record) => {
+        const matchType = resolveMatchType(
+          record.category_id ? (byCategory.get(record.category_id) ?? null) : null,
+          fallbackType
+        )
+        return {
+          ...toTournamentRegistrationDto(record),
+          display_name: record.display_name,
+          rating: resolveEntrantRating(record, matchType),
+          partner_display_name: record.partner_display_name,
+          partner_rating: record.partner_display_name
+            ? resolveEntrantRating(
+                {
+                  singles_rating: record.partner_singles_rating ?? null,
+                  doubles_rating: record.partner_doubles_rating ?? null
+                },
+                matchType
+              )
+            : null,
+          avatar_path: record.avatar_path
+        }
+      })
     },
 
     async withdrawRegistration(playerId, registrationId) {

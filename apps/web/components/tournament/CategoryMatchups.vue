@@ -59,6 +59,7 @@ const emit = defineEmits<{
   undo: []
   'set-locked': [locked: boolean]
   'select-player': [playerId: string]
+  'match-click': [matchId: string, canManage: boolean]
 }>()
 
 /**
@@ -367,6 +368,7 @@ const decidingPhase = computed<BracketPhase | null>(() => {
             :status-config="matchStatusConfig"
             :champion="champion"
             :show-champion="entry.phase === decidingPhase"
+            @match-click="(id) => emit('match-click', id, canManage)"
           />
 
           <p v-if="entry.phase === 'losers'" class="mt-2 text-xs text-fg-muted">
@@ -380,7 +382,7 @@ const decidingPhase = computed<BracketPhase | null>(() => {
       <details v-if="isPreview && seedPreview.length" class="rounded-xl bg-canvas p-4">
         <summary class="cursor-pointer text-sm text-fg-muted hover:text-fg">
           {{ seedPreview.length }} confirmed
-          {{ seedPreview.length === 1 ? 'entrant' : 'entrants' }}, in registration order
+          {{ seedPreview.length === 1 ? 'entry' : 'entries' }}, in registration order
         </summary>
         <ol class="mt-3 space-y-1.5">
           <li

@@ -38,12 +38,15 @@ const props = defineProps<{
   category?: TournamentCategoryDto | null
   recording?: boolean
   recordError?: string
+  /** True while the end-live request is in flight. */
+  endingLive?: boolean
 }>()
 
 const emit = defineEmits<{
   record: [bracketMatchId: string, input: RecordBracketResultInput]
   start: [bracketMatchId: string]
   score: [bracketMatchId: string, scores: LiveBracketScore[]]
+  endLive: [bracketMatchId: string]
 }>()
 
 const expanded = ref(false)
@@ -453,13 +456,47 @@ function submit() {
            Deliberately above the result form — a match is played before it is
            written down, and the live score is what the room is watching. -->
       <div v-if="canStart" class="flex items-center gap-2">
-        <UiButton size="sm" variant="secondary" @click="emit('start', match.id)">
-          Start match
+        <UiButton size="sm" variant="primary" @click="emit('start', match.id)">
+          Start Live Now
         </UiButton>
         <span class="text-xs text-fg-muted">Opens a live scoreboard for spectators.</span>
       </div>
 
-      <div v-if="isLive && canManage" class="space-y-2 rounded-lg bg-surface p-3">
+      <!-- LIVE SCORING SECTION -->
+      <div
+        v-if="isLive && canManage"
+        class="space-y-3 rounded-xl border-2 p-4 transition-all duration-300"
+        :class="endingLive ? 'border-border bg-surface opacity-60' : 'border-danger/40 bg-danger/5'"
+      >
+        <div class="flex items-center justify-between">
+          <h4 class="flex items-center gap-2 text-sm font-bold" :class="endingLive ? 'text-fg-muted' : 'text-danger'">
+            <span
+              class="inline-flex items-center gap-1.5 rounded-pill px-2 py-0.5 text-xs font-bold uppercase text-white transition-colors"
+              :class="endingLive ? 'bg-fg-muted' : 'bg-danger'"
+            >
+              <span
+                v-if="!endingLive"
+                class="h-1.5 w-1.5 animate-pulse rounded-full bg-white"
+              />
+              <span v-else class="h-1.5 w-1.5 rounded-full bg-white/50" />
+              {{ endingLive ? 'Ending...' : 'Live' }}
+            </span>
+            Live Scoring
+          </h4>
+          <button
+            type="button"
+            :disabled="endingLive"
+            class="rounded-lg border-2 px-4 py-1.5 text-xs font-bold uppercase tracking-wide transition-all duration-150 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+            :class="
+              endingLive
+                ? 'border-fg-muted bg-fg-muted text-white'
+                : 'border-danger bg-danger text-white shadow-md hover:bg-danger-hover hover:shadow-lg'
+            "
+            @click="emit('endLive', match.id)"
+          >
+            {{ endingLive ? 'Ending...' : 'End Live' }}
+          </button>
+        </div>
         <div class="grid grid-cols-[1fr_auto] items-center gap-2">
           <span class="min-w-0 truncate text-sm text-fg">{{ side1 }}</span>
           <span class="flex items-center gap-1.5">
@@ -529,28 +566,42 @@ function submit() {
         />
       </div>
 
-      <!-- Organiser: write down what happened. This is the only path that links
-           a slot to a played match.
+      <!-- FINAL RESULT SECTION - Organiser: write down what happened -->
+      <div v-if="canRecord" class="mt-3">
+        <div
+          class="space-y-3 rounded-xl border-2 p-4"
+          :class="isLive ? 'border-border bg-surface-2' : 'border-primary/30 bg-primary/5'"
+        >
+          <div class="flex items-center justify-between">
+            <h4
+              class="flex items-center gap-2 text-sm font-bold"
+              :class="isLive ? 'text-fg-muted' : 'text-primary'"
+            >
+              <UiIcon name="check" size="h-4 w-4" />
+              {{ isLive ? 'Final Result (auto-filled from live)' : 'Record Final Result' }}
+            </h4>
+            <span v-if="!isLive" class="rounded-badge bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
+              Enter scores manually
+            </span>
+          </div>
 
-           Always on screen, never behind a "Record result" button. The sheet is
-           where the score of the match being played is read, and hiding it
-           meant the organiser scoring a live game could not see what they were
-           accumulating without pressing a button that implied the match was
-           over. It also fills itself in as each game is confirmed, so by the
-           time the match ends there is usually nothing left to type. -->
-      <div v-if="canRecord">
-        <div class="space-y-3 rounded-lg bg-surface p-3">
+          <p v-if="!isLive" class="text-xs text-fg-muted">
+            Add the scores if the match is already decided (not using live scoring).
+          </p>
+          <p v-else class="text-xs text-fg-muted">
+            Scores are copied from live scoring. End live to edit manually, or save result when match is complete.
+          </p>
+
           <!-- The paper score sheet, same component as match submission and the
                match view — one row per side, one column per game, the winner
-               marked on the row. It replaces three hard-coded "Set" rows that
-               ignored the category's format and let the organiser name a winner
-               the score did not support. -->
+               marked on the row. -->
           <MatchScoreSheet
             v-model:games="games"
             :teams="[[side1], [side2]]"
             :rules="rules"
             :result-type="resultType"
             :explicit-winner="explicitWinner"
+            :readonly="isLive"
           />
 
           <div class="flex flex-wrap items-end gap-4">
@@ -558,8 +609,8 @@ function submit() {
               <span class="text-xs text-fg-secondary">How did it end?</span>
               <select
                 v-model="resultType"
-                :disabled="!canSetResultType"
-                :title="canSetResultType ? undefined : 'Available once the match is under way.'"
+                :disabled="!canSetResultType || isLive"
+                :title="isLive ? 'End live scoring first' : (canSetResultType ? undefined : 'Available once the match is under way.')"
                 class="rounded-lg border border-border-strong bg-canvas px-3 py-1.5 text-sm text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <option value="normal">Played out</option>

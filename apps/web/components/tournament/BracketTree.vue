@@ -36,6 +36,10 @@ const props = defineProps<{
   showChampion?: boolean
 }>()
 
+const emit = defineEmits<{
+  'match-click': [matchId: string]
+}>()
+
 const ordered = computed(() => [...props.rounds].sort((a, b) => a.round - b.round))
 
 const grid = computed(() => bracketGridRows(ordered.value.map((r) => r.matches.length)))
@@ -74,9 +78,10 @@ const championPlayers = computed(() => {
 </script>
 
 <template>
-  <div class="scroll-x">
+  <!-- Extra padding so the champion glow isn't clipped by the scroll container -->
+  <div class="scroll-x -mx-4 px-4">
     <div
-      class="bracket-tree flex items-stretch pb-4"
+      class="bracket-tree flex items-stretch py-8 pr-8"
       :class="grid.connected ? 'bracket-tree--connected' : ''"
       :style="{ '--rows': grid.rows }"
     >
@@ -99,7 +104,7 @@ const championPlayers = computed(() => {
             class="bracket-node"
             :style="{ gridRow: `span ${column.span}` }"
           >
-            <BracketMatchCard :match="match" :status-config="statusConfig" dense />
+            <BracketMatchCard :match="match" :status-config="statusConfig" dense @click="emit('match-click', $event)" />
           </div>
         </div>
       </div>
@@ -109,28 +114,50 @@ const championPlayers = computed(() => {
            bracket reads as leading somewhere. -->
       <div
         v-if="showChampion"
-        class="bracket-champion flex min-w-[12rem] flex-col justify-center pl-2"
+        class="bracket-champion flex min-w-[14rem] items-center justify-center pl-4"
       >
         <div
-          class="rounded-xl border-2 p-4 text-center"
+          class="relative rounded-2xl border-2 px-5 py-6 text-center"
           :class="
             hasChampion
-              ? 'border-primary bg-primary/10'
+              ? 'champion-glow border-yellow-400 bg-gradient-to-br from-yellow-50 via-amber-50 to-orange-50 dark:from-yellow-900/30 dark:via-amber-900/20 dark:to-orange-900/20'
               : 'border-dashed border-border-strong bg-canvas'
           "
         >
-          <UiIcon name="trophy" size="h-7 w-7" class="mx-auto text-primary" />
-          <p class="mt-2 text-xs font-semibold uppercase tracking-wide text-fg-muted">Champion</p>
-          <p
+          <div
             v-if="hasChampion"
-            class="mt-1 flex flex-wrap items-center justify-center gap-x-1.5 gap-y-1 break-words text-sm font-semibold text-fg"
+            class="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-gradient-to-r from-yellow-400 via-amber-400 to-orange-400 px-3 py-1 text-xs font-bold uppercase tracking-wider text-white shadow-lg"
+          >
+            Winner
+          </div>
+          <UiIcon
+            name="trophy"
+            size="h-10 w-10"
+            :class="hasChampion ? 'mx-auto text-yellow-500 drop-shadow-lg' : 'mx-auto text-fg-muted'"
+          />
+          <p
+            class="mt-3 text-xs font-bold uppercase tracking-widest"
+            :class="hasChampion ? 'text-amber-600 dark:text-amber-400' : 'text-fg-muted'"
+          >
+            Champion
+          </p>
+          <div
+            v-if="hasChampion"
+            class="mt-3 flex flex-col items-center gap-1"
           >
             <template v-for="(player, i) in championPlayers" :key="player.id ?? i">
-              <span v-if="i > 0" class="text-fg-muted">/</span>
-              <UiPlayerLink :player-id="player.id" :name="player.name" avatar avatar-size="xs" />
+              <div class="flex items-center gap-1.5">
+                <UiPlayerLink
+                  :player-id="player.id"
+                  :name="player.name"
+                  avatar
+                  avatar-size="sm"
+                  class="text-base font-bold text-fg"
+                />
+              </div>
             </template>
-          </p>
-          <p v-else class="mt-1 text-sm text-fg-muted">To be decided</p>
+          </div>
+          <p v-else class="mt-2 text-sm text-fg-muted">To be decided</p>
         </div>
       </div>
     </div>
@@ -223,5 +250,30 @@ const championPlayers = computed(() => {
   top: 0;
   width: var(--elbow);
   border-top: var(--line) solid rgb(var(--dnl-border-strong));
+}
+
+/* Champion card glow animation */
+.champion-glow {
+  box-shadow:
+    0 0 20px rgba(251, 191, 36, 0.4),
+    0 0 40px rgba(251, 191, 36, 0.2),
+    0 0 60px rgba(251, 191, 36, 0.1);
+  animation: champion-pulse 2s ease-in-out infinite;
+}
+
+@keyframes champion-pulse {
+  0%,
+  100% {
+    box-shadow:
+      0 0 20px rgba(251, 191, 36, 0.4),
+      0 0 40px rgba(251, 191, 36, 0.2),
+      0 0 60px rgba(251, 191, 36, 0.1);
+  }
+  50% {
+    box-shadow:
+      0 0 30px rgba(251, 191, 36, 0.6),
+      0 0 60px rgba(251, 191, 36, 0.4),
+      0 0 90px rgba(251, 191, 36, 0.2);
+  }
 }
 </style>

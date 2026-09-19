@@ -231,6 +231,7 @@ function makeRegistrationRecord(
     singles_rating: rating ?? null,
     doubles_rating: rating ?? null,
     partner_display_name: null,
+    partner_rating: null,
     ...rest
   }
 }
@@ -451,6 +452,62 @@ describe('BracketService', () => {
     // not hold a place — the vacancy counts on the tournament page already
     // assume exactly that. Seeding them meant a category could read "full"
     // while the bracket contained people nobody had approved.
+    /**
+     * The hosting club's staff run the tournament the way they run a court
+     * (assertCanRunEvent). The service only ever admitted the creator and
+     * a co-organiser, so a club admin who did not personally create the event
+     * was refused every bracket write while the page let them in.
+     */
+    it('lets the hosting club’s staff manage the bracket', async () => {
+      const event = makeEventRecord({ created_by_player_id: 'someone-else' })
+      const tournament = makeTournamentRecord({ status: 'open' })
+      const registrations = [
+        makeRegistrationRecord('reg-1', 'player-1'),
+        makeRegistrationRecord('reg-2', 'player-2')
+      ]
+      const bracketRepo = createFakeBracketRepository({
+        createMany: vi.fn().mockImplementation((matches) =>
+          Promise.resolve(
+            matches.map((m: BracketMatchRecord, i: number) => ({
+              ...m,
+              id: `bm-${i + 1}`,
+              created_at: '2026-08-01T00:00:00Z'
+            }))
+          )
+        ),
+        deleteByTournamentId: vi.fn().mockResolvedValue(undefined)
+      })
+      const tournamentRepo = createFakeTournamentRepository({
+        findById: vi.fn().mockResolvedValue(tournament)
+      })
+      const registrationRepo = createFakeRegistrationRepository({
+        findByTournamentIdWithPlayers: vi.fn().mockResolvedValue(registrations)
+      })
+
+      const refused = createBracketService(
+        bracketRepo,
+        tournamentRepo,
+        registrationRepo,
+        createFakeEventRepository({
+          findById: vi.fn().mockResolvedValue(event),
+          isClubStaff: vi.fn().mockResolvedValue(false)
+        })
+      )
+      await expect(refused.generateBracket('club-admin', 'tournament-1')).rejects.toMatchObject({
+        status: 403
+      })
+
+      const isClubStaff = vi.fn().mockResolvedValue(true)
+      const allowed = createBracketService(
+        bracketRepo,
+        tournamentRepo,
+        registrationRepo,
+        createFakeEventRepository({ findById: vi.fn().mockResolvedValue(event), isClubStaff })
+      )
+      await expect(allowed.generateBracket('club-admin', 'tournament-1')).resolves.toBeTruthy()
+      expect(isClubStaff).toHaveBeenCalledWith('event-1', 'club-admin')
+    })
+
     it('seeds confirmed registrations only, ignoring pending ones', async () => {
       const registrations = [
         makeRegistrationRecord('reg-1', 'player-1'),
@@ -595,6 +652,7 @@ describe('BracketService', () => {
         display_name: 'Ana Cruz',
         rating: 4.25,
         partner_display_name: 'Bea Lim',
+        partner_rating: null,
         // Ids ride along so a name on a draw can link to its profile.
         player_id: 'player-1',
         partner_player_id: 'player-1b'

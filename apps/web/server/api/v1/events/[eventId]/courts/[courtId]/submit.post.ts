@@ -136,6 +136,17 @@ export default defineEventHandler(async (event) => {
       eventRepo
     )
     nextUp = await queueService.matchNextPair(profile.id, eventId, court.court_number)
+
+    // ...and straight onto the court. `matchNextPair` only ASSIGNS the pair
+    // (queue status "matched", court number stamped); the court itself stayed
+    // free until somebody pressed Start a game and picked both sides again —
+    // so "the next pair goes on automatically" was a queue fact, not a
+    // scoreboard one, and the desk did the same pairing twice. The court now
+    // starts with them, and the organiser's next tap is a point.
+    await courtService.startCourt(courtId, {
+      team1_queue_id: nextUp.first.id,
+      team2_queue_id: nextUp.second.id
+    })
   } catch (err) {
     // Nothing waiting is the ordinary case at the end of a session, not a
     // failure worth surfacing as an error. The service says so with

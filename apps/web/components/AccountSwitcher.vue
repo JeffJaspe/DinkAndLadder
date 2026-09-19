@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { MyClubMembershipDto } from '~/server/domains/club/dto/club-membership.dto'
+import { CLUB_ROLE_LABELS, isClubStaffRole } from '~/utils/club-roles'
 
 const { accountMode, activeClubId, switchToClub, switchToPlayer } = useAccountMode()
 const open = ref(false)
@@ -13,11 +14,14 @@ const { data: clubsData } = await useFetch<{ items: MyClubMembershipDto[] }>('/a
   default: () => ({ items: [] })
 })
 
+/**
+ * Every club this person helps run — owner, admin or moderator. Moderators
+ * were missing, which left them unable to enter the mode the product requires
+ * for the one thing the server lets them do: run a court or a draw.
+ */
 const adminClubs = computed(
   () =>
-    clubsData.value?.items?.filter(
-      (m) => m.status === 'active' && (m.role === 'OWNER' || m.role === 'ADMIN')
-    ) ?? []
+    clubsData.value?.items?.filter((m) => m.status === 'active' && isClubStaffRole(m.role)) ?? []
 )
 
 const activeClub = computed(
@@ -40,9 +44,7 @@ const inClubMode = computed(() => accountMode.value === 'club')
  * button — was too easy to do by accident and gave no sign of what had changed.
  */
 type PendingSwitch =
-  | { kind: 'player' }
-  | { kind: 'club'; clubId: string; clubName: string }
-  | { kind: 'create-club' }
+  { kind: 'player' } | { kind: 'club'; clubId: string; clubName: string } | { kind: 'create-club' }
 
 const pending = ref<PendingSwitch | null>(null)
 
@@ -155,7 +157,11 @@ function onBlur(e: FocusEvent) {
       @click="open = !open"
     >
       <span class="flex min-w-0 items-center gap-2">
-        <UiIcon :name="inClubMode ? 'clubs' : 'user'" size="h-4 w-4" class="shrink-0 text-primary" />
+        <UiIcon
+          :name="inClubMode ? 'clubs' : 'user'"
+          size="h-4 w-4"
+          class="shrink-0 text-primary"
+        />
         <span class="min-w-0">
           <span class="block text-caption uppercase tracking-widest text-fg-muted">
             {{ inClubMode ? 'Club mode' : 'Player mode' }}
@@ -171,7 +177,9 @@ function onBlur(e: FocusEvent) {
       role="menu"
       class="absolute bottom-full left-0 z-20 mb-2 w-full overflow-hidden rounded-button border border-border-strong bg-surface shadow-card-hover"
     >
-      <p class="border-b border-border px-3 py-2 text-caption uppercase tracking-widest text-fg-muted">
+      <p
+        class="border-b border-border px-3 py-2 text-caption uppercase tracking-widest text-fg-muted"
+      >
         Act as
       </p>
 
@@ -205,7 +213,13 @@ function onBlur(e: FocusEvent) {
         "
       >
         <UiIcon name="clubs" size="h-4 w-4" class="shrink-0" />
-        <span class="flex-1 truncate">{{ membership.club.name }}</span>
+        <span class="min-w-0 flex-1">
+          <span class="block truncate">{{ membership.club.name }}</span>
+          <!-- The tier, so what club mode will let you do here is not a surprise. -->
+          <span class="block text-caption text-fg-muted">{{
+            CLUB_ROLE_LABELS[membership.role ?? ''] ?? ''
+          }}</span>
+        </span>
         <UiIcon
           v-if="inClubMode && activeClubId === membership.club.id"
           name="check"

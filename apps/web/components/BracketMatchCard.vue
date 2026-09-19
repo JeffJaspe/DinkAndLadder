@@ -23,6 +23,17 @@ const props = defineProps<{
   dense?: boolean
 }>()
 
+const emit = defineEmits<{
+  click: [matchId: string]
+}>()
+
+const isLive = computed(() => props.match.is_live)
+
+const currentGame = computed(() => {
+  const scores = props.match.live_score ?? []
+  return scores.length > 0 ? scores[scores.length - 1] : { team1_score: 0, team2_score: 0 }
+})
+
 /**
  * A slot is one of three things: an entrant, a slot whose feeder has not
  * finished, or — in a doubles category — a pair. `getBracket` hydrates the
@@ -82,14 +93,28 @@ const showRatings = computed(() => !orderedScores.value.length)
 </script>
 
 <template>
-  <div
-    class="rounded-lg border"
+  <component
+    :is="isLive ? 'button' : 'div'"
+    class="rounded-lg border text-left"
     :class="[
-      statusConfig[match.status]?.bg,
-      statusConfig[match.status]?.border,
+      isLive ? 'cursor-pointer ring-2 ring-danger/50 bg-danger/5' : statusConfig[match.status]?.bg,
+      isLive ? 'border-danger/30' : statusConfig[match.status]?.border,
       dense ? 'p-2' : 'p-3'
     ]"
+    @click="isLive && emit('click', match.id)"
   >
+    <!-- LIVE indicator with current score -->
+    <div v-if="isLive" class="mb-2 flex items-center justify-between">
+      <span
+        class="inline-flex items-center gap-1.5 rounded-pill bg-danger px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-white"
+      >
+        <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-white" aria-hidden="true" />
+        Live
+      </span>
+      <span class="text-sm font-bold tabular-nums text-fg">
+        {{ currentGame.team1_score }}<span class="mx-1 text-fg-muted">-</span>{{ currentGame.team2_score }}
+      </span>
+    </div>
     <div v-for="(entry, index) in rows" :key="index">
       <!-- The separator sits between the two rows, never above the first. -->
       <div v-if="index > 0 && !dense" class="my-1 text-center text-xs text-fg-muted">vs</div>
@@ -100,8 +125,9 @@ const showRatings = computed(() => !orderedScores.value.length)
         :class="entry.isWinner ? 'bg-primary-soft' : 'bg-canvas'"
       >
         <span class="min-w-0 flex-1">
+          <!-- Player 1 with rating -->
           <span
-            class="block truncate text-sm"
+            class="flex items-center gap-1.5 truncate text-sm"
             :class="entry.isWinner ? 'font-semibold text-fg' : 'font-medium text-fg'"
           >
             <UiPlayerLink
@@ -111,15 +137,30 @@ const showRatings = computed(() => !orderedScores.value.length)
               avatar
               avatar-size="xs"
             />
+            <UiRatingBadge
+              v-if="showRatings && entry.participant?.rating != null"
+              :rating="entry.participant.rating"
+              size="sm"
+              :show-tier="false"
+            />
           </span>
+          <!-- Partner (player 2) with rating - no "with", just stacked -->
           <span
             v-if="entry.participant?.partner_display_name"
-            class="block truncate text-xs text-fg-muted"
+            class="mt-0.5 flex items-center gap-1.5 truncate text-sm"
+            :class="entry.isWinner ? 'font-semibold text-fg' : 'font-medium text-fg'"
           >
-            with
             <UiPlayerLink
               :player-id="entry.participant.partner_player_id"
               :name="entry.participant.partner_display_name"
+              avatar
+              avatar-size="xs"
+            />
+            <UiRatingBadge
+              v-if="showRatings && entry.participant?.partner_rating != null"
+              :rating="entry.participant.partner_rating"
+              size="sm"
+              :show-tier="false"
             />
           </span>
         </span>
@@ -134,13 +175,6 @@ const showRatings = computed(() => !orderedScores.value.length)
         >
           {{ score }}
         </span>
-
-        <UiRatingBadge
-          v-if="showRatings && entry.participant?.rating != null"
-          :rating="entry.participant.rating"
-          size="sm"
-          :show-tier="false"
-        />
         <!--
           W and L, both of them, in a fixed-width cell.
 
@@ -172,5 +206,5 @@ const showRatings = computed(() => !orderedScores.value.length)
     <div v-if="!dense" class="mt-2 text-center">
       <span class="text-xs capitalize text-fg-muted">{{ match.status.replace('_', ' ') }}</span>
     </div>
-  </div>
+  </component>
 </template>

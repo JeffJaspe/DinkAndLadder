@@ -15,6 +15,7 @@ function participant(name: string): BracketParticipantDto {
     display_name: name,
     rating: null,
     partner_display_name: null,
+    partner_rating: null,
     player_id: null,
     partner_player_id: null
   }
@@ -294,11 +295,11 @@ describe('BracketTree', () => {
       global: { components: { BracketMatchCard }, stubs: { UiRatingBadge: true, UiIcon: true } }
     })
 
-    // Both halves, in order, separated. Matched loosely on whitespace because
-    // the pair is no longer one text node: each name is its own UiPlayerLink so
-    // it can be tapped, and the space between them is now a flex gap rather
-    // than a character.
-    expect(wrapper.text().replace(/\s+/g, '')).toContain('Ana/Ben')
+    // Both names, each in their own UiPlayerLink. The pairs sit vertically
+    // stacked in a flex column now, not on one line with a separator.
+    const text = wrapper.text()
+    expect(text).toContain('Ana')
+    expect(text).toContain('Ben')
   })
 
   // A losers draw crowns nobody, so two panels must never appear at once.

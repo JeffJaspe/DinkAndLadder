@@ -24,8 +24,6 @@ const route = useRoute()
 const eventId = computed(() => route.params.eventId as string)
 const courtId = computed(() => route.params.courtId as string)
 
-const { isClubMode } = useAccountMode()
-
 // GET /api/v1/events/:id returns the DTO itself, not a { data } envelope -
 // unlike its /courts and /queue siblings, which do. This page read
 // `eventData.value.data`, so `event` was ALWAYS null, so `canManage` was always
@@ -43,16 +41,10 @@ const { data: profileData } = await useFetch<{ id: string } | null>('/api/v1/pla
 const myProfile = computed(() => profileData.value ?? null)
 
 /**
- * The same gate the event page uses: ownership AND club mode. An owner browsing
- * in player mode is a participant everywhere else, and must be here too.
+ * The same gate the event page uses — creator or hosting-club staff in club
+ * mode, or a co-organiser — from the one composable that holds it.
  */
-const canManage = computed(
-  () =>
-    !!myProfile.value &&
-    !!event.value &&
-    event.value.created_by_player_id === myProfile.value.id &&
-    isClubMode.value
-)
+const { canManage } = useEventRunner(eventId, event, myProfile)
 
 const { courts, refresh: refreshCourts, lastUpdated } = useLiveScores(eventId)
 
@@ -60,6 +52,15 @@ const court = computed(() => courts.value.find((c) => c.id === courtId.value) ??
 
 /** The session's scoring rules. See 054 — open play used to be 11 or nothing. */
 const rules = computed(() => rulesForEvent(event.value))
+
+/** Human-readable scoring format for display. */
+const rulesLabel = computed(() => {
+  const r = rules.value
+  const parts: string[] = [`First to ${r.targetPoints}`]
+  if (r.winByTwo) parts.push('win by 2')
+  if (r.bestOf > 1) parts.push(`best of ${r.bestOf}`)
+  return parts.join(', ')
+})
 
 const busy = ref(false)
 
@@ -86,7 +87,10 @@ function queueEntryLabel(entry: EventQueueDto): string {
 }
 
 const queueOptions = computed(() =>
-  waitingEntries.value.map((entry) => ({ value: entry.id, label: queueEntryLabel(entry) }))
+  waitingEntries.value.map((entry, index) => ({
+    value: entry.id,
+    label: `#${index + 1} — ${queueEntryLabel(entry)}`
+  }))
 )
 
 const team1 = ref('')
@@ -191,6 +195,9 @@ useHead(() => ({
             {{ event?.name ?? 'Event' }}
           </NuxtLink>
           <span v-if="lastUpdated"> · updated {{ lastUpdated.toLocaleTimeString() }}</span>
+        </p>
+        <p class="mt-1 text-caption text-fg-secondary">
+          {{ rulesLabel }}
         </p>
       </div>
 

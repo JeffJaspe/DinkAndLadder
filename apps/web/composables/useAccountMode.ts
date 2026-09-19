@@ -7,9 +7,29 @@ export type AccountMode = 'player' | 'club'
  * onboarding.post.ts — both the player and club onboarding paths create the same
  * player_profiles row), so this is purely a client-side navigation concept.
  */
+/**
+ * How long the mode is remembered.
+ *
+ * Without a max-age these were SESSION cookies, and a session cookie dies with
+ * the browser — so an organiser who closed the tab mid-tournament came back in
+ * player mode, where the scoring controls on their own live match do not exist,
+ * and read it as the match being locked. A year: the mode is a standing choice
+ * about how this person uses the product, and the switcher is always one click
+ * away.
+ */
+const MODE_COOKIE_MAX_AGE = 60 * 60 * 24 * 365
+
 export function useAccountMode() {
-  const accountMode = useCookie<AccountMode>('account_mode', { default: () => 'player' })
-  const activeClubId = useCookie<string | null>('active_club_id', { default: () => null })
+  const accountMode = useCookie<AccountMode>('account_mode', {
+    default: () => 'player',
+    maxAge: MODE_COOKIE_MAX_AGE,
+    sameSite: 'lax'
+  })
+  const activeClubId = useCookie<string | null>('active_club_id', {
+    default: () => null,
+    maxAge: MODE_COOKIE_MAX_AGE,
+    sameSite: 'lax'
+  })
 
   /**
    * The organiser half of the product lives behind this.

@@ -59,6 +59,8 @@ export interface BracketParticipantDto {
   rating: number | null
   /** Doubles only; null for a singles entrant. */
   partner_display_name: string | null
+  /** Doubles only; the partner's rating, so both team members show their rating. */
+  partner_rating: number | null
   /**
    * Who these names belong to, so a bracket slot can link to a profile.
    *

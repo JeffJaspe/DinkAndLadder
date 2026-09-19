@@ -43,6 +43,7 @@ function entrant(name: string, partner: string | null = null) {
     display_name: name,
     rating: null,
     partner_display_name: partner,
+    partner_rating: null,
     player_id: null,
     partner_player_id: null
   }
@@ -97,14 +98,14 @@ describe('bracket-schedule', () => {
   })
 
   describe('nextMatch', () => {
-    it('prefers a match already on court over one merely ready', () => {
+    it('prefers a live match over one merely ready', () => {
       const result = nextMatch(
         bracket([
           {
             round: 1,
             matches: [
               match({ id: 'ready', status: 'ready', position: 1 }),
-              match({ id: 'on-court', status: 'in_progress', position: 2 })
+              match({ id: 'on-court', status: 'in_progress', is_live: true, position: 2 })
             ]
           }
         ])

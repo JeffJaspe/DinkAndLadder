@@ -48,7 +48,15 @@ export default defineEventHandler(async (event) => {
 
   try {
     const club = await branding.clearImage(profile.id, clubId, slot)
-    return { data: club, message: 'Image removed', request_id: crypto.randomUUID() }
+    // Resolve the remaining image paths to URLs (the cleared slot is now null).
+    const existing = await createClubRepository(serviceClient).findById(clubId)
+    const resolved = existing
+      ? await branding.withImageUrls(club, {
+          cover: existing.cover_photo_path,
+          logo: existing.logo_path
+        })
+      : club
+    return { data: resolved, message: 'Image removed', request_id: crypto.randomUUID() }
   } catch (err) {
     if (err instanceof ClubBrandingServiceError) throw apiError(err.status, err.code, err.message)
     console.error(`[DELETE /api/v1/clubs/${clubId}/images/${slot}] failed:`, err)

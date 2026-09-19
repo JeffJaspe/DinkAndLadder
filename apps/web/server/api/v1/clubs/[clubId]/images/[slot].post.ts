@@ -71,7 +71,17 @@ export default defineEventHandler(async (event) => {
       contentType: file.type ?? 'application/octet-stream',
       bytes: file.data
     })
-    return { data: club, message: 'Image updated', request_id: crypto.randomUUID() }
+    // Resolve the storage paths to URLs so the client sees the new image
+    // immediately. The upload writes the path; toClubDto leaves URL fields
+    // null; this fills them in the same way the GET endpoint does.
+    const existing = await createClubRepository(serviceClient).findById(clubId)
+    const resolved = existing
+      ? await branding.withImageUrls(club, {
+          cover: existing.cover_photo_path,
+          logo: existing.logo_path
+        })
+      : club
+    return { data: resolved, message: 'Image updated', request_id: crypto.randomUUID() }
   } catch (err) {
     if (err instanceof ClubBrandingServiceError) throw apiError(err.status, err.code, err.message)
     console.error(`[POST /api/v1/clubs/${clubId}/images/${slot}] failed:`, err)

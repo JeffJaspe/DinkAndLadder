@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { EventDto } from '~/server/domains/event/dto/event.dto'
+import { isClubAdminRole, isClubStaffRole } from '~/utils/club-roles'
 import type { EventKindFilter } from '~/utils/event-type'
 import type { MyClubMembershipDto } from '~/server/domains/club/dto/club-membership.dto'
 
@@ -15,7 +16,18 @@ const router = useRouter()
 // Events are created by clubs, not by players — the create affordance only
 // appears in club mode. Switching account mode is how a player gets there.
 const { isClubMode, activeClubId } = useAccountMode()
-const canCreateEvent = isClubMode
+/**
+ * Creating an event is an owner's or admin's action (event.service refuses a
+ * moderator with NOT_CLUB_ADMIN). Club mode alone used to show the button to
+ * everyone in it, so a moderator got a Create Event that failed on submit.
+ */
+const canCreateEvent = computed(
+  () =>
+    isClubMode.value &&
+    (myClubsData.value?.items ?? []).some(
+      (m) => m.club.id === resolvedClubId.value && m.status === 'active' && isClubAdminRole(m.role)
+    )
+)
 const createEventLink = computed(() =>
   activeClubId.value ? `/create-event?club=${activeClubId.value}` : '/create-event'
 )
@@ -183,7 +195,7 @@ const { data: myClubsData } = await useFetch<{ items: MyClubMembershipDto[] }>(
 
 const adminClubIds = computed(() =>
   (myClubsData.value?.items ?? [])
-    .filter((m) => m.status === 'active' && (m.role === 'OWNER' || m.role === 'ADMIN'))
+    .filter((m) => m.status === 'active' && isClubStaffRole(m.role))
     .map((m) => m.club.id)
 )
 

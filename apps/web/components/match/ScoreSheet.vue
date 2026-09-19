@@ -90,6 +90,18 @@ function setScore(index: number, side: 1 | 2, raw: string) {
   )
   emit('update:games', next as GameScore[])
 }
+
+/** "G2" reads fine with a neighbour; alone it is just "Score" — see the header. */
+function gameLabel(index: number): string {
+  return props.games.length === 1 ? 'score' : `game ${index + 1}`
+}
+
+/** Names only, joined for an aria-label. A side can be a doubles pair of objects. */
+function sideLabel(side: 1 | 2): string {
+  return playerLines(props.teams[side - 1])
+    .map((p) => p.name)
+    .join(' and ')
+}
 </script>
 
 <template>
@@ -105,9 +117,19 @@ function setScore(index: number, side: 1 | 2, raw: string) {
           <th
             v-for="(_, i) in games"
             :key="`h-${i}`"
-            class="w-16 pb-2 text-center text-caption uppercase tracking-wider text-fg-muted"
+            class="pb-2 text-center text-caption uppercase tracking-wider text-fg-muted"
+            :class="readonly ? 'w-16' : 'w-28'"
           >
-            {{ games.length === 1 ? 'Score' : `G${i + 1}` }}
+            <span class="inline-flex items-center gap-1.5">
+              <!-- The one column still open for entry, so the eye lands on it
+                   without reading every header. -->
+              <span
+                v-if="!readonly && i === liveIndex"
+                class="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-warning"
+                aria-hidden="true"
+              />
+              {{ games.length === 1 ? 'Score' : `G${i + 1}` }}
+            </span>
           </th>
           <th class="w-16 pb-2 text-center text-caption uppercase tracking-wider text-fg-muted">
             Result
@@ -120,7 +142,7 @@ function setScore(index: number, side: 1 | 2, raw: string) {
                line is the first thing to be truncated in a narrow column, and a
                cut-off name is the same problem as showing an id. -->
           <td
-            class="border border-r-0 border-border bg-canvas px-3 py-2.5 align-middle"
+            class="relative border border-r-0 border-border bg-canvas px-3 py-2.5 align-middle"
             :class="side === 1 ? 'rounded-tl-card border-b-0' : 'rounded-bl-card'"
           >
             <div
@@ -138,6 +160,21 @@ function setScore(index: number, side: 1 | 2, raw: string) {
             <div v-if="subtitles" class="mt-0.5 text-caption text-fg-muted">
               {{ subtitles[side - 1] }}
             </div>
+
+            <!-- The two rows are one match, not two entries in a list. A small
+                 VS mark sits on the hairline between them — filled in, mid-game
+                 or read back after the fact — so the sheet reads as a
+                 head-to-head at a glance instead of a spreadsheet of names. -->
+            <span
+              v-if="side === 1"
+              class="pointer-events-none absolute inset-x-0 -bottom-2.5 z-10 flex justify-center"
+            >
+              <span
+                class="rounded-pill border border-border-strong bg-surface px-1.5 py-0.5 text-[10px] font-bold uppercase leading-none tracking-widest text-fg-muted shadow-card"
+              >
+                vs
+              </span>
+            </span>
           </td>
 
           <td
@@ -146,6 +183,7 @@ function setScore(index: number, side: 1 | 2, raw: string) {
             class="border border-r-0 border-border text-center align-middle"
             :class="[
               side === 1 ? 'border-b-0' : '',
+              readonly ? 'w-16' : 'w-28',
               {
                 'bg-canvas': cellState(i, side) === 'idle',
                 'bg-warning-soft': cellState(i, side) === 'live',
@@ -161,23 +199,20 @@ function setScore(index: number, side: 1 | 2, raw: string) {
             >
               {{ scoreFor(i, side) ?? '–' }}
             </span>
-            <input
-              v-else
-              type="number"
-              inputmode="numeric"
-              min="0"
-              max="99"
-              :value="scoreFor(i, side) ?? ''"
-              :disabled="!isGameLive(games, i, rules)"
-              :aria-label="`${teams[side - 1].join(' and ')}, game ${i + 1}`"
-              :title="
-                isGameLive(games, i, rules)
-                  ? undefined
-                  : 'The match was already won before this game.'
-              "
-              class="w-full bg-transparent px-1 py-3 text-center font-mono text-lg font-bold tabular-nums text-fg outline-none focus:ring-2 focus:ring-primary disabled:cursor-not-allowed disabled:text-fg-muted"
-              @input="setScore(i, side, ($event.target as HTMLInputElement).value)"
-            />
+
+            <!-- Steppers, not a bare number field: typing a score courtside,
+                 one-handed, is the app's highest-friction input (docs/33 §5.7).
+                 A tap the thumb cannot miss beats a keyboard the wind is
+                 fighting, and it makes an invalid score unreachable rather than
+                 merely rejected. -->
+            <div v-else class="flex justify-center px-1 py-1.5">
+              <UiStepper
+                :model-value="scoreFor(i, side) ?? 0"
+                :disabled="!isGameLive(games, i, rules)"
+                :label="`${sideLabel(side)}, ${gameLabel(i)}`"
+                @update:model-value="setScore(i, side, String($event))"
+              />
+            </div>
           </td>
 
           <td

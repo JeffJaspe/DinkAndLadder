@@ -33,32 +33,38 @@ export default defineEventHandler(async (event) => {
     throw apiError(400, 'VALIDATION_ERROR', 'Bracket match ID is required.')
   }
 
-  type ScoreBody = { scores?: unknown }
+  type ScoreBody = { scores?: unknown; end_live?: boolean }
   const body: ScoreBody = (await readBody<ScoreBody>(event).catch(() => undefined)) ?? {}
 
-  if (!Array.isArray(body.scores)) {
-    throw apiError(400, 'VALIDATION_ERROR', 'scores must be an array of games.')
-  }
+  // Handle end_live request - clears started_at to stop live mode
+  const endLive = body.end_live === true
 
-  const scores: LiveBracketScore[] = []
-  for (const raw of body.scores) {
-    const game = raw as Record<string, unknown>
-    if (
-      typeof game?.game_number !== 'number' ||
-      typeof game?.team1_score !== 'number' ||
-      typeof game?.team2_score !== 'number'
-    ) {
-      throw apiError(
-        400,
-        'VALIDATION_ERROR',
-        'Each game needs game_number, team1_score and team2_score.'
-      )
+  let scores: LiveBracketScore[] | null = null
+  if (!endLive) {
+    if (!Array.isArray(body.scores)) {
+      throw apiError(400, 'VALIDATION_ERROR', 'scores must be an array of games.')
     }
-    scores.push({
-      game_number: game.game_number,
-      team1_score: game.team1_score,
-      team2_score: game.team2_score
-    })
+
+    scores = []
+    for (const raw of body.scores) {
+      const game = raw as Record<string, unknown>
+      if (
+        typeof game?.game_number !== 'number' ||
+        typeof game?.team1_score !== 'number' ||
+        typeof game?.team2_score !== 'number'
+      ) {
+        throw apiError(
+          400,
+          'VALIDATION_ERROR',
+          'Each game needs game_number, team1_score and team2_score.'
+        )
+      }
+      scores.push({
+        game_number: game.game_number,
+        team1_score: game.team1_score,
+        team2_score: game.team2_score
+      })
+    }
   }
 
   const client = await serverSupabaseClient(event)
@@ -78,7 +84,12 @@ export default defineEventHandler(async (event) => {
   )
 
   try {
-    const bracketMatch = await service.updateBracketLiveScore(profile.id, bracketMatchId, scores)
+    let bracketMatch
+    if (endLive) {
+      bracketMatch = await service.endBracketLive(profile.id, bracketMatchId)
+    } else {
+      bracketMatch = await service.updateBracketLiveScore(profile.id, bracketMatchId, scores!)
+    }
     return { data: bracketMatch, request_id: crypto.randomUUID() }
   } catch (err) {
     if (err instanceof BracketServiceError) throw apiError(err.status, err.code, err.message)

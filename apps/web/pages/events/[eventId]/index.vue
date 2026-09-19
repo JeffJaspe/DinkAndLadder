@@ -134,34 +134,17 @@ const {
 
 const isRegistered = computed(() => !!myRegistration.value)
 
-/** The person who made the event. The only one who may delete it or change its co-organisers. */
-const isCreator = computed(
-  () =>
-    !!myProfile.value && !!event.value && event.value.created_by_player_id === myProfile.value.id
-)
-
-/** A friend the creator appointed to run the event alongside them. */
-const isCoOrganizer = computed(
-  () => !!myProfile.value && coOrganizers.value.some((c) => c.player_id === myProfile.value!.id)
-)
-
-/** Creator or co-organiser. Almost nothing should branch on this directly — see below. */
-const isOrganizer = computed(() => isCreator.value || isCoOrganizer.value)
-
 /**
- * The gate every organiser control hangs off.
- *
- * Ownership alone is not enough: running an event is club-mode work. In player
- * mode the owner sees exactly what any other player sees — register, the player
- * list, the bracket, the matches — and no way to publish, edit, delete, add a
- * tournament, or drive the queue. That is why the participant branches below
- * test `!canManageEvent` rather than `!isOrganizer`: an owner in player mode is,
- * for every purpose on this screen, a participant.
+ * Creator / co-organiser / hosting-club staff, and the club-mode gate on top —
+ * one rule, shared with the per-court scoring page. See useEventRunner.
  */
-// A co-organiser is exempt from the club-mode rule: they were appointed as a
-// person, may belong to no club at all, and so may have no club mode to enter.
-// Their delegated role IS the mode.
-const canManageEvent = computed(() => (isCreator.value && isClubMode.value) || isCoOrganizer.value)
+const {
+  isCreator,
+  isOrganizer,
+  canManage: canManageEvent,
+  lockedOut: organizerLockedOut,
+  resumeAsClub
+} = useEventRunner(eventId, event, myProfile, { coOrganizers })
 
 /**
  * Starting and ending a session.
@@ -558,8 +541,26 @@ const latestResult = computed<FeaturedMatch | null>(() => {
   }
 })
 
-const featuredMatch = computed<FeaturedMatch | null>(
-  () => liveMatches.value[0] ?? latestResult.value
+/** Manual override to show a different live match on the board. */
+const featuredMatchId = ref<string | null>(null)
+
+const featuredMatch = computed<FeaturedMatch | null>(() => {
+  // If there's a manual selection and it's still live, use it
+  if (featuredMatchId.value) {
+    const selected = liveMatches.value.find((m) => m.id === featuredMatchId.value)
+    if (selected) return selected
+  }
+  return liveMatches.value[0] ?? latestResult.value
+})
+
+/** Swap to show a different live match on the main board. */
+function swapFeaturedMatch(matchId: string) {
+  featuredMatchId.value = matchId
+}
+
+/** Other live matches excluding the currently featured one. */
+const otherLiveMatchesFiltered = computed(() =>
+  liveMatches.value.filter((m) => m.id !== featuredMatch.value?.id)
 )
 
 /** Nothing to feature until the draw has said what is live. */
@@ -587,9 +588,6 @@ function viewCategory(categoryId: string | null) {
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
   element.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'start' })
 }
-
-/** The other live matches, for one line of links under the board. */
-const otherLiveMatches = computed(() => liveMatches.value.slice(1))
 
 /** "Ana Garcia / Ben Cruz", for the also-live line. */
 function boardSideLabel(match: BoxScoreMatch, side: 1 | 2): string {
@@ -1659,6 +1657,23 @@ const { goBack } = useAppBack('/events')
       </div>
 
       <template v-else-if="event">
+        <!-- The organiser in the wrong mode. Persistent while it applies; the
+             action switches mode in place, so a live match resumes on this
+             same screen without a reload. -->
+        <div
+          v-if="organizerLockedOut"
+          role="status"
+          class="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-card border border-primary/30 bg-primary-soft px-4 py-3"
+        >
+          <p class="text-body-2 text-fg">
+            <span class="font-medium">You run this event.</span>
+            <span class="text-fg-secondary">
+              Scoring, courts and the draw are in club mode — you are in player mode.
+            </span>
+          </p>
+          <UiButton size="sm" @click="resumeAsClub">Switch to club mode</UiButton>
+        </div>
+
         <!-- Event Header -->
         <div class="mb-6 rounded-xl bg-surface p-4 shadow-card sm:p-6">
           <!-- Stacked below `sm`. The actions used to sit in a fixed right-hand
@@ -1923,30 +1938,38 @@ const { goBack } = useAppBack('/events')
 
           <!-- A second court scoring at the same time gets a row, not a second
                board: the link opens its category card, where the live row is. -->
-          <div v-if="!featuredMatchPending && otherLiveMatches.length" class="mt-3 px-1">
+          <div v-if="!featuredMatchPending && otherLiveMatchesFiltered.length" class="mt-3 px-1">
             <h3 class="text-caption font-semibold uppercase tracking-wider text-fg-muted">
               Also live
             </h3>
-            <ul class="mt-1 divide-y divide-border">
-              <li
-                v-for="other in otherLiveMatches"
-                :key="other.id"
-                class="flex items-center justify-between gap-3 py-2 text-body-2"
-              >
-                <component
-                  :is="other.categoryId ? 'NuxtLink' : 'span'"
-                  :to="categoryLink(other.categoryId) ?? undefined"
-                  class="min-w-0 text-fg-secondary"
-                  :class="
-                    other.categoryId ? 'underline-offset-2 hover:text-fg hover:underline' : ''
-                  "
+            <ul class="mt-1 space-y-1">
+              <li v-for="other in otherLiveMatchesFiltered" :key="other.id">
+                <button
+                  type="button"
+                  class="flex w-full items-center gap-3 rounded-lg border border-danger/20 bg-danger/5 px-3 py-2 text-left text-body-2 transition-colors hover:border-danger/40 hover:bg-danger/10"
+                  @click="swapFeaturedMatch(other.id)"
                 >
-                  {{ boardSideLabel(other, 1) }} vs {{ boardSideLabel(other, 2) }}
-                  <span v-if="other.context" class="text-fg-muted">· {{ other.context }}</span>
-                </component>
-                <span class="shrink-0 whitespace-nowrap font-semibold tabular-nums text-fg">
-                  {{ boardLineScore(other) }}
-                </span>
+                  <span
+                    class="inline-flex shrink-0 items-center gap-1 rounded-pill bg-danger px-2 py-0.5 text-xs font-semibold uppercase text-white"
+                  >
+                    <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-white" />
+                    Live
+                  </span>
+                  <span class="min-w-0 flex-1">
+                    <span class="font-medium text-fg">
+                      {{ boardSideLabel(other, 1) }} vs {{ boardSideLabel(other, 2) }}
+                    </span>
+                    <span
+                      v-if="other.context"
+                      class="ml-2 rounded-badge bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary"
+                    >
+                      {{ other.context }}
+                    </span>
+                  </span>
+                  <span class="shrink-0 whitespace-nowrap text-sm font-bold tabular-nums text-fg">
+                    {{ boardLineScore(other) }}
+                  </span>
+                </button>
               </li>
             </ul>
           </div>
@@ -1966,6 +1989,7 @@ const { goBack } = useAppBack('/events')
             :can-manage="canManageEvent"
             :is-organizer="isOrganizer"
             :my-player-id="myProfile?.id ?? null"
+            @swap-featured="(id) => swapFeaturedMatch(`bracket-${id}`)"
           />
           <div v-else-if="!tournamentsPending" class="rounded-xl bg-surface p-6 shadow-card">
             <p class="text-fg-muted">
@@ -2359,6 +2383,72 @@ const { goBack } = useAppBack('/events')
               @submit="submitCourtScore"
               @start="openStartCourt"
             />
+
+            <!-- Queue section at bottom of matches view for easy access during scoring -->
+            <section
+              v-if="event.queue_enabled && canManageEvent"
+              class="mt-6 rounded-xl border border-border bg-surface shadow-card"
+            >
+              <header class="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
+                <div class="flex items-center gap-2">
+                  <span class="text-sm font-bold uppercase tracking-wider text-fg-muted">
+                    Match {{ (activeEntries.length || 0) + 1 }}
+                  </span>
+                  <span class="rounded bg-surface-2 px-2 py-0.5 text-xs text-fg-muted">Auto</span>
+                </div>
+                <span class="text-sm text-fg-muted">
+                  {{ waitingEntries.length }} waiting
+                </span>
+              </header>
+
+              <div v-if="waitingEntries.length >= 2" class="p-4">
+                <div class="grid grid-cols-2 gap-4">
+                  <!-- Team 1 (next in queue) -->
+                  <div class="rounded-lg bg-primary/10 p-3">
+                    <div class="mb-2 text-xs font-bold uppercase tracking-wider text-primary">
+                      Team 1
+                    </div>
+                    <div class="space-y-2">
+                      <div
+                        v-for="player in entryPlayers(waitingEntries[0])"
+                        :key="player.id"
+                        class="text-sm"
+                      >
+                        <div class="font-medium text-fg">{{ player.name }}</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Team 2 (second in queue) -->
+                  <div class="rounded-lg bg-warning/10 p-3">
+                    <div class="mb-2 text-xs font-bold uppercase tracking-wider text-warning">
+                      Team 2
+                    </div>
+                    <div class="space-y-2">
+                      <div
+                        v-for="player in entryPlayers(waitingEntries[1])"
+                        :key="player.id"
+                        class="text-sm"
+                      >
+                        <div class="font-medium text-fg">{{ player.name }}</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  class="mt-4 w-full rounded-lg border border-border-strong py-2.5 text-sm font-medium text-fg-secondary transition-colors hover:border-primary hover:text-fg"
+                  @click="openStartCourt('')"
+                >
+                  Call Players
+                </button>
+              </div>
+
+              <div v-else class="p-4 text-center text-sm text-fg-muted">
+                {{ waitingEntries.length === 0 ? 'No players in queue' : 'Need at least 2 players to start' }}
+              </div>
+            </section>
           </div>
 
           <!-- Tab Content: Players -->
@@ -2395,30 +2485,24 @@ const { goBack } = useAppBack('/events')
                 :key="reg.id"
                 class="flex items-center justify-between rounded-lg bg-canvas p-3"
               >
-                <div class="flex items-center gap-3">
-                  <!-- Their face, or their own identity colour — not the brand
-                       mark, which put the same logo beside every name. -->
-                  <UiAvatar
-                    :name="reg.player?.display_name"
-                    :src="reg.player?.avatar_url"
-                    :identity-key="reg.player_id"
-                    size="md"
-                  />
-                  <div>
-                    <NuxtLink
-                      :to="`/players/${reg.player_id}`"
-                      class="font-medium text-fg hover:text-primary"
-                    >
-                      {{ reg.player?.display_name || 'Unknown' }}
-                    </NuxtLink>
-                    <p v-if="reg.player?.rating" class="text-sm text-fg-muted">
-                      Rating: {{ reg.player.rating.toFixed(2) }}
-                    </p>
-                  </div>
+                <div class="flex min-w-0 flex-1 items-center gap-3">
+                  <NuxtLink :to="`/players/${reg.player_id}`" class="shrink-0">
+                    <UiAvatar
+                      :name="reg.player?.display_name"
+                      :src="reg.player?.avatar_url"
+                      :identity-key="reg.player_id"
+                      size="sm"
+                    />
+                  </NuxtLink>
+                  <span class="min-w-0 truncate text-sm font-medium text-fg">
+                    <UiPlayerLink :player-id="reg.player_id" :name="reg.player?.display_name || 'Unknown'" />
+                  </span>
                 </div>
-                <div class="text-right">
+                <div class="flex items-center gap-2">
+                  <UiRatingBadge v-if="reg.player?.rating != null" :rating="reg.player.rating" size="sm" />
+                  <span v-else class="text-xs text-fg-muted">Unrated</span>
                   <span
-                    class="rounded px-2 py-0.5 text-xs"
+                    class="rounded-full px-2 py-0.5 text-xs font-medium"
                     :class="
                       reg.status === 'checked_in'
                         ? 'bg-primary-soft text-primary'

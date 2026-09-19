@@ -56,6 +56,10 @@ const props = defineProps<{
   myPlayerId: string | null
 }>()
 
+const emit = defineEmits<{
+  'swap-featured': [bracketMatchId: string]
+}>()
+
 const router = useRouter()
 const route = useRoute()
 
@@ -832,6 +836,29 @@ async function updateLiveScore(bracketMatchId: string, scores: LiveBracketScore[
   }
 }
 
+const endingLiveId = ref<string | null>(null)
+
+/**
+ * End the live scoreboard for this match — keeps the score but stops the LIVE
+ * indicator so the organiser can edit the final result manually if needed.
+ */
+async function endLive(bracketMatchId: string) {
+  recordError.value = ''
+  endingLiveId.value = bracketMatchId
+  try {
+    // Clear the live score to end live mode - sets started_at back to null
+    await $fetch(`/api/v1/bracket-matches/${bracketMatchId}/score`, {
+      method: 'PATCH',
+      body: { end_live: true }
+    })
+    await refreshBracket()
+  } catch (err) {
+    recordError.value = apiErrorMessage(err, 'Could not end live scoring.')
+  } finally {
+    endingLiveId.value = null
+  }
+}
+
 const addingCategory = ref(false)
 const addCategoryError = ref('')
 
@@ -907,6 +934,7 @@ function openPlayer(playerId: string) {
         :trash-error="category ? (trashErrors[category.id] ?? '') : ''"
         :recording-id="recordingId"
         :record-error="recordError"
+        :ending-live-id="endingLiveId"
         :seed-preview="seedPreviewFor(statsFor(category))"
         @toggle="toggle(category)"
         @register="register(category)"
@@ -922,7 +950,9 @@ function openPlayer(playerId: string) {
         @record="record"
         @start-match="startMatch"
         @live-score="updateLiveScore"
+        @end-live="endLive"
         @select-player="openPlayer"
+        @swap-featured="(id) => emit('swap-featured', id)"
       />
 
       <TournamentCategoryCreateCard

@@ -49,6 +49,7 @@ export interface PreviewEntrant {
   display_name: string
   rating: number | null
   partner_display_name: string | null
+  partner_rating?: number | null
   /** Optional: a preview built from registrations can name profiles too. */
   player_id?: string | null
   partner_player_id?: string | null
@@ -111,6 +112,7 @@ function place(
     display_name: entrant.display_name,
     rating: entrant.rating,
     partner_display_name: entrant.partner_display_name,
+    partner_rating: entrant.partner_rating ?? null,
     player_id: entrant.player_id ?? null,
     partner_player_id: entrant.partner_player_id ?? null
   }

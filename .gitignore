@@ -8,6 +8,8 @@ apps/web/dist/
 
 # Playwright artifacts
 apps/web/test-results/
+# A real person's own Playwright session (see the organizer project) — never committed.
+apps/web/.auth/
 apps/web/playwright-report/
 apps/web/blob-report/
 

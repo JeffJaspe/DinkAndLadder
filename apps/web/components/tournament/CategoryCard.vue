@@ -75,6 +75,7 @@ const props = defineProps<{
   trashError: string
   recordingId: string | null
   recordError: string
+  endingLiveId?: string | null
   seedPreview: TournamentRegistrationWithPlayerDto[]
 }>()
 
@@ -93,7 +94,9 @@ const emit = defineEmits<{
   record: [bracketMatchId: string, input: RecordBracketResultInput]
   startMatch: [bracketMatchId: string]
   liveScore: [bracketMatchId: string, scores: LiveBracketScore[]]
+  endLive: [bracketMatchId: string]
   'select-player': [playerId: string]
+  'swap-featured': [bracketMatchId: string]
 }>()
 
 const name = computed(() => props.category?.name ?? 'All players')
@@ -219,8 +222,16 @@ const allPartnersTaken = computed(
   () => isDoubles.value && props.allPartnerCount > 0 && props.partners.length === 0
 )
 
-/** Registering is pointless if the band excludes them; the reason says why. */
-const canRegister = computed(() => !props.bandReason && !props.isFull)
+/**
+ * Registering is pointless if the band excludes them; the reason says why.
+ *
+ * But only players (myPlayerId exists) can be excluded by rating — a club admin
+ * managing the event does not have a rating and should not be blocked by one.
+ */
+const canRegister = computed(() => {
+  const bandBlocksMe = props.bandReason && props.myPlayerId && !props.canManage
+  return !bandBlocksMe && !props.isFull
+})
 
 /**
  * What the reader's own entry says about itself.
@@ -249,17 +260,34 @@ const myStatusTone = computed(
 // --- Sections inside an open card ---
 type Section = 'players' | 'matches' | 'schedule' | 'draw' | 'results' | 'settings'
 
-const section = ref<Section>('players')
+/** Whether there is a draw to look at yet. */
+const hasDraw = computed(() => (props.bracket?.rounds.length ?? 0) > 0)
+
+/**
+ * Opens on the draw once there is one.
+ *
+ * Before the draw exists the roster is the whole story, so Players leads.
+ * Once it is drawn, the bracket is what a player opening the category came
+ * to see — who they play, when, and how far they are — and Players is a list
+ * they have already read. The draw appearing while the card is open (the
+ * organiser just generated it) moves an untouched card onto it too.
+ */
+const section = ref<Section>(hasDraw.value ? 'draw' : 'players')
+watch(hasDraw, (drawn) => {
+  if (drawn && section.value === 'players') section.value = 'draw'
+})
 
 const sections = computed(() => {
   const list: { value: Section; label: string; count?: number }[] = [
-    { value: 'players', label: 'Players', count: props.confirmed.length },
+    { value: 'players', label: isDoubles.value ? 'Teams' : 'Players', count: props.confirmed.length },
     // Score entry, as a list ordered by what needs doing — the draw answers a
     // different question and is a poor place to type into.
     { value: 'matches', label: 'Matches' },
     { value: 'schedule', label: 'Schedule' },
     { value: 'draw', label: 'Draw' }
   ]
+  // The draw leads the tab strip as soon as it exists; see `section`.
+  if (hasDraw.value) list.unshift(list.splice(3, 1)[0])
   // Only once it is a real thing to look at.
   if (isComplete.value) list.push({ value: 'results', label: 'Results' })
   if (props.canManage) list.push({ value: 'settings', label: 'Settings' })
@@ -270,7 +298,8 @@ const sections = computed(() => {
 // disappeared (Results vanishes if a category is reopened; Settings if the
 // viewer switches out of club mode).
 watch(sections, (list) => {
-  if (!list.some((s) => s.value === section.value)) section.value = 'players'
+  if (!list.some((s) => s.value === section.value))
+    section.value = hasDraw.value ? 'draw' : 'players'
 })
 
 const showCompleteConfirm = ref(false)
@@ -460,7 +489,7 @@ function confirmTrash() {
         <template v-if="!myRegistration">
           <button
             type="button"
-            :disabled="registering || !!registerBlockedReason || !!bandReason"
+            :disabled="registering || !!registerBlockedReason || !canRegister"
             class="rounded-lg bg-primary px-4 py-1.5 text-sm font-medium text-on-primary hover:bg-primary-hover disabled:opacity-50"
             @click="emit('register')"
           >
@@ -476,8 +505,10 @@ function confirmTrash() {
           </button>
 
           <!-- The band reason outranks "not open yet": being ineligible is
-               permanent for this category, where being early is not. -->
-          <span v-if="bandReason" class="text-sm text-warning">{{ bandReason }}</span>
+               permanent for this category, where being early is not.
+               Only shown to PLAYERS (myPlayerId exists), not clubs managing
+               the event — a club admin does not have a personal rating. -->
+          <span v-if="bandReason && myPlayerId && !canManage" class="text-sm text-warning">{{ bandReason }}</span>
           <span v-else-if="registerBlockedReason" class="text-sm text-fg-muted">
             {{ registerBlockedReason }}
           </span>
@@ -522,6 +553,7 @@ function confirmTrash() {
           :can-review="canReview"
           :reviewing-id="reviewingId"
           :review-error="reviewError"
+          :is-doubles="isDoubles"
           @review="(id, status) => emit('review', id, status)"
         />
 
@@ -541,11 +573,16 @@ function confirmTrash() {
           :bracket="bracket"
           :confirmed="confirmed"
           :format="format"
+          :category="category"
           :my-player-id="myPlayerId"
           :can-manage="canManage"
           :recording-id="recordingId"
           :record-error="recordError"
+          :ending-live-id="endingLiveId"
           @record="(id, input) => emit('record', id, input)"
+          @start="(id) => emit('startMatch', id)"
+          @score="(id, scores) => emit('liveScore', id, scores)"
+          @end-live="(id) => emit('endLive', id)"
           @select-player="(id) => emit('select-player', id)"
         />
 
@@ -570,6 +607,7 @@ function confirmTrash() {
           @undo="emit('undo')"
           @set-locked="(v) => emit('set-locked', v)"
           @select-player="(id) => emit('select-player', id)"
+          @match-click="(id, manage) => manage ? (section = 'schedule') : emit('swap-featured', id)"
         />
 
         <TournamentCategoryStandings

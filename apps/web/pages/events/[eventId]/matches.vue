@@ -54,15 +54,17 @@ const tournament = computed(() => tournamentsData.value?.tournaments?.[0] ?? nul
 const { data: myProfile } = useFetch<PlayerProfileDto>('/api/v1/players/me', { server: false })
 
 /**
- * Only the event's creator can record from here.
+ * The same gate the event page uses — creator or hosting-club staff in club
+ * mode, or a co-organiser — from the one composable that holds it.
  *
- * Deliberately narrower than the event page, which also admits club staff: this
- * page is designed to be left open on a shared screen, and a shared screen is
- * the wrong place to widen who can write a result.
+ * This used to check only `created_by_player_id`, on the theory that a shared
+ * screen should admit fewer people than the event page. In practice this is the
+ * screen the "Open" link on a category card sends a club owner to, and that
+ * owner is almost never the row's `created_by_player_id` — a colleague usually
+ * created the tournament. The narrower check silently stripped scoring from
+ * exactly the person the link was for.
  */
-const canManage = computed(
-  () => !!myProfile.value && event.value?.created_by_player_id === myProfile.value.id
-)
+const { canManage, lockedOut, resumeAsClub } = useEventRunner(eventId, event, myProfile)
 
 const {
   data: categoriesData,
@@ -172,6 +174,18 @@ watch(activeCategoryId, (id) => {
 })
 
 const { courts, hasLiveCourt, refresh: refreshCourts } = useLiveScores(eventId)
+
+/**
+ * Poll the bracket while a draw match is live.
+ *
+ * Without this, organizers on different devices saw stale scores — the bracket
+ * was only refetched after recording a result, not while live scoring was in
+ * progress. Same pattern as CategorySection.vue.
+ */
+const hasLiveMatch = computed(() =>
+  (bracketData.value?.rounds ?? []).some((round) => round.matches.some((m) => m.is_live))
+)
+usePollWhile(hasLiveMatch, refreshBracket)
 
 /** The courts belonging to this event that are actually in play, first. */
 const orderedCourts = computed(() =>
@@ -291,6 +305,24 @@ useHead({
         <UiButton variant="ghost" size="sm" @click="refreshBracket()">Refresh</UiButton>
       </div>
     </header>
+
+    <!-- The organiser in the wrong mode. Same banner and one-click fix as the
+         event page — this screen is reached from a category card's "Open" link
+         as often as from a bookmark, so the person who lands here locked out
+         needs a way off this tab, not a trip back to the event page. -->
+    <div
+      v-if="lockedOut"
+      role="status"
+      class="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-card border border-primary/30 bg-primary-soft px-4 py-3"
+    >
+      <p class="text-body-2 text-fg">
+        <span class="font-medium">You run this event.</span>
+        <span class="text-fg-secondary">
+          Scoring and the draw are in club mode — you are in player mode.
+        </span>
+      </p>
+      <UiButton size="sm" @click="resumeAsClub">Switch to club mode</UiButton>
+    </div>
 
     <!-- Category switcher, only when there is more than one draw to switch. -->
     <div v-if="categories.length > 1" class="mb-4 flex flex-wrap gap-2">

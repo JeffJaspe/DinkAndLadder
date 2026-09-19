@@ -110,8 +110,11 @@ export function createClubBrandingService(
       const previousPath = existing[column]
       const path = `clubs/${clubId}/${slot}-${Date.now()}.${extension}`
 
+      console.log(`[club-branding] uploading to path: ${path}, size: ${image.bytes.length}, type: ${image.contentType}`)
       await assets.upload(path, image.bytes, image.contentType)
+      console.log(`[club-branding] upload complete, updating club record`)
       const updated = await clubs.update(clubId, { [column]: path })
+      console.log(`[club-branding] club updated, new path: ${updated[column]}`)
 
       // Only after the row points at the new object: a failed update would
       // otherwise leave the club referencing something that no longer exists.

@@ -29,6 +29,12 @@ export interface EventRepository {
    * exactly what the schema had before 061.
    */
   isCoOrganizer?(eventId: string, playerId: string): Promise<boolean>
+  /**
+   * Whether this player is active staff (owner, admin, moderator) of the club
+   * hosting the event — the same rule the API layer's `assertCanRunEvent`
+   * applies to open play. Optional for the same reason as `isCoOrganizer`.
+   */
+  isClubStaff?(eventId: string, playerId: string): Promise<boolean>
   create(input: CreateEventInput, createdByPlayerId: string): Promise<EventRecord>
   update(eventId: string, input: UpdateEventInput): Promise<EventRecord>
   updateStatus(eventId: string, status: EventStatus): Promise<EventRecord>
@@ -118,6 +124,27 @@ export function createEventRepository(client: SupabaseClient): EventRepository {
         .eq('player_id', playerId)
       if (error) throw error
       return (count ?? 0) > 0
+    },
+
+    async isClubStaff(eventId, playerId) {
+      const { data: eventRow } = await client
+        .from('events')
+        .select('club_id')
+        .eq('id', eventId)
+        .maybeSingle()
+      const clubId = (eventRow as { club_id: string | null } | null)?.club_id
+      if (!clubId) return false
+
+      const { data, error } = await client
+        .from('club_memberships')
+        .select('role')
+        .eq('club_id', clubId)
+        .eq('player_id', playerId)
+        .eq('status', 'active')
+        .in('role', ['OWNER', 'ADMIN', 'MODERATOR'])
+        .maybeSingle()
+      if (error) throw error
+      return !!data
     },
 
     async findById(eventId) {

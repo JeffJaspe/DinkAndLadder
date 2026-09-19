@@ -64,6 +64,19 @@ const emit = defineEmits<{
 const playingCourts = computed(() => props.courts.filter((c) => c.status === 'playing'))
 
 /**
+ * The organiser's boards: one per court in play, in court order.
+ *
+ * Scoring used to live on a separate page reached from a link inside the round
+ * feed, because the feed re-sorts as matches finish and a tap can land on the
+ * wrong court. Courts do not re-sort — Court 1 is Court 1 all session — so a
+ * board per court can sit above the feed and be scored in place. The per-court
+ * page stays for a desk that wants one court per tab.
+ */
+const boards = computed(() =>
+  props.canManage ? [...playingCourts.value].sort((a, b) => a.court_number - b.court_number) : []
+)
+
+/**
  * Courts with nobody on them.
  *
  * Organisers only. A free court is a thing to *do* something about, and to
@@ -221,6 +234,26 @@ onMounted(() => {
     </div>
 
     <template v-else>
+      <!-- Courts in play, scored in place. -->
+      <section v-if="boards.length" class="space-y-3">
+        <h3 class="font-display text-heading-3 text-fg">
+          {{ boards.length }} court{{ boards.length === 1 ? '' : 's' }} in play
+        </h3>
+        <div class="grid gap-4" :class="boards.length > 1 ? 'xl:grid-cols-2' : ''">
+          <EventCourtCard
+            v-for="court in boards"
+            :key="court.id"
+            :court="court"
+            :can-manage="canManage"
+            :rules="rules"
+            :busy="busyCourtId === court.id"
+            @score="emit('score', court.id, $event)"
+            @submit="emit('submit', court.id)"
+            @start="emit('start', court.id)"
+          />
+        </div>
+      </section>
+
       <!-- Free courts, above the rounds: they are the organiser's next action,
            not part of the record of play. -->
       <section v-if="freeCourts.length" class="space-y-3">
@@ -280,7 +313,7 @@ onMounted(() => {
             :rel="opensInNewTab ? 'noopener' : undefined"
             class="mt-1.5 inline-flex min-h-11 items-center gap-1.5 rounded-button px-3 py-2 text-body-2 font-semibold text-primary transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
           >
-            Score this court
+            Open court on its own screen
             <UiIcon name="share" size="h-3.5 w-3.5" />
             <span v-if="opensInNewTab" class="sr-only">(opens in a new tab)</span>
           </NuxtLink>
