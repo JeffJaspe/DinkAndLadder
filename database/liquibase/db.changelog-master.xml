@@ -80,5 +80,6 @@
     <include file="073-queue-rotation/073-queue-rotation.changelog.xml" relativeToChangelogFile="true"/>
     <include file="074-registration-payment/074-registration-payment.changelog.xml" relativeToChangelogFile="true"/>
     <include file="075-subscription-event-types/075-subscription-event-types.changelog.xml" relativeToChangelogFile="true"/>
+    <include file="076-feed-follow-model/076-feed-follow-model.changelog.xml" relativeToChangelogFile="true"/>
 
 </databaseChangeLog>
