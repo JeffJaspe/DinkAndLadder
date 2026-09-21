@@ -1,13 +1,16 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Fix fn_feed_for_player to use the follow model instead of team_ups.
+<!-- Fix feed functions to use the follow model instead of team_ups.
 
      Migration 066-follow-and-kudos retired the team_ups table (renamed to
      team_ups_retired_066), replacing accepted team-ups with mutual follows in
-     player_relationships. However, fn_feed_for_player (from 060) was not
-     updated at the same time, so it still referenced team_ups — causing a
-     "relation does not exist" error on production.
+     player_relationships. However, two functions were not updated:
 
-     This migration updates the function to use player_relationships with
+     1. fn_feed_for_player (from 060)
+     2. fn_community_player_ids (from 050)
+
+     Both still referenced team_ups, causing "relation does not exist" errors.
+
+     This migration updates both functions to use player_relationships with
      relationship_type = 'follow' instead. The feed_reason changes from
      'team_up' to 'follow' to reflect the new model. -->
 <databaseChangeLog
@@ -16,7 +19,65 @@
     xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
         http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
 
-    <changeSet id="076-feed-follow-model" author="claude">
+    <changeSet id="076-01-fix-community-player-ids" author="claude">
+        <sql splitStatements="false">
+            CREATE OR REPLACE FUNCTION fn_community_player_ids(p_player_id uuid)
+            RETURNS TABLE (player_id uuid)
+            LANGUAGE sql
+            STABLE
+            SECURITY DEFINER
+            SET search_path = public
+            AS $$
+                WITH me AS (
+                    SELECT p_player_id AS id WHERE p_player_id IS NOT NULL
+                ),
+                my_matches AS (
+                    SELECT mp.match_id
+                      FROM match_participants mp
+                      JOIN me ON me.id = mp.player_id
+                ),
+                candidates AS (
+                    SELECT id FROM me
+                    UNION
+                    SELECT CASE WHEN p.player1_id = me.id THEN p.player2_id ELSE p.player1_id END
+                      FROM partnerships p
+                      JOIN me ON me.id IN (p.player1_id, p.player2_id)
+                    UNION
+                    -- 076: Changed from team_ups to player_relationships follow model
+                    SELECT pr.to_player_id
+                      FROM player_relationships pr
+                      JOIN me ON me.id = pr.from_player_id
+                     WHERE pr.relationship_type = 'follow'
+                       AND pr.status = 'active'
+                    UNION
+                    -- Everyone who was on court, both sides of the net
+                    SELECT mp.player_id
+                      FROM match_participants mp
+                      JOIN my_matches mm ON mm.match_id = mp.match_id
+                      JOIN matches m ON m.id = mp.match_id
+                     WHERE m.status = 'verified'
+                )
+                SELECT c.id
+                  FROM candidates c
+                 WHERE c.id IS NOT NULL
+                   AND NOT EXISTS (
+                       SELECT 1
+                         FROM player_relationships b
+                        WHERE b.relationship_type = 'block'
+                          AND b.status = 'active'
+                          AND (
+                              (b.from_player_id = p_player_id AND b.to_player_id = c.id)
+                           OR (b.from_player_id = c.id AND b.to_player_id = p_player_id)
+                          )
+                   );
+            $$;
+        </sql>
+        <rollback>
+            <comment>Rollback requires team_ups table to exist (rollback 066 first)</comment>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="076-02-fix-feed-for-player" author="claude">
         <sql splitStatements="true">
             DROP FUNCTION IF EXISTS
                 fn_feed_for_player(uuid, int, int, text[], timestamptz, text);
@@ -191,9 +252,6 @@
                 TO anon, authenticated;
         </sql>
         <rollback>
-            <!-- Rollback would restore the team_ups version, but that table no
-                 longer exists. A rollback here requires first rolling back 066
-                 to restore team_ups, then rolling back this. -->
             <sql>
                 DROP FUNCTION IF EXISTS
                     fn_feed_for_player(uuid, int, int, text[], timestamptz, text);
