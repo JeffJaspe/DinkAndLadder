@@ -71,6 +71,10 @@ describe('isChromelessRoute', () => {
     expect(isMfaExemptRoute('/login')).toBe(true)
   })
 
+  it('covers onboarding — nav must not be clickable until profile setup completes', () => {
+    expect(isChromelessRoute('/onboarding')).toBe(true)
+  })
+
   it('leaves in-app routes to the app shell', () => {
     expect(isChromelessRoute('/dashboard')).toBe(false)
     expect(isChromelessRoute('/players/abc')).toBe(false)

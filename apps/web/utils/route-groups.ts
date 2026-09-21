@@ -52,7 +52,8 @@ const CHROMELESS_ROUTES: readonly string[] = [
   MFA_VERIFY_ROUTE,
   MFA_RECOVER_ROUTE,
   '/auth-error',
-  '/confirm'
+  '/confirm',
+  '/onboarding'
 ]
 
 /**
