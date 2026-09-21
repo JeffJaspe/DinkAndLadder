@@ -9,6 +9,7 @@ import type {
 import type { ActivityDto } from '~/server/domains/activity/dto/activity.dto'
 import type { LinkedEvent } from '~/server/domains/activity/services/linked-event'
 import type { RosterMemberDto } from '~/server/domains/club/dto/club-membership.dto'
+import type { TournamentHistoryDto } from '~/server/domains/player/dto/tournament-history.dto'
 
 interface Achievement {
   id: string
@@ -281,6 +282,15 @@ const { data: activitiesData, error: activitiesError, refresh: refreshActivities
  */
 const { data: championshipsData } = useFetch<{ data: ChampionshipDto[] }>(
   () => `/api/v1/players/${playerId.value}/championships`,
+  { server: false, default: () => ({ data: [] }) }
+)
+
+const {
+  data: tournamentsData,
+  error: tournamentsError,
+  refresh: refreshTournaments
+} = useFetch<{ data: TournamentHistoryDto[] }>(
+  () => `/api/v1/players/${playerId.value}/tournaments`,
   { server: false, default: () => ({ data: [] }) }
 )
 
@@ -570,11 +580,14 @@ const {
 const PROFILE_TABS = computed(() => [
   { value: 'overview', label: 'Overview' },
   { value: 'matches', label: 'Matches' },
+  { value: 'tournaments', label: 'Tournaments' },
   { value: 'stats', label: 'Stats' },
   ...(achievementsEnabled.value ? [{ value: 'achievements', label: 'Achievements' }] : []),
   { value: 'activity', label: 'Activity' },
   { value: 'clubs', label: 'Clubs' }
 ])
+
+const tournamentHistory = computed(() => tournamentsData.value?.data ?? [])
 
 // Seeded from `?tab=` so a linked tab opens on that tab; UiTabs keeps the query
 // in sync from there.
@@ -1211,6 +1224,7 @@ function formatActivityText(activity: ProfileActivity): string {
             :kudos="kudos"
             :display-name="profile.display_name"
             :is-own-profile="isOwnProfile"
+            :total-matches="stats?.total_matches ?? 0"
           />
 
           <!-- Rating History -->
@@ -1333,6 +1347,89 @@ function formatActivityText(activity: ProfileActivity): string {
               >
                 {{ loadingMoreMatches ? 'Loading…' : 'Show more matches' }}
               </button>
+            </div>
+          </div>
+        </template>
+
+        <!-- Tournaments Tab -->
+        <template v-if="activeTab === 'tournaments'">
+          <div class="rounded-xl bg-surface p-5 shadow-card">
+            <h2 class="mb-4 text-body-2 font-medium text-fg">Tournament History</h2>
+            <UiErrorState
+              v-if="tournamentsError"
+              compact
+              title="Couldn't load tournaments"
+              message="Tournament history is unavailable right now."
+              retry-label="Retry"
+              @retry="refreshTournaments"
+            />
+            <div
+              v-else-if="!tournamentHistory.length"
+              class="py-6 text-center text-sm text-fg-muted"
+            >
+              No tournaments yet.
+            </div>
+            <div v-else class="space-y-3">
+              <NuxtLink
+                v-for="t in tournamentHistory"
+                :key="t.registration_id"
+                :to="t.href ?? '#'"
+                class="flex items-center justify-between rounded-lg bg-canvas p-3 transition-all hover:bg-surface-2"
+                :class="{ 'pointer-events-none': !t.href }"
+              >
+                <div class="flex items-center gap-3">
+                  <span
+                    v-if="t.placement === 1"
+                    class="flex h-8 w-8 shrink-0 items-center justify-center text-xl"
+                    title="Champion"
+                  >
+                    🥇
+                  </span>
+                  <span
+                    v-else-if="t.placement === 2"
+                    class="flex h-8 w-8 shrink-0 items-center justify-center text-xl"
+                    title="Finalist"
+                  >
+                    🥈
+                  </span>
+                  <span
+                    v-else
+                    class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-surface-2 text-xs font-medium text-fg-muted"
+                  >
+                    —
+                  </span>
+                  <div>
+                    <p class="text-sm font-medium text-fg">
+                      {{ t.tournament_name ?? t.event_name ?? 'Tournament' }}
+                    </p>
+                    <p v-if="t.category_name" class="text-xs text-fg-muted">
+                      {{ t.category_name }}
+                    </p>
+                  </div>
+                </div>
+                <div class="text-right">
+                  <span
+                    v-if="t.placement === 1"
+                    class="rounded-md bg-warning-soft px-2 py-0.5 text-xs font-medium text-warning"
+                  >
+                    Champion
+                  </span>
+                  <span
+                    v-else-if="t.placement === 2"
+                    class="rounded-md bg-surface-2 px-2 py-0.5 text-xs font-medium text-fg-secondary"
+                  >
+                    Finalist
+                  </span>
+                  <p v-if="t.played_at" class="mt-1 text-xs text-fg-muted">
+                    {{
+                      new Date(t.played_at).toLocaleDateString(undefined, {
+                        month: 'short',
+                        year: 'numeric'
+                      })
+                    }}
+                  </p>
+                </div>
+              </NuxtLink>
             </div>
           </div>
         </template>

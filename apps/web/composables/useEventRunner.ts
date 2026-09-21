@@ -27,7 +27,7 @@ export function useEventRunner(
   } = {}
 ) {
   const user = useSupabaseUser()
-  const { isClubMode, switchToClub } = useAccountMode()
+  const { isClubMode, activeClubId, switchToClub } = useAccountMode()
 
   const ownCoOrganizers = options.coOrganizers
     ? null
@@ -75,9 +75,22 @@ export function useEventRunner(
     () => ((isCreator.value || isClubStaff.value) && isClubMode.value) || isCoOrganizer.value
   )
 
-  /** Someone who could run this event, looking at it without the controls to. */
+  /**
+   * Someone who could run this event, looking at it without the controls to.
+   *
+   * Also false if already in club mode for this event's club — no point showing
+   * "switch to club mode" when you're already there. That case means the user
+   * lacks permission for another reason (not staff, not creator, not co-organizer).
+   */
+  const alreadyInThisClub = computed(
+    () => isClubMode.value && activeClubId.value === event.value?.club_id
+  )
   const lockedOut = computed(
-    () => (isCreator.value || isClubStaff.value) && !canManage.value && !!event.value?.club_id
+    () =>
+      (isCreator.value || isClubStaff.value) &&
+      !canManage.value &&
+      !!event.value?.club_id &&
+      !alreadyInThisClub.value
   )
 
   function resumeAsClub() {

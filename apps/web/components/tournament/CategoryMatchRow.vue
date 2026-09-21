@@ -8,9 +8,11 @@ import { participantLabel } from '~/utils/bracket-schedule'
 import { roundLabel } from '~/utils/bracket-rounds'
 import type { TournamentCategoryDto } from '~/server/domains/event/dto/tournament-category.dto'
 import {
+  gameWinner,
   gamesNeeded,
   rulesForRound,
   seriesWinner,
+  validateGames,
   type GameRules,
   type GameScore,
   type MatchResultType
@@ -99,6 +101,7 @@ const {
   displayGames,
   pending: pendingGames,
   pendingIndex,
+  plusDisabled,
   addPoint: adjust,
   confirm: confirmGame,
   cancel: cancelGame
@@ -201,6 +204,24 @@ const recordedSide = computed<1 | 2 | null>(() =>
 const recordedResultType = computed<MatchResultType>(() =>
   seriesWinner(recordedGames.value, rules.value) ? 'normal' : 'retired'
 )
+
+/**
+ * Games won per side, for the collapsed-row score on a multi-game match.
+ *
+ * A single game shows its points (that IS the result); several games show
+ * games won, because the points of game two say nothing about who won the
+ * match. Matches MatchCard's lineScore behavior.
+ */
+const gamesWonDisplay = computed<[number, number]>(() => {
+  let t1 = 0
+  let t2 = 0
+  for (const game of recordedGames.value) {
+    const by = gameWinner(game, rules.value)
+    if (by === 1) t1++
+    else if (by === 2) t2++
+  }
+  return [t1, t2]
+})
 
 // --- Recording a result ---
 /**
@@ -346,14 +367,30 @@ const submitHint = computed(() => {
   }.`
 })
 
+/** Validation errors shown in a warning popup. */
+const validationErrors = ref<string[]>([])
+
 function submit() {
   if (!canSubmit.value) return
+
+  // Validate the scores before submitting
+  const errors = validateGames(games.value, rules.value, resultType.value)
+  if (errors.length > 0) {
+    validationErrors.value = errors
+    return
+  }
+
+  validationErrors.value = []
   emit('record', props.match.id, {
     winner_registration_id: winnerRegistrationId.value,
     // The API still says `set_number`; the column was deliberately left alone
     // when the vocabulary changed. Only the wording above the input moved.
     scores: playedGames.value
   })
+}
+
+function dismissValidationErrors() {
+  validationErrors.value = []
 }
 
 // Nothing to close on success any more — the sheet is always on screen, and
@@ -402,11 +439,21 @@ function submit() {
         On court
       </span>
 
-      <!-- The running score on the collapsed row: a spectator should not have
-           to open anything to see it. -->
+      <!-- The score on the collapsed row: live shows current game, finished
+           shows the final result. A spectator should not have to open anything
+           to see it. Matches MatchCard's behavior. -->
       <span v-if="isLive" class="text-sm font-bold tabular-nums text-fg">
         {{ currentGame.team1_score }}<span class="mx-1 text-fg-muted">-</span
         >{{ currentGame.team2_score }}
+      </span>
+      <span v-else-if="isDone && recordedGames.length" class="text-sm font-bold tabular-nums text-fg">
+        <template v-if="recordedGames.length === 1">
+          {{ recordedGames[0].team1_score }}<span class="mx-1 text-fg-muted">-</span
+          >{{ recordedGames[0].team2_score }}
+        </template>
+        <template v-else>
+          {{ gamesWonDisplay[0] }}<span class="mx-1 text-fg-muted">-</span>{{ gamesWonDisplay[1] }}
+        </template>
       </span>
 
       <UiIcon
@@ -513,8 +560,9 @@ function submit() {
             </span>
             <button
               type="button"
-              class="h-8 w-8 rounded-button bg-primary font-semibold text-on-primary hover:bg-primary-hover"
+              class="h-8 w-8 rounded-button bg-primary font-semibold text-on-primary hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-50"
               :aria-label="`Add a point for ${side1}`"
+              :disabled="plusDisabled"
               @click="adjust(1, 1)"
             >
               +
@@ -538,8 +586,9 @@ function submit() {
             </span>
             <button
               type="button"
-              class="h-8 w-8 rounded-button bg-primary font-semibold text-on-primary hover:bg-primary-hover"
+              class="h-8 w-8 rounded-button bg-primary font-semibold text-on-primary hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-50"
               :aria-label="`Add a point for ${side2}`"
+              :disabled="plusDisabled"
               @click="adjust(2, 1)"
             >
               +
@@ -664,6 +713,34 @@ function submit() {
           </div>
 
           <p v-if="recordError" role="alert" class="text-xs text-danger">{{ recordError }}</p>
+
+          <!-- Validation warning popup -->
+          <div
+            v-if="validationErrors.length"
+            role="alert"
+            class="mt-3 rounded-lg border border-warning/30 bg-warning-soft p-3"
+          >
+            <div class="flex items-start gap-2">
+              <UiIcon name="alert-triangle" size="h-5 w-5" class="mt-0.5 shrink-0 text-warning" />
+              <div class="min-w-0 flex-1">
+                <p class="font-medium text-warning">Invalid score</p>
+                <ul class="mt-1 list-inside list-disc space-y-0.5 text-sm text-fg-secondary">
+                  <li v-for="(error, i) in validationErrors" :key="i">{{ error }}</li>
+                </ul>
+                <p class="mt-2 text-xs text-fg-muted">
+                  Games must reach {{ rules.targetPoints }}{{ rules.winByTwo ? ' with a 2-point lead' : '' }} to be valid.
+                </p>
+              </div>
+              <button
+                type="button"
+                class="shrink-0 text-fg-muted hover:text-fg"
+                aria-label="Dismiss"
+                @click="dismissValidationErrors"
+              >
+                <UiIcon name="x" size="h-4 w-4" />
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>

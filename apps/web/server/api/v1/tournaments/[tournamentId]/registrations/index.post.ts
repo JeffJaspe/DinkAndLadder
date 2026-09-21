@@ -13,6 +13,7 @@ import { createPlayerProfileRepository } from '~/server/domains/player/repositor
 import { createTournamentCategoryRepository } from '~/server/domains/event/repositories/tournament-category.repository'
 import { createRatingRepository } from '~/server/domains/rating/repositories/rating.repository'
 import { createPartnershipRepository } from '~/server/domains/partnership/repositories/partnership.repository'
+import { createClubBanRepository } from '~/server/domains/club/repositories/club-ban.repository'
 import { getOptionalUser } from '~/server/utils/optional-user'
 import { apiError } from '~/server/utils/api-error'
 import { awardAchievementsForPlayers } from '~/server/utils/award-achievements'
@@ -39,6 +40,30 @@ export default defineEventHandler(async (event) => {
   const body = await readBody<RegisterForTournamentInput>(event)
 
   const serviceClient = serverSupabaseServiceRole(event)
+
+  // Check if player is banned from the club hosting this event
+  const tournamentRepo = createTournamentRepository(serviceClient)
+  const tournament = await tournamentRepo.findById(tournamentId)
+  if (!tournament) {
+    throw apiError(404, 'NOT_FOUND', 'Tournament not found.')
+  }
+
+  const eventRepo = createEventRepository(serviceClient)
+  const eventRecord = await eventRepo.findById(tournament.event_id)
+  if (eventRecord?.club_id) {
+    const bans = createClubBanRepository(serviceClient)
+    const isBanned = await bans.isPlayerBanned(eventRecord.club_id, profile.id)
+    if (isBanned) {
+      throw apiError(403, 'BANNED', 'You are banned from this club and cannot register for their events.')
+    }
+    // Also check partner if registering for doubles
+    if (body?.partner_player_id) {
+      const partnerBanned = await bans.isPlayerBanned(eventRecord.club_id, body.partner_player_id)
+      if (partnerBanned) {
+        throw apiError(403, 'PARTNER_BANNED', 'Your partner is banned from this club.')
+      }
+    }
+  }
   const categoryRepo = createTournamentCategoryRepository(serviceClient)
 
   // Every rule that decides whether this entry is allowed — the partner

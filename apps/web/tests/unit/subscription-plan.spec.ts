@@ -33,7 +33,9 @@ function plan(over: Partial<ClubSubscriptionPlanDto> = {}): ClubSubscriptionPlan
       max_live_open_play: null,
       max_members: null,
       online_fee_collection: true,
-      verified_badge_eligible: true
+      verified_badge_eligible: true,
+      allowed_event_types: null,
+      can_create_ranked_events: true
     },
     ...over
   }
@@ -216,7 +218,9 @@ describe('describeEntitlements', () => {
       max_live_open_play: 1,
       max_members: null,
       online_fee_collection: false,
-      verified_badge_eligible: false
+      verified_badge_eligible: false,
+      allowed_event_types: null,
+      can_create_ranked_events: false
     })
 
     expect(rows.find((r) => r.label === 'Draft events')?.value).toBe('1 draft event')

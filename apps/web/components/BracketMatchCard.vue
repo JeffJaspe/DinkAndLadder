@@ -87,9 +87,9 @@ const rows = computed(() =>
 /**
  * The rating badge and the score columns compete for the same strip of card,
  * and on a tree node there is not room for both. Once a match has been played
- * the score is the more useful of the two, so the badge stands down.
+ * (or is live) the score is the more useful of the two, so the badge stands down.
  */
-const showRatings = computed(() => !orderedScores.value.length)
+const showRatings = computed(() => !orderedScores.value.length && !isLive.value)
 </script>
 
 <template>
@@ -103,16 +103,13 @@ const showRatings = computed(() => !orderedScores.value.length)
     ]"
     @click="isLive && emit('click', match.id)"
   >
-    <!-- LIVE indicator with current score -->
-    <div v-if="isLive" class="mb-2 flex items-center justify-between">
+    <!-- LIVE indicator -->
+    <div v-if="isLive" class="mb-2">
       <span
         class="inline-flex items-center gap-1.5 rounded-pill bg-danger px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-white"
       >
         <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-white" aria-hidden="true" />
         Live
-      </span>
-      <span class="text-sm font-bold tabular-nums text-fg">
-        {{ currentGame.team1_score }}<span class="mx-1 text-fg-muted">-</span>{{ currentGame.team2_score }}
       </span>
     </div>
     <div v-for="(entry, index) in rows" :key="index">
@@ -165,16 +162,25 @@ const showRatings = computed(() => !orderedScores.value.length)
           </span>
         </span>
 
+        <!-- Live score: show current game score per player row -->
+        <span
+          v-if="isLive"
+          class="w-6 shrink-0 text-right text-sm font-semibold tabular-nums text-fg"
+        >
+          {{ index === 0 ? currentGame.team1_score : currentGame.team2_score }}
+        </span>
         <!-- One column per set, so the two rows line up as a readable
              11-9 / 8-11 / 11-6 grid rather than a sentence. -->
-        <span
-          v-for="(score, setIndex) in entry.setScores"
-          :key="setIndex"
-          class="w-6 shrink-0 text-right text-sm tabular-nums"
-          :class="entry.isWinner ? 'font-semibold text-fg' : 'text-fg-secondary'"
-        >
-          {{ score }}
-        </span>
+        <template v-else>
+          <span
+            v-for="(score, setIndex) in entry.setScores"
+            :key="setIndex"
+            class="w-6 shrink-0 text-right text-sm tabular-nums"
+            :class="entry.isWinner ? 'font-semibold text-fg' : 'text-fg-secondary'"
+          >
+            {{ score }}
+          </span>
+        </template>
         <!--
           W and L, both of them, in a fixed-width cell.
 

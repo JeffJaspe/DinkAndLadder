@@ -2524,6 +2524,13 @@ const { goBack } = useAppBack('/events')
              player's movement without a service-role bypass). -->
 
           <div v-if="activeTab === 'rankings'">
+            <!-- EV-9. The ranking count differs from the registration count
+                 because only players with verified matches appear here. Said
+                 once so the discrepancy is not mistaken for a bug. -->
+            <p class="mb-3 text-caption text-fg-muted">
+              Players with verified matches: {{ rankingsData?.data?.length ?? 0 }} of
+              {{ registeredCount }} registered
+            </p>
             <RankingBoard
               :entries="rankingsData?.data ?? []"
               variant="record"

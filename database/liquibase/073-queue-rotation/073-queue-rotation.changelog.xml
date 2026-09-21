@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <!--
+        Queue rotation mode for open play events.
+
+        When enabled, players automatically re-join the waiting queue after their
+        match ends (at the back of the line) instead of being marked as completed.
+        This creates an infinite rotation until the event ends - the standard
+        format for casual club nights where the same group keeps playing.
+    -->
+    <changeSet id="0001-add-queue-rotation" author="queue-rotation">
+        <addColumn tableName="events">
+            <column name="queue_rotation" type="boolean" defaultValueBoolean="false">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+        <rollback>
+            <dropColumn tableName="events" columnName="queue_rotation"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="0002-comment-queue-rotation" author="queue-rotation">
+        <sql>
+            COMMENT ON COLUMN events.queue_rotation IS
+            'When true, players auto-rejoin the queue after their match ends (rotation mode for open play).';
+        </sql>
+    </changeSet>
+
+</databaseChangeLog>

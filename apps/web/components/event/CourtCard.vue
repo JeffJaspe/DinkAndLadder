@@ -47,6 +47,7 @@ const {
   displayGames,
   pending: pendingGames,
   pendingIndex,
+  plusDisabled,
   addPoint: adjust,
   confirm: confirmGame,
   cancel: cancelGame
@@ -83,13 +84,24 @@ const winner = computed(() => seriesWinner(
 ))
 
 /**
+ * Which team is ahead in the current game. Disables the losing team's "Wins"
+ * button since they cannot be declared winner while behind.
+ */
+const leadingTeam = computed<1 | 2 | null>(() => {
+  const game = currentGame.value
+  if (game.team1_score > game.team2_score) return 1
+  if (game.team2_score > game.team1_score) return 2
+  return null
+})
+
+/**
  * Scoring is locked when:
- * - A game-complete confirmation is pending
+ * - A game-complete confirmation is pending (plusDisabled)
  * - The current game is already complete (shouldn't happen, but safety)
  * - The match is already won
  */
 const scoringLocked = computed(() => {
-  if (pendingGames.value !== null) return true
+  if (plusDisabled.value) return true
   if (winner.value !== null) return true
   const game = currentGame.value
   return isGameComplete({ team1_score: game.team1_score, team2_score: game.team2_score }, rules.value)
@@ -247,8 +259,8 @@ const team2Label = computed(() =>
         <button
           type="button"
           class="rounded-lg bg-primary py-3 text-sm font-bold text-on-primary transition-colors hover:bg-primary-hover disabled:opacity-50"
-          :class="winner === 1 ? 'ring-2 ring-primary ring-offset-2 ring-offset-surface' : ''"
-          :disabled="busy"
+          :class="winner === 1 || leadingTeam === 1 ? 'ring-2 ring-primary ring-offset-2 ring-offset-surface' : ''"
+          :disabled="busy || leadingTeam === 2"
           @click="requestSubmit(1)"
         >
           Team 1 Wins
@@ -256,8 +268,8 @@ const team2Label = computed(() =>
         <button
           type="button"
           class="rounded-lg bg-warning py-3 text-sm font-bold text-fg transition-colors hover:bg-warning/80 disabled:opacity-50"
-          :class="winner === 2 ? 'ring-2 ring-warning ring-offset-2 ring-offset-surface' : ''"
-          :disabled="busy"
+          :class="winner === 2 || leadingTeam === 2 ? 'ring-2 ring-warning ring-offset-2 ring-offset-surface' : ''"
+          :disabled="busy || leadingTeam === 1"
           @click="requestSubmit(2)"
         >
           Team 2 Wins

@@ -217,6 +217,13 @@ export interface PlanEntitlements {
   max_members: number | null
   online_fee_collection: boolean
   verified_badge_eligible: boolean
+  /** Event types this plan can create. null = all types allowed. */
+  allowed_event_types: string[] | null
+  /**
+   * Whether this plan allows creating ranked events (open_ranked, club_ranked, tournament).
+   * Verified clubs bypass this check entirely.
+   */
+  can_create_ranked_events: boolean
 }
 
 /** The marketing copy, all of it SuperAdmin-owned. None of this is hardcoded in a template. */
@@ -251,6 +258,8 @@ export interface ClubPlanRecord extends SubscriptionPlanRecord {
   max_members: number | null
   online_fee_collection: boolean
   verified_badge_eligible: boolean
+  allowed_event_types: string[] | null
+  can_create_ranked_events: boolean
 }
 
 /**
@@ -312,7 +321,9 @@ export function toPlanEntitlements(record: ClubPlanRecord): PlanEntitlements {
     max_live_open_play: record.max_live_open_play,
     max_members: record.max_members,
     online_fee_collection: record.online_fee_collection,
-    verified_badge_eligible: record.verified_badge_eligible
+    verified_badge_eligible: record.verified_badge_eligible,
+    allowed_event_types: record.allowed_event_types,
+    can_create_ranked_events: record.can_create_ranked_events ?? false
   }
 }
 

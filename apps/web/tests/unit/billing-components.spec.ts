@@ -29,7 +29,9 @@ const plan: ClubSubscriptionPlanDto = {
     max_live_open_play: null,
     max_members: null,
     online_fee_collection: true,
-    verified_badge_eligible: true
+    verified_badge_eligible: true,
+    allowed_event_types: null,
+    can_create_ranked_events: true
   }
 }
 

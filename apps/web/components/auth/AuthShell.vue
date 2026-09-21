@@ -232,6 +232,22 @@ watch(paused, (isPaused) => {
         <div class="mt-8">
           <slot />
         </div>
+
+        <!-- Footer links -->
+        <footer class="mt-8 border-t border-border pt-6 text-center">
+          <nav aria-label="Policies" class="flex justify-center gap-4 text-caption text-fg-muted">
+            <NuxtLink
+              to="/legal/privacy"
+              class="rounded-button underline-offset-2 hover:text-fg hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              >Privacy</NuxtLink
+            >
+            <NuxtLink
+              to="/legal/terms"
+              class="rounded-button underline-offset-2 hover:text-fg hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              >Terms</NuxtLink
+            >
+          </nav>
+        </footer>
       </div>
     </main>
   </div>

@@ -51,10 +51,15 @@ describe('useGameConfirm — showing the tap immediately', () => {
   })
 
   it('hands authority back to the server when a fresh board arrives', async () => {
-    const { addPoint, displayGames, serverGames } = setup({}, [GAME(3, 2)])
+    const { addPoint, displayGames, serverGames, ackWrite } = setup({}, [GAME(3, 2)])
 
     addPoint(1, 1)
     expect(displayGames.value).toEqual([GAME(4, 2)])
+
+    // The write is in flight — poll results are ignored to prevent stale data
+    // from overwriting the optimistic score (the race that caused random -1).
+    // Calling ackWrite signals the PATCH completed, so server data is accepted.
+    ackWrite()
 
     // Whatever the server says now wins — which is also how a rejected write
     // reverts, without an undo path that could itself fail.
@@ -62,6 +67,22 @@ describe('useGameConfirm — showing the tap immediately', () => {
     await nextTick()
 
     expect(displayGames.value).toEqual([GAME(3, 2)])
+  })
+
+  it('ignores stale poll data while a write is in flight', async () => {
+    const { addPoint, displayGames, serverGames } = setup({}, [GAME(3, 2)])
+
+    addPoint(1, 1)
+    expect(displayGames.value).toEqual([GAME(4, 2)])
+
+    // Simulate race: poll returns BEFORE the PATCH completes. The poll carries
+    // stale data (3-2) because the server hasn't processed our write yet.
+    // Without the fix, this would reset the display to 3-2 ("random -1 bug").
+    serverGames.value = [GAME(3, 2)]
+    await nextTick()
+
+    // The fix: ignore poll results while a write is in flight.
+    expect(displayGames.value).toEqual([GAME(4, 2)])
   })
 })
 

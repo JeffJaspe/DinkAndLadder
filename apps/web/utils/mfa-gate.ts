@@ -34,8 +34,14 @@ export interface GateInput {
  * takes to present the second factor, use a recovery code, or sign out.
  * `/me/is-superadmin` is here because the admin route guard asks it before
  * anything else and must be able to say "go enrol" rather than crash.
+ * `/platform/branding` is here because the MFA page renders the brand logo.
  */
-const ALLOW_WHILE_PENDING = ['/api/v1/auth/', '/api/v1/mfa/', '/api/v1/me/is-superadmin']
+const ALLOW_WHILE_PENDING = [
+  '/api/v1/auth/',
+  '/api/v1/mfa/',
+  '/api/v1/me/is-superadmin',
+  '/api/v1/platform/branding'
+]
 
 const ADMIN_PREFIX = '/api/v1/admin/'
 

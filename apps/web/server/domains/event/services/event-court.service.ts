@@ -271,11 +271,31 @@ export function createEventCourtService(
         live_score_updated_at: null
       })
 
-      await Promise.all(
-        [team1, team2]
-          .filter((entry): entry is EventQueueRecord => entry !== null)
-          .map((entry) => queue.updateStatus(entry.id, 'completed'))
-      )
+      // Look up the event to check if rotation mode is enabled
+      const eventRecord = await events.findById(court.event_id)
+      const rotationEnabled = eventRecord?.queue_rotation ?? false
+
+      if (rotationEnabled) {
+        // Rotation mode: players go back to the waiting queue (end of line)
+        await Promise.all(
+          [team1, team2]
+            .filter((entry): entry is EventQueueRecord => entry !== null)
+            .map((entry) =>
+              queue.update(entry.id, {
+                status: 'waiting',
+                court_number: null,
+                joined_at: new Date().toISOString()
+              })
+            )
+        )
+      } else {
+        // Normal mode: players are done after one match
+        await Promise.all(
+          [team1, team2]
+            .filter((entry): entry is EventQueueRecord => entry !== null)
+            .map((entry) => queue.updateStatus(entry.id, 'completed'))
+        )
+      }
 
       // `round_number` is deliberately left on the freed court: it is what
       // tells the next start whether this court has already played the current

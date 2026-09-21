@@ -36,30 +36,40 @@ import type { EventCourtDto } from '~/server/domains/event/dto/event.dto'
 const POLL_INTERVAL_MS = 5_000
 
 export function useLiveScores(eventId: Ref<string> | string) {
-  const id = computed(() => (typeof eventId === 'string' ? eventId : eventId.value))
+  const id = toRef(typeof eventId === 'string' ? ref(eventId) : eventId)
 
-  const { data, pending, error, refresh } = useFetch<{ data: EventCourtDto[] }>(
-    () => `/api/v1/events/${id.value}/courts`,
+  const { data, status, error, refresh } = useFetch<{ data: EventCourtDto[] }>(
+    `/api/v1/events/${id.value}/courts`,
     {
-      key: computed(() => `event-courts-${id.value}`),
       // Client-only: this is live state, so a server-rendered snapshot is
       // stale before it reaches the browser.
       server: false,
+      watch: [id],
       default: () => ({ data: [] as EventCourtDto[] })
     }
   )
 
+  const pending = computed(() => status.value === 'pending')
   const courts = computed(() => data.value?.data ?? [])
 
   /** Anything actually in play right now. Drives the red LIVE label. */
-  const hasLiveCourt = computed(() => courts.value.some((court) => court.status === 'playing'))
+  const hasLiveCourt = computed(() => courts.value.some((court: EventCourtDto) => court.status === 'playing'))
 
   const lastUpdated = ref<Date | null>(null)
   let timer: ReturnType<typeof setInterval> | null = null
+  let fetching = false
 
   async function refreshNow() {
-    await refresh()
-    lastUpdated.value = new Date()
+    // Prevent concurrent fetches — the prior one is still returning the same
+    // answer, and stacking requests just delays all of them.
+    if (fetching) return
+    fetching = true
+    try {
+      await refresh()
+      lastUpdated.value = new Date()
+    } finally {
+      fetching = false
+    }
   }
 
   function stop() {

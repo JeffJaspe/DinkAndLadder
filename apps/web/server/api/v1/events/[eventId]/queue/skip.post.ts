@@ -2,6 +2,7 @@ import { serverSupabaseClient, serverSupabaseServiceRole } from '#supabase/serve
 import { createEventQueueRepository } from '~/server/domains/event/repositories/event-queue.repository'
 import { createEventRegistrationRepository } from '~/server/domains/event/repositories/event-registration.repository'
 import { createEventRepository } from '~/server/domains/event/repositories/event.repository'
+import { createClubMembershipRepository } from '~/server/domains/club/repositories/club-membership.repository'
 import {
   createEventQueueService,
   EventQueueServiceError
@@ -36,7 +37,9 @@ export default defineEventHandler(async (event) => {
   const service = createEventQueueService(
     createEventQueueRepository(serviceClient),
     createEventRegistrationRepository(serviceClient),
-    createEventRepository(serviceClient)
+    createEventRepository(serviceClient),
+    undefined, // partnerships not needed for skipping
+    createClubMembershipRepository(serviceClient)
   )
 
   try {

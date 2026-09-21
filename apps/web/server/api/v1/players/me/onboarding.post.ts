@@ -1,7 +1,9 @@
 import { serverSupabaseClient, serverSupabaseServiceRole } from '#supabase/server'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
 import { createPlayerProfileService } from '~/server/domains/player/services/player-profile.service'
+import { createPlayerAvatarService } from '~/server/domains/player/services/player-avatar.service'
 import { PlayerProfileValidationError } from '~/server/domains/player/dto/player-profile.dto'
+import { createBrandingAssetRepository } from '~/server/domains/platform/repositories/branding-asset.repository'
 import { apiError } from '~/server/utils/api-error'
 import { getOptionalUser } from '~/server/utils/optional-user'
 import { awardAchievements } from '~/server/utils/award-achievements'
@@ -36,12 +38,33 @@ export default defineEventHandler(async (event) => {
   const body = await readBody<OnboardingInput>(event).catch(() => undefined)
 
   const client = await serverSupabaseClient(event)
-  const service = createPlayerProfileService(createPlayerProfileRepository(client))
+  const serviceClient = serverSupabaseServiceRole(event)
+  const profileRepository = createPlayerProfileRepository(client)
+  const service = createPlayerProfileService(profileRepository)
+
+  // Get OAuth avatar URL if available (e.g. Google profile picture).
+  let oauthAvatarUrl: string | null = null
+  try {
+    const { data } = await serviceClient.auth.admin.getUserById(claims.sub)
+    oauthAvatarUrl = data?.user?.user_metadata?.avatar_url ?? null
+  } catch {
+    // Not fatal — proceed without the avatar.
+  }
 
   try {
     // ensureProfile, not saveOwnProfile: re-entering onboarding must never
     // rename someone who already picked a display name.
     const profile = await service.ensureProfile(claims.sub, body?.display_name)
+
+    // Import OAuth avatar if this is a new profile without one.
+    const fullProfile = await profileRepository.findByUserId(claims.sub)
+    if (oauthAvatarUrl && fullProfile && !fullProfile.avatar_path) {
+      const avatarService = createPlayerAvatarService(
+        profileRepository,
+        createBrandingAssetRepository(serviceClient)
+      )
+      await avatarService.importFromUrl(profile.id, oauthAvatarUrl)
+    }
 
     /**
      * The first badge, earned by arriving.
@@ -57,7 +80,7 @@ export default defineEventHandler(async (event) => {
      * latency budget worth protecting, and the player lands on a dashboard
      * that reads the badge straight afterwards.
      */
-    await awardAchievements(serverSupabaseServiceRole(event), profile.id, claims.sub)
+    await awardAchievements(serviceClient, profile.id, claims.sub)
 
     return {
       data: profile,

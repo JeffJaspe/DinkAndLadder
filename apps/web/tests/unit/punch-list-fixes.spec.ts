@@ -42,6 +42,7 @@ const baseEventRecord: EventRecord = {
   win_by_two: true,
   games_default: 1,
   queue_mode: 'first_come',
+    queue_rotation: false,
   min_players_to_start: null,
   close_policy: 'manual',
   closes_at: null,

@@ -56,6 +56,7 @@ function makeEventRecord(overrides?: Partial<EventRecord>): EventRecord {
     win_by_two: true,
     games_default: 1,
     queue_mode: 'first_come',
+    queue_rotation: false,
     min_players_to_start: null,
     close_policy: 'manual',
     closes_at: null,
@@ -83,6 +84,9 @@ function makeRegistration(overrides?: Partial<EventRegistrationRecord>): EventRe
     registered_at: '2026-08-01T00:00:00Z',
     checked_in_at: null,
     withdrawn_at: null,
+    payment_status: 'not_required',
+    paid_at: null,
+    paid_marked_by: null,
     ...overrides
   }
 }
@@ -96,6 +100,7 @@ function createFakeQueueRepository(
     findWaiting: vi.fn().mockResolvedValue([]),
     findByEvent: vi.fn().mockResolvedValue([]),
     create: vi.fn(),
+    update: vi.fn(),
     updateStatus: vi.fn(),
     setMatched: vi.fn(),
     setPlaying: vi.fn(),
@@ -108,6 +113,7 @@ function createFakeRegistrationRepository(
   overrides?: Partial<EventRegistrationRepository>
 ): EventRegistrationRepository {
   return {
+    findById: vi.fn().mockResolvedValue(null),
     findByEventAndPlayer: vi.fn().mockResolvedValue(makeRegistration()),
     findByEventAndPlayers: vi
       .fn()
@@ -122,6 +128,7 @@ function createFakeRegistrationRepository(
     reinstate: vi.fn(),
     checkIn: vi.fn(),
     withdraw: vi.fn(),
+    updatePaymentStatus: vi.fn(),
     ...overrides
   }
 }

@@ -1,5 +1,6 @@
 import { RECOVERY_ROUTE, isGuestRoute } from '~/utils/route-groups'
 import { isRecoveryLocked } from '~/utils/recovery-lock'
+import { needsMfaChallenge } from '~/composables/useMfaChallenge'
 
 /**
  * The signed-in half of route protection, which did not exist.
@@ -17,7 +18,7 @@ import { isRecoveryLocked } from '~/utils/recovery-lock'
  * alphabetical order, and an errored callback must be allowed to reach
  * /auth-error before anything else has an opinion.
  */
-export default defineNuxtRouteMiddleware((to) => {
+export default defineNuxtRouteMiddleware(async (to) => {
   // A recovery session is good for one thing. Trap it on the password form
   // until the password is actually set (or the user cancels, which signs out
   // and clears the lock). Client-only: sessionStorage is where the flag lives,
@@ -29,9 +30,23 @@ export default defineNuxtRouteMiddleware((to) => {
   const user = useSupabaseUser()
   if (!user.value) return
 
+  // A user who still needs to complete MFA hasn't truly signed in yet.
+  // Let them stay on guest routes (or sign out) rather than trapping them
+  // in a redirect loop between /dashboard and /mfa/verify.
+  if (import.meta.client && await needsMfaChallenge(useSupabaseClient())) {
+    return
+  }
+
   if (isGuestRoute(to.path)) {
+    // If the user was in club mode, send them to that club's dashboard rather
+    // than the player dashboard. The cookie persists across the auth flow.
+    const activeClubId = useCookie<string | null>('active_club_id')
+    const destination = activeClubId.value
+      ? `/club/${activeClubId.value}/dashboard`
+      : '/dashboard'
+
     // `replace` so Back does not bounce between /dashboard and the page they
     // were just redirected off.
-    return navigateTo('/dashboard', { replace: true })
+    return navigateTo(destination, { replace: true })
   }
 })

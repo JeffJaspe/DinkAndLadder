@@ -23,7 +23,7 @@ interface RatingResult {
 
 const user = useSupabaseUser()
 const route = useRoute()
-const { switchToPlayer } = useAccountMode()
+const { switchToPlayer, activeClubId } = useAccountMode()
 const { appName } = useBranding()
 
 // Entry point for "switch to Player mode for the first time" (see AccountSwitcher.vue):
@@ -32,9 +32,16 @@ const { appName } = useBranding()
 // the account-type prompt, and redirects back to wherever the switch was heading
 // instead of into club creation.
 const isRateOnlyFlow = computed(() => route.query.flow === 'rate-only')
-const redirectAfter = computed(() =>
-  typeof route.query.redirect === 'string' ? route.query.redirect : '/dashboard'
-)
+
+/**
+ * Where to land after onboarding completes. Respects an explicit redirect param,
+ * otherwise sends to club dashboard if in club mode, else player dashboard.
+ */
+const redirectAfter = computed(() => {
+  if (typeof route.query.redirect === 'string') return route.query.redirect
+  if (activeClubId.value) return `/club/${activeClubId.value}/dashboard`
+  return '/dashboard'
+})
 
 const step = ref<'loading' | 'type' | 'questionnaire' | 'submitting' | 'result' | 'club'>('loading')
 const accountType = ref<'player' | 'club' | null>(null)
@@ -167,7 +174,7 @@ onMounted(async () => {
         ignoreResponseError: true
       })
       if (ratings && !(ratings as { statusCode?: number }).statusCode && ratings.singles) {
-        await navigateTo('/dashboard')
+        await navigateTo(redirectAfter.value)
         return
       } else {
         accountType.value = 'player'

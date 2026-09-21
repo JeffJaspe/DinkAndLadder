@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <!--
+        Payment status tracking for event registrations.
+
+        For free events (fee_amount is null or 0), players join without payment
+        and the status is 'not_required'. For paid events, organizers can manually
+        mark players as 'paid' or 'waived' from the Players tab.
+
+        Values:
+        - not_required: free event, no payment needed
+        - pending: paid event, awaiting payment
+        - paid: payment received (manual or online)
+        - waived: fee waived by organizer
+    -->
+    <changeSet id="0001-add-payment-status" author="registration-payment">
+        <addColumn tableName="event_registrations">
+            <column name="payment_status" type="varchar(20)" defaultValue="not_required">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+        <rollback>
+            <dropColumn tableName="event_registrations" columnName="payment_status"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="0002-payment-status-check" author="registration-payment">
+        <sql>
+            ALTER TABLE event_registrations
+            ADD CONSTRAINT chk_payment_status
+            CHECK (payment_status IN ('not_required', 'pending', 'paid', 'waived'));
+        </sql>
+        <rollback>
+            <sql>ALTER TABLE event_registrations DROP CONSTRAINT chk_payment_status;</sql>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="0003-add-paid-at" author="registration-payment">
+        <addColumn tableName="event_registrations">
+            <column name="paid_at" type="timestamptz"/>
+        </addColumn>
+        <rollback>
+            <dropColumn tableName="event_registrations" columnName="paid_at"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="0004-add-paid-by" author="registration-payment">
+        <addColumn tableName="event_registrations">
+            <column name="paid_marked_by" type="uuid"/>
+        </addColumn>
+        <addForeignKeyConstraint
+            baseTableName="event_registrations"
+            baseColumnNames="paid_marked_by"
+            constraintName="fk_event_registrations_paid_marked_by"
+            referencedTableName="player_profiles"
+            referencedColumnNames="id"
+            onDelete="SET NULL"/>
+        <rollback>
+            <dropForeignKeyConstraint baseTableName="event_registrations" constraintName="fk_event_registrations_paid_marked_by"/>
+            <dropColumn tableName="event_registrations" columnName="paid_marked_by"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="0005-comment-columns" author="registration-payment">
+        <sql>
+            COMMENT ON COLUMN event_registrations.payment_status IS
+            'Payment status: not_required (free event), pending (awaiting), paid, waived.';
+
+            COMMENT ON COLUMN event_registrations.paid_at IS
+            'When payment was received or marked.';
+
+            COMMENT ON COLUMN event_registrations.paid_marked_by IS
+            'Player who marked this registration as paid (organizer).';
+        </sql>
+    </changeSet>
+
+</databaseChangeLog>

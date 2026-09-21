@@ -21,6 +21,8 @@ const props = defineProps<{
   /** Whose card this is, for the empty state's copy. */
   displayName: string
   isOwnProfile: boolean
+  /** Total matches played, for the per-game rate. */
+  totalMatches?: number
 }>()
 
 /**
@@ -36,6 +38,12 @@ const props = defineProps<{
 const tallies = computed(() => props.kudos?.tallies ?? emptyTallies())
 const total = computed(() => props.kudos?.total ?? 0)
 
+/** Per-game rate: kudos received divided by matches played. */
+const perGame = computed(() => {
+  if (!props.totalMatches || props.totalMatches === 0) return null
+  return (total.value / props.totalMatches).toFixed(1)
+})
+
 /** The busiest skill, so the bars have something to scale against. */
 const peak = computed(() => Math.max(1, ...tallies.value.map((t) => t.count)))
 </script>
@@ -45,7 +53,8 @@ const peak = computed(() => Math.max(1, ...tallies.value.map((t) => t.count)))
     <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
       <h2 class="font-display text-heading-3 text-fg">Kudos</h2>
       <p v-if="total" class="text-body-2 text-fg-muted">
-        <span class="tabular-nums">{{ total }}</span> from opponents
+        <span class="tabular-nums">{{ total }}</span> total<template v-if="perGame">
+          · <span class="tabular-nums">{{ perGame }}</span> per game</template>
       </p>
     </div>
 

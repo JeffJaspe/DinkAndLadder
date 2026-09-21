@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <!--
+        Subscription-based event type restrictions.
+
+        Controls which event types a club can create based on their subscription plan.
+        Free tier default: only 'open_casual' (casual, no ranking).
+        Premium tiers: additional types like 'open_ranked', 'tournament', etc.
+
+        NULL means all event types are allowed (unlimited).
+        An empty array means NO event types are allowed (edge case).
+        An array of strings lists the allowed types.
+
+        Event types from EventType in event.dto.ts:
+        - open_casual: casual open play, no rating impact
+        - open_ranked: ranked open play, affects ratings
+        - club_casual: club-only casual
+        - club_ranked: club-only ranked
+        - tournament: full tournament with brackets
+        - coaching: coaching sessions
+    -->
+    <changeSet id="0001-add-allowed-event-types" author="subscription-event-types">
+        <addColumn tableName="subscription_plans">
+            <column name="allowed_event_types" type="jsonb">
+                <!-- NULL means all types allowed (premium behavior) -->
+            </column>
+        </addColumn>
+        <rollback>
+            <dropColumn tableName="subscription_plans" columnName="allowed_event_types"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="0002-check-allowed-event-types" author="subscription-event-types">
+        <sql>
+            ALTER TABLE subscription_plans
+            ADD CONSTRAINT ck_subscription_plans_allowed_event_types
+            CHECK (
+                allowed_event_types IS NULL
+                OR jsonb_typeof(allowed_event_types) = 'array'
+            );
+        </sql>
+        <rollback>
+            <sql>ALTER TABLE subscription_plans DROP CONSTRAINT ck_subscription_plans_allowed_event_types;</sql>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="0003-comment-allowed-event-types" author="subscription-event-types">
+        <sql>
+            COMMENT ON COLUMN subscription_plans.allowed_event_types IS
+            'Event types this plan can create. NULL = all types. Array of strings like ["open_casual", "open_ranked"].';
+        </sql>
+    </changeSet>
+
+    <!-- Set the free plan default to only casual (no ranking) events -->
+    <changeSet id="0004-set-free-plan-defaults" author="subscription-event-types">
+        <sql>
+            UPDATE subscription_plans
+            SET allowed_event_types = '["open_casual", "club_casual", "coaching"]'::jsonb
+            WHERE is_default_free = true
+            AND allowed_event_types IS NULL;
+        </sql>
+        <rollback>
+            <sql>
+                UPDATE subscription_plans
+                SET allowed_event_types = NULL
+                WHERE is_default_free = true;
+            </sql>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

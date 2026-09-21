@@ -6,6 +6,7 @@ import {
   createRelationshipService,
   RelationshipServiceError
 } from '~/server/domains/social/services/relationship.service'
+import { createClubBanRepository } from '~/server/domains/club/repositories/club-ban.repository'
 import { apiError } from '~/server/utils/api-error'
 import { getOptionalUser } from '~/server/utils/optional-user'
 
@@ -83,6 +84,24 @@ export default defineEventHandler(async (event) => {
 
   if (eventData.status !== 'published' && eventData.status !== 'active') {
     throw apiError(409, 'EVENT_NOT_OPEN', 'This event is not open for registration.')
+  }
+
+  // Check if any player in the group is banned from this club
+  if (eventData.club_id) {
+    const bans = createClubBanRepository(serviceClient)
+    for (const playerId of everyone) {
+      const isBanned = await bans.isPlayerBanned(eventData.club_id, playerId)
+      if (isBanned) {
+        const isSelf = playerId === playerProfile.id
+        throw apiError(
+          403,
+          'BANNED',
+          isSelf
+            ? 'You are banned from this club and cannot register for their events.'
+            : 'One of the players you selected is banned from this club.'
+        )
+      }
+    }
   }
 
   /**

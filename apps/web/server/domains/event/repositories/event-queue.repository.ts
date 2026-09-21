@@ -12,6 +12,11 @@ export interface EventQueueRepository {
     match_type: 'singles' | 'doubles'
     partner_id?: string | null
   }): Promise<EventQueueRecord>
+  /** Generic update for any fields. Used by rotation mode to reset entries to waiting. */
+  update(
+    id: string,
+    data: Partial<Pick<EventQueueRecord, 'status' | 'court_number' | 'joined_at'>>
+  ): Promise<EventQueueRecord | null>
   updateStatus(id: string, status: QueueStatus): Promise<EventQueueRecord | null>
   setMatched(
     id: string,
@@ -98,6 +103,20 @@ export function createEventQueueRepository(client: SupabaseClient): EventQueueRe
         throw new Error(`Failed to join queue: ${error.message}`)
       }
       return created as EventQueueRecord
+    },
+
+    async update(id, data) {
+      const { data: updated, error } = await client
+        .from('event_queue')
+        .update(data)
+        .eq('id', id)
+        .select()
+        .single()
+
+      if (error) {
+        throw new Error(`Failed to update queue entry: ${error.message}`)
+      }
+      return updated as EventQueueRecord
     },
 
     async updateStatus(id, status) {

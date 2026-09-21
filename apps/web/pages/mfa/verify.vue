@@ -80,7 +80,14 @@ async function submit() {
 
 async function signOut() {
   await supabase.auth.signOut()
-  await navigateTo('/login', { replace: true })
+  // Hard reload to clear all client state - soft navigation would hit middleware
+  // before useSupabaseUser() updates and redirect back here
+  window.location.href = '/login'
+}
+
+function goHome() {
+  // Same issue: need hard navigation to escape the MFA gate middleware
+  window.location.href = '/'
 }
 
 onMounted(prepare)
@@ -95,7 +102,7 @@ onMounted(prepare)
       Checking your account…
     </div>
 
-    <form v-else class="space-y-4" @submit.prevent="submit">
+    <form v-if="!preparing" class="space-y-4" @submit.prevent="submit">
       <div>
         <label for="mfa-code" class="mb-1.5 block text-sm font-medium text-fg-secondary"
           >6-digit code</label
@@ -123,11 +130,14 @@ onMounted(prepare)
     </form>
 
     <div class="mt-6 flex flex-col items-center gap-2 text-center text-sm">
-      <NuxtLink to="/mfa/recover" class="text-fg-muted hover:text-primary">
+      <NuxtLink v-if="!preparing" to="/mfa/recover" class="text-fg-muted hover:text-primary">
         Lost your phone? Use a recovery code
       </NuxtLink>
       <button type="button" class="text-fg-muted hover:text-primary" @click="signOut">
-        Sign out
+        Back to sign in
+      </button>
+      <button type="button" class="text-fg-muted hover:text-primary" @click="goHome">
+        Go to home page
       </button>
     </div>
   </AuthShell>

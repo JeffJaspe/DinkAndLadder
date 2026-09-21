@@ -3,6 +3,11 @@ import { createEventCourtRepository } from '~/server/domains/event/repositories/
 import { createEventQueueRepository } from '~/server/domains/event/repositories/event-queue.repository'
 import { createEventRegistrationRepository } from '~/server/domains/event/repositories/event-registration.repository'
 import { createEventRepository } from '~/server/domains/event/repositories/event.repository'
+import { createClubMembershipRepository } from '~/server/domains/club/repositories/club-membership.repository'
+import {
+  createPairingHistoryRepository,
+  createPlayerRatingsRepository
+} from '~/server/domains/event/repositories/pairing-history.repository'
 import {
   createEventCourtService,
   EventCourtServiceError
@@ -133,7 +138,11 @@ export default defineEventHandler(async (event) => {
     const queueService = createEventQueueService(
       queueRepo,
       createEventRegistrationRepository(serviceClient),
-      eventRepo
+      eventRepo,
+      undefined, // partnerships not needed for auto-matching
+      createClubMembershipRepository(serviceClient),
+      createPairingHistoryRepository(serviceClient), // for Mix & Match
+      createPlayerRatingsRepository(serviceClient) // for rating_based
     )
     nextUp = await queueService.matchNextPair(profile.id, eventId, court.court_number)
 

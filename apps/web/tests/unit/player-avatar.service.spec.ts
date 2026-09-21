@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   createPlayerAvatarService,
   PlayerAvatarServiceError
@@ -188,5 +188,67 @@ describe('PlayerAvatarService', () => {
   it('leaves avatar_url null when there is no stored path', async () => {
     const dto = await service.withAvatarUrl({ avatar_url: null } as never, null)
     expect(dto.avatar_url).toBeNull()
+  })
+
+  describe('importFromUrl', () => {
+    it('downloads and stores an external image', async () => {
+      const imageBytes = Buffer.from('fake-image-bytes')
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'content-type': 'image/jpeg' }),
+        arrayBuffer: () => Promise.resolve(imageBytes.buffer)
+      } as Response)
+
+      const result = await service.importFromUrl('profile-1', 'https://example.com/photo.jpg')
+
+      expect(fetchSpy).toHaveBeenCalledWith('https://example.com/photo.jpg', expect.any(Object))
+      expect(result).toMatch(/^players\/profile-1\/avatar-\d+\.jpg$/)
+      expect(assets.uploaded).toHaveLength(1)
+      expect(profiles.current()!.avatar_path).toBe(result)
+
+      fetchSpy.mockRestore()
+    })
+
+    it('returns null on fetch failure', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
+        ok: false,
+        status: 404
+      } as Response)
+
+      const result = await service.importFromUrl('profile-1', 'https://example.com/missing.jpg')
+
+      expect(result).toBeNull()
+      expect(assets.uploaded).toHaveLength(0)
+
+      fetchSpy.mockRestore()
+    })
+
+    it('returns null on network error', async () => {
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockRejectedValueOnce(new Error('Network error'))
+
+      const result = await service.importFromUrl('profile-1', 'https://example.com/photo.jpg')
+
+      expect(result).toBeNull()
+      expect(assets.uploaded).toHaveLength(0)
+
+      fetchSpy.mockRestore()
+    })
+
+    it('returns null for empty response', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
+        ok: true,
+        headers: new Headers({ 'content-type': 'image/png' }),
+        arrayBuffer: () => Promise.resolve(new ArrayBuffer(0))
+      } as Response)
+
+      const result = await service.importFromUrl('profile-1', 'https://example.com/empty.png')
+
+      expect(result).toBeNull()
+      expect(assets.uploaded).toHaveLength(0)
+
+      fetchSpy.mockRestore()
+    })
   })
 })

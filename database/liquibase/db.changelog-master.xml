@@ -76,5 +76,9 @@
     <include file="069-match-history-default-public/069-match-history-default-public.changelog.xml" relativeToChangelogFile="true"/>
     <include file="070-player-social-links/070-player-social-links.changelog.xml" relativeToChangelogFile="true"/>
     <include file="071-player-records-view/071-player-records-view.changelog.xml" relativeToChangelogFile="true"/>
+    <include file="072-club-bans/072-club-bans.changelog.xml" relativeToChangelogFile="true"/>
+    <include file="073-queue-rotation/073-queue-rotation.changelog.xml" relativeToChangelogFile="true"/>
+    <include file="074-registration-payment/074-registration-payment.changelog.xml" relativeToChangelogFile="true"/>
+    <include file="075-subscription-event-types/075-subscription-event-types.changelog.xml" relativeToChangelogFile="true"/>
 
 </databaseChangeLog>

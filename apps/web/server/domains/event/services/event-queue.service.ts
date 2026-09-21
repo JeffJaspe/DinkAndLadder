@@ -1,7 +1,25 @@
 import type { EventQueueRepository } from '../repositories/event-queue.repository'
 import type { EventRegistrationRepository } from '../repositories/event-registration.repository'
 import type { EventRepository } from '../repositories/event.repository'
-import type { EventQueueRecord } from '../dto/event.dto'
+import type { EventQueueRecord, QueueMode } from '../dto/event.dto'
+
+/**
+ * Partner/opponent history for smart pairing in Mix & Match mode.
+ * Maps player_id pairs to count of times they've partnered or faced each other.
+ */
+interface PairingHistory {
+  partnerCounts: Map<string, number>
+  opponentCounts: Map<string, number>
+}
+
+/** Stable key for a pair of players, so A|B and B|A count as the same. */
+function pairKey(a: string, b: string): string {
+  return a < b ? `${a}|${b}` : `${b}|${a}`
+}
+
+/** Cost weights - partner repeats matter more than opponent repeats. */
+const PARTNER_REPEAT_COST = 10
+const OPPONENT_REPEAT_COST = 1
 
 export class EventQueueServiceError extends Error {
   constructor(
@@ -79,22 +97,58 @@ async function assertRegistered(
   }
 }
 
-async function assertOrganizer(events: EventRepository, eventId: string, playerId: string) {
+const STAFF_ROLES = ['OWNER', 'ADMIN', 'MODERATOR']
+
+async function assertOrganizer(
+  events: EventRepository,
+  eventId: string,
+  playerId: string,
+  memberships?: { findByClubAndPlayer(clubId: string, playerId: string): Promise<{ role: string; status: string } | null> }
+) {
   const event = await events.findById(eventId)
   if (!event) {
     throw new EventQueueServiceError(404, 'NOT_FOUND', 'Event not found.')
   }
-  if (
-    event.created_by_player_id !== playerId &&
-    !(await events.isCoOrganizer?.(eventId, playerId))
-  ) {
-    throw new EventQueueServiceError(
-      403,
-      'FORBIDDEN',
-      'Only the event organizer or a co-organiser can manage the queue.'
-    )
+
+  // Creator always allowed
+  if (event.created_by_player_id === playerId) return event
+
+  // Co-organizer allowed
+  if (await events.isCoOrganizer?.(eventId, playerId)) return event
+
+  // Club staff allowed (owner, admin, moderator)
+  if (memberships && event.club_id) {
+    const membership = await memberships.findByClubAndPlayer(event.club_id, playerId)
+    if (membership && membership.status === 'active' && STAFF_ROLES.includes(membership.role)) {
+      return event
+    }
   }
-  return event
+
+  throw new EventQueueServiceError(
+    403,
+    'FORBIDDEN',
+    'Only the organizer, a co-organiser or the hosting club\'s staff can manage the queue.'
+  )
+}
+
+/**
+ * Minimal match history interface for smart pairing.
+ * Returns participants grouped by team for each match in the event.
+ */
+interface MatchHistoryForPairing {
+  getEventMatchHistory(eventId: string): Promise<
+    Array<{
+      team1_players: string[]
+      team2_players: string[]
+    }>
+  >
+}
+
+/**
+ * Minimal player profile interface for rating-based pairing.
+ */
+interface PlayerRatingsForPairing {
+  getRatings(playerIds: string[]): Promise<Map<string, number>>
 }
 
 export function createEventQueueService(
@@ -107,8 +161,232 @@ export function createEventQueueService(
    * endpoint passes it; organiser paths that move existing entries do not
    * need it.
    */
-  partnerships?: { findPartnershipBetween(a: string, b: string): Promise<unknown | null> }
+  partnerships?: { findPartnershipBetween(a: string, b: string): Promise<unknown | null> },
+  /**
+   * Optional: when supplied, club staff (owner, admin, moderator) can manage
+   * the queue alongside the event creator and co-organisers. Queue management
+   * endpoints pass it; player-only actions like join/leave do not need it.
+   */
+  memberships?: { findByClubAndPlayer(clubId: string, playerId: string): Promise<{ role: string; status: string } | null> },
+  /**
+   * Optional: for Mix & Match mode, provides match history to avoid repeat pairings.
+   */
+  matchHistory?: MatchHistoryForPairing,
+  /**
+   * Optional: for rating_based mode, provides player ratings for skill-based pairing.
+   */
+  playerRatings?: PlayerRatingsForPairing
 ): EventQueueService {
+  /**
+   * Selects the best pair based on queue mode:
+   * - first_come: FIFO - first two in line
+   * - random (Mix & Match): Minimize partner/opponent repeats
+   * - rating_based: Pair players with closest ratings
+   */
+  async function selectPairByMode(
+    waiting: EventQueueRecord[],
+    queueMode: QueueMode,
+    eventId: string,
+    isDoubles: boolean
+  ): Promise<{ first: EventQueueRecord; second: EventQueueRecord }> {
+    // First come, first served - simple FIFO
+    if (queueMode === 'first_come') {
+      return { first: waiting[0], second: waiting[1] }
+    }
+
+    // Rating based - pair players with closest ratings
+    if (queueMode === 'rating_based') {
+      return selectByRating(waiting, isDoubles)
+    }
+
+    // Mix & Match (random) - minimize partner/opponent repeats
+    return selectByMixMatch(waiting, eventId, isDoubles)
+  }
+
+  /**
+   * Rating-based pairing: pairs players with closest skill levels.
+   * For doubles, considers the combined/average rating of each entry's players.
+   */
+  async function selectByRating(
+    waiting: EventQueueRecord[],
+    isDoubles: boolean
+  ): Promise<{ first: EventQueueRecord; second: EventQueueRecord }> {
+    if (!playerRatings) {
+      // Fallback to FIFO if no ratings available
+      return { first: waiting[0], second: waiting[1] }
+    }
+
+    // Collect all player IDs
+    const playerIds = waiting.flatMap((e) =>
+      e.partner_id ? [e.player_id, e.partner_id] : [e.player_id]
+    )
+    const ratings = await playerRatings.getRatings(playerIds)
+
+    // Calculate effective rating for each entry (average for doubles)
+    const entryRatings = waiting.map((entry) => {
+      const r1 = ratings.get(entry.player_id) ?? 3.0
+      const r2 = entry.partner_id ? (ratings.get(entry.partner_id) ?? 3.0) : r1
+      return { entry, rating: (r1 + r2) / 2 }
+    })
+
+    // Sort by rating
+    entryRatings.sort((a, b) => a.rating - b.rating)
+
+    // Pair adjacent entries (closest ratings)
+    // Take the first entry and find the one with closest rating
+    const first = entryRatings[0]
+    let bestMatch = entryRatings[1]
+    let minDiff = Math.abs(first.rating - bestMatch.rating)
+
+    for (let i = 2; i < entryRatings.length; i++) {
+      const diff = Math.abs(first.rating - entryRatings[i].rating)
+      if (diff < minDiff) {
+        minDiff = diff
+        bestMatch = entryRatings[i]
+      }
+    }
+
+    return { first: first.entry, second: bestMatch.entry }
+  }
+
+  /**
+   * Mix & Match pairing: minimizes partner and opponent repeats.
+   * Uses the same cost function as the mixup scheduler.
+   */
+  async function selectByMixMatch(
+    waiting: EventQueueRecord[],
+    eventId: string,
+    isDoubles: boolean
+  ): Promise<{ first: EventQueueRecord; second: EventQueueRecord }> {
+    // Get match history to track who has partnered/faced whom
+    const history = await buildPairingHistory(eventId)
+
+    // For singles: each entry is one player, find best opponent
+    if (!isDoubles) {
+      return selectSinglesMixMatch(waiting, history)
+    }
+
+    // For doubles: each entry may have a partner already (non-random modes)
+    // or be solo (random mode pairs them). Find best opponent pair.
+    return selectDoublesMixMatch(waiting, history)
+  }
+
+  /**
+   * Build partner/opponent history from completed matches in this event.
+   */
+  async function buildPairingHistory(eventId: string): Promise<PairingHistory> {
+    const partnerCounts = new Map<string, number>()
+    const opponentCounts = new Map<string, number>()
+
+    if (!matchHistory) {
+      return { partnerCounts, opponentCounts }
+    }
+
+    const matches = await matchHistory.getEventMatchHistory(eventId)
+    for (const match of matches) {
+      // Count partner pairings within each team
+      for (const team of [match.team1_players, match.team2_players]) {
+        for (let i = 0; i < team.length; i++) {
+          for (let j = i + 1; j < team.length; j++) {
+            const key = pairKey(team[i], team[j])
+            partnerCounts.set(key, (partnerCounts.get(key) ?? 0) + 1)
+          }
+        }
+      }
+      // Count opponent pairings between teams
+      for (const p1 of match.team1_players) {
+        for (const p2 of match.team2_players) {
+          const key = pairKey(p1, p2)
+          opponentCounts.set(key, (opponentCounts.get(key) ?? 0) + 1)
+        }
+      }
+    }
+
+    return { partnerCounts, opponentCounts }
+  }
+
+  /**
+   * Singles Mix & Match: find the two players who have faced each other least.
+   */
+  function selectSinglesMixMatch(
+    waiting: EventQueueRecord[],
+    history: PairingHistory
+  ): { first: EventQueueRecord; second: EventQueueRecord } {
+    const first = waiting[0]
+    let bestSecond = waiting[1]
+    let bestCost = history.opponentCounts.get(pairKey(first.player_id, bestSecond.player_id)) ?? 0
+
+    for (let i = 2; i < waiting.length; i++) {
+      const cost = history.opponentCounts.get(pairKey(first.player_id, waiting[i].player_id)) ?? 0
+      if (cost < bestCost) {
+        bestCost = cost
+        bestSecond = waiting[i]
+      }
+    }
+
+    return { first, second: bestSecond }
+  }
+
+  /**
+   * Doubles Mix & Match: find two entries that minimize repeat partners AND opponents.
+   * Each entry may be a solo player (Mix & Match pairs them) or a fixed pair.
+   */
+  function selectDoublesMixMatch(
+    waiting: EventQueueRecord[],
+    history: PairingHistory
+  ): { first: EventQueueRecord; second: EventQueueRecord } {
+    const first = waiting[0]
+    let bestSecond = waiting[1]
+    let bestCost = calculateMatchCost(first, bestSecond, history)
+
+    for (let i = 2; i < waiting.length; i++) {
+      const cost = calculateMatchCost(first, waiting[i], history)
+      if (cost < bestCost) {
+        bestCost = cost
+        bestSecond = waiting[i]
+      }
+    }
+
+    return { first, second: bestSecond }
+  }
+
+  /**
+   * Calculate the cost of matching two entries.
+   * Lower cost = better match (fewer repeats).
+   */
+  function calculateMatchCost(
+    entry1: EventQueueRecord,
+    entry2: EventQueueRecord,
+    history: PairingHistory
+  ): number {
+    const players1 = entry1.partner_id
+      ? [entry1.player_id, entry1.partner_id]
+      : [entry1.player_id]
+    const players2 = entry2.partner_id
+      ? [entry2.player_id, entry2.player_id]
+      : [entry2.player_id]
+
+    let cost = 0
+
+    // In Mix & Match solo mode, the two entries might become PARTNERS on the same team
+    // We need to check if they've partnered before
+    if (!entry1.partner_id && !entry2.partner_id) {
+      // Solo entries - they'll be paired AS partners, not opponents
+      const partnerKey = pairKey(entry1.player_id, entry2.player_id)
+      cost += (history.partnerCounts.get(partnerKey) ?? 0) * PARTNER_REPEAT_COST
+    } else {
+      // Fixed pairs - they'll be opponents
+      for (const p1 of players1) {
+        for (const p2 of players2) {
+          const key = pairKey(p1, p2)
+          cost += (history.opponentCounts.get(key) ?? 0) * OPPONENT_REPEAT_COST
+        }
+      }
+    }
+
+    return cost
+  }
+
   // Named rather than returned inline so matchNextPair can delegate to
   // matchEntries without depending on `this`, which a destructured service loses.
   const service: EventQueueService = {
@@ -209,7 +487,7 @@ export function createEventQueueService(
     },
 
     async matchEntries(actingPlayerId, eventId, queueId1, queueId2, courtNumber) {
-      await assertOrganizer(events, eventId, actingPlayerId)
+      await assertOrganizer(events, eventId, actingPlayerId, memberships)
 
       if (queueId1 === queueId2) {
         throw new EventQueueServiceError(
@@ -260,53 +538,34 @@ export function createEventQueueService(
     },
 
     async matchNextPair(actingPlayerId, eventId, courtNumber, matchType) {
-      const eventRecord = await assertOrganizer(events, eventId, actingPlayerId)
+      const eventRecord = await assertOrganizer(events, eventId, actingPlayerId, memberships)
 
-      /**
-       * Unfiltered, this took whatever sat at the head of the queue and then
-       * refused to pair it against a different format — so a single off-format
-       * entry (which the join flow used to allow) blocked every other waiting
-       * side behind it. Defaulting to the session's own format means the queue
-       * is read as the session that is actually being played.
-       *
-       * An explicit `matchType` still wins: it is how an organiser reaches a
-       * legacy entry left over from before the format was enforced.
-       */
       const format = matchType ?? eventRecord.match_format ?? 'doubles'
-
-      // `findWaiting` already orders by joined_at ascending, so the head of this
-      // list is first come, first served — the fairness the UI now claims.
       const waiting = await queue.findWaiting(eventId, format)
 
-      // Singles cannot be paired against doubles. With no match type given, the
-      // longest wait decides which format goes on next, and the pair is taken
-      // from that format only.
-      const first = waiting[0]
-      if (!first) {
+      if (waiting.length < 2) {
         throw new EventQueueServiceError(
           409,
           'INSUFFICIENT_QUEUE',
-          'Nobody is waiting in the queue.'
-        )
-      }
-      const second = waiting.find(
-        (entry) => entry.id !== first.id && entry.match_type === first.match_type
-      )
-      if (!second) {
-        throw new EventQueueServiceError(
-          409,
-          'INSUFFICIENT_QUEUE',
-          `Only one ${first.match_type} entry is waiting; two are needed for a match.`
+          waiting.length === 0
+            ? 'Nobody is waiting in the queue.'
+            : `Only one ${format} entry is waiting; two are needed for a match.`
         )
       }
 
-      // Delegates so the court-in-use and status checks live in exactly one
-      // place rather than being restated here and drifting.
+      const queueMode = eventRecord.queue_mode ?? 'first_come'
+      const { first, second } = await selectPairByMode(
+        waiting,
+        queueMode,
+        eventId,
+        format === 'doubles'
+      )
+
       return service.matchEntries(actingPlayerId, eventId, first.id, second.id, courtNumber)
     },
 
     async skipEntry(actingPlayerId, eventId, queueId) {
-      await assertOrganizer(events, eventId, actingPlayerId)
+      await assertOrganizer(events, eventId, actingPlayerId, memberships)
 
       const entry = await queue.findById(queueId)
       if (!entry || entry.event_id !== eventId) {

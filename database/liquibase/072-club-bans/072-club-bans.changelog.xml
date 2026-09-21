@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Club bans: allows clubs to ban players from registering to their events. -->
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+    <changeSet id="0001-create-club-banned-players-table" author="club-bans">
+        <createTable tableName="club_banned_players">
+            <column name="id" type="uuid" defaultValueComputed="gen_random_uuid()">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="club_id" type="uuid">
+                <constraints
+                    nullable="false"
+                    foreignKeyName="fk_club_banned_players_club"
+                    references="clubs(id)"
+                    deleteCascade="true"/>
+            </column>
+            <column name="player_id" type="uuid">
+                <constraints
+                    nullable="false"
+                    foreignKeyName="fk_club_banned_players_player"
+                    references="player_profiles(id)"
+                    deleteCascade="true"/>
+            </column>
+            <column name="banned_by" type="uuid">
+                <constraints
+                    nullable="false"
+                    foreignKeyName="fk_club_banned_players_banned_by"
+                    references="player_profiles(id)"/>
+            </column>
+            <column name="reason" type="text"/>
+            <column name="banned_at" type="timestamptz" defaultValueComputed="now()">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
+
+    <changeSet id="0002-club-banned-players-unique-constraint" author="club-bans">
+        <addUniqueConstraint
+            tableName="club_banned_players"
+            columnNames="club_id, player_id"
+            constraintName="uq_club_banned_players_club_player"/>
+    </changeSet>
+
+    <changeSet id="0003-club-banned-players-indexes" author="club-bans">
+        <createIndex tableName="club_banned_players" indexName="ix_club_banned_players_club">
+            <column name="club_id"/>
+        </createIndex>
+        <createIndex tableName="club_banned_players" indexName="ix_club_banned_players_player">
+            <column name="player_id"/>
+        </createIndex>
+    </changeSet>
+
+    <!-- RLS: club admins/owners can manage bans, anyone can read their own ban status -->
+    <changeSet id="0004-club-banned-players-rls" author="club-bans">
+        <sql>
+            ALTER TABLE club_banned_players ENABLE ROW LEVEL SECURITY;
+
+            -- Club admins and owners can see all bans for their club
+            CREATE POLICY club_banned_players_select_admin ON club_banned_players
+                FOR SELECT TO authenticated
+                USING (
+                    EXISTS (
+                        SELECT 1 FROM club_memberships cm
+                        WHERE cm.club_id = club_banned_players.club_id
+                          AND cm.player_id = auth.uid()
+                          AND cm.role IN ('owner', 'admin')
+                    )
+                );
+
+            -- Players can see if they are banned
+            CREATE POLICY club_banned_players_select_self ON club_banned_players
+                FOR SELECT TO authenticated
+                USING (player_id = auth.uid());
+
+            -- Only club admins/owners can insert bans
+            CREATE POLICY club_banned_players_insert ON club_banned_players
+                FOR INSERT TO authenticated
+                WITH CHECK (
+                    EXISTS (
+                        SELECT 1 FROM club_memberships cm
+                        WHERE cm.club_id = club_banned_players.club_id
+                          AND cm.player_id = auth.uid()
+                          AND cm.role IN ('owner', 'admin')
+                    )
+                );
+
+            -- Only club admins/owners can delete bans
+            CREATE POLICY club_banned_players_delete ON club_banned_players
+                FOR DELETE TO authenticated
+                USING (
+                    EXISTS (
+                        SELECT 1 FROM club_memberships cm
+                        WHERE cm.club_id = club_banned_players.club_id
+                          AND cm.player_id = auth.uid()
+                          AND cm.role IN ('owner', 'admin')
+                    )
+                );
+        </sql>
+        <rollback>
+            DROP POLICY IF EXISTS club_banned_players_select_admin ON club_banned_players;
+            DROP POLICY IF EXISTS club_banned_players_select_self ON club_banned_players;
+            DROP POLICY IF EXISTS club_banned_players_insert ON club_banned_players;
+            DROP POLICY IF EXISTS club_banned_players_delete ON club_banned_players;
+            ALTER TABLE club_banned_players DISABLE ROW LEVEL SECURITY;
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

@@ -1,6 +1,7 @@
 import { serverSupabaseClient, serverSupabaseServiceRole } from '#supabase/server'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
 import { createPlayerProfileService } from '~/server/domains/player/services/player-profile.service'
+import { createPlayerAvatarService } from '~/server/domains/player/services/player-avatar.service'
 import { PlayerProfileValidationError } from '~/server/domains/player/dto/player-profile.dto'
 import { createRatingRepository } from '~/server/domains/rating/repositories/rating.repository'
 import { createRatingAssessmentRepository } from '~/server/domains/rating/repositories/rating-assessment.repository'
@@ -12,6 +13,7 @@ import {
   type AssessmentAnswer
 } from '~/server/domains/rating/services/initial-rating.service'
 import { getTierForRating } from '~/server/domains/rating/data/question-bank'
+import { createBrandingAssetRepository } from '~/server/domains/platform/repositories/branding-asset.repository'
 import { apiError } from '~/server/utils/api-error'
 import { getOptionalUser } from '~/server/utils/optional-user'
 
@@ -46,7 +48,17 @@ export default defineEventHandler(async (event) => {
   const tier = getTierForRating(result.rating)
 
   const client = await serverSupabaseClient(event)
+  const serviceClient = serverSupabaseServiceRole(event)
   const profileRepository = createPlayerProfileRepository(client)
+
+  // Get OAuth avatar URL if available (e.g. Google profile picture).
+  let oauthAvatarUrl: string | null = null
+  try {
+    const { data } = await serviceClient.auth.admin.getUserById(claims.sub)
+    oauthAvatarUrl = data?.user?.user_metadata?.avatar_url ?? null
+  } catch {
+    // Not fatal — proceed without the avatar.
+  }
 
   // Guard against re-submission: this upsert would otherwise silently overwrite an
   // existing rating (possibly already adjusted by real match results). A player who
@@ -88,6 +100,16 @@ export default defineEventHandler(async (event) => {
     throw apiError(500, 'PROFILE_NOT_FOUND', 'Could not find player profile after creation.')
   }
 
+  // Import OAuth avatar if this is a new profile without one.
+  const fullProfile = await profileRepository.findByUserId(claims.sub)
+  if (oauthAvatarUrl && fullProfile && !fullProfile.avatar_path) {
+    const avatarService = createPlayerAvatarService(
+      profileRepository,
+      createBrandingAssetRepository(serviceClient)
+    )
+    await avatarService.importFromUrl(profile.id, oauthAvatarUrl)
+  }
+
   // player_ratings has no INSERT/UPDATE RLS policy for the authenticated role (only
   // player_ratings_select_all — see 008-security.changelog.xml) by design: ratings are
   // system-managed, not directly writable by players. This upsert must go through
@@ -95,7 +117,6 @@ export default defineEventHandler(async (event) => {
   // discarded it, so the RLS rejection above never surfaced: the endpoint kept
   // returning a computed "success" response (correct rating/tier, real celebration
   // screen) while the actual row was never written.
-  const serviceClient = serverSupabaseServiceRole(event)
   const now = new Date().toISOString()
   for (const ratingType of ['singles', 'doubles'] as const) {
     const { error: upsertError } = await serviceClient.from('player_ratings').upsert(

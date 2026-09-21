@@ -40,6 +40,7 @@ function makeEvent(id: string, clubId: string): EventRecord {
     queue_enabled: false,
     queue_courts: 1,
     queue_mode: 'first_come',
+    queue_rotation: false,
     min_players_to_start: null,
     close_policy: 'manual',
     closes_at: null,

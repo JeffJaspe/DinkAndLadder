@@ -2,6 +2,7 @@
 import { playerLines, type PlayerLine } from '~/utils/player-line'
 import {
   gameWinner,
+  isGameComplete,
   isGameLive,
   liveGameIndex,
   seriesWinner,
@@ -78,6 +79,36 @@ function cellState(index: number, side: 1 | 2) {
   return gameWinner(props.games[index], props.rules) === side ? 'won' : 'idle'
 }
 
+/**
+ * Whether a game cell's stepper should be fully disabled.
+ *
+ * Disabled when the game is not live (previous games decided the match).
+ * This is the original behavior — can't enter scores for games that won't happen.
+ */
+function isCellDisabled(index: number): boolean {
+  return !isGameLive(props.games, index, props.rules)
+}
+
+/**
+ * Whether a game cell's plus button should be disabled (minus still works).
+ *
+ * Plus is disabled when:
+ * - The game is already complete (winning score reached)
+ * - The match is already decided
+ *
+ * Minus remains enabled so users can correct mistakes.
+ */
+function isPlusDisabled(index: number): boolean {
+  // Check if match is already decided
+  if (seriesWinner(props.games, props.rules) !== null) return true
+
+  // Check if this specific game is complete
+  const game = props.games[index]
+  if (game && isGameComplete(game, props.rules)) return true
+
+  return false
+}
+
 function scoreFor(index: number, side: 1 | 2): number | null {
   const game = props.games[index]
   return side === 1 ? game.team1_score : game.team2_score
@@ -85,6 +116,38 @@ function scoreFor(index: number, side: 1 | 2): number | null {
 
 function setScore(index: number, side: 1 | 2, raw: string) {
   const parsed = raw === '' ? null : Math.max(0, Math.min(99, Number(raw)))
+  const currentGame = props.games[index]
+
+  if (parsed !== null && currentGame) {
+    const otherScore = side === 1 ? (currentGame.team2_score ?? 0) : (currentGame.team1_score ?? 0)
+    const target = props.rules.targetPoints
+    const minMargin = props.rules.winByTwo ? 2 : 1
+
+    // Calculate the maximum valid score for the winning side
+    // If other side is below (target - minMargin + 1), winner needs exactly target
+    // If other side is at or above (target - minMargin + 1), winner needs otherScore + minMargin (deuce)
+    // Example with target=11, minMargin=2:
+    //   - other=0 to 9: max winning score = 11
+    //   - other=10: max winning score = 12 (10+2)
+    //   - other=11: max winning score = 13 (11+2)
+    const maxValidWinningScore = otherScore >= target - minMargin + 1
+      ? otherScore + minMargin
+      : target
+
+    // If the new score would exceed the max valid winning score, reject
+    if (parsed > maxValidWinningScore) {
+      return
+    }
+
+    // If match was already decided by previous games, don't allow increasing scores
+    const currentScore = side === 1 ? currentGame.team1_score : currentGame.team2_score
+    if (currentScore !== null && parsed > currentScore) {
+      if (seriesWinner(props.games, props.rules) !== null) {
+        return
+      }
+    }
+  }
+
   const next = props.games.map((game, i) =>
     i === index ? { ...game, [side === 1 ? 'team1_score' : 'team2_score']: parsed } : game
   )
@@ -204,11 +267,13 @@ function sideLabel(side: 1 | 2): string {
                  one-handed, is the app's highest-friction input (docs/33 §5.7).
                  A tap the thumb cannot miss beats a keyboard the wind is
                  fighting, and it makes an invalid score unreachable rather than
-                 merely rejected. -->
+                 merely rejected. Plus disabled when game/match is complete;
+                 minus still works for corrections. -->
             <div v-else class="flex justify-center px-1 py-1.5">
               <UiStepper
                 :model-value="scoreFor(i, side) ?? 0"
-                :disabled="!isGameLive(games, i, rules)"
+                :disabled="isCellDisabled(i)"
+                :plus-disabled="isPlusDisabled(i)"
                 :label="`${sideLabel(side)}, ${gameLabel(i)}`"
                 @update:model-value="setScore(i, side, String($event))"
               />

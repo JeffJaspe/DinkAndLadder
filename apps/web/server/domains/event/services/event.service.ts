@@ -208,11 +208,15 @@ export function createEventService(
    */
   entitlements?: ClubEntitlementsService
 ): EventService {
+  const STAFF_ROLES = ['OWNER', 'ADMIN', 'MODERATOR']
+
   /**
-   * The creator, or a co-organiser the creator appointed (061). Co-organisers
-   * run the event - edit, publish, start, complete, cancel, add tournaments -
-   * but do not own it: deleting it, and choosing who co-organises, pass
-   * `creatorOnly` and stay with the person who made it.
+   * The creator, a co-organiser, or club staff (owner/admin/moderator).
+   *
+   * Club staff can run the event alongside the creator and co-organisers — a
+   * club night is run by whoever is on the desk, not by whoever happened to
+   * create it a fortnight ago. Deleting the event and choosing who co-organises
+   * pass `creatorOnly` and stay with the person who made it.
    */
   async function assertEventOrganizer(
     playerId: string,
@@ -225,12 +229,25 @@ export function createEventService(
     }
     if (event.created_by_player_id === playerId) return event
     if (!options.creatorOnly && (await events.isCoOrganizer?.(eventId, playerId))) return event
+
+    // Club staff can modify the event (but not delete it or change co-organisers)
+    if (!options.creatorOnly && memberships && event.club_id) {
+      const membership = await memberships.findByClubAndPlayer(event.club_id, playerId)
+      if (
+        membership &&
+        membership.status === 'active' &&
+        STAFF_ROLES.includes(membership.role)
+      ) {
+        return event
+      }
+    }
+
     throw new EventServiceError(
       403,
       'FORBIDDEN',
       options.creatorOnly
         ? 'Only the person who created the event can do this.'
-        : 'Only the event organizer or a co-organiser can modify this event.'
+        : 'Only the organizer, a co-organiser or the hosting club\'s staff can modify this event.'
     )
   }
 
@@ -480,6 +497,11 @@ export function createEventService(
    * at 18:00 on Friday and ends at 11:00 on Saturday is ordered correctly even
    * though 11:00 < 18:00, so the comparison is skipped unless the dates match.
    * Mirrors chk_event_time_order in 028-event-time.
+   *
+   * Exception: a session that crosses midnight (e.g. 18:00 → 00:00 or 22:00 → 02:00)
+   * is valid even with the same date — the organizer means "runs until after midnight"
+   * but entered one date. We allow end times 00:00–02:59 when the start is in the
+   * evening (17:00 or later).
    */
   function assertTimesOrdered(
     startDate: string | null | undefined,
@@ -498,8 +520,16 @@ export function createEventService(
     }
     if (!startTime || !endTime) return
     if (!startDate || !endDate || startDate !== endDate) return
+
     // Zero-padded 24-hour strings compare correctly as strings.
-    if (endTime <= startTime) {
+    if (endTime > startTime) return
+
+    // Allow midnight-crossing: evening start (17:00+) with early-morning end (00:00-02:59)
+    const startHour = parseInt(startTime.slice(0, 2), 10)
+    const endHour = parseInt(endTime.slice(0, 2), 10)
+    const isMidnightCrossing = startHour >= 17 && endHour <= 2
+
+    if (!isMidnightCrossing) {
       throw new EventServiceError(
         400,
         'VALIDATION_ERROR',
@@ -565,6 +595,64 @@ export function createEventService(
     }
   }
 
+  const RANKED_EVENT_TYPES = ['open_ranked', 'club_ranked', 'tournament']
+  const OPEN_PLAY_EVENT_TYPES = ['open_casual', 'open_ranked', 'club_casual', 'club_ranked']
+
+  /**
+   * Open play sessions must be single-day events.
+   *
+   * A tournament or coaching session may span multiple days; an open play session
+   * happens on one evening. The UI enforces this by hiding the end date field,
+   * but the server validates it in case of API calls.
+   */
+  function assertOpenPlaySingleDay(
+    eventType: string,
+    startDate: string | undefined,
+    endDate: string | undefined
+  ) {
+    if (!OPEN_PLAY_EVENT_TYPES.includes(eventType)) return
+    if (!startDate || !endDate) return
+
+    if (startDate !== endDate) {
+      throw new EventServiceError(
+        400,
+        'VALIDATION_ERROR',
+        'Open play sessions must be single-day events. Choose the same date for start and end.'
+      )
+    }
+  }
+
+  /**
+   * Ranked events require either a verified club or a subscription that allows them.
+   *
+   * Verified clubs bypass this check entirely — they have always been able to
+   * create any event type. The subscription check is for clubs that are not
+   * verified but have paid for a plan that includes ranked events.
+   */
+  async function assertCanCreateRankedIfNeeded(clubId: string, eventType: string) {
+    if (!RANKED_EVENT_TYPES.includes(eventType)) return
+
+    if (!clubs) return
+
+    const club = await clubs.findById(clubId)
+    if (!club) return
+
+    if (club.verification_status === 'verified') return
+
+    const allowance = entitlements
+      ? await entitlements.resolve(clubId)
+      : unwiredEntitlements()
+
+    if (!allowance.can_create_ranked_events) {
+      throw new EventServiceError(
+        403,
+        'RANKED_NOT_ALLOWED',
+        'Only verified clubs or those with a qualifying subscription can create ranked events. ' +
+          'Upgrade your club subscription or apply for verification.'
+      )
+    }
+  }
+
   /**
    * A tournament event has exactly one tournament, created with the event.
    *
@@ -606,6 +694,7 @@ export function createEventService(
       await assertClubAdmin(playerId, input.club_id)
       // Every event is created as a draft, so this is the draft allowance.
       await assertWithinClubLimits(input.club_id, 'draft', input.event_type)
+      await assertCanCreateRankedIfNeeded(input.club_id, input.event_type)
 
       // Default registration_closes to start_date with time set to start of day
       if (!input.registration_closes && input.start_date) {
@@ -628,6 +717,7 @@ export function createEventService(
       assertTimesOrdered(input.start_date, input.end_date, input.start_time, input.end_time)
       assertGameRules(input)
       assertCourtCount(input)
+      assertOpenPlaySingleDay(input.event_type, input.start_date, input.end_date)
 
       const event = await events.create(input, playerId)
       await ensureTournament(event, input)

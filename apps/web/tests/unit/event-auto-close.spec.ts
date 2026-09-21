@@ -40,6 +40,7 @@ function makeEvent(overrides: Partial<EventRecord> & { id: string }): EventRecor
     queue_enabled: true,
     queue_courts: 2,
     queue_mode: 'first_come',
+    queue_rotation: false,
     match_format: 'doubles',
     min_players_to_start: null,
     close_policy: 'manual',

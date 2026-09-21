@@ -136,6 +136,8 @@ export interface EventRecord {
   win_by_two: boolean
   games_default: number
   queue_mode: QueueMode
+  /** When true, players auto-rejoin queue after their match (rotation mode). */
+  queue_rotation: boolean
   /** Override for the floor. Null means derive it from match_format — see 045. */
   min_players_to_start: number | null
   close_policy: EventClosePolicy
@@ -227,6 +229,8 @@ export interface EventDto {
   win_by_two: boolean
   games_default: number
   queue_mode: QueueMode
+  /** When true, players auto-rejoin queue after their match (rotation mode). */
+  queue_rotation: boolean
   min_players_to_start: number | null
   /** The floor actually in force, so a client never re-derives it. */
   effective_min_players_to_start: number
@@ -278,6 +282,7 @@ export function toEventDto(record: EventRecord): EventDto {
     win_by_two: record.win_by_two ?? true,
     games_default: record.games_default ?? 1,
     queue_mode: record.queue_mode,
+    queue_rotation: record.queue_rotation ?? false,
     min_players_to_start: record.min_players_to_start ?? null,
     effective_min_players_to_start: effectiveMinPlayersToStart(record),
     // Defaulted for the same reason match_format is: every event created
@@ -324,6 +329,8 @@ export interface CreateEventInput {
   win_by_two?: boolean
   games_default?: number
   queue_mode?: QueueMode
+  /** When true, players auto-rejoin queue after their match (rotation mode). */
+  queue_rotation?: boolean
   min_players_to_start?: number | null
   close_policy?: EventClosePolicy
   closes_at?: string | null
@@ -372,6 +379,8 @@ export interface UpdateEventInput {
   win_by_two?: boolean
   games_default?: number
   queue_mode?: QueueMode
+  /** When true, players auto-rejoin queue after their match (rotation mode). */
+  queue_rotation?: boolean
   min_players_to_start?: number | null
   close_policy?: EventClosePolicy
   closes_at?: string | null
@@ -434,6 +443,15 @@ export interface EventSearchQuery {
 export type EventRegistrationStatus = 'registered' | 'checked_in' | 'withdrawn'
 
 /**
+ * Payment status for event registrations.
+ * - not_required: free event, no payment needed
+ * - pending: paid event, awaiting payment
+ * - paid: payment received (manual or online)
+ * - waived: fee waived by organizer
+ */
+export type RegistrationPaymentStatus = 'not_required' | 'pending' | 'paid' | 'waived'
+
+/**
  * Statuses that occupy a slot. A withdrawal frees the place back up, so it is
  * deliberately excluded — counting it would show an event as full when it is
  * not, which is worse than showing no capacity at all.
@@ -448,6 +466,9 @@ export interface EventRegistrationRecord {
   registered_at: string
   checked_in_at: string | null
   withdrawn_at: string | null
+  payment_status: RegistrationPaymentStatus
+  paid_at: string | null
+  paid_marked_by: string | null
 }
 
 export interface EventRegistrationDto {
@@ -457,6 +478,8 @@ export interface EventRegistrationDto {
   status: EventRegistrationStatus
   registered_at: string
   checked_in_at: string | null
+  payment_status: RegistrationPaymentStatus
+  paid_at: string | null
   player?: {
     id: string
     display_name: string
@@ -477,6 +500,8 @@ export function toEventRegistrationDto(
     status: record.status,
     registered_at: record.registered_at,
     checked_in_at: record.checked_in_at,
+    payment_status: record.payment_status,
+    paid_at: record.paid_at,
     player
   }
 }

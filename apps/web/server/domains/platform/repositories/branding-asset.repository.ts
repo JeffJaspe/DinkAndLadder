@@ -57,8 +57,7 @@ export function createBrandingAssetRepository(client: SupabaseClient): BrandingA
 
   return {
     async upload(path, body, contentType) {
-      console.log(`[branding-asset] uploading to bucket '${BRANDING_BUCKET}', path: ${path}`)
-      const { data, error } = await bucket.upload(path, body, {
+      const { error } = await bucket.upload(path, body, {
         contentType,
         upsert: true,
         cacheControl: '3600'
@@ -67,7 +66,6 @@ export function createBrandingAssetRepository(client: SupabaseClient): BrandingA
         console.error(`[branding-asset] upload failed:`, error)
         throw error
       }
-      console.log(`[branding-asset] upload succeeded:`, data)
       return path
     },
 
@@ -79,12 +77,9 @@ export function createBrandingAssetRepository(client: SupabaseClient): BrandingA
 
     async resolveUrl(path) {
       const isPublicBucket = await bucketIsPublic()
-      console.log(`[branding-asset] resolving URL for '${path}', bucket public: ${isPublicBucket}`)
 
       if (isPublicBucket) {
-        const url = bucket.getPublicUrl(path).data.publicUrl ?? null
-        console.log(`[branding-asset] public URL: ${url}`)
-        return url
+        return bucket.getPublicUrl(path).data.publicUrl ?? null
       }
 
       const { data, error } = await bucket.createSignedUrl(path, SIGNED_URL_TTL_SECONDS)
@@ -92,7 +87,6 @@ export function createBrandingAssetRepository(client: SupabaseClient): BrandingA
         console.error(`[branding-asset] could not sign '${path}':`, error)
         return null
       }
-      console.log(`[branding-asset] signed URL generated for '${path}'`)
       return data?.signedUrl ?? null
     }
   }

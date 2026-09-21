@@ -20,14 +20,16 @@ const props = withDefaults(
     /** Accessible name, e.g. "Your score, game 1". */
     label: string
     disabled?: boolean
+    /** Disable only the plus button (e.g., when a game is complete but minus should still work for corrections). */
+    plusDisabled?: boolean
   }>(),
-  { min: 0, max: 99, step: 1, disabled: false }
+  { min: 0, max: 99, step: 1, disabled: false, plusDisabled: false }
 )
 
 const emit = defineEmits<{ 'update:modelValue': [number] }>()
 
 const canDecrement = computed(() => !props.disabled && props.modelValue > props.min)
-const canIncrement = computed(() => !props.disabled && props.modelValue < props.max)
+const canIncrement = computed(() => !props.disabled && !props.plusDisabled && props.modelValue < props.max)
 
 function clamp(value: number) {
   if (Number.isNaN(value)) return props.min
@@ -39,7 +41,34 @@ function bump(direction: 1 | -1) {
 }
 
 function onInput(event: Event) {
-  emit('update:modelValue', clamp(Number((event.target as HTMLInputElement).value)))
+  const input = event.target as HTMLInputElement
+  // Strip non-numeric characters
+  const cleaned = input.value.replace(/[^0-9]/g, '')
+  const value = cleaned === '' ? props.min : clamp(Number(cleaned))
+  emit('update:modelValue', value)
+}
+
+function onBlur(event: Event) {
+  // Use nextTick to ensure Vue has processed any parent updates
+  nextTick(() => {
+    const input = event.target as HTMLInputElement
+    // Sync the input display with the actual model value (parent may have rejected the change)
+    if (input && document.body.contains(input)) {
+      input.value = String(props.modelValue)
+    }
+  })
+}
+
+function onKeydown(event: KeyboardEvent) {
+  // Allow: backspace, delete, tab, escape, enter, arrows
+  const allowed = ['Backspace', 'Delete', 'Tab', 'Escape', 'Enter', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End']
+  if (allowed.includes(event.key)) return
+  // Allow Ctrl/Cmd+A, Ctrl/Cmd+C, Ctrl/Cmd+V, Ctrl/Cmd+X
+  if ((event.ctrlKey || event.metaKey) && ['a', 'c', 'v', 'x'].includes(event.key.toLowerCase())) return
+  // Block non-numeric keys
+  if (!/^[0-9]$/.test(event.key)) {
+    event.preventDefault()
+  }
 }
 </script>
 
@@ -59,15 +88,15 @@ function onInput(event: Event) {
 
     <input
       :value="modelValue"
-      type="number"
+      type="text"
       inputmode="numeric"
-      :min="min"
-      :max="max"
-      :step="step"
+      pattern="[0-9]*"
       :aria-label="label"
       :disabled="disabled"
       class="dnl-no-spin w-12 border-0 bg-transparent text-center font-display text-heading-3 tabular-nums text-fg focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
       @input="onInput"
+      @keydown="onKeydown"
+      @blur="onBlur"
     />
 
     <button

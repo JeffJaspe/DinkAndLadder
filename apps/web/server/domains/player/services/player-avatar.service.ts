@@ -33,6 +33,13 @@ export interface PlayerAvatarService {
    * ask for forty of them serially.
    */
   resolveUrls(paths: Map<string, string | null>): Promise<Map<string, string | null>>
+  /**
+   * Import an avatar from an external URL (e.g. Google OAuth profile picture).
+   * Downloads the image and stores it in our bucket. Returns null if the URL is
+   * invalid or the download fails — a missing OAuth avatar should never block
+   * profile creation.
+   */
+  importFromUrl(profileId: string, externalUrl: string): Promise<string | null>
 }
 
 /**
@@ -122,6 +129,29 @@ export function createPlayerAvatarService(
         entries.map(async ([id, path]) => [id, await assets.resolveUrl(path!)] as const)
       )
       return new Map(resolved)
+    },
+
+    async importFromUrl(profileId, externalUrl) {
+      try {
+        const response = await fetch(externalUrl, {
+          headers: { Accept: 'image/png, image/jpeg, image/webp, image/*' }
+        })
+        if (!response.ok) return null
+
+        const contentType = response.headers.get('content-type') || 'image/jpeg'
+        const extension = extensionFor(contentType) || 'jpg'
+        const bytes = Buffer.from(await response.arrayBuffer())
+
+        if (!bytes.length || bytes.length > MAX_UPLOAD_BYTES) return null
+
+        const path = `players/${profileId}/avatar-${Date.now()}.${extension}`
+        await assets.upload(path, bytes, contentType.split(';')[0])
+        await profiles.updateAvatarPath(profileId, path)
+        return path
+      } catch {
+        // Network errors, timeouts, invalid URLs — silently fall back to initials.
+        return null
+      }
     }
   }
 }

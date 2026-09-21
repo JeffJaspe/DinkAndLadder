@@ -125,6 +125,42 @@ const clubLedger: ReadonlyArray<{ label: string; line: string }> = [
   }
 ]
 
+/** What a player builds here. */
+const playerRecord: ReadonlyArray<{ label: string; line: string }> = [
+  {
+    label: 'A rating that follows you',
+    line: 'One number across every club you play at, built from recorded matches, not estimates.'
+  },
+  {
+    label: 'Rankings by area',
+    line: 'See where you stand in your city, province, or barangay — not just nationally.'
+  },
+  {
+    label: 'Tournament history',
+    line: 'Every bracket you entered and every result — searchable, shareable, and always on your profile.'
+  },
+  {
+    label: 'Badges and achievements',
+    line: 'Milestones, streaks, and tournament placements you actually earned, displayed on your profile.'
+  }
+]
+
+/** What makes a verified club. */
+const verifiedBenefits: ReadonlyArray<{ label: string; line: string }> = [
+  {
+    label: 'Results that count',
+    line: 'Matches at a verified club feed the national ranking. Unverified results stay local.'
+  },
+  {
+    label: 'Online entry fees',
+    line: 'Players pay when they register, not in cash at the desk. The club sees who paid before the event starts.'
+  },
+  {
+    label: 'Priority placement',
+    line: 'Verified events surface first in search and the feed, so players find them.'
+  }
+]
+
 /**
  * The record loop. This is the mechanism, and it is drawn, not claimed.
  *
@@ -285,6 +321,7 @@ function onKeydown(event: KeyboardEvent) {
  */
 const loopBand = ref<HTMLElement | null>(null)
 let observer: IntersectionObserver | null = null
+let revealObserver: IntersectionObserver | null = null
 let failsafe: ReturnType<typeof setTimeout> | null = null
 let tickFrame = 0
 
@@ -293,14 +330,39 @@ onMounted(() => {
   window.addEventListener('scroll', onScroll, { passive: true })
   onScroll()
 
+  const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  const hasObserver = typeof IntersectionObserver !== 'undefined'
+
+  // Scroll-reveal animations for content sections
+  if (!prefersReducedMotion && hasObserver) {
+    const revealSections = document.querySelectorAll<HTMLElement>('.dnl-reveal')
+    revealSections.forEach((section) => {
+      section.dataset.reveal = 'pending'
+    })
+
+    revealObserver = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            const el = entry.target as HTMLElement
+            el.dataset.reveal = 'visible'
+            revealObserver?.unobserve(el)
+          }
+        })
+      },
+      { threshold: 0.15, rootMargin: '0px 0px -50px 0px' }
+    )
+
+    revealSections.forEach((section) => revealObserver?.observe(section))
+  }
+
+  // The verification loop's rule animation
   const band = loopBand.value
   if (!band) return
-  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
-  if (typeof IntersectionObserver === 'undefined') return
+  if (prefersReducedMotion) return
+  if (!hasObserver) return
 
   band.dataset.animate = 'true'
-  // Motion is allowed, so - and only so - the record winds back to the value
-  // before the match. Everything above this line leaves it finished.
   ratingTick.value = RATING_FROM
   ratingMoved.value = false
 
@@ -315,10 +377,6 @@ onMounted(() => {
     }
   }
 
-  // A wound-back rule that never unwinds is a missing rule. The observer is the
-  // intended trigger; this is the guarantee that the band is complete anyway if
-  // it never fires - a fast jump-scroll past the threshold, a restored scroll
-  // position, a browser that batches the callback away.
   failsafe = setTimeout(draw, 2500)
 
   observer = new IntersectionObserver(
@@ -367,6 +425,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown)
   window.removeEventListener('scroll', onScroll)
   observer?.disconnect()
+  revealObserver?.disconnect()
   if (failsafe) clearTimeout(failsafe)
   if (progressFrame) cancelAnimationFrame(progressFrame)
   if (tickFrame) cancelAnimationFrame(tickFrame)
@@ -558,8 +617,52 @@ onBeforeUnmount(() => {
         </ul>
       </nav>
 
+      <!-- BAND: FOR PLAYERS. Claim left, player record benefits right. -->
+      <section class="dnl-reveal mx-auto max-w-6xl px-4 py-14 sm:px-6 sm:py-20">
+        <div class="md:grid md:grid-cols-12 md:gap-10">
+          <div class="md:col-span-5">
+            <h2
+              class="font-display text-heading-1 font-semibold tracking-tight text-fg sm:text-4xl"
+            >
+              For players
+            </h2>
+            <p class="mt-5 max-w-[48ch] text-body-1 text-fg-secondary">
+              Your rating, your tournament history, and the badges you earn — all in one place,
+              across every club you play at.
+            </p>
+            <NuxtLink
+              to="/register"
+              class="dnl-step mt-6 inline-flex items-center gap-2 rounded-button text-body-1 font-semibold text-fg underline decoration-fg-muted underline-offset-4 transition-colors hover:text-primary hover:decoration-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-4 focus-visible:ring-offset-canvas"
+            >
+              Get your rating
+              <UiIcon
+                class="dnl-step-chevron"
+                name="chevron-right"
+                size="h-4 w-4"
+                :stroke-width="2.2"
+              />
+            </NuxtLink>
+          </div>
+
+          <dl
+            class="mt-10 rounded-card border border-border bg-surface p-5 shadow-card sm:p-6 md:col-span-7 md:mt-0"
+          >
+            <div
+              v-for="row in playerRecord"
+              :key="row.label"
+              class="border-t border-border py-5 first:border-t-0 first:pt-0 sm:grid sm:grid-cols-3 sm:gap-6"
+            >
+              <dt class="text-body-1 font-semibold text-fg">{{ row.label }}</dt>
+              <dd class="mt-1.5 text-body-2 text-fg-secondary sm:col-span-2 sm:mt-0">
+                {{ row.line }}
+              </dd>
+            </div>
+          </dl>
+        </div>
+      </section>
+
       <!-- BAND: FOR CLUBS. Claim left, evidence right. -->
-      <section class="mx-auto max-w-6xl px-4 py-14 sm:px-6 sm:py-20">
+      <section class="dnl-reveal mx-auto max-w-6xl px-4 py-14 sm:px-6 sm:py-20">
         <div class="md:grid md:grid-cols-12 md:gap-10">
           <div class="md:col-span-5">
             <h2
@@ -585,11 +688,6 @@ onBeforeUnmount(() => {
             </NuxtLink>
           </div>
 
-          <!-- The evidence column gets a surface; the claim beside it stays on
-               the open canvas. Light mode cannot separate anything by tone, so
-               without a real panel and its shadow the whole page was strokes on
-               near-white — legible, but with no mass anywhere. Claim-left /
-               evidence-right survives; only the right half gains a ground. -->
           <dl
             class="mt-10 rounded-card border border-border bg-surface p-5 shadow-card sm:p-6 md:col-span-7 md:mt-0"
           >
@@ -607,18 +705,54 @@ onBeforeUnmount(() => {
         </div>
       </section>
 
-      <!-- BAND: THE RECORD. The mechanism, drawn. This is what stands where a
-           row of invented counts would normally go.
+      <!-- BAND: VERIFIED CLUBS. What verification earns. -->
+      <section class="dnl-reveal border-y border-fg-muted">
+        <div class="mx-auto max-w-6xl px-4 py-14 sm:px-6 sm:py-20">
+          <div class="md:grid md:grid-cols-12 md:gap-10">
+            <div class="md:col-span-5">
+              <h2
+                class="font-display text-heading-1 font-semibold tracking-tight text-fg sm:text-4xl"
+              >
+                Verified clubs
+              </h2>
+              <p class="mt-5 max-w-[48ch] text-body-1 text-fg-secondary">
+                A verified badge means a real organisation behind the events — and results that
+                count toward the national ranking.
+              </p>
+              <NuxtLink
+                to="/clubs"
+                class="dnl-step mt-6 inline-flex items-center gap-2 rounded-button text-body-1 font-semibold text-fg underline decoration-fg-muted underline-offset-4 transition-colors hover:text-primary hover:decoration-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-4 focus-visible:ring-offset-canvas"
+              >
+                Browse verified clubs
+                <UiIcon
+                  class="dnl-step-chevron"
+                  name="chevron-right"
+                  size="h-4 w-4"
+                  :stroke-width="2.2"
+                />
+              </NuxtLink>
+            </div>
 
-           It carries the page's one real field of tone. `surface-2` at 60% was
-           a 1.03:1 step off the canvas in light mode - invisible, which is most
-           of why the page read pale. `surface-3` is the brand wash and actually
-           separates. Dark mode takes `surface-2` instead, because the dark
-           `surface-3` is light enough to put fg-secondary at 4.05:1, under AA;
-           on surface-2 it reads 5.28:1. -->
-      <!-- dark:bg-surface, not surface-2: the confirmed step is text-primary, which
-           is only 3.85:1 on surface-2 in the dark theme and 5.3:1 on surface. -->
-      <section ref="loopBand" class="dnl-loop border-y-2 border-fg bg-surface-3 dark:bg-surface">
+            <dl
+              class="mt-10 rounded-card border border-border bg-surface p-5 shadow-card sm:p-6 md:col-span-7 md:mt-0"
+            >
+              <div
+                v-for="row in verifiedBenefits"
+                :key="row.label"
+                class="border-t border-border py-5 first:border-t-0 first:pt-0 sm:grid sm:grid-cols-3 sm:gap-6"
+              >
+                <dt class="text-body-1 font-semibold text-fg">{{ row.label }}</dt>
+                <dd class="mt-1.5 text-body-2 text-fg-secondary sm:col-span-2 sm:mt-0">
+                  {{ row.line }}
+                </dd>
+              </div>
+            </dl>
+          </div>
+        </div>
+      </section>
+
+      <!-- BAND: THE RECORD. The mechanism, drawn. -->
+      <section ref="loopBand" class="dnl-loop dnl-reveal border-y-2 border-fg bg-surface-3 dark:bg-surface">
         <div class="mx-auto max-w-6xl px-4 py-14 sm:px-6 sm:py-20">
           <h2 class="font-display text-heading-1 font-semibold tracking-tight text-fg sm:text-4xl">
             A rating nobody argues with
@@ -629,10 +763,6 @@ onBeforeUnmount(() => {
           </p>
 
           <ol class="mt-12 grid gap-10 sm:grid-cols-3 sm:gap-8">
-            <!-- `flex flex-col` with the record row pushed to the bottom: stop 3's
-                 description wraps to a second line, which left its record rule
-                 21px below the other two. Three rules at two heights is the most
-                 visible break possible on a page made of aligned rules. -->
             <li v-for="(stop, i) in loop" :key="stop.label" class="dnl-stop relative flex flex-col">
               <span class="dnl-seg" aria-hidden="true" />
               <span
@@ -643,9 +773,6 @@ onBeforeUnmount(() => {
                 <span class="tabular-nums text-fg-muted">{{ i + 1 }}.</span> {{ stop.label }}
               </p>
               <p class="mt-2 max-w-[40ch] text-body-2 text-fg-secondary">{{ stop.line }}</p>
-              <!-- One match travelling the three stops, ruled like every other
-                   record on the page. Green appears exactly once here, on the
-                   step that is actually a confirmation. -->
               <p
                 class="mt-4 flex items-center gap-2 border-t border-fg-muted pt-3 text-body-2 font-medium tabular-nums sm:mt-auto"
                 :class="stop.confirmed ? 'text-primary' : 'text-fg'"
@@ -667,24 +794,24 @@ onBeforeUnmount(() => {
         </div>
       </section>
 
-      <!-- BAND: FOR PLAYERS. Claim left, the real schedule right. -->
-      <section class="mx-auto max-w-6xl px-4 py-14 sm:px-6 sm:py-20">
+      <!-- BAND: UPCOMING EVENTS. The real schedule. -->
+      <section class="dnl-reveal mx-auto max-w-6xl px-4 py-14 sm:px-6 sm:py-20">
         <div class="md:grid md:grid-cols-12 md:gap-10">
           <div class="md:col-span-5">
             <h2
               class="font-display text-heading-1 font-semibold tracking-tight text-fg sm:text-4xl"
             >
-              For players
+              Find play near you
             </h2>
             <p class="mt-5 max-w-[48ch] text-body-1 text-fg-secondary">
-              Find play near you and reserve a slot. Play; the club writes the score down. Watch the
-              ladder move — on results, not on opinions.
+              Open sessions and tournaments, published by clubs. Browse by date, location, or
+              skill level — and reserve your slot before you arrive.
             </p>
             <NuxtLink
-              to="/register"
+              to="/events"
               class="dnl-step mt-6 inline-flex items-center gap-2 rounded-button text-body-1 font-semibold text-fg underline decoration-fg-muted underline-offset-4 transition-colors hover:text-primary hover:decoration-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-4 focus-visible:ring-offset-canvas"
             >
-              Get your rating
+              Browse all events
               <UiIcon
                 class="dnl-step-chevron"
                 name="chevron-right"
@@ -707,8 +834,8 @@ onBeforeUnmount(() => {
               v-if="upcoming.length === 0"
               class="border-b border-border py-6 text-body-2 text-fg-secondary"
             >
-              Nothing is scheduled yet. Clubs publish their open play and tournaments here, and this
-              is where players find them —
+              Nothing is scheduled yet. Clubs publish their open play and tournaments here, and
+              this is where players find them —
               <NuxtLink
                 to="/register"
                 class="dnl-press font-semibold text-primary underline underline-offset-4 transition-colors hover:decoration-2"
@@ -737,9 +864,6 @@ onBeforeUnmount(() => {
                     >
                     <span class="block truncate text-body-2 text-fg-muted">
                       {{ event.venue || event.city || 'Venue to be announced' }}
-                      <!-- On a phone the kind rides under the venue instead of
-                           competing with the name for the same row, which was
-                           truncating every title to five words. -->
                       <span class="sm:hidden"
                         >·
                         {{ event.event_type === 'tournament' ? 'Tournament' : 'Open play' }}</span
@@ -820,33 +944,42 @@ onBeforeUnmount(() => {
         </div>
       </section>
 
-      <!-- CLOSING BAND. The action again, on the heavy rule. -->
+      <!-- CLOSING BAND. Two paths, one record. -->
       <section class="border-t-2 border-fg">
-        <div
-          class="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-14 sm:px-6 sm:py-20 md:flex-row md:items-end md:justify-between"
-        >
-          <div>
-            <h2
-              class="max-w-[20ch] font-display text-heading-1 font-semibold tracking-tight text-fg sm:text-4xl"
-            >
-              Put your club's play on the record.
-            </h2>
-            <p class="mt-4 max-w-[52ch] text-body-1 text-fg-secondary">
-              Create the club, publish your first session, and let the results build the ladder.
-            </p>
-          </div>
-          <!-- One action, not a repeat of the header. This slot used to carry
-               `Create your club` beside `Log in`, both of which the header
-               already offers a scroll away — so the page's closing moment spent
-               itself restating the chrome. Log in belongs to the header, where
-               a returning visitor looks for it; the close belongs to the one
-               thing the page is arguing for. -->
-          <div class="shrink-0">
-            <NuxtLink
-              to="/register"
-              class="dnl-press inline-block rounded-button bg-primary px-6 py-3 text-center text-body-1 font-semibold text-on-primary transition-colors hover:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
-              >Create your club</NuxtLink
-            >
+        <div class="mx-auto max-w-6xl px-4 py-14 sm:px-6 sm:py-20">
+          <div class="md:grid md:grid-cols-2 md:gap-16">
+            <div class="border-b border-fg-muted pb-10 md:border-b-0 md:border-r md:pb-0 md:pr-16">
+              <h2
+                class="font-display text-heading-2 font-semibold tracking-tight text-fg sm:text-3xl"
+              >
+                Run the play
+              </h2>
+              <p class="mt-4 max-w-[40ch] text-body-1 text-fg-secondary">
+                Create your club, publish sessions and tournaments, and let the results build the
+                ladder.
+              </p>
+              <NuxtLink
+                to="/register"
+                class="dnl-press mt-6 inline-block rounded-button bg-primary px-6 py-3 text-center text-body-1 font-semibold text-on-primary transition-colors hover:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+                >Create your club</NuxtLink
+              >
+            </div>
+            <div class="pt-10 md:pt-0">
+              <h2
+                class="font-display text-heading-2 font-semibold tracking-tight text-fg sm:text-3xl"
+              >
+                Join the record
+              </h2>
+              <p class="mt-4 max-w-[40ch] text-body-1 text-fg-secondary">
+                Find play near you, earn your rating, and build a tournament history you can point
+                to.
+              </p>
+              <NuxtLink
+                to="/register"
+                class="dnl-press mt-6 inline-block rounded-button border border-fg-muted bg-canvas px-6 py-3 text-center text-body-1 font-semibold text-fg transition-colors hover:border-fg hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+                >Get your rating</NuxtLink
+              >
+            </div>
           </div>
         </div>
       </section>
@@ -859,12 +992,22 @@ onBeforeUnmount(() => {
         <UiBrandMark size="sm" name-class="text-body-2 font-medium" />
         <nav aria-label="Policies" class="flex gap-4 text-caption text-fg-secondary">
           <NuxtLink
+            to="/legal/privacy"
+            class="rounded-button underline-offset-2 hover:text-fg hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            >Privacy</NuxtLink
+          >
+          <NuxtLink
+            to="/legal/terms"
+            class="rounded-button underline-offset-2 hover:text-fg hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            >Terms</NuxtLink
+          >
+          <NuxtLink
             to="/legal/cookies"
             class="rounded-button underline-offset-2 hover:text-fg hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             >Cookies</NuxtLink
           >
         </nav>
-        <p class="text-caption text-fg-muted">© 2026 Jeff Jaspe. All Rights Reserved.</p>
+        <p class="text-caption text-fg-muted">© Copyright 2026 DinkAndLadder. All Rights Reserved.</p>
       </div>
     </footer>
   </div>
@@ -886,6 +1029,40 @@ onBeforeUnmount(() => {
 }
 
 /*
+ * Scroll-triggered reveal animations.
+ *
+ * The finished state is the CSS default: fully visible, no transform. Only JS
+ * winds it back when motion is allowed, and the intersection observer releases
+ * it as each section enters the viewport. This follows the Recoverable-Motion
+ * Rule: a failed hydration or missing observer shows the complete page.
+ */
+.dnl-reveal {
+  /* No initial state here — visible by default */
+}
+
+.dnl-reveal[data-reveal='pending'] {
+  opacity: 0;
+  transform: translateY(60px) scale(0.98);
+  filter: blur(4px);
+}
+
+.dnl-reveal[data-reveal='visible'] {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  filter: blur(0);
+  transition:
+    opacity 800ms cubic-bezier(0.16, 1, 0.3, 1),
+    transform 800ms cubic-bezier(0.16, 1, 0.3, 1),
+    filter 600ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Stagger the card panels within each band for a more layered reveal */
+.dnl-reveal[data-reveal='visible'] dl,
+.dnl-reveal[data-reveal='visible'] > div > div:last-child {
+  transition-delay: 200ms;
+}
+
+/*
  * Reduced motion keeps every one of these responses and removes only their
  * travel. Someone who asked for less movement still needs to see which row is
  * under their finger, so the rule still appears and the ink still changes -
@@ -900,6 +1077,14 @@ onBeforeUnmount(() => {
   .dnl-sheet-enter-from .dnl-sheet-panel,
   .dnl-sheet-leave-to .dnl-sheet-panel {
     transform: none;
+  }
+
+  /* Reveal animations disabled under reduced motion — sections are visible */
+  .dnl-reveal[data-reveal='pending'],
+  .dnl-reveal[data-reveal='visible'] {
+    opacity: 1;
+    transform: none;
+    transition: none;
   }
 }
 

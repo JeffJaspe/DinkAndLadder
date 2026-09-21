@@ -94,7 +94,7 @@ const form = reactive({
   organizer_fee_amount: '',
   fee_amount: '',
   max_participants: '',
-  queue_enabled: false,
+  queue_enabled: true,
   queue_mode: 'first_come' as QueueMode,
   /**
    * How many courts the session runs on.
@@ -135,6 +135,31 @@ const form = reactive({
 })
 
 const isTournament = computed(() => form.event_type === 'tournament')
+
+/**
+ * Open play sessions are single-day events. Tournaments and coaching may span
+ * multiple days, but an open play session happens on one evening.
+ */
+const isOpenPlay = computed(() =>
+  ['open_casual', 'open_ranked', 'club_casual', 'club_ranked'].includes(form.event_type)
+)
+
+// Open play: end_date always matches start_date (single-day events)
+watch(
+  () => form.start_date,
+  (startDate) => {
+    if (isOpenPlay.value && startDate) {
+      form.end_date = startDate
+    }
+  }
+)
+
+// When switching to open play, sync end_date to start_date
+watch(isOpenPlay, (openPlay) => {
+  if (openPlay && form.start_date) {
+    form.end_date = form.start_date
+  }
+})
 
 /**
  * The point targets clubs actually play to, plus an escape hatch.
@@ -735,9 +760,9 @@ async function submit() {
           <div class="space-y-4">
             <div class="grid gap-4 sm:grid-cols-2">
               <div>
-                <label for="event-start-date" class="mb-1.5 block text-sm text-fg-secondary"
-                  >Start Date</label
-                >
+                <label for="event-start-date" class="mb-1.5 block text-sm text-fg-secondary">
+                  {{ isOpenPlay ? 'Date' : 'Start Date' }}
+                </label>
                 <input
                   id="event-start-date"
                   v-model="form.start_date"
@@ -746,7 +771,8 @@ async function submit() {
                   class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
                 />
               </div>
-              <div>
+              <!-- End Date: only for multi-day events (tournament/coaching) -->
+              <div v-if="!isOpenPlay">
                 <label for="event-end-date" class="mb-1.5 block text-sm text-fg-secondary"
                   >End Date</label
                 >
@@ -1239,23 +1265,14 @@ async function submit() {
         <!-- Queue Mode. Not offered for a tournament: a draw decides who plays
              whom, so there is nothing to queue for. -->
         <div v-if="!isTournament && !isCoaching" class="rounded-xl bg-surface p-5 shadow-card">
-          <!-- Label wraps the row for the same reason the win-by-two switch
-               does: with the heading outside it, the only hit target was the
-               44x24 switch and tapping the words did nothing. -->
-          <label class="mb-4 flex cursor-pointer items-center justify-between gap-4">
-            <input v-model="form.queue_enabled" type="checkbox" class="peer sr-only" />
-            <span class="min-w-0">
-              <span class="block font-display text-heading-3 text-fg">Match Queue</span>
-              <span class="mt-0.5 block text-sm text-fg-muted">
-                Optional matchmaking system for players at the event
-              </span>
-            </span>
-            <span
-              class="relative block h-6 w-11 shrink-0 rounded-full bg-surface-3 transition-colors after:absolute after:left-0.5 after:top-1/2 after:h-5 after:w-5 after:-translate-y-1/2 after:rounded-full after:bg-white after:transition-all after:content-[''] peer-checked:bg-primary peer-checked:after:translate-x-full peer-focus-visible:ring-2 peer-focus-visible:ring-primary peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-surface"
-            />
-          </label>
+          <div class="mb-4">
+            <h2 class="font-display text-heading-3 text-fg">Match Queue</h2>
+            <p class="mt-0.5 text-sm text-fg-muted">
+              How players are paired for matches
+            </p>
+          </div>
 
-          <div v-if="form.queue_enabled" class="space-y-4">
+          <div class="space-y-4">
             <div class="space-y-3">
               <label
                 class="flex cursor-pointer items-start gap-4 rounded-lg border-2 p-4 transition-all"
@@ -1403,7 +1420,7 @@ async function submit() {
               <div>
                 <span class="font-medium text-fg">Public</span>
                 <p class="mt-0.5 text-sm text-fg-muted">
-                  Anyone can see and register for this event
+                  Anyone can see, only registered players can join
                 </p>
               </div>
             </label>
@@ -1424,7 +1441,7 @@ async function submit() {
               <div>
                 <span class="font-medium text-fg">Registered Only</span>
                 <p class="mt-0.5 text-sm text-fg-muted">
-                  Anyone can register, but only registered players see matches
+                  Only registered players can see and join
                 </p>
               </div>
             </label>
@@ -1445,7 +1462,7 @@ async function submit() {
               <div>
                 <span class="font-medium text-fg">Private</span>
                 <p class="mt-0.5 text-sm text-fg-muted">
-                  Only invited participants can see and register
+                  Exclusive for people with link
                 </p>
               </div>
             </label>

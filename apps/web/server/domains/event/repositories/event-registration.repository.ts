@@ -1,7 +1,12 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import type { EventRegistrationRecord, EventRegistrationStatus } from '../dto/event.dto'
+import type {
+  EventRegistrationRecord,
+  EventRegistrationStatus,
+  RegistrationPaymentStatus
+} from '../dto/event.dto'
 
 export interface EventRegistrationRepository {
+  findById(id: string): Promise<EventRegistrationRecord | null>
   findByEventAndPlayer(eventId: string, playerId: string): Promise<EventRegistrationRecord | null>
   /**
    * The same question for several players at once, keyed by player id.
@@ -72,12 +77,36 @@ export interface EventRegistrationRepository {
   reinstate(id: string): Promise<EventRegistrationRecord | null>
   checkIn(id: string): Promise<EventRegistrationRecord | null>
   withdraw(id: string): Promise<EventRegistrationRecord | null>
+  /**
+   * Update the payment status of a registration.
+   *
+   * Used by organizers to mark registrations as paid/waived for cash payments
+   * or free events where they want to track who has been processed.
+   */
+  updatePaymentStatus(
+    id: string,
+    status: RegistrationPaymentStatus,
+    markedBy: string | null
+  ): Promise<EventRegistrationRecord | null>
 }
 
 export function createEventRegistrationRepository(
   client: SupabaseClient
 ): EventRegistrationRepository {
   return {
+    async findById(id) {
+      const { data, error } = await client
+        .from('event_registrations')
+        .select('*')
+        .eq('id', id)
+        .single()
+
+      if (error && error.code !== 'PGRST116') {
+        throw new Error(`Failed to find registration: ${error.message}`)
+      }
+      return data as EventRegistrationRecord | null
+    },
+
     async findByEventAndPlayer(eventId, playerId) {
       const { data, error } = await client
         .from('event_registrations')
@@ -270,6 +299,32 @@ export function createEventRegistrationRepository(
 
     async withdraw(id) {
       return this.updateStatus(id, 'withdrawn')
+    },
+
+    async updatePaymentStatus(id, status, markedBy) {
+      const updates: Record<string, unknown> = {
+        payment_status: status
+      }
+
+      if (status === 'paid' || status === 'waived') {
+        updates.paid_at = new Date().toISOString()
+        updates.paid_marked_by = markedBy
+      } else {
+        updates.paid_at = null
+        updates.paid_marked_by = null
+      }
+
+      const { data, error } = await client
+        .from('event_registrations')
+        .update(updates)
+        .eq('id', id)
+        .select()
+        .single()
+
+      if (error) {
+        throw new Error(`Failed to update payment status: ${error.message}`)
+      }
+      return data as EventRegistrationRecord
     }
   }
 }
