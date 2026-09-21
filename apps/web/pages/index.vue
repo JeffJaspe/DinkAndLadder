@@ -990,7 +990,12 @@ onBeforeUnmount(() => {
         class="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 px-4 py-8 sm:flex-row sm:px-6"
       >
         <UiBrandMark size="sm" name-class="text-body-2 font-medium" />
-        <nav aria-label="Policies" class="flex gap-4 text-caption text-fg-secondary">
+        <nav aria-label="Policies" class="flex flex-wrap justify-center gap-4 text-caption text-fg-secondary">
+          <a
+            href="mailto:support@dinkandladder.app"
+            class="rounded-button underline-offset-2 hover:text-fg hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            >Support</a
+          >
           <NuxtLink
             to="/legal/privacy"
             class="rounded-button underline-offset-2 hover:text-fg hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
