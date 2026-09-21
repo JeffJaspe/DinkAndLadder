@@ -34,7 +34,7 @@ export default defineEventHandler(async (event) => {
     .from('tournament_registrations')
     .select(
       `id, tournament_id, category_id, registered_at,
-       tournaments!inner(id, name, event_id, start_date, events(id, name)),
+       tournaments!inner(id, name, event_id, events(id, name, start_date)),
        tournament_categories(id, name)`
     )
     .or(`player_id.eq.${playerId},partner_player_id.eq.${playerId}`)
@@ -54,8 +54,7 @@ export default defineEventHandler(async (event) => {
       id: string
       name: string | null
       event_id: string | null
-      start_date: string | null
-      events: { id: string; name: string | null } | null
+      events: { id: string; name: string | null; start_date: string | null } | null
     }
     tournament_categories: { id: string; name: string | null } | null
   }
@@ -82,7 +81,7 @@ export default defineEventHandler(async (event) => {
       category_name: r.tournament_categories?.name ?? null,
       event_id: eventId,
       event_name: r.tournaments.events?.name ?? null,
-      played_at: r.tournaments.start_date,
+      played_at: r.tournaments.events?.start_date ?? null,
       placement: placementMap.get(key) ?? null,
       href: eventId ? `/events/${eventId}` : null
     }
