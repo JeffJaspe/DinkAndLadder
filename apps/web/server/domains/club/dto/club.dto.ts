@@ -112,9 +112,17 @@ export interface ClubSearchResultDto {
   city: string | null
   verification_status: ClubVerificationStatus
   member_count?: number
+  /** Resolved storage URL; null falls back to the platform mark. */
+  logo_url: string | null
+  /** Resolved storage URL; null falls back to UiCoverArt. */
+  cover_photo_url: string | null
 }
 
-export function toClubSearchResultDto(club: ClubRecord, memberCount?: number): ClubSearchResultDto {
+export function toClubSearchResultDto(
+  club: ClubRecord,
+  memberCount?: number,
+  resolvedUrls?: { logo_url: string | null; cover_photo_url: string | null }
+): ClubSearchResultDto {
   return {
     id: club.id,
     name: club.name,
@@ -123,6 +131,8 @@ export function toClubSearchResultDto(club: ClubRecord, memberCount?: number): C
     province: club.province,
     city: club.city,
     verification_status: club.verification_status,
-    member_count: memberCount
+    member_count: memberCount,
+    logo_url: resolvedUrls?.logo_url ?? null,
+    cover_photo_url: resolvedUrls?.cover_photo_url ?? null
   }
 }

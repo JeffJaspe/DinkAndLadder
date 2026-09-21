@@ -1,6 +1,7 @@
-import { serverSupabaseClient } from '#supabase/server'
+import { serverSupabaseClient, serverSupabaseServiceRole } from '#supabase/server'
 import { createClubRepository } from '~/server/domains/club/repositories/club.repository'
 import { toClubSearchResultDto, type ClubSearchQuery } from '~/server/domains/club/dto/club.dto'
+import { createBrandingAssetRepository } from '~/server/domains/platform/repositories/branding-asset.repository'
 import { apiError } from '~/server/utils/api-error'
 
 const DEFAULT_LIMIT = 20
@@ -41,12 +42,25 @@ export default defineEventHandler(async (event) => {
   }
 
   const client = await serverSupabaseClient(event)
+  const serviceClient = await serverSupabaseServiceRole(event)
   const repository = createClubRepository(client)
+  const assets = createBrandingAssetRepository(serviceClient)
 
   try {
     const rows = await repository.search(query)
+
+    const resolvedClubs = await Promise.all(
+      rows.map(async (row) => {
+        const [logo_url, cover_photo_url] = await Promise.all([
+          row.logo_path ? assets.resolveUrl(row.logo_path) : Promise.resolve(null),
+          row.cover_photo_path ? assets.resolveUrl(row.cover_photo_path) : Promise.resolve(null)
+        ])
+        return toClubSearchResultDto(row, undefined, { logo_url, cover_photo_url })
+      })
+    )
+
     return {
-      data: rows.map((row) => toClubSearchResultDto(row)),
+      data: resolvedClubs,
       request_id: crypto.randomUUID()
     }
   } catch (err) {

@@ -539,11 +539,11 @@ const { goBack } = useAppBack('/my-clubs')
           />
           <UiCoverArt v-else :name="club.name" variant="banner" rounded="rounded-none" />
 
-          <div class="flex items-start gap-4 p-6 pt-0">
+          <div class="relative z-10 flex items-start gap-4 p-6 pt-0">
             <UiClubLogo
               :name="club.name"
               :src="club.logo_url"
-              box-class="h-16 w-16 rounded-xl"
+              box-class="h-16 w-16 rounded-xl ring-2 ring-primary bg-white"
               tile-class="-mt-8 border-4 border-surface"
             />
             <div class="flex-1 pt-4">

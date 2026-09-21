@@ -600,7 +600,7 @@ const {
   error: clubsError,
   refresh: refreshClubs
 } = await useFetch<{
-  items: Array<{ club: { id: string; name: string; is_verified: boolean } }>
+  items: Array<{ club: { id: string; name: string; logo_url: string | null; is_verified: boolean } }>
 }>(() => `/api/v1/players/${playerId.value}/clubs`)
 
 async function sendPartnerRequest() {
@@ -1587,7 +1587,7 @@ function formatActivityText(activity: ProfileActivity): string {
                 :to="`/clubs/${membership.club.id}`"
                 class="flex items-center gap-3 rounded-lg bg-canvas p-3 transition-all hover:bg-surface-2"
               >
-                <UiClubLogo :name="membership.club.name" box-class="h-10 w-10 rounded-lg" />
+                <UiClubLogo :name="membership.club.name" :src="membership.club.logo_url" box-class="h-10 w-10 rounded-lg" />
                 <div class="flex-1">
                   <p class="text-sm font-medium text-fg">{{ membership.club.name }}</p>
                 </div>

@@ -159,44 +159,56 @@ const roleColors: Record<string, string> = {
           v-for="membership in joined"
           :key="membership.id"
           :to="`/clubs/${membership.club.id}`"
-          class="flex items-center gap-4 rounded-xl bg-surface p-4 transition-all hover:bg-surface-2 shadow-card hover:shadow-card-hover"
+          class="group relative flex items-center gap-4 overflow-hidden rounded-xl bg-surface shadow-card transition-all hover:bg-surface-2 hover:shadow-card-hover"
         >
-          <!-- Logo -->
-          <UiClubLogo :name="membership.club.name" box-class="h-14 w-14 rounded-xl" />
-
-          <!-- Info -->
-          <div class="min-w-0 flex-1">
-            <h3 class="text-body-1 font-medium text-fg">{{ membership.club.name }}</h3>
-            <p
-              v-if="membership.club.city || membership.club.province"
-              class="mt-0.5 text-sm text-fg-muted"
-            >
-              {{ [membership.club.city, membership.club.province].filter(Boolean).join(', ') }}
-            </p>
-          </div>
-
-          <!-- Role Badge -->
-          <span
-            class="rounded-md px-2 py-0.5 text-xs font-medium"
-            :class="roleColors[membership.role] || roleColors.MEMBER"
-          >
-            {{ membership.role }}
-          </span>
-
-          <!-- Arrow -->
-          <svg
-            class="h-5 w-5 flex-shrink-0 text-fg-muted"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M9 5l7 7-7 7"
+          <!-- Cover photo background -->
+          <div
+            v-if="membership.club.cover_photo_url"
+            class="absolute inset-0 bg-cover bg-center opacity-10 transition-opacity group-hover:opacity-15"
+            :style="{ backgroundImage: `url(${membership.club.cover_photo_url})` }"
+          />
+          <div class="relative flex flex-1 items-center gap-4 p-4">
+            <!-- Logo -->
+            <UiClubLogo
+              :name="membership.club.name"
+              :src="membership.club.logo_url"
+              box-class="h-14 w-14 rounded-xl ring-2 ring-primary bg-white"
             />
-          </svg>
+
+            <!-- Info -->
+            <div class="min-w-0 flex-1">
+              <h3 class="text-body-1 font-medium text-fg">{{ membership.club.name }}</h3>
+              <p
+                v-if="membership.club.city || membership.club.province"
+                class="mt-0.5 text-sm text-fg-muted"
+              >
+                {{ [membership.club.city, membership.club.province].filter(Boolean).join(', ') }}
+              </p>
+            </div>
+
+            <!-- Role Badge -->
+            <span
+              class="rounded-md px-2 py-0.5 text-xs font-medium"
+              :class="roleColors[membership.role] || roleColors.MEMBER"
+            >
+              {{ membership.role }}
+            </span>
+
+            <!-- Arrow -->
+            <svg
+              class="h-5 w-5 flex-shrink-0 text-fg-muted"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M9 5l7 7-7 7"
+              />
+            </svg>
+          </div>
         </NuxtLink>
       </div>
 
