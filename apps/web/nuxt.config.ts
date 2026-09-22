@@ -31,12 +31,12 @@ export default defineNuxtConfig({
         { rel: 'icon', href: '/icons/favicon.ico', sizes: '48x48' },
         { rel: 'icon', href: '/icons/favicon.svg', type: 'image/svg+xml' },
         { rel: 'apple-touch-icon', href: '/icons/apple-touch-icon.png' },
-        { rel: 'manifest', href: '/site.webmanifest' }
+        { rel: 'manifest', href: '/manifest.webmanifest' }
       ],
       meta: [
         // Charcoal from the brand palette — the colour the app icons and the
         // social image are drawn on.
-        { name: 'theme-color', content: '#1F2024' },
+        { name: 'theme-color', content: '#408175' },
         // Absolute: a scraper fetching a link preview has no page origin to
         // resolve a relative path against. Same resolver the email links use.
         { property: 'og:image', content: `${resolveSiteUrl(process.env)}/social/og-image.png` },
@@ -63,7 +63,59 @@ export default defineNuxtConfig({
       ]
     }
   },
-  modules: ['@nuxtjs/tailwindcss', '@nuxt/eslint', '@nuxtjs/supabase'],
+  modules: ['@nuxtjs/tailwindcss', '@nuxt/eslint', '@nuxtjs/supabase', '@vite-pwa/nuxt'],
+  pwa: {
+    registerType: 'autoUpdate',
+    includeAssets: ['icons/favicon.ico', 'icons/favicon.svg', 'icons/apple-touch-icon.png'],
+    manifest: {
+      name: 'DinkAndLadder',
+      short_name: 'DAL',
+      description: 'Philippine Pickleball Platform',
+      start_url: '/',
+      display: 'standalone',
+      theme_color: '#408175',
+      background_color: '#0b0909',
+      icons: [
+        {
+          src: '/icons/icon-192.png',
+          sizes: '192x192',
+          type: 'image/png'
+        },
+        {
+          src: '/icons/icon-512.png',
+          sizes: '512x512',
+          type: 'image/png'
+        },
+        {
+          src: '/icons/icon-maskable-512.png',
+          sizes: '512x512',
+          type: 'image/png',
+          purpose: 'maskable'
+        }
+      ]
+    },
+    workbox: {
+      globPatterns: ['**/*.{js,css,html,png,svg,ico,woff2}'],
+      runtimeCaching: [
+        {
+          urlPattern: /^https:\/\/.*\.supabase\.co\/.*/i,
+          handler: 'NetworkFirst',
+          options: {
+            cacheName: 'supabase-cache',
+            expiration: {
+              maxEntries: 50,
+              maxAgeSeconds: 60 * 60 * 24
+            }
+          }
+        }
+      ]
+    },
+    devOptions: {
+      enabled: true,
+      type: 'module',
+      navigateFallback: '/'
+    }
+  },
   typescript: {
     strict: true
   },

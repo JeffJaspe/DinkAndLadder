@@ -13,6 +13,7 @@
 
 <template>
   <div class="min-h-screen bg-canvas">
+    <PwaInstallBanner />
     <slot />
     <UiToaster />
     <LegalCookieBanner />

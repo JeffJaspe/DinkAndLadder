@@ -1,6 +1,13 @@
 {
-  "name": "Dink and Ladder",
+  "name": "DinkAndLadder",
   "short_name": "DAL",
+  "description": "Philippine Pickleball Platform",
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#408175",
+  "background_color": "#0b0909",
+  "lang": "en",
+  "scope": "/",
   "icons": [
     {
       "src": "/icons/icon-192.png",
@@ -18,8 +25,5 @@
       "type": "image/png",
       "purpose": "maskable"
     }
-  ],
-  "theme_color": "#1F2024",
-  "background_color": "#1F2024",
-  "display": "standalone"
+  ]
 }

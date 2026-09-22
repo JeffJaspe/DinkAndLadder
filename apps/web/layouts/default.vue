@@ -276,6 +276,9 @@ async function handleLogout() {
 
 <template>
   <div class="min-h-screen bg-canvas">
+    <!-- PWA install banner for mobile -->
+    <PwaInstallBanner />
+
     <!-- Desktop sidebar -->
     <aside
       v-if="showShell"
