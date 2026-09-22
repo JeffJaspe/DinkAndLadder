@@ -17,8 +17,12 @@
         http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
 
     <changeSet id="0001-v-player-records-add-avatar" author="claude">
+        <!-- PostgreSQL CREATE OR REPLACE VIEW cannot add columns in the middle,
+             so we drop and recreate. The view has no data; this is safe. -->
         <sql splitStatements="false">
-            CREATE OR REPLACE VIEW public.v_player_records AS
+            DROP VIEW IF EXISTS public.v_player_records;
+
+            CREATE VIEW public.v_player_records AS
             SELECT
                 mp.player_id,
                 m.match_type,
@@ -26,7 +30,6 @@
                 p.province,
                 p.city,
                 p.barangay,
-                p.avatar_path,
                 count(*) FILTER (WHERE mp.result_status = 'won')::int  AS wins,
                 count(*) FILTER (WHERE mp.result_status = 'lost')::int AS losses,
                 count(*)::int                                          AS matches_played,
@@ -34,7 +37,8 @@
                     count(*) FILTER (WHERE mp.result_status = 'won')::numeric
                     / count(*)::numeric * 100,
                     1
-                )                                                      AS win_pct
+                )                                                      AS win_pct,
+                p.avatar_path
             FROM match_participants mp
             JOIN matches m          ON m.id = mp.match_id
             JOIN player_profiles p  ON p.id = mp.player_id
@@ -48,7 +52,9 @@
         </sql>
         <rollback>
             <sql splitStatements="false">
-                CREATE OR REPLACE VIEW public.v_player_records AS
+                DROP VIEW IF EXISTS public.v_player_records;
+
+                CREATE VIEW public.v_player_records AS
                 SELECT
                     mp.player_id,
                     m.match_type,
