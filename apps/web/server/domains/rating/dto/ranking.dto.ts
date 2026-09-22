@@ -26,6 +26,7 @@ export interface RankingRow {
   province: string | null
   city: string | null
   barangay: string | null
+  avatar_path: string | null
 }
 
 /**
@@ -50,6 +51,7 @@ export interface RankingEntryDto {
   city: string | null
   barangay: string | null
   trend_delta: number | null
+  avatar_url: string | null
 }
 
 /** A page of rankings plus what the caller needs to build real pagination. */
@@ -64,7 +66,8 @@ export function toRankingEntryDto(
   row: RankingRow,
   rank: number,
   ratingType: RatingType,
-  trendDelta: number | null = null
+  trendDelta: number | null = null,
+  avatarUrl: string | null = null
 ): RankingEntryDto {
   return {
     rank,
@@ -78,7 +81,8 @@ export function toRankingEntryDto(
     province: row.province,
     city: row.city,
     barangay: row.barangay,
-    trend_delta: trendDelta
+    trend_delta: trendDelta,
+    avatar_url: avatarUrl
   }
 }
 
@@ -98,11 +102,13 @@ export interface RecordRankingRow {
   province: string | null
   city: string | null
   barangay: string | null
+  avatar_path: string | null
 }
 
-export interface RecordRankingEntryDto extends RecordRankingRow {
+export interface RecordRankingEntryDto extends Omit<RecordRankingRow, 'avatar_path'> {
   rank: number
   rating_type: RatingType
+  avatar_url: string | null
 }
 
 export interface RecordRankingPageDto {

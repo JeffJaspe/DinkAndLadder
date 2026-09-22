@@ -1,5 +1,6 @@
-import { serverSupabaseClient } from '#supabase/server'
+import { serverSupabaseClient, serverSupabaseServiceRole } from '#supabase/server'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
+import { createBrandingAssetRepository } from '~/server/domains/platform/repositories/branding-asset.repository'
 import { apiError } from '~/server/utils/api-error'
 import type { MatchJoinRow } from '~/server/domains/match/dto/match-join-row.dto'
 import { getOptionalUser } from '~/server/utils/optional-user'
@@ -72,7 +73,7 @@ export default defineEventHandler(async (event) => {
         player_id,
         team_number,
         result_status,
-        player_profiles!inner (id, display_name)
+        player_profiles!inner (id, display_name, avatar_path)
       ),
       match_scores (set_number, team1_score, team2_score)
     `
@@ -92,6 +93,21 @@ export default defineEventHandler(async (event) => {
     throw apiError(500, 'INTERNAL_ERROR', 'Could not load your matches.')
   }
 
+  // Collect all unique avatar paths for batch resolution.
+  const assets = createBrandingAssetRepository(serverSupabaseServiceRole(event))
+  const avatarPaths = new Map<string, string>()
+  for (const m of matches ?? []) {
+    for (const p of (m as MatchJoinRow).match_participants ?? []) {
+      const path = (p.player_profiles as { avatar_path?: string | null })?.avatar_path
+      if (path) avatarPaths.set(p.player_id, path)
+    }
+  }
+  const avatarUrls = new Map(
+    await Promise.all(
+      [...avatarPaths.entries()].map(async ([id, path]) => [id, await assets.resolveUrl(path)] as const)
+    )
+  )
+
   const mapped = (matches ?? []).map((m: MatchJoinRow) => ({
     id: m.id,
     match_type: m.match_type,
@@ -103,7 +119,8 @@ export default defineEventHandler(async (event) => {
       player_id: p.player_id,
       team_number: p.team_number,
       result_status: p.result_status,
-      display_name: p.player_profiles?.display_name
+      display_name: p.player_profiles?.display_name,
+      avatar_url: avatarUrls.get(p.player_id) ?? null
     })),
     scores: (m.match_scores ?? [])
       .sort((a, b) => a.set_number - b.set_number)

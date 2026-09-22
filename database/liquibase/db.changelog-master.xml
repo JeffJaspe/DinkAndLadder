@@ -82,5 +82,6 @@
     <include file="075-subscription-event-types/075-subscription-event-types.changelog.xml" relativeToChangelogFile="true"/>
     <include file="076-feed-follow-model/076-feed-follow-model.changelog.xml" relativeToChangelogFile="true"/>
     <include file="077-player-records-lint-suppress/077-player-records-lint-suppress.changelog.xml" relativeToChangelogFile="true"/>
+    <include file="078-player-records-avatar/078-player-records-avatar.changelog.xml" relativeToChangelogFile="true"/>
 
 </databaseChangeLog>

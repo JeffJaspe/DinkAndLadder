@@ -1,10 +1,11 @@
-import { serverSupabaseClient } from '#supabase/server'
+import { serverSupabaseClient, serverSupabaseServiceRole } from '#supabase/server'
 import { createRankingRepository } from '~/server/domains/rating/repositories/ranking.repository'
 import {
   createRankingService,
   RANKING_DEFAULT_LIMIT,
   RANKING_MAX_LIMIT
 } from '~/server/domains/rating/services/ranking.service'
+import { createBrandingAssetRepository } from '~/server/domains/platform/repositories/branding-asset.repository'
 import { apiError } from '~/server/utils/api-error'
 import type { RankingQuery } from '~/server/domains/rating/dto/ranking.dto'
 
@@ -46,10 +47,19 @@ export default defineEventHandler(async (event) => {
   }
 
   const client = await serverSupabaseClient(event)
+  const assets = createBrandingAssetRepository(serverSupabaseServiceRole(event))
   const service = createRankingService(createRankingRepository(client))
 
+  const resolveAvatars = async (paths: Map<string, string | null>) => {
+    const entries = [...paths.entries()].filter(([, path]) => Boolean(path))
+    const resolved = await Promise.all(
+      entries.map(async ([id, path]) => [id, await assets.resolveUrl(path!)] as const)
+    )
+    return new Map(resolved)
+  }
+
   try {
-    const page = await service.getRankings(query)
+    const page = await service.getRankings(query, resolveAvatars)
     // `data` keeps the same shape every existing caller reads. `meta.total` is
     // new and is what lets the UI build real pagination instead of a fixed row
     // of buttons.

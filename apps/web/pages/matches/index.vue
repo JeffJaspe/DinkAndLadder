@@ -20,7 +20,12 @@ interface MatchSummary {
   match_type: 'singles' | 'doubles'
   status: string
   played_at: string
-  participants: Array<{ player_id: string; team_number: 1 | 2; display_name: string }>
+  participants: Array<{
+    player_id: string
+    team_number: 1 | 2
+    display_name: string
+    avatar_url: string | null
+  }>
   scores: Array<{ set_number: number; team1_score: number; team2_score: number }>
 }
 
@@ -120,10 +125,12 @@ const STATUS_PILL: Record<string, { label: string; klass: string }> = {
  * names — so a doubles row rendered the initials of a person who does not
  * exist. A pair has no face; only a single opponent does.
  */
-function soleOpponentId(match: MatchSummary): string | null {
+function soleOpponent(match: MatchSummary): { id: string; avatar_url: string | null } | null {
   const myTeam = match.participants.find((p) => p.player_id === myProfile.value?.id)?.team_number
   const others = match.participants.filter((p) => p.team_number !== myTeam)
-  return others.length === 1 ? (others[0]?.player_id ?? null) : null
+  if (others.length !== 1) return null
+  const opponent = others[0]
+  return opponent ? { id: opponent.player_id, avatar_url: opponent.avatar_url } : null
 }
 
 function opponents(match: MatchSummary): string {
@@ -248,7 +255,12 @@ function clearDates() {
           :to="`/matches/${match.id}`"
           class="flex items-center gap-3 rounded-card border border-border bg-surface p-4 transition-colors hover:bg-surface-2 shadow-card hover:shadow-card-hover"
         >
-          <UiAvatar :name="opponents(match)" :identity-key="soleOpponentId(match)" size="md" />
+          <UiAvatar
+            :name="opponents(match)"
+            :src="soleOpponent(match)?.avatar_url"
+            :identity-key="soleOpponent(match)?.id"
+            size="md"
+          />
 
           <div class="min-w-0 flex-1">
             <p class="truncate text-body-2 font-medium text-fg">vs {{ opponents(match) }}</p>

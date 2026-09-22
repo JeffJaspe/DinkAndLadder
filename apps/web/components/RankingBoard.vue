@@ -41,6 +41,8 @@ export interface RankingBoardEntry {
   losses?: number | null
   /** 0–100. Derived from wins/losses when absent. */
   win_pct?: number | null
+  /** Resolved URL to the player's profile photo. */
+  avatar_url?: string | null
 }
 
 const props = withDefaults(
@@ -89,9 +91,9 @@ const podium = computed<PodiumEntry[]>(() =>
         name: entry.display_name,
         rating: entry.rating_value ?? null,
         location: entry.city ?? entry.province ?? null,
+        avatarUrl: entry.avatar_url ?? null,
         matchesPlayed: entry.matches_played ?? null,
         trendDelta: entry.trend_delta ?? null,
-        // A record ladder's pill is the record. The rating pill said "—" here.
         label: isRating.value ? null : `${entry.wins ?? 0}–${entry.losses ?? 0}`,
         labelTitle: isRating.value
           ? null
@@ -217,6 +219,7 @@ const tierName = (rating: number) => tierForRating(rating).name
           <span class="flex items-center gap-3">
             <UiAvatar
               :name="row.display_name"
+              :src="row.avatar_url"
               :identity-key="row.player_id"
               :size="compact ? 'sm' : 'md'"
               :highlighted="isHighlighted(row)"

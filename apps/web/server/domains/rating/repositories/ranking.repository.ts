@@ -13,6 +13,7 @@ interface RankingJoinRow {
     province: string | null
     city: string | null
     barangay: string | null
+    avatar_path: string | null
   } | null
 }
 
@@ -102,7 +103,7 @@ export function createRankingRepository(client: SupabaseClient): RankingReposito
       let builder = client
         .from('v_player_records')
         .select(
-          'player_id, display_name, wins, losses, matches_played, win_pct, province, city, barangay'
+          'player_id, display_name, wins, losses, matches_played, win_pct, province, city, barangay, avatar_path'
         )
         .eq('match_type', query.rating_type)
 
@@ -153,7 +154,7 @@ export function createRankingRepository(client: SupabaseClient): RankingReposito
       let builder = client
         .from('player_ratings')
         .select(
-          'player_id, rating_value, confidence_score, matches_played, provisional, player_profiles!inner(display_name, province, city, barangay)'
+          'player_id, rating_value, confidence_score, matches_played, provisional, player_profiles!inner(display_name, province, city, barangay, avatar_path)'
         )
         .eq('rating_type', query.rating_type)
         .not('rating_value', 'is', null)
@@ -196,7 +197,8 @@ export function createRankingRepository(client: SupabaseClient): RankingReposito
           provisional: row.provisional,
           province: row.player_profiles.province,
           city: row.player_profiles.city,
-          barangay: row.player_profiles.barangay
+          barangay: row.player_profiles.barangay,
+          avatar_path: row.player_profiles.avatar_path
         }))
     }
   }

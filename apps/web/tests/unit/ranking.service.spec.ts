@@ -17,6 +17,7 @@ function makeRow(
     province: null,
     city: null,
     barangay: null,
+    avatar_path: null,
     ...overrides
   }
 }
