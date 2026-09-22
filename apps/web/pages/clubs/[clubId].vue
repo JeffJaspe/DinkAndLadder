@@ -32,6 +32,17 @@ const {
   refresh: refreshClub
 } = await useFetch<ClubDto>(() => `/api/v1/clubs/${clubId.value}`)
 
+useSeoMeta({
+  title: () => club.value?.name ?? 'Club',
+  ogTitle: () => club.value?.name ?? 'Club',
+  description: () =>
+    club.value?.description ??
+    `${club.value?.name ?? 'Club'} on Dink and Ladder — join, play, and compete`,
+  ogDescription: () =>
+    club.value?.description ??
+    `${club.value?.name ?? 'Club'} on Dink and Ladder — join, play, and compete`
+})
+
 /**
  * The club's UUID, however the page was reached.
  *

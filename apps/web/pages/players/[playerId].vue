@@ -187,6 +187,18 @@ const achievementsEnabled = computed(() => isEnabled('achievements.enabled'))
  * visibility server-side.
  */
 const profileQuery = useFetch<PlayerProfileDto>(() => `/api/v1/players/${playerId.value}`)
+
+useSeoMeta({
+  title: () => profileQuery.data.value?.display_name ?? 'Player Profile',
+  ogTitle: () => profileQuery.data.value?.display_name ?? 'Player Profile',
+  description: () =>
+    profileQuery.data.value?.bio ??
+    `View ${profileQuery.data.value?.display_name ?? 'player'}'s pickleball profile on Dink and Ladder`,
+  ogDescription: () =>
+    profileQuery.data.value?.bio ??
+    `View ${profileQuery.data.value?.display_name ?? 'player'}'s pickleball profile on Dink and Ladder`
+})
+
 const ratingsQuery = useFetch<{
   singles: PlayerRatingDto | null
   doubles: PlayerRatingDto | null

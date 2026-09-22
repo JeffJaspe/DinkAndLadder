@@ -87,6 +87,17 @@ const {
   refresh: refreshEvent
 } = firstRender(useFetch<EventWithFeeWaiver>(`/api/v1/events/${eventId}`))
 
+useSeoMeta({
+  title: () => event.value?.name ?? 'Event',
+  ogTitle: () => event.value?.name ?? 'Event',
+  description: () =>
+    event.value?.description ??
+    `${event.value?.name ?? 'Event'} on Dink and Ladder — register, play, and compete`,
+  ogDescription: () =>
+    event.value?.description ??
+    `${event.value?.name ?? 'Event'} on Dink and Ladder — register, play, and compete`
+})
+
 const { data: myProfile } = firstRender(useFetch<PlayerProfileDto>('/api/v1/players/me'))
 
 /**
