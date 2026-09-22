@@ -80,7 +80,8 @@ async function handleGoogleSignUp() {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: `${window.location.origin}/confirm`
+        redirectTo: `${window.location.origin}/confirm`,
+        queryParams: { prompt: 'select_account' }
       }
     })
     if (error) {
@@ -95,7 +96,7 @@ async function handleGoogleSignUp() {
 <template>
   <AuthShell
     title="Create your account"
-    subtitle="A rating that comes from real, verified matches — and the clubs that run them."
+    subtitle="Join the community and start tracking your matches."
   >
     <UiToast :message="errorMessage" :variant="errorVariant" @close="errorMessage = ''" />
     <div>

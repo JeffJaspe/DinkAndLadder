@@ -57,7 +57,8 @@ const AUTH_ERROR_MESSAGES: Record<string, MappedAuthError> = {
   },
   invalid_credentials: {
     code: 'INVALID_CREDENTIALS',
-    message: 'Incorrect email or password.'
+    message:
+      'Incorrect email or password. If you signed up with Google, use "Continue with Google" instead.'
   },
   email_not_confirmed: {
     code: 'EMAIL_NOT_CONFIRMED',

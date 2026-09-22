@@ -96,7 +96,23 @@ export default defineNuxtConfig({
     },
     workbox: {
       globPatterns: ['**/*.{js,css,html,png,svg,ico,woff2}'],
+      navigateFallback: null,
+      navigateFallbackDenylist: [
+        /^\/confirm/,
+        /^\/auth-error/,
+        /^\/update-password/,
+        /^\/reset-password/,
+        /^\/check-email/,
+        /^\/onboarding/,
+        /^\/create-club/,
+        /^\/mfa\//,
+        /^\/api\//
+      ],
       runtimeCaching: [
+        {
+          urlPattern: /^https:\/\/.*\.supabase\.co\/auth\/.*/i,
+          handler: 'NetworkOnly'
+        },
         {
           urlPattern: /^https:\/\/.*\.supabase\.co\/.*/i,
           handler: 'NetworkFirst',
@@ -111,9 +127,8 @@ export default defineNuxtConfig({
       ]
     },
     devOptions: {
-      enabled: true,
-      type: 'module',
-      navigateFallback: '/'
+      enabled: false,
+      type: 'module'
     }
   },
   typescript: {

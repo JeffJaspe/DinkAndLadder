@@ -114,7 +114,8 @@ async function handleGoogleLogin() {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: `${window.location.origin}/confirm`
+        redirectTo: `${window.location.origin}/confirm`,
+        queryParams: { prompt: 'select_account' }
       }
     })
     if (error) {
