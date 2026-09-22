@@ -10,6 +10,16 @@ const errorMessage = ref('')
 
 async function finishSignIn() {
   try {
+    // Ensure server-side cookies are set before calling our API.
+    // getUser() can succeed client-side while the cookie-setting request
+    // from @nuxtjs/supabase's onAuthStateChange is still in flight.
+    const { data: sessionData } = await supabase.auth.getSession()
+    if (sessionData.session) {
+      await supabase.auth.setSession({
+        access_token: sessionData.session.access_token,
+        refresh_token: sessionData.session.refresh_token
+      })
+    }
     await $fetch('/api/v1/auth/session', { method: 'POST' })
     // Google gets you to aal1 like a password does; a two-factor account
     // still owes its code. Same check as login.vue.
