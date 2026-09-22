@@ -507,7 +507,7 @@ async function handleLogout() {
           :key="item.href"
           :to="item.href"
           class="flex min-w-[44px] flex-col items-center gap-0.5 px-3 py-2"
-          :class="isActive(item.href) ? 'text-primary' : 'text-fg-muted'"
+          :class="isActive(item.href) ? 'text-primary' : 'text-fg-secondary'"
           :aria-current="isActive(item.href) ? 'page' : undefined"
         >
           <!-- The raised centre action. Green when it is the current page too:

@@ -434,6 +434,15 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="dnl-landing min-h-screen bg-canvas">
+    <!-- Skip link for keyboard navigation. Hidden until focused, then appears
+         above everything. Allows keyboard and screen reader users to jump past
+         the header and navigation directly to main content. -->
+    <a
+      href="#main-content"
+      class="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100] focus:rounded-button focus:bg-primary focus:px-4 focus:py-2 focus:text-on-primary focus:shadow-card"
+    >
+      Skip to main content
+    </a>
     <header class="sticky top-0 z-50 border-b border-fg-muted bg-canvas">
       <!-- The header's rule, doubling as the read position. Structural ink, not
            Court Green: where you are is not a thing you confirmed. -->
@@ -526,7 +535,7 @@ onBeforeUnmount(() => {
       </Transition>
     </Teleport>
 
-    <main>
+    <main id="main-content" tabindex="-1">
       <!-- CLAIM BAND. No hero box: the claim is set on the page itself and
            closed by the heaviest rule the page owns. -->
       <section
@@ -618,10 +627,11 @@ onBeforeUnmount(() => {
       </nav>
 
       <!-- BAND: FOR PLAYERS. Claim left, player record benefits right. -->
-      <section class="dnl-reveal mx-auto max-w-6xl px-4 py-14 sm:px-6 sm:py-20">
+      <section class="dnl-reveal mx-auto max-w-6xl px-4 py-14 sm:px-6 sm:py-20" aria-labelledby="for-players-heading">
         <div class="md:grid md:grid-cols-12 md:gap-10">
           <div class="md:col-span-5">
             <h2
+              id="for-players-heading"
               class="font-display text-heading-1 font-semibold tracking-tight text-fg sm:text-4xl"
             >
               For players
@@ -662,10 +672,11 @@ onBeforeUnmount(() => {
       </section>
 
       <!-- BAND: FOR CLUBS. Claim left, evidence right. -->
-      <section class="dnl-reveal mx-auto max-w-6xl px-4 py-14 sm:px-6 sm:py-20">
+      <section class="dnl-reveal mx-auto max-w-6xl px-4 py-14 sm:px-6 sm:py-20" aria-labelledby="for-clubs-heading">
         <div class="md:grid md:grid-cols-12 md:gap-10">
           <div class="md:col-span-5">
             <h2
+              id="for-clubs-heading"
               class="font-display text-heading-1 font-semibold tracking-tight text-fg sm:text-4xl"
             >
               For clubs
@@ -706,11 +717,12 @@ onBeforeUnmount(() => {
       </section>
 
       <!-- BAND: VERIFIED CLUBS. What verification earns. -->
-      <section class="dnl-reveal border-y border-fg-muted">
+      <section class="dnl-reveal border-y border-fg-muted" aria-labelledby="verified-clubs-heading">
         <div class="mx-auto max-w-6xl px-4 py-14 sm:px-6 sm:py-20">
           <div class="md:grid md:grid-cols-12 md:gap-10">
             <div class="md:col-span-5">
               <h2
+                id="verified-clubs-heading"
                 class="font-display text-heading-1 font-semibold tracking-tight text-fg sm:text-4xl"
               >
                 Verified clubs
@@ -752,9 +764,9 @@ onBeforeUnmount(() => {
       </section>
 
       <!-- BAND: THE RECORD. The mechanism, drawn. -->
-      <section ref="loopBand" class="dnl-loop dnl-reveal border-y-2 border-fg bg-surface-3 dark:bg-surface">
+      <section ref="loopBand" class="dnl-loop dnl-reveal border-y-2 border-fg bg-surface-3 dark:bg-surface" aria-labelledby="rating-heading">
         <div class="mx-auto max-w-6xl px-4 py-14 sm:px-6 sm:py-20">
-          <h2 class="font-display text-heading-1 font-semibold tracking-tight text-fg sm:text-4xl">
+          <h2 id="rating-heading" class="font-display text-heading-1 font-semibold tracking-tight text-fg sm:text-4xl">
             A rating nobody argues with
           </h2>
           <p class="mt-5 max-w-[62ch] text-body-1 text-fg-secondary">
@@ -795,10 +807,11 @@ onBeforeUnmount(() => {
       </section>
 
       <!-- BAND: UPCOMING EVENTS. The real schedule. -->
-      <section class="dnl-reveal mx-auto max-w-6xl px-4 py-14 sm:px-6 sm:py-20">
+      <section class="dnl-reveal mx-auto max-w-6xl px-4 py-14 sm:px-6 sm:py-20" aria-labelledby="events-heading">
         <div class="md:grid md:grid-cols-12 md:gap-10">
           <div class="md:col-span-5">
             <h2
+              id="events-heading"
               class="font-display text-heading-1 font-semibold tracking-tight text-fg sm:text-4xl"
             >
               Find play near you
@@ -945,11 +958,12 @@ onBeforeUnmount(() => {
       </section>
 
       <!-- CLOSING BAND. Two paths, one record. -->
-      <section class="border-t-2 border-fg">
+      <section class="border-t-2 border-fg" aria-labelledby="cta-run-heading cta-join-heading">
         <div class="mx-auto max-w-6xl px-4 py-14 sm:px-6 sm:py-20">
           <div class="md:grid md:grid-cols-2 md:gap-16">
             <div class="border-b border-fg-muted pb-10 md:border-b-0 md:border-r md:pb-0 md:pr-16">
               <h2
+                id="cta-run-heading"
                 class="font-display text-heading-2 font-semibold tracking-tight text-fg sm:text-3xl"
               >
                 Run the play
@@ -966,6 +980,7 @@ onBeforeUnmount(() => {
             </div>
             <div class="pt-10 md:pt-0">
               <h2
+                id="cta-join-heading"
                 class="font-display text-heading-2 font-semibold tracking-tight text-fg sm:text-3xl"
               >
                 Join the record
@@ -1119,6 +1134,18 @@ onBeforeUnmount(() => {
 .dnl-hero--art {
   /* Share of the band given to the artwork on wide screens, as a ratio. */
   --dnl-hero-art: 0.38;
+  /* Mobile: ensure background fits the visible strip rather than being cropped.
+     On narrow screens the artwork strip is 44vw tall, and cover-sizing a
+     landscape image into that horizontal strip crops the sides. contain +
+     repeat-y makes the full image visible; wide screens keep cover. */
+  background-size: contain;
+  background-repeat: no-repeat;
+}
+
+@media (min-width: 640px) {
+  .dnl-hero--art {
+    background-size: cover;
+  }
 }
 
 .dnl-hero-plate {

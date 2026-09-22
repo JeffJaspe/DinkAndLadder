@@ -43,23 +43,29 @@ export default defineEventHandler(async (event) => {
   }
   const clubRows = (clubs ?? []) as unknown as ClubRow[]
 
-  // Get member counts
+  // Get member counts - fetch only club_id column to minimize data transfer.
+  // Supabase JS client doesn't support GROUP BY, so we count in JS. This is
+  // acceptable for the clubs list (typically <100 clubs × <100 members each).
+  // For larger scale, a database view with pre-aggregated counts would be better.
   const clubIds = clubRows.map((c) => c.id)
-  const { data: memberCounts, error: memberCountError } = await client
-    .from('club_memberships')
-    .select('club_id')
-    .in('club_id', clubIds)
-    .in('status', ['active', 'owner'])
-
-  // Member counts are decoration; a failure degrades to 0 rather than taking
-  // down the whole directory, but it must still be visible in the logs.
-  if (memberCountError) {
-    console.error('[GET /api/v1/clubs/all] member counts failed:', memberCountError)
-  }
-
   const countByClub = new Map<string, number>()
-  for (const m of memberCounts ?? []) {
-    countByClub.set(m.club_id, (countByClub.get(m.club_id) ?? 0) + 1)
+
+  if (clubIds.length > 0) {
+    const { data: memberCounts, error: memberCountError } = await client
+      .from('club_memberships')
+      .select('club_id')
+      .in('club_id', clubIds)
+      .in('status', ['active', 'owner'])
+
+    // Member counts are decoration; a failure degrades to 0 rather than taking
+    // down the whole directory, but it must still be visible in the logs.
+    if (memberCountError) {
+      console.error('[GET /api/v1/clubs/all] member counts failed:', memberCountError)
+    }
+
+    for (const m of memberCounts ?? []) {
+      countByClub.set(m.club_id, (countByClub.get(m.club_id) ?? 0) + 1)
+    }
   }
 
   const items: ClubListItem[] = clubRows.map((c) => ({

@@ -35,6 +35,14 @@ export default defineEventHandler(async (event) => {
     throw apiError(409, 'PLAYER_PROFILE_REQUIRED', 'Complete your player profile first.')
   }
 
+  /**
+   * Two queries, but the first is very lightweight (just IDs).
+   *
+   * We can't use a single query with inner join filter because
+   * `.eq('match_participants.player_id', id)` would filter the relation
+   * itself, returning only this player's participant row instead of all
+   * participants (needed to show opponents).
+   */
   const { data: participantRows, error: participantError } = await client
     .from('match_participants')
     .select('match_id')

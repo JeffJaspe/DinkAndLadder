@@ -212,8 +212,8 @@ watch(paused, (isPaused) => {
 
              The mark rides beside it only below `lg`, where the brand field is
              not on screen, so the logo is never shown twice. -->
-        <div class="flex items-center justify-between gap-4">
-          <NuxtLink to="/" class="inline-flex items-center gap-2 lg:hidden" aria-label="Home">
+        <div class="flex items-center gap-4">
+          <NuxtLink to="/" class="lg:hidden" aria-label="Home">
             <UiBrandMark size="xl" :show-name="false" />
           </NuxtLink>
 

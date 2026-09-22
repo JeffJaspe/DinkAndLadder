@@ -1,9 +1,8 @@
 import { serverSupabaseClient, serverSupabaseServiceRole } from '#supabase/server'
 import { createClubMembershipRepository } from '~/server/domains/club/repositories/club-membership.repository'
-import { createClubRepository } from '~/server/domains/club/repositories/club.repository'
-import { createClubService } from '~/server/domains/club/services/club.service'
 import { createBrandingAssetRepository } from '~/server/domains/platform/repositories/branding-asset.repository'
 import { createPlayerProfileRepository } from '~/server/domains/player/repositories/player-profile.repository'
+import { toClubMembershipDto } from '~/server/domains/club/dto/club-membership.dto'
 import { apiError } from '~/server/utils/api-error'
 import { getOptionalUser } from '~/server/utils/optional-user'
 
@@ -11,6 +10,9 @@ import { getOptionalUser } from '~/server/utils/optional-user'
  * Self-service — user-scoped client is enough. This lists clubs the caller already
  * belongs to (powers the "My Clubs" screen), not general club discovery/search — that's
  * Phase 2 per /docs/10-IMPLEMENTATION-BACKLOG.md and isn't implemented here.
+ *
+ * Performance: the join in listOwnWithClub already fetches club data including
+ * logo_path and cover_photo_path. We resolve URLs in parallel without extra queries.
  */
 export default defineEventHandler(async (event) => {
   const claims = await getOptionalUser(event)
@@ -25,24 +27,42 @@ export default defineEventHandler(async (event) => {
     return { items: [], page: 1, page_size: 0, total: 0, has_next: false }
   }
 
-  const service = createClubService(
-    createClubRepository(client),
-    createClubMembershipRepository(client)
-  )
+  const membershipRepo = createClubMembershipRepository(client)
   const assets = createBrandingAssetRepository(serviceClient)
-  const memberships = await service.listMine(playerProfile.id)
 
+  // Single query: memberships with clubs joined (includes logo_path, cover_photo_path)
+  const memberships = await membershipRepo.listOwnWithClub(playerProfile.id)
+
+  // Resolve all URLs in parallel - no extra DB queries needed
   const items = await Promise.all(
     memberships.map(async (m) => {
-      const clubRecord = await createClubRepository(client).findById(m.club.id)
-      if (!clubRecord) return m
+      const club = m.club
       const [logo_url, cover_photo_url] = await Promise.all([
-        clubRecord.logo_path ? assets.resolveUrl(clubRecord.logo_path) : Promise.resolve(null),
-        clubRecord.cover_photo_path
-          ? assets.resolveUrl(clubRecord.cover_photo_path)
-          : Promise.resolve(null)
+        club.logo_path ? assets.resolveUrl(club.logo_path) : Promise.resolve(null),
+        club.cover_photo_path ? assets.resolveUrl(club.cover_photo_path) : Promise.resolve(null)
       ])
-      return { ...m, club: { ...m.club, logo_url, cover_photo_url } }
+      return {
+        ...toClubMembershipDto(m),
+        club: {
+          id: club.id,
+          name: club.name,
+          slug: club.slug,
+          description: club.description,
+          province: club.province,
+          city: club.city,
+          barangay: club.barangay,
+          court_name: club.court_name,
+          court_address: club.court_address,
+          visibility: club.visibility,
+          status: club.status,
+          created_at: club.created_at,
+          verification_status: club.verification_status,
+          verification_requested_at: club.verification_requested_at,
+          verified_at: club.verified_at,
+          logo_url,
+          cover_photo_url
+        }
+      }
     })
   )
 

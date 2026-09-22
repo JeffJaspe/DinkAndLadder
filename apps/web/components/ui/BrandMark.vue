@@ -50,16 +50,17 @@ const showLogo = computed(() => !USE_BRAND_DEFAULTS && !!logoUrl.value && !faile
 </script>
 
 <template>
-  <span class="flex items-center gap-2">
+  <span class="flex items-center gap-2" role="img" :aria-label="showName ? undefined : appName">
     <img
       v-if="showLogo"
       :src="logoUrl!"
-      :alt="appName"
+      :alt="showName ? '' : appName"
+      :aria-hidden="showName ? 'true' : undefined"
       class="object-contain"
       :class="boxClass"
       @error="failed = true"
     />
-    <span v-else class="flex items-center justify-center" :class="boxClass">
+    <span v-else class="flex items-center justify-center" :class="boxClass" :aria-hidden="showName ? 'true' : undefined">
       <UiBrandImage :alt="showName ? '' : appName" />
     </span>
     <span v-if="showName" class="text-fg" :class="nameClass">{{ appName }}</span>

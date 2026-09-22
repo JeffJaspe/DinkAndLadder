@@ -31,7 +31,7 @@ export const DAL_CHARCOAL = '#1F2024'
  * USE_BRAND_DEFAULT_AVATARS, which is the same idea held separately because the
  * two turned out not to be one decision.
  */
-export const USE_BRAND_DEFAULTS = false
+export const USE_BRAND_DEFAULTS = true
 
 /**
  * While true, a player's uploaded photo is not displayed and their avatar is

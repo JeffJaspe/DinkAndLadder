@@ -69,12 +69,12 @@ export function createActivityService(
 
     const memberSet = new Set(memberClubIds)
     const verifiedSet = new Set<string>()
-    await Promise.all(
-      clubIds.map(async (id) => {
-        const club = await clubs.findById(id)
-        if (club?.verification_status === 'verified') verifiedSet.add(id)
-      })
-    )
+
+    // Batch fetch all clubs in one query instead of N queries
+    const clubRecords = await clubs.findByIds(clubIds)
+    for (const club of clubRecords) {
+      if (club.verification_status === 'verified') verifiedSet.add(club.id)
+    }
 
     function priority(record: ActivityRecord): number {
       if (!record.actor_club_id) return 0
