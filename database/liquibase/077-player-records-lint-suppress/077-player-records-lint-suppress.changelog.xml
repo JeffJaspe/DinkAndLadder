@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Suppress Supabase lint 0010_security_definer_view for v_player_records.
+
+     The view is intentionally SECURITY DEFINER (owner-rights, not invoker-rights):
+
+     1. A public rankings ladder must count ALL verified matches, not just the
+        caller's. The underlying matches/match_participants tables have RLS that
+        restricts SELECT to participants only.
+
+     2. If security_invoker were true, users would only see counts from their own
+        matches, defeating the purpose of a public leaderboard.
+
+     3. The view exposes only aggregates (wins, losses, matches_played, win_pct)
+        for players with profile_visibility='public' — the same data already
+        published by /players/:id/stats. No individual match rows are exposed.
+
+     4. Grants are restricted to SELECT only for anon and authenticated roles.
+
+     This is a documented design decision, not an oversight. -->
+
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+    <changeSet id="0001-suppress-lint-0010-v-player-records" author="security-review">
+        <comment>
+            Suppress Supabase lint 0010_security_definer_view: the view is intentionally
+            security definer to aggregate all verified matches for a public ladder,
+            bypassing RLS that restricts match visibility to participants. Only aggregate
+            counts for public profiles are exposed.
+        </comment>
+        <sql splitStatements="false">
+            COMMENT ON VIEW public.v_player_records IS
+            '@supabase/lint-disable 0010_security_definer_view -- Intentional: public ladder aggregates all verified matches for public profiles; exposes only counts, not match rows; same data as /players/:id/stats.';
+        </sql>
+        <rollback>
+            COMMENT ON VIEW public.v_player_records IS NULL;
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>
