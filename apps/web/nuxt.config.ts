@@ -140,6 +140,7 @@ export default defineNuxtConfig({
     paymongoSecretKey: process.env.PAYMONGO_SECRET_KEY,
     paymongoWebhookSecret: process.env.PAYMONGO_WEBHOOK_SECRET,
     turnstileSecretKey: process.env.TURNSTILE_SECRET_KEY,
+    facebookAppSecret: process.env.FACEBOOK_APP_SECRET,
     // Overridable at runtime with NUXT_TRUST_PROXY_HEADERS.
     trustProxyHeaders: resolveTrustProxy(process.env),
     // Origin for links inside emails, detected per deployment from the
@@ -167,6 +168,8 @@ export default defineNuxtConfig({
         // Where a failed email link is trapped — by definition nobody
         // reaching it has a session.
         '/auth-error',
+        // Facebook data deletion callback landing page — public by design.
+        '/data-deletion-status',
         // Two-factor recovery has no session at all (the whole point), and
         // the challenge page has one the module accepts - listed so a future
         // tightening of the module's guard cannot lock the second half of
