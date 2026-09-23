@@ -220,7 +220,7 @@ export interface PlanEntitlements {
   /** Event types this plan can create. null = all types allowed. */
   allowed_event_types: string[] | null
   /**
-   * Whether this plan allows creating ranked events (open_ranked, club_ranked, tournament).
+   * Whether this plan allows creating ranked events (open_ranked, club_ranked, tournament, tournament_club).
    * Verified clubs bypass this check entirely.
    */
   can_create_ranked_events: boolean

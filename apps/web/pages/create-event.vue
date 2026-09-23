@@ -64,7 +64,19 @@ const eventTypes: { value: EventType; label: string; description: string; ranked
   {
     value: 'tournament',
     label: 'Tournament',
-    description: 'Organized brackets, organizer inputs scores',
+    description: 'Open brackets, affects ratings',
+    ranked: true
+  },
+  {
+    value: 'tournament_casual',
+    label: 'Tournament (Casual)',
+    description: 'Open brackets, no rating impact',
+    ranked: false
+  },
+  {
+    value: 'tournament_club',
+    label: 'Club Tournament',
+    description: 'Club members only, affects ratings',
     ranked: true
   },
   {
@@ -134,7 +146,9 @@ const form = reactive({
   match_format: 'doubles' as 'singles' | 'doubles'
 })
 
-const isTournament = computed(() => form.event_type === 'tournament')
+const isTournament = computed(() =>
+  ['tournament', 'tournament_casual', 'tournament_club'].includes(form.event_type)
+)
 
 /**
  * Open play sessions are single-day events. Tournaments and coaching may span
@@ -396,6 +410,76 @@ const adminClubs = computed(() => {
   )
 })
 
+/**
+ * Fetch club entitlements to determine which event types are allowed.
+ * This gates the event type selection in the UI before the server check.
+ */
+const clubEntitlements = ref<{
+  allowed_event_types: string[] | null
+  can_create_ranked_events: boolean
+} | null>(null)
+const loadingEntitlements = ref(false)
+
+watch(
+  () => form.club_id,
+  async (clubId) => {
+    if (!clubId) {
+      clubEntitlements.value = null
+      return
+    }
+    loadingEntitlements.value = true
+    try {
+      const response = await $fetch<{
+        entitlements: {
+          allowed_event_types: string[] | null
+          can_create_ranked_events: boolean
+        }
+      }>(`/api/v1/clubs/${clubId}/subscription`)
+      clubEntitlements.value = response.entitlements
+    } catch {
+      // If we can't fetch entitlements, allow all types and let the server enforce
+      clubEntitlements.value = null
+    } finally {
+      loadingEntitlements.value = false
+    }
+  },
+  { immediate: true }
+)
+
+/**
+ * Whether a specific event type is allowed by the club's subscription.
+ * Returns { allowed: boolean, reason?: string } for UI display.
+ */
+function isEventTypeAllowed(eventType: EventType): { allowed: boolean; reason?: string } {
+  if (!clubEntitlements.value) return { allowed: true }
+
+  const { allowed_event_types, can_create_ranked_events } = clubEntitlements.value
+  const isRanked = ['open_ranked', 'club_ranked', 'tournament', 'tournament_club'].includes(eventType)
+
+  // Check if ranked events are blocked
+  if (isRanked && !can_create_ranked_events) {
+    return { allowed: false, reason: 'Upgrade to create ranked events' }
+  }
+
+  // Check if specific event type is allowed
+  if (allowed_event_types !== null && !allowed_event_types.includes(eventType)) {
+    return { allowed: false, reason: 'Not included in your plan' }
+  }
+
+  return { allowed: true }
+}
+
+// Reset to first allowed event type if current selection becomes disallowed
+watch(clubEntitlements, (entitlements) => {
+  if (!entitlements) return
+  if (!isEventTypeAllowed(form.event_type).allowed) {
+    const firstAllowed = eventTypes.find(t => isEventTypeAllowed(t.value).allowed)
+    if (firstAllowed) {
+      form.event_type = firstAllowed.value
+    }
+  }
+})
+
 // Auto-select when there's only one club to choose from — no reason to make someone
 // pick from a dropdown with a single option (plan: Phase 4.3).
 watch(
@@ -582,16 +666,16 @@ async function submit() {
 </script>
 
 <template>
-  <div class="min-h-screen bg-canvas p-4 lg:p-6">
-    <div class="mx-auto max-w-2xl">
+  <div class="min-h-screen bg-canvas px-4 py-6 lg:px-8 lg:py-8">
+    <div class="mx-auto max-w-4xl">
       <UiPageHeader to="/events" />
 
       <!-- Header -->
-      <div class="mb-6">
+      <div class="mb-8">
         <h1 class="font-display text-heading-1 text-fg">
           {{ isEditing ? 'Edit Event' : 'Create Event' }}
         </h1>
-        <p class="mt-1 text-sm text-fg-muted">
+        <p class="mt-2 text-body-2 text-fg-muted">
           {{
             isEditing
               ? 'Changes apply to this draft. Publish when it is ready.'
@@ -651,9 +735,9 @@ async function submit() {
       </div>
 
       <!-- Form -->
-      <form v-else class="space-y-6" @submit.prevent="submit">
+      <form v-else class="space-y-8" @submit.prevent="submit">
         <!-- Basic Info -->
-        <div class="rounded-xl bg-surface p-5 shadow-card">
+        <div class="rounded-xl bg-surface p-5 shadow-card lg:p-6">
           <h2 class="mb-4 font-display text-heading-3 text-fg">Basic Information</h2>
           <div class="space-y-4">
             <div>
@@ -713,24 +797,33 @@ async function submit() {
         </div>
 
         <!-- Event Type -->
-        <fieldset class="rounded-xl bg-surface p-5 shadow-card">
-          <legend class="mb-4 font-display text-heading-3 text-fg">Event Type</legend>
-          <div class="grid gap-3 sm:grid-cols-2">
+        <div class="rounded-xl bg-surface p-5 shadow-card lg:p-6">
+          <h2 class="mb-4 font-display text-heading-3 text-fg">Event Type</h2>
+          <div v-if="loadingEntitlements" class="flex items-center justify-center py-8">
+            <div class="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+          </div>
+          <div v-else class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <label
               v-for="t in eventTypes"
               :key="t.value"
-              class="flex cursor-pointer items-start gap-3 rounded-lg border-2 p-4 transition-all"
-              :class="
+              class="flex items-start gap-3 rounded-lg border-2 p-4 transition-all"
+              :class="[
+                isEventTypeAllowed(t.value).allowed
+                  ? 'cursor-pointer'
+                  : 'cursor-not-allowed opacity-50',
                 form.event_type === t.value
                   ? 'border-primary bg-primary/5'
-                  : 'border-border-strong hover:border-primary/50'
-              "
+                  : isEventTypeAllowed(t.value).allowed
+                    ? 'border-border-strong hover:border-primary/50'
+                    : 'border-border-strong'
+              ]"
             >
               <input
                 v-model="form.event_type"
                 type="radio"
                 :value="t.value"
-                class="mt-1 h-4 w-4 border-border-strong text-primary focus:ring-primary"
+                :disabled="!isEventTypeAllowed(t.value).allowed"
+                class="mt-1 h-4 w-4 border-border-strong text-primary focus:ring-primary disabled:cursor-not-allowed"
               />
               <div class="flex-1">
                 <div class="flex items-center gap-2">
@@ -743,6 +836,12 @@ async function submit() {
                   </span>
                 </div>
                 <p class="mt-0.5 text-xs text-fg-muted">{{ t.description }}</p>
+                <p
+                  v-if="!isEventTypeAllowed(t.value).allowed"
+                  class="mt-1 text-xs font-medium text-warning"
+                >
+                  {{ isEventTypeAllowed(t.value).reason }}
+                </p>
               </div>
             </label>
           </div>
@@ -752,13 +851,13 @@ async function submit() {
           >
             Matches in this event will affect player ratings.
           </div>
-        </fieldset>
+        </div>
 
         <!-- Schedule -->
-        <div class="rounded-xl bg-surface p-5 shadow-card">
+        <div class="rounded-xl bg-surface p-5 shadow-card lg:p-6">
           <h2 class="mb-4 font-display text-heading-3 text-fg">Schedule</h2>
           <div class="space-y-4">
-            <div class="grid gap-4 sm:grid-cols-2">
+            <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               <div>
                 <label for="event-start-date" class="mb-1.5 block text-sm text-fg-secondary">
                   {{ isOpenPlay ? 'Date' : 'Start Date' }}
@@ -797,8 +896,8 @@ async function submit() {
                 :options="TIME_OPTIONS"
               />
             </div>
-            <div class="grid gap-4 sm:grid-cols-2">
-              <div>
+            <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <div class="lg:col-span-2">
                 <label for="event-registration-opens" class="mb-1.5 block text-sm text-fg-secondary"
                   >Registration Opens</label
                 >
@@ -809,7 +908,7 @@ async function submit() {
                   class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-fg focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
                 />
               </div>
-              <div>
+              <div class="lg:col-span-2">
                 <label
                   for="event-registration-closes"
                   class="mb-1.5 block text-sm text-fg-secondary"
@@ -896,7 +995,7 @@ async function submit() {
         </div>
 
         <!-- Capacity & Fees -->
-        <div class="rounded-xl bg-surface p-5 shadow-card">
+        <div class="rounded-xl bg-surface p-5 shadow-card lg:p-6">
           <h2 class="mb-4 font-display text-heading-3 text-fg">Capacity & Fees</h2>
           <div class="grid gap-4 sm:grid-cols-2">
             <div>
@@ -1025,7 +1124,7 @@ async function submit() {
 
         <!-- Tournament shape. Replaces the old create-tournament page, whose
              heading read "Create Category" while it created a tournament. -->
-        <div v-if="isTournament" class="rounded-xl bg-surface p-5 shadow-card">
+        <div v-if="isTournament" class="rounded-xl bg-surface p-5 shadow-card lg:p-6">
           <h2 class="font-display text-heading-3 text-fg">Tournament format</h2>
           <p class="mt-0.5 text-sm text-fg-muted">
             The default every category in this tournament starts from. You add the categories
@@ -1086,7 +1185,7 @@ async function submit() {
 
         <!-- Format and courts. Open play only: a tournament answers the format
              per category, and its courts come from the draw. -->
-        <div v-if="!isTournament && !isCoaching" class="rounded-xl bg-surface p-5 shadow-card">
+        <div v-if="!isTournament && !isCoaching" class="rounded-xl bg-surface p-5 shadow-card lg:p-6">
           <h2 class="font-display text-heading-3 text-fg">Format &amp; courts</h2>
           <p class="mt-0.5 text-sm text-fg-muted">
             What people will be playing, and how much of the venue you have. This decides how the
@@ -1149,7 +1248,7 @@ async function submit() {
         <!-- Scoring. The one thing open play could never say: every game was
              scored against the built-in default of one game to 11, so a club
              playing to 15 had a legitimate 15-13 rejected as unfinished. -->
-        <div v-if="wantsScoring" class="rounded-xl bg-surface p-5 shadow-card">
+        <div v-if="wantsScoring" class="rounded-xl bg-surface p-5 shadow-card lg:p-6">
           <h2 class="font-display text-heading-3 text-fg">Scoring</h2>
           <p class="mt-0.5 text-sm text-fg-muted">
             How a game is won. Score sheets and the live court board are validated against this, so
@@ -1264,7 +1363,7 @@ async function submit() {
 
         <!-- Queue Mode. Not offered for a tournament: a draw decides who plays
              whom, so there is nothing to queue for. -->
-        <div v-if="!isTournament && !isCoaching" class="rounded-xl bg-surface p-5 shadow-card">
+        <div v-if="!isTournament && !isCoaching" class="rounded-xl bg-surface p-5 shadow-card lg:p-6">
           <div class="mb-4">
             <h2 class="font-display text-heading-3 text-fg">Match Queue</h2>
             <p class="mt-0.5 text-sm text-fg-muted">
@@ -1343,7 +1442,7 @@ async function submit() {
         </div>
 
         <!-- Location -->
-        <div class="rounded-xl bg-surface p-5 shadow-card">
+        <div class="rounded-xl bg-surface p-5 shadow-card lg:p-6">
           <h2 class="mb-4 font-display text-heading-3 text-fg">Location</h2>
           <div class="space-y-4">
             <div>
@@ -1400,7 +1499,7 @@ async function submit() {
         </div>
 
         <!-- Visibility -->
-        <fieldset class="rounded-xl bg-surface p-5 shadow-card">
+        <fieldset class="rounded-xl bg-surface p-5 shadow-card lg:p-6">
           <legend class="mb-4 font-display text-heading-3 text-fg">Visibility</legend>
           <div class="space-y-3">
             <label
@@ -1483,17 +1582,17 @@ async function submit() {
         </div>
 
         <!-- Actions -->
-        <div class="flex gap-3">
+        <div class="flex gap-4 pt-2">
           <NuxtLink
             to="/events"
-            class="flex-1 rounded-xl border border-border-strong py-3 text-center font-medium text-fg-secondary hover:bg-surface-2"
+            class="flex-1 rounded-xl border border-border-strong py-3.5 text-center font-medium text-fg-secondary transition-colors hover:bg-surface-2 lg:flex-none lg:px-8"
           >
             Cancel
           </NuxtLink>
           <button
             type="submit"
             :disabled="submitting"
-            class="flex-1 rounded-xl bg-primary py-3 font-medium text-on-primary hover:bg-primary-hover disabled:opacity-50"
+            class="flex-1 rounded-xl bg-primary py-3.5 font-medium text-on-primary transition-colors hover:bg-primary-hover disabled:opacity-50 lg:flex-[2]"
           >
             {{
               submitting

@@ -13,6 +13,8 @@ import type { EventDto, EventType } from '~/server/domains/event/dto/event.dto'
 export function eventKindLabel(eventType: EventType | string): string {
   switch (eventType) {
     case 'tournament':
+    case 'tournament_casual':
+    case 'tournament_club':
       return 'TOURNAMENT'
     case 'coaching':
       return 'COACHING'
@@ -39,7 +41,18 @@ export function eventKindQualifiers(
 ): string[] {
   const parts: string[] = []
 
-  if (event.event_type === 'tournament') {
+  // Tournament qualifiers: club-only for club tournaments, ranked/casual indication
+  if (
+    event.event_type === 'tournament' ||
+    event.event_type === 'tournament_casual' ||
+    event.event_type === 'tournament_club'
+  ) {
+    if (event.event_type === 'tournament_club') {
+      parts.push('Club only')
+    }
+    if (event.event_type === 'tournament_casual') {
+      parts.push('Casual')
+    }
     return parts
   }
 
@@ -89,7 +102,7 @@ export const EVENT_KIND_FILTERS: { value: EventKindFilter; label: string }[] = [
 export function eventTypesForFilter(filter: EventKindFilter): EventType[] | undefined {
   switch (filter) {
     case 'tournament':
-      return ['tournament']
+      return ['tournament', 'tournament_casual', 'tournament_club']
     case 'coaching':
       return ['coaching']
     case 'open_play':
@@ -156,14 +169,24 @@ const RANKED_STYLE: EventTypeStyle = {
   icon: 'star'
 }
 
+const TOURNAMENT_STYLE: EventTypeStyle = {
+  background: '/event-art/backgrounds/bg-tournament.svg',
+  ribbon: '/event-art/headers/header-tournament.svg',
+  art: 'text-rating-gold',
+  badge: 'bg-rating-gold text-on-primary',
+  icon: 'trophy'
+}
+
 const EVENT_TYPE_STYLES: Record<EventType, EventTypeStyle> = {
-  tournament: {
+  tournament: TOURNAMENT_STYLE,
+  tournament_casual: {
     background: '/event-art/backgrounds/bg-tournament.svg',
     ribbon: '/event-art/headers/header-tournament.svg',
-    art: 'text-rating-gold',
-    badge: 'bg-rating-gold text-on-primary',
+    art: 'text-info',
+    badge: 'bg-info text-on-primary',
     icon: 'trophy'
   },
+  tournament_club: TOURNAMENT_STYLE,
   open_ranked: RANKED_STYLE,
   club_ranked: RANKED_STYLE,
   open_casual: CASUAL_STYLE,

@@ -155,7 +155,9 @@ const EVENT_TYPE_GROUPS: EventTypeGroup[] = [
   {
     category: 'Tournament',
     types: [
-      { value: 'tournament', label: 'Tournament', ranked: true }
+      { value: 'tournament', label: 'Tournament (Open)', ranked: true },
+      { value: 'tournament_casual', label: 'Tournament (Casual)' },
+      { value: 'tournament_club', label: 'Tournament (Club)', ranked: true }
     ]
   },
   {
@@ -647,7 +649,7 @@ const inputClass =
                           type="checkbox"
                         />
                         Can create ranked events
-                        <span class="text-xs text-fg-muted">(open_ranked, club_ranked, tournament)</span>
+                        <span class="text-xs text-fg-muted">(open_ranked, club_ranked, tournament, tournament_club)</span>
                       </label>
                       <p class="mt-1 text-xs text-fg-muted">
                         Even if ranked event types are allowed above, this must be enabled for the club

@@ -11,7 +11,14 @@ export type EventVisibility = 'public' | 'registered_only' | 'private'
  * the safe direction for that to fail in.
  */
 export type EventType =
-  'open_casual' | 'open_ranked' | 'club_casual' | 'club_ranked' | 'tournament' | 'coaching'
+  | 'open_casual'
+  | 'open_ranked'
+  | 'club_casual'
+  | 'club_ranked'
+  | 'tournament'
+  | 'tournament_casual'
+  | 'tournament_club'
+  | 'coaching'
 
 /**
  * Who bears the fee.
@@ -248,7 +255,9 @@ export interface EventDto {
 }
 
 export function toEventDto(record: EventRecord): EventDto {
-  const affectsRating = ['open_ranked', 'club_ranked', 'tournament'].includes(record.event_type)
+  const affectsRating = ['open_ranked', 'club_ranked', 'tournament', 'tournament_club'].includes(
+    record.event_type
+  )
   return {
     id: record.id,
     club_id: record.club_id,

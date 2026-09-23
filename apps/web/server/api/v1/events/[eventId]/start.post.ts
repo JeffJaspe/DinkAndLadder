@@ -59,7 +59,10 @@ export default defineEventHandler(async (event) => {
     // bracket, and giving it a court board would be two competing sources of
     // truth about who is playing.
     let courts = null
-    if (started.event_type !== 'tournament') {
+    const isTournament = ['tournament', 'tournament_casual', 'tournament_club'].includes(
+      started.event_type
+    )
+    if (!isTournament) {
       const courtService = createEventCourtService(
         createEventCourtRepository(serviceClient),
         createEventQueueRepository(serviceClient),

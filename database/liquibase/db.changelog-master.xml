@@ -84,5 +84,6 @@
     <include file="077-player-records-lint-suppress/077-player-records-lint-suppress.changelog.xml" relativeToChangelogFile="true"/>
     <include file="078-player-records-avatar/078-player-records-avatar.changelog.xml" relativeToChangelogFile="true"/>
     <include file="079-subscription-ranked-flag/079-subscription-ranked-flag.changelog.xml" relativeToChangelogFile="true"/>
+    <include file="080-tournament-types/080-tournament-types.changelog.xml" relativeToChangelogFile="true"/>
 
 </databaseChangeLog>

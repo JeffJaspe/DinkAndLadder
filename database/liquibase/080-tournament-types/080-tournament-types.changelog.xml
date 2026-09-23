@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    080-tournament-types: Add tournament_casual and tournament_club event types.
+
+    - tournament_casual: unranked tournament, open to all (like open_casual but bracketed)
+    - tournament_club: ranked tournament, club members only (like club_ranked but bracketed)
+
+    The event_type column is TEXT so no enum update is needed.
+
+    This migration adds tournament_casual to free plans' allowed_event_types since it's
+    an unranked type and follows the same access pattern as open_casual and club_casual.
+-->
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.29.xsd">
+
+    <changeSet id="0001-add-tournament-casual-to-free-plans" author="tournament-types">
+        <comment>
+            Add tournament_casual to free plans' allowed_event_types.
+            Since tournament_casual is unranked (like open_casual), free plans can use it.
+            Paid/verified plans already allow all types (NULL) so they inherit these automatically.
+        </comment>
+        <sql>
+            UPDATE subscription_plans
+            SET allowed_event_types = allowed_event_types || '["tournament_casual"]'::jsonb
+            WHERE is_default_free = true
+            AND allowed_event_types IS NOT NULL
+            AND NOT (allowed_event_types ? 'tournament_casual');
+        </sql>
+        <rollback>
+            <sql>
+                UPDATE subscription_plans
+                SET allowed_event_types = allowed_event_types - 'tournament_casual'
+                WHERE is_default_free = true
+                AND allowed_event_types ? 'tournament_casual';
+            </sql>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="0002-update-event-types-comment" author="tournament-types">
+        <comment>Update column comment to reflect new tournament types.</comment>
+        <sql>
+            COMMENT ON COLUMN subscription_plans.allowed_event_types IS
+            'Event types this plan can create. NULL = all types. Array of strings like ["open_casual", "open_ranked", "tournament", "tournament_casual", "tournament_club", "coaching"].';
+        </sql>
+    </changeSet>
+
+</databaseChangeLog>

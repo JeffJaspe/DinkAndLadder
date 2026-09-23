@@ -284,11 +284,13 @@ export function createEventRepository(client: SupabaseClient): EventRepository {
         // has had its weekend and must not block the next one.
         liveTournaments: rows.filter(
           (r) =>
-            r.event_type === 'tournament' && (r.status === 'published' || r.status === 'active')
+            ['tournament', 'tournament_casual', 'tournament_club'].includes(r.event_type) &&
+            (r.status === 'published' || r.status === 'active')
         ).length,
         liveOpenPlay: rows.filter(
           (r) =>
-            r.event_type !== 'tournament' && (r.status === 'published' || r.status === 'active')
+            !['tournament', 'tournament_casual', 'tournament_club'].includes(r.event_type) &&
+            (r.status === 'published' || r.status === 'active')
         ).length
       }
     },

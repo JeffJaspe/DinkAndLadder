@@ -454,7 +454,7 @@ export function createEventService(
       return
     }
 
-    const isTournament = eventType === 'tournament'
+    const isTournament = ['tournament', 'tournament_casual', 'tournament_club'].includes(eventType)
     const cap = isTournament ? allowance.max_live_tournaments : allowance.max_live_open_play
     const live = isTournament ? counts.liveTournaments : counts.liveOpenPlay
 

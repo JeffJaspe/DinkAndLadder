@@ -157,7 +157,7 @@ export function chooseEventsToRestrict(events: EventRecord[]): EventRecord[] {
     const bucket =
       ev.status === 'draft'
         ? 'draft'
-        : ev.event_type === 'tournament'
+        : ['tournament', 'tournament_casual', 'tournament_club'].includes(ev.event_type)
           ? 'tournament'
           : 'open_play'
     if (!buckets.has(bucket)) {
