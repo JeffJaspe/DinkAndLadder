@@ -27,14 +27,14 @@
             SET allowed_event_types = allowed_event_types || '["tournament_casual"]'::jsonb
             WHERE is_default_free = true
             AND allowed_event_types IS NOT NULL
-            AND NOT (allowed_event_types ? 'tournament_casual');
+            AND NOT jsonb_exists(allowed_event_types, 'tournament_casual');
         </sql>
         <rollback>
             <sql>
                 UPDATE subscription_plans
                 SET allowed_event_types = allowed_event_types - 'tournament_casual'
                 WHERE is_default_free = true
-                AND allowed_event_types ? 'tournament_casual';
+                AND jsonb_exists(allowed_event_types, 'tournament_casual');
             </sql>
         </rollback>
     </changeSet>
