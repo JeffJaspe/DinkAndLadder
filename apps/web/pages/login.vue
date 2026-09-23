@@ -137,8 +137,7 @@ async function handleFacebookLogin() {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'facebook',
       options: {
-        redirectTo: `${window.location.origin}/confirm`,
-        scopes: 'email,public_profile'
+        redirectTo: `${window.location.origin}/confirm`
       }
     })
     if (error) {
