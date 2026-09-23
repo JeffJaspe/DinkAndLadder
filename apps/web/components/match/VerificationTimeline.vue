@@ -19,6 +19,7 @@ export interface RatingChange {
   display_name: string
   rating_delta: number
   new_rating: number
+  explanation?: string
 }
 
 export interface TimelineVerification {
@@ -196,6 +197,7 @@ function relative(iso: string) {
             v-for="change in step.changes"
             :key="change.player_id"
             class="flex items-center justify-between gap-3 rounded-button bg-surface-2 px-2.5 py-1.5"
+            :title="change.explanation"
           >
             <span class="truncate text-caption text-fg">
               <UiPlayerLink :player-id="change.player_id" :name="change.display_name" />

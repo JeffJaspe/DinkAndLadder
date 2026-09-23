@@ -17,6 +17,13 @@ const loading = ref(false)
 // exchanged for a session.
 const hasRecoverySession = ref<boolean | null>(null)
 
+// MFA state: if the user has MFA enabled, they need to verify before updating password
+const requiresMfa = ref(false)
+const mfaVerified = ref(false)
+const totpCode = ref('')
+const mfaFactorId = ref('')
+const mfaLoading = ref(false)
+
 /**
  * Detecting the recovery session.
  *
@@ -35,13 +42,15 @@ onMounted(() => {
     if (event === 'PASSWORD_RECOVERY' || event === 'SIGNED_IN') settle?.(true)
   })
 
-  settle = (ok: boolean) => {
+  settle = async (ok: boolean) => {
     if (hasRecoverySession.value !== null) return
     hasRecoverySession.value = ok
     if (ok) {
       // A recovery session is good for exactly one thing. Until the password is
       // actually set, guest-only.global.ts sends every other route back here.
       lockToRecovery()
+      // Check if MFA is enabled - if so, user needs to verify before updating password
+      await checkMfaRequired()
     }
     listener.subscription.unsubscribe()
     settle = null
@@ -61,6 +70,42 @@ onMounted(() => {
 onBeforeUnmount(() => {
   settle = null
 })
+
+async function checkMfaRequired() {
+  try {
+    const { data: aalData } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
+    if (aalData && aalData.currentLevel === 'aal1' && aalData.nextLevel === 'aal2') {
+      // User has MFA enabled but hasn't verified yet
+      const { data: factors } = await supabase.auth.mfa.listFactors()
+      const totpFactor = factors?.totp?.find((f) => f.status === 'verified')
+      if (totpFactor) {
+        requiresMfa.value = true
+        mfaFactorId.value = totpFactor.id
+      }
+    }
+  } catch {
+    // If MFA check fails, proceed without - the updateUser will fail with clear error
+  }
+}
+
+async function handleMfaVerify() {
+  errorMessage.value = ''
+  mfaLoading.value = true
+  try {
+    const { error } = await supabase.auth.mfa.challengeAndVerify({
+      factorId: mfaFactorId.value,
+      code: totpCode.value
+    })
+    if (error) {
+      errorMessage.value = error.message
+      return
+    }
+    mfaVerified.value = true
+    requiresMfa.value = false
+  } finally {
+    mfaLoading.value = false
+  }
+}
 
 /** Abandon the reset: drop the half-session so nobody is left half-signed-in. */
 async function cancelRecovery() {
@@ -133,7 +178,45 @@ async function handleUpdate() {
           </NuxtLink>
         </div>
 
-        <!-- Form -->
+        <!-- MFA verification required -->
+        <form v-else-if="requiresMfa" class="space-y-4" @submit.prevent="handleMfaVerify">
+          <p class="text-sm text-fg-secondary">
+            Your account has two-factor authentication enabled. Enter your verification code to
+            continue.
+          </p>
+
+          <div>
+            <label for="mfa-code" class="mb-1.5 block text-sm font-medium text-fg-secondary"
+              >Verification code</label
+            >
+            <input
+              id="mfa-code"
+              v-model="totpCode"
+              type="text"
+              inputmode="numeric"
+              autocomplete="one-time-code"
+              pattern="[0-9]*"
+              maxlength="6"
+              required
+              placeholder="000000"
+              class="w-full rounded-lg border border-border-strong bg-canvas px-4 py-2.5 text-center font-mono text-lg tracking-widest text-fg placeholder-fg-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
+            />
+          </div>
+
+          <div v-if="errorMessage" class="rounded-lg bg-danger-soft px-4 py-3 text-sm text-danger">
+            {{ errorMessage }}
+          </div>
+
+          <button
+            type="submit"
+            :disabled="mfaLoading || totpCode.length !== 6"
+            class="w-full rounded-lg bg-primary py-3 font-semibold text-on-primary transition-colors hover:bg-primary-hover disabled:opacity-50"
+          >
+            {{ mfaLoading ? 'Verifying…' : 'Verify and continue' }}
+          </button>
+        </form>
+
+        <!-- Password form (shown after MFA if required, or immediately if no MFA) -->
         <form v-else class="space-y-4" @submit.prevent="handleUpdate">
           <AuthPasswordField
             id="update-password"

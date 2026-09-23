@@ -654,6 +654,36 @@ export function createEventService(
   }
 
   /**
+   * Event type must be in the plan's allowed_event_types list.
+   *
+   * null means all types allowed. Verified clubs bypass this check entirely.
+   */
+  async function assertEventTypeAllowed(clubId: string, eventType: string) {
+    if (!clubs) return
+
+    const club = await clubs.findById(clubId)
+    if (!club) return
+
+    if (club.verification_status === 'verified') return
+
+    const allowance = entitlements
+      ? await entitlements.resolve(clubId)
+      : unwiredEntitlements()
+
+    if (allowance.allowed_event_types === null) return
+
+    if (!allowance.allowed_event_types.includes(eventType)) {
+      const typeLabel = eventType.replace(/_/g, ' ')
+      throw new EventServiceError(
+        403,
+        'EVENT_TYPE_NOT_ALLOWED',
+        `Your subscription does not include ${typeLabel} events. ` +
+          'Upgrade your club subscription to unlock this event type.'
+      )
+    }
+  }
+
+  /**
    * A tournament event has exactly one tournament, created with the event.
    *
    * The middle level used to be built by hand through an "Add Tournament"
@@ -694,6 +724,7 @@ export function createEventService(
       await assertClubAdmin(playerId, input.club_id)
       // Every event is created as a draft, so this is the draft allowance.
       await assertWithinClubLimits(input.club_id, 'draft', input.event_type)
+      await assertEventTypeAllowed(input.club_id, input.event_type)
       await assertCanCreateRankedIfNeeded(input.club_id, input.event_type)
 
       // Default registration_closes to start_date with time set to start of day

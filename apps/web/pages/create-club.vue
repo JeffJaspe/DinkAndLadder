@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { ClubDto } from '~/server/domains/club/dto/club.dto'
 
-const { switchToClub } = useAccountMode()
+const { switchToClub, switchToPlayer } = useAccountMode()
 
 const {
   provinces,
@@ -81,18 +81,33 @@ async function handleCreate() {
     saving.value = false
   }
 }
+
+function goBackToPlayerMode() {
+  switchToPlayer()
+  navigateTo('/dashboard')
+}
 </script>
 
 <template>
-  <div class="min-h-screen bg-canvas p-4 lg:p-6">
-    <div class="mx-auto max-w-2xl">
-      <UiPageHeader to="/my-clubs" />
+  <!-- Full-screen overlay to ensure clean UI without background elements showing through -->
+  <div class="fixed inset-0 z-50 overflow-y-auto bg-canvas">
+    <div class="min-h-screen p-4 lg:p-6">
+      <div class="mx-auto max-w-2xl">
+        <!-- Back button to player mode -->
+        <button
+          type="button"
+          class="mb-4 flex items-center gap-2 rounded-button py-2 text-body-2 font-medium text-fg-secondary transition-colors hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+          @click="goBackToPlayerMode"
+        >
+          <UiIcon name="arrow-left" size="h-4 w-4" :stroke-width="2" aria-hidden="true" />
+          Back to player mode
+        </button>
 
-      <!-- Header -->
-      <div class="mb-6">
-        <h1 class="font-display text-heading-1 text-fg">Create a Club</h1>
-        <p class="mt-1 text-sm text-fg-muted">Build your pickleball community</p>
-      </div>
+        <!-- Header -->
+        <div class="mb-6">
+          <h1 class="font-display text-heading-1 text-fg">Create a Club</h1>
+          <p class="mt-1 text-sm text-fg-muted">Build your pickleball community</p>
+        </div>
 
       <!-- Form -->
       <form class="space-y-6" @submit.prevent="handleCreate">
@@ -270,12 +285,13 @@ async function handleCreate() {
 
         <!-- Actions -->
         <div class="flex gap-3">
-          <NuxtLink
-            to="/my-clubs"
+          <button
+            type="button"
             class="flex-1 rounded-xl border border-border-strong py-3 text-center font-medium text-fg-secondary hover:bg-surface-2"
+            @click="goBackToPlayerMode"
           >
             Cancel
-          </NuxtLink>
+          </button>
           <button
             type="submit"
             :disabled="saving"
@@ -285,6 +301,7 @@ async function handleCreate() {
           </button>
         </div>
       </form>
+      </div>
     </div>
   </div>
 </template>

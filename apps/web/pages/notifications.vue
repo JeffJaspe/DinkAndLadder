@@ -111,9 +111,15 @@ const groupedNotifications = computed(() => {
 })
 
 async function markAsRead(notificationId: string) {
-  await $fetch(`/api/v1/notifications/${notificationId}/read`, { method: 'PATCH' })
-  await refresh()
-  await refreshCount()
+  // Fire and forget - don't block navigation
+  $fetch(`/api/v1/notifications/${notificationId}/read`, { method: 'PATCH' })
+    .then(() => {
+      refresh()
+      refreshCount()
+    })
+    .catch(() => {
+      // Silent fail - marking as read is not critical
+    })
 }
 
 async function markAllAsRead() {
@@ -146,47 +152,69 @@ function getNotificationIcon(type: string): string {
 /**
  * Where a notification takes you.
  *
- * Keyed off `reference_type`, which is the field the API actually populates
- * (NotificationReferenceType). The previous version read `notification.data`,
- * a field that has never been sent, so this returned null every time and every
- * row rendered as an inert `<div>` instead of a link.
+ * First tries `reference_type` + `reference_id` for deep links. Falls back to
+ * notification `type` for a sensible destination when the reference is missing.
+ * Every notification should be clickable — an inert notification feels broken.
  */
-function getNotificationLink(notification: Notification): string | null {
+function getNotificationLink(notification: Notification): string {
   const id = notification.reference_id
-  if (!id) return null
 
-  switch (notification.reference_type) {
-    case 'match':
-    case 'match_verification':
-      return `/matches/${id}`
-    case 'club_membership':
-      // The membership id is not the club id, so this cannot deep-link to one
-      // club. My Clubs is where a membership decision is acted on.
+  // Deep link by reference_type when we have an id
+  if (id) {
+    switch (notification.reference_type) {
+      case 'match':
+      case 'match_verification':
+        return `/matches/${id}`
+      case 'club_membership':
+        return '/my-clubs'
+      case 'club_announcement':
+        return '/feed'
+      case 'partner_request':
+      case 'partnership':
+        return '/community?tab=partners'
+      case 'team_up':
+        return '/community?tab=team'
+      case 'event':
+        return `/events/${id}`
+      case 'achievement':
+        return '/achievements'
+      case 'player_rating':
+        return '/dashboard'
+      case 'player_report':
+        return '/settings'
+    }
+  }
+
+  // Fallback by notification type when reference is missing
+  switch (notification.type) {
+    case 'match.verification_requested':
+    case 'match.verified':
+    case 'match.rejected':
+    case 'match.disputed':
+      return id ? `/matches/${id}` : '/matches'
+    case 'club.membership_approved':
+    case 'club.membership_rejected':
+    case 'club.membership_request':
+    case 'club.invited':
+    case 'club.role_changed':
       return '/my-clubs'
-    case 'club_announcement':
+    case 'club.announcement':
       return '/feed'
-    case 'partner_request':
-    case 'partnership':
-      return '/community?tab=partners'
-    // Emitted by both team-up endpoints and declared in
-    // NotificationReferenceType, but never handled here — so every team-up
-    // notification fell through to `default` and rendered as an inert div.
-    // Clicking one appeared to do nothing, which is what "the notification
-    // stays in notifications" was.
-    case 'team_up':
-      return '/community?tab=team'
-    case 'event':
-      return `/events/${id}`
-    case 'achievement':
-      return '/achievements'
-    case 'player_rating':
+    case 'rating.updated':
       return '/dashboard'
-    case 'player_report':
-      // Only ever sent to the reported player, and deliberately carries no
-      // pointer to the reporter. Their own settings is the honest destination.
+    case 'partner.request_received':
+    case 'partner.request_accepted':
+    case 'partner.request_declined':
+      return '/community?tab=partners'
+    case 'moderation.warning':
       return '/settings'
+    case 'event.auto_closed':
+      return id ? `/events/${id}` : '/events'
+    case 'achievement.unlocked':
+      return '/achievements'
     default:
-      return null
+      // Last resort: dashboard is the home base
+      return '/dashboard'
   }
 }
 
@@ -286,16 +314,12 @@ function formatTime(dateStr: string): string {
           <h2 class="text-caption font-semibold uppercase tracking-widest text-fg-muted">
             {{ group.label }}
           </h2>
-          <component
-            :is="getNotificationLink(notification) ? 'NuxtLink' : 'div'"
+          <NuxtLink
             v-for="notification in group.items"
             :key="notification.id"
             :to="getNotificationLink(notification)"
-            class="flex items-start gap-4 rounded-xl p-4 transition-all"
-            :class="[
-              notification.read ? 'bg-surface' : 'bg-surface ring-1 ring-primary/20',
-              getNotificationLink(notification) ? 'hover:bg-surface-2 cursor-pointer' : ''
-            ]"
+            class="flex items-start gap-4 rounded-xl p-4 transition-all hover:bg-surface-2 cursor-pointer"
+            :class="notification.read ? 'bg-surface' : 'bg-surface ring-1 ring-primary/20'"
             @click="!notification.read && markAsRead(notification.id)"
           >
             <!-- Icon -->
@@ -326,7 +350,7 @@ function formatTime(dateStr: string): string {
               v-if="!notification.read"
               class="mt-2 h-2 w-2 flex-shrink-0 rounded-full bg-primary"
             />
-          </component>
+          </NuxtLink>
         </section>
 
         <p class="mt-6 border-t border-border pt-4 text-caption text-fg-muted">

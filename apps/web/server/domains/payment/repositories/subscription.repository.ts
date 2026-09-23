@@ -22,7 +22,8 @@ import type {
 const PLAN_COLUMNS =
   'id, name, description, stripe_price_id, billing_interval, price_cents, currency, features, plan_type, is_active, sort_order, created_at, updated_at, ' +
   'tagline, marketing_bullets, headline_figures, badge_label, cta_label, savings_label, plan_group, is_public, is_featured, is_default_free, ' +
-  'max_draft_events, max_live_tournaments, max_live_open_play, max_members, online_fee_collection, verified_badge_eligible'
+  'max_draft_events, max_live_tournaments, max_live_open_play, max_members, online_fee_collection, verified_badge_eligible, ' +
+  'allowed_event_types, can_create_ranked_events'
 
 const PLAYER_SUB_COLUMNS =
   'id, player_id, plan_id, stripe_subscription_id, stripe_customer_id, status, current_period_start, current_period_end, cancel_at_period_end, created_at, updated_at'
@@ -172,6 +173,8 @@ export interface CreatePlanInput {
   max_members?: number | null
   online_fee_collection?: boolean
   verified_badge_eligible?: boolean
+  allowed_event_types?: string[] | null
+  can_create_ranked_events?: boolean
 }
 
 /**
@@ -291,6 +294,8 @@ export function createSubscriptionRepository(client: SupabaseClient): Subscripti
           headline_figures: [],
           online_fee_collection: false,
           verified_badge_eligible: false,
+          allowed_event_types: null,
+          can_create_ranked_events: false,
           ...input
         })
         .select(PLAN_COLUMNS)

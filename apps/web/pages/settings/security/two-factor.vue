@@ -183,16 +183,33 @@ onMounted(start)
         </div>
 
         <template v-else-if="enrollment">
-          <!-- Most players have never used one of these. The walkthrough is
-               collapsed for the people who have, and opens on the first click
-               for everyone else - no separate help page to find. -->
+          <!-- Quick-start instructions visible by default -->
+          <div class="mb-6 rounded-button border border-primary/30 bg-primary-soft p-4">
+            <p class="font-medium text-fg">Before you start:</p>
+            <ol class="mt-2 list-decimal space-y-1 pl-5 text-body-2 text-fg-secondary">
+              <li>
+                <span class="font-medium text-fg">Download an authenticator app</span> on your phone
+                (Google Authenticator, Microsoft Authenticator, or Authy)
+              </li>
+              <li>
+                <span class="font-medium text-fg">Open the app</span> and tap the
+                <span class="font-medium text-fg">+</span> button to add an account
+              </li>
+              <li>
+                <span class="font-medium text-fg">Scan the QR code below</span> with your phone's
+                camera
+              </li>
+            </ol>
+          </div>
+
+          <!-- Detailed walkthrough for first-time users -->
           <details class="group mb-6 rounded-button border border-border bg-surface-2">
             <summary
               class="flex cursor-pointer items-center justify-between gap-3 px-4 py-3 text-body-2 font-medium text-fg [&::-webkit-details-marker]:hidden"
             >
               <span class="flex items-center gap-2">
                 <UiIcon name="info" class="text-primary" />
-                New to authenticator apps? Read this first
+                Need more help? Read the full guide
               </span>
               <span class="text-fg-muted" aria-hidden="true">
                 <UiIcon name="minus" class="hidden group-open:block" />

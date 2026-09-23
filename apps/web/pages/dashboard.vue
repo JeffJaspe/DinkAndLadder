@@ -553,6 +553,20 @@ const dashboardLinks: ReadonlyArray<{ to: string; label: string; line: string }>
     <div v-else-if="currentUser" class="page-shell space-y-5">
       <SecurityMfaReminder />
 
+      <!-- Profile completion reminder: location helps with rankings and filtering -->
+      <section
+        v-if="myProfile && !myProfile.province && !myProfile.city"
+        class="flex flex-col gap-3 rounded-card border border-primary/40 bg-primary-soft p-4 sm:flex-row sm:items-center sm:justify-between"
+      >
+        <div>
+          <p class="font-medium text-fg">Finish setting up your profile</p>
+          <p class="mt-0.5 text-body-2 text-fg-secondary">
+            Add your location for better rankings and to help nearby players find you.
+          </p>
+        </div>
+        <UiButton to="/profile/edit" variant="outline">Complete profile</UiButton>
+      </section>
+
       <!-- Sent back to the questionnaire: no rating on file (see needsAssessment). -->
       <section
         v-if="needsAssessment"

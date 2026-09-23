@@ -27,6 +27,8 @@ interface MatchSummary {
     avatar_url: string | null
   }>
   scores: Array<{ set_number: number; team1_score: number; team2_score: number }>
+  rating_delta: number | null
+  new_rating: number | null
 }
 
 const route = useRoute()
@@ -162,6 +164,34 @@ function relative(iso: string): string {
 }
 
 /**
+ * Explains why the rating changed the way it did.
+ * For doubles: individual vs opponent team average (new algorithm v2).
+ * For singles: team vs team expected share.
+ */
+function ratingExplanation(match: MatchSummary): string | null {
+  if (match.rating_delta === null) return null
+  const won = outcome(match) === 'win'
+  const delta = match.rating_delta
+
+  if (won && delta > 0) {
+    return 'Won and outperformed expectations based on rating gap.'
+  }
+  if (won && delta < 0) {
+    return 'Won, but point margin was below expected for the rating gap. Rating adjusts toward true skill.'
+  }
+  if (won && delta === 0) {
+    return 'Won as expected.'
+  }
+  if (!won && delta < 0) {
+    return 'Lost as expected based on rating gap.'
+  }
+  if (!won && delta > 0) {
+    return 'Lost, but performed better than expected based on rating gap.'
+  }
+  return 'Rating unchanged.'
+}
+
+/**
  * A named handler rather than two statements in the template.
  * `@click="fromDate = ''; toDate = ''"` is valid only while it stays on one
  * line: the formatter is entitled to break it across lines, and Vue's
@@ -286,6 +316,15 @@ function clearDates() {
               :class="outcome(match) === 'win' ? 'text-success' : 'text-danger'"
             >
               {{ outcome(match) === 'win' ? 'Win' : 'Loss' }}
+            </span>
+            <!-- Rating change with explanation tooltip -->
+            <span
+              v-if="match.rating_delta !== null"
+              class="text-caption font-medium tabular-nums cursor-help"
+              :class="match.rating_delta > 0 ? 'text-success' : match.rating_delta < 0 ? 'text-danger' : 'text-fg-muted'"
+              :title="ratingExplanation(match) ?? undefined"
+            >
+              {{ match.rating_delta > 0 ? '+' : '' }}{{ match.rating_delta.toFixed(3) }}
             </span>
           </div>
         </NuxtLink>

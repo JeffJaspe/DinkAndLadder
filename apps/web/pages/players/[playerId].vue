@@ -1007,8 +1007,14 @@ function formatActivityText(activity: ProfileActivity): string {
                   <p class="text-caption text-fg-muted">
                     {{ format.matchesPlayed }}
                     {{ format.matchesPlayed === 1 ? 'match' : 'matches' }}
-                    <template v-if="format.provisional"> · provisional</template>
                   </p>
+                  <span
+                    v-if="format.provisional"
+                    class="mt-1 inline-block rounded-badge bg-warning-soft px-2 py-0.5 text-caption font-medium text-warning"
+                    :title="`${10 - format.matchesPlayed} more matches needed to verify rating`"
+                  >
+                    Provisional · {{ 10 - format.matchesPlayed }} to verify
+                  </span>
                 </template>
                 <p v-else-if="ratingsError" class="text-caption text-fg-muted">
                   Rating<br />unavailable

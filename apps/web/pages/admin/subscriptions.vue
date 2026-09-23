@@ -124,6 +124,75 @@ const planGroups = computed(() =>
   [...new Set(Object.values(drafts.value).map((p) => p.plan_group).filter(Boolean))] as string[]
 )
 
+/**
+ * Event types grouped by category for the entitlements UI.
+ * Matches EventType from event.dto.ts.
+ */
+interface EventTypeOption {
+  value: string
+  label: string
+  ranked?: boolean
+}
+interface EventTypeGroup {
+  category: string
+  types: EventTypeOption[]
+}
+const EVENT_TYPE_GROUPS: EventTypeGroup[] = [
+  {
+    category: 'Open Play',
+    types: [
+      { value: 'open_casual', label: 'Casual Open Play' },
+      { value: 'open_ranked', label: 'Ranked Open Play', ranked: true }
+    ]
+  },
+  {
+    category: 'Club Play',
+    types: [
+      { value: 'club_casual', label: 'Casual Club Play' },
+      { value: 'club_ranked', label: 'Ranked Club Play', ranked: true }
+    ]
+  },
+  {
+    category: 'Tournament',
+    types: [
+      { value: 'tournament', label: 'Tournament', ranked: true }
+    ]
+  },
+  {
+    category: 'Other',
+    types: [
+      { value: 'coaching', label: 'Coaching' }
+    ]
+  }
+]
+
+function isEventTypeAllowed(draft: AdminClubSubscriptionPlanDto, eventType: string): boolean {
+  if (draft.entitlements.allowed_event_types === null) return true
+  return draft.entitlements.allowed_event_types.includes(eventType)
+}
+
+function toggleEventType(draft: AdminClubSubscriptionPlanDto, eventType: string, allowed: boolean) {
+  if (draft.entitlements.allowed_event_types === null) {
+    // Convert from "all allowed" to explicit list
+    const allTypes = EVENT_TYPE_GROUPS.flatMap(g => g.types.map(t => t.value))
+    draft.entitlements.allowed_event_types = allowed
+      ? allTypes
+      : allTypes.filter(t => t !== eventType)
+  } else if (allowed) {
+    if (!draft.entitlements.allowed_event_types.includes(eventType)) {
+      draft.entitlements.allowed_event_types.push(eventType)
+    }
+  } else {
+    draft.entitlements.allowed_event_types = draft.entitlements.allowed_event_types.filter(
+      t => t !== eventType
+    )
+  }
+}
+
+function setAllEventTypesUnlimited(draft: AdminClubSubscriptionPlanDto, unlimited: boolean) {
+  draft.entitlements.allowed_event_types = unlimited ? null : []
+}
+
 const savingPlan = ref<string | null>(null)
 const planErrors = ref<Record<string, string>>({})
 const planWarnings = ref<Record<string, string[]>>({})
@@ -535,6 +604,55 @@ const inputClass =
                         Eligible for the verified badge
                         <span class="text-xs text-fg-muted">(queues the club for review; does not grant it)</span>
                       </label>
+                    </div>
+
+                    <!-- Allowed event types -->
+                    <div class="mt-4 rounded-lg border border-border p-3">
+                      <div class="flex items-center justify-between gap-2">
+                        <span class="text-sm font-medium text-fg">Allowed event types</span>
+                        <label class="flex items-center gap-1.5 text-xs text-fg-muted">
+                          <input
+                            type="checkbox"
+                            :checked="drafts[plan.id].entitlements.allowed_event_types === null"
+                            @change="setAllEventTypesUnlimited(drafts[plan.id], ($event.target as HTMLInputElement).checked)"
+                          />
+                          All types
+                        </label>
+                      </div>
+                      <div v-if="drafts[plan.id].entitlements.allowed_event_types !== null" class="mt-3 grid gap-3 sm:grid-cols-2">
+                        <div v-for="group in EVENT_TYPE_GROUPS" :key="group.category" class="space-y-1">
+                          <p class="text-xs font-medium text-fg-muted">{{ group.category }}</p>
+                          <label
+                            v-for="eventType in group.types"
+                            :key="eventType.value"
+                            class="flex items-center gap-2 text-sm text-fg"
+                          >
+                            <input
+                              type="checkbox"
+                              :checked="isEventTypeAllowed(drafts[plan.id], eventType.value)"
+                              @change="toggleEventType(drafts[plan.id], eventType.value, ($event.target as HTMLInputElement).checked)"
+                            />
+                            {{ eventType.label }}
+                            <span v-if="eventType.ranked" class="rounded-pill bg-ranked/20 px-1.5 py-0.5 text-xs text-ranked">Ranked</span>
+                          </label>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- Ranked events toggle -->
+                    <div class="mt-3">
+                      <label class="flex items-center gap-2 text-sm text-fg">
+                        <input
+                          v-model="drafts[plan.id].entitlements.can_create_ranked_events"
+                          type="checkbox"
+                        />
+                        Can create ranked events
+                        <span class="text-xs text-fg-muted">(open_ranked, club_ranked, tournament)</span>
+                      </label>
+                      <p class="mt-1 text-xs text-fg-muted">
+                        Even if ranked event types are allowed above, this must be enabled for the club
+                        to actually create them. Verified clubs bypass this check.
+                      </p>
                     </div>
                   </fieldset>
 

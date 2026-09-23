@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <!--
+        Add can_create_ranked_events column to subscription_plans.
+
+        This is a simpler toggle than parsing allowed_event_types to determine
+        if ranked events are permitted. Verified clubs bypass this check entirely.
+
+        Default is FALSE for safety — existing free plans should not suddenly
+        be able to create ranked events.
+    -->
+    <changeSet id="0001-add-can-create-ranked-events" author="subscription-ranked-flag">
+        <addColumn tableName="subscription_plans">
+            <column name="can_create_ranked_events" type="boolean" defaultValueBoolean="false">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+        <rollback>
+            <dropColumn tableName="subscription_plans" columnName="can_create_ranked_events"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="0002-comment-can-create-ranked-events" author="subscription-ranked-flag">
+        <sql>
+            COMMENT ON COLUMN subscription_plans.can_create_ranked_events IS
+            'Whether this plan allows creating ranked events (open_ranked, club_ranked, tournament). Verified clubs bypass this check.';
+        </sql>
+    </changeSet>
+
+    <!-- Premium/paid plans should allow ranked events by default -->
+    <changeSet id="0003-enable-ranked-for-paid-plans" author="subscription-ranked-flag">
+        <sql>
+            UPDATE subscription_plans
+            SET can_create_ranked_events = true
+            WHERE is_default_free = false
+            AND price_cents > 0;
+        </sql>
+        <rollback>
+            <sql>
+                UPDATE subscription_plans
+                SET can_create_ranked_events = false
+                WHERE is_default_free = false;
+            </sql>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

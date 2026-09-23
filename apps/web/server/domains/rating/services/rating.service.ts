@@ -27,7 +27,7 @@ export class RatingServiceError extends Error {
  * stamped with the version that produced them (see 005-rating.changelog.xml's Historical
  * Integrity note); changing behavior under an existing version number would make history lie.
  */
-export const RATING_ALGORITHM_VERSION = 1
+export const RATING_ALGORITHM_VERSION = 2
 
 export const RATING_MIN = 2.0
 export const RATING_MAX = 8.0
@@ -36,10 +36,10 @@ export const RATING_MAX = 8.0
  * rating-gap between two teams predicts exactly an 80% expected point share. */
 export const RATING_SCALE_S = 0.8305
 
-/** UNCONFIRMED placeholder — not user-reviewed, see ADR-001. */
-export const PROVISIONAL_MATCHES_THRESHOLD = 5
-/** UNCONFIRMED placeholder — not user-reviewed, see ADR-001. */
-export const ESTABLISHED_MATCHES_THRESHOLD = 20
+/** Minimum matches before rating is no longer provisional. */
+export const PROVISIONAL_MATCHES_THRESHOLD = 10
+/** Matches at which K-factor reaches its floor (fully established). */
+export const ESTABLISHED_MATCHES_THRESHOLD = 30
 /** UNCONFIRMED placeholder — not user-reviewed, see ADR-001. */
 export const K_PROVISIONAL = 0.25
 /** UNCONFIRMED placeholder — not user-reviewed, see ADR-001. */
@@ -125,13 +125,56 @@ interface TeamMember {
  * doubles), weighted by each member's confidence relative to their teammates'. For a singles
  * "team" of one, the weight is trivially 1 and this reduces to `K_i * matchDelta` — the same
  * per-player magnitude a doubles teammate gets when paired with an equally-confident partner,
- * so singles and doubles players move consistently for an equivalent surprise. */
+ * so singles and doubles players move consistently for an equivalent surprise.
+ *
+ * NOTE: This is now only used for SINGLES. Doubles uses calculateDoublesUpdates instead. */
 function distributeTeamDelta(team: TeamMember[], matchDelta: number): RatingUpdateResult[] {
   const totalConfidence = team.reduce((sum, member) => sum + member.confidence, 0)
   return team.map((member) => {
     const weight = member.confidence / totalConfidence
     const delta = team.length * kFactorFor(member.matches_played) * weight * matchDelta
     const newRating = clampRating(member.rating + delta)
+    return {
+      player_id: member.player_id,
+      old_rating: member.rating,
+      new_rating: newRating,
+      rating_delta: newRating - member.rating,
+      confidence_before: member.confidence,
+      confidence_after: decayConfidence(member.confidence),
+      new_matches_played: member.matches_played + 1
+    }
+  })
+}
+
+/**
+ * Doubles rating: each player compared to opponent TEAM average individually.
+ *
+ * This solves the "carried by partner" problem: a 2.7 player who beats 3.5+ opponents
+ * should gain rating even if their 4.8 partner made the team "favorites". In doubles,
+ * the ball goes to the weaker player — a close win while being targeted is an
+ * accomplishment, not an underperformance.
+ *
+ * - 2.735 vs opponent avg 3.69 → expected ~25% → actual 55% → BIG gain
+ * - 4.865 vs opponent avg 3.69 → expected ~85% → actual 55% → drops
+ *
+ * Each player is judged on how THEY performed against the opponent team, not how
+ * the team-average performed.
+ */
+function calculateDoublesUpdates(
+  team: TeamMember[],
+  opponentAvg: number,
+  teamActualShare: number,
+  ageInDays: number
+): RatingUpdateResult[] {
+  const typeWeight = resolveMatchTypeWeight()
+  const recency = recencyWeight(ageInDays)
+
+  return team.map((member) => {
+    const playerExpected = expectedShare(member.rating, opponentAvg)
+    const rawDelta = typeWeight * recency * (teamActualShare - playerExpected)
+    const delta = kFactorFor(member.matches_played) * rawDelta
+    const newRating = clampRating(member.rating + delta)
+
     return {
       player_id: member.player_id,
       old_rating: member.rating,
@@ -232,18 +275,32 @@ export function createRatingService(repository: RatingRepository): RatingService
       const team1Avg = team1.reduce((sum, m) => sum + m.rating, 0) / team1.length
       const team2Avg = team2.reduce((sum, m) => sum + m.rating, 0) / team2.length
 
-      const expected1 = expectedShare(team1Avg, team2Avg)
       const actual1 = actualShare(input.team1_points, input.team2_points)
 
       const ageInDays = Math.max(
         (Date.now() - new Date(input.played_at).getTime()) / (1000 * 60 * 60 * 24),
         0
       )
-      const matchDelta = resolveMatchTypeWeight() * recencyWeight(ageInDays) * (actual1 - expected1)
 
-      const team1Updates = distributeTeamDelta(team1, matchDelta)
-      const team2Updates = distributeTeamDelta(team2, -matchDelta)
-      const updates = [...team1Updates, ...team2Updates]
+      const isDoubles = team1.length === 2 && team2.length === 2
+      let updates: RatingUpdateResult[]
+
+      if (isDoubles) {
+        // Doubles: each player compared to opponent TEAM average individually.
+        // Solves the "carried by partner" problem — a lower-rated player who beats
+        // higher-rated opponents gains rating even if their strong partner made the
+        // team favorites overall.
+        const team1Updates = calculateDoublesUpdates(team1, team2Avg, actual1, ageInDays)
+        const team2Updates = calculateDoublesUpdates(team2, team1Avg, 1 - actual1, ageInDays)
+        updates = [...team1Updates, ...team2Updates]
+      } else {
+        // Singles: team vs team (same as current, since team size is 1)
+        const expected1 = expectedShare(team1Avg, team2Avg)
+        const matchDelta = resolveMatchTypeWeight() * recencyWeight(ageInDays) * (actual1 - expected1)
+        const team1Updates = distributeTeamDelta(team1, matchDelta)
+        const team2Updates = distributeTeamDelta(team2, -matchDelta)
+        updates = [...team1Updates, ...team2Updates]
+      }
 
       await repository.applyRatingUpdates(
         input.match_id,

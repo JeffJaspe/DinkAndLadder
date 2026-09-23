@@ -30,6 +30,7 @@ const { data: ratingChanges } = await useFetch<{
     rating_delta: number
     new_rating: number
     created_at: string
+    explanation?: string
   }>
 }>(() => `/api/v1/matches/${matchId.value}/rating-changes`, { server: false })
 
@@ -269,6 +270,10 @@ const { goBack } = useAppBack('/matches')
               }}
             </p>
             <p v-if="match.venue" class="text-sm text-fg-muted">{{ match.venue }}</p>
+            <p class="mt-1 text-xs text-fg-muted/60">
+              <span>Match ID: </span>
+              <span class="font-mono select-all">{{ match.id }}</span>
+            </p>
           </div>
           <span
             class="rounded-md px-3 py-1 text-sm font-medium capitalize"
