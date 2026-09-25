@@ -197,6 +197,8 @@ export default defineNuxtConfig({
         // Policies are for everyone, most of all the visitor deciding whether
         // to sign up.
         '/legal/*',
+        // Support page is for everyone, guests need help too.
+        '/support',
         // What a club would pay is for the visitor deciding whether to bring
         // their club here; driven by the public plan rows only.
         '/pricing',

@@ -304,6 +304,55 @@ function closeMenu() {
   nextTick(() => menuButton.value?.focus())
 }
 
+const toast = useToast()
+
+async function refreshPage() {
+  closeMenu()
+  window.location.reload()
+}
+
+async function copyLink() {
+  const url = window.location.href
+  if (navigator.share) {
+    try {
+      await navigator.share({
+        title: 'DinkAndLadder',
+        text: 'Check out DinkAndLadder - the Philippine pickleball platform!',
+        url
+      })
+      closeMenu()
+      return
+    } catch {
+      // User cancelled or share failed, fall back to clipboard
+    }
+  }
+  try {
+    await navigator.clipboard.writeText(url)
+    toast.success('Link copied to clipboard')
+  } catch {
+    toast.error('Could not copy link')
+  }
+  closeMenu()
+}
+
+function sendInMessenger() {
+  const url = encodeURIComponent(window.location.href)
+  const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
+
+  if (isMobile) {
+    // Mobile: use Messenger app deep link - opens Messenger to share the link
+    window.location.href = `fb-messenger://share/?link=${url}`
+  } else {
+    // Desktop: copy link and show instruction since Messenger web share needs app ID
+    navigator.clipboard.writeText(window.location.href).then(() => {
+      toast.info('Link copied! Open Messenger to share it.')
+    }).catch(() => {
+      toast.info('Open Messenger on your phone to share this link.')
+    })
+  }
+  closeMenu()
+}
+
 // The panel is teleported to <body>, so Escape has to be caught globally.
 function onKeydown(event: KeyboardEvent) {
   if (event.key === 'Escape') closeMenu()
@@ -510,10 +559,67 @@ onBeforeUnmount(() => {
                 v-for="item in browse"
                 :key="item.to"
                 :to="item.to"
-                class="dnl-row dnl-press block border-b border-fg-muted px-4 py-3.5 text-body-2 font-medium text-fg-secondary transition-colors hover:text-fg"
+                class="dnl-row dnl-press flex items-center gap-3 border-b border-fg-muted px-4 py-3.5 text-body-2 font-medium text-fg-secondary transition-colors hover:text-fg"
                 @click="closeMenu"
-                >{{ item.label }}</NuxtLink
               >
+                <UiIcon
+                  :name="item.to === '/rankings' ? 'rankings' : item.to === '/events' ? 'calendar' : item.to === '/clubs' ? 'clubs' : 'players'"
+                  size="h-5 w-5"
+                />
+                {{ item.label }}
+              </NuxtLink>
+
+              <!-- Utility actions for visitors -->
+              <div class="border-b border-fg-muted px-4 py-2">
+                <span class="text-caption font-semibold uppercase tracking-widest text-fg-muted">
+                  More options
+                </span>
+              </div>
+
+              <button
+                type="button"
+                class="dnl-row dnl-press flex w-full items-center gap-3 border-b border-fg-muted px-4 py-3.5 text-body-2 font-medium text-fg-secondary transition-colors hover:text-fg"
+                @click="refreshPage"
+              >
+                <UiIcon name="refresh" size="h-5 w-5" />
+                Refresh
+              </button>
+
+              <button
+                type="button"
+                class="dnl-row dnl-press flex w-full items-center gap-3 border-b border-fg-muted px-4 py-3.5 text-body-2 font-medium text-fg-secondary transition-colors hover:text-fg"
+                @click="copyLink"
+              >
+                <UiIcon name="share" size="h-5 w-5" />
+                Share
+              </button>
+
+              <button
+                type="button"
+                class="dnl-row dnl-press flex w-full items-center gap-3 border-b border-fg-muted px-4 py-3.5 text-body-2 font-medium text-fg-secondary transition-colors hover:text-fg"
+                @click="sendInMessenger"
+              >
+                <UiIcon name="messenger" size="h-5 w-5" />
+                Send in Messenger
+              </button>
+
+              <NuxtLink
+                to="/support"
+                class="dnl-row dnl-press flex items-center gap-3 border-b border-fg-muted px-4 py-3.5 text-body-2 font-medium text-fg-secondary transition-colors hover:text-fg"
+                @click="closeMenu"
+              >
+                <UiIcon name="mail" size="h-5 w-5" />
+                Contact support
+              </NuxtLink>
+
+              <NuxtLink
+                to="/legal/privacy"
+                class="dnl-row dnl-press flex items-center gap-3 border-b border-fg-muted px-4 py-3.5 text-body-2 font-medium text-fg-secondary transition-colors hover:text-fg"
+                @click="closeMenu"
+              >
+                <UiIcon name="shield" size="h-5 w-5" />
+                Privacy Policy
+              </NuxtLink>
             </nav>
 
             <div class="shrink-0 space-y-2 border-t border-fg-muted p-4">
@@ -1006,10 +1112,10 @@ onBeforeUnmount(() => {
       >
         <UiBrandMark size="sm" name-class="text-body-2 font-medium" />
         <nav aria-label="Policies" class="flex flex-wrap justify-center gap-4 text-caption text-fg-secondary">
-          <a
-            href="mailto:support@dinkandladder.app"
+          <NuxtLink
+            to="/support"
             class="rounded-button underline-offset-2 hover:text-fg hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-            >Support</a
+            >Support</NuxtLink
           >
           <NuxtLink
             to="/legal/privacy"
